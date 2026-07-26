@@ -8,7 +8,7 @@ name: Canary
 # arm64-only, deliberately: the target tester's machine is Apple Silicon, and a
 # single arch roughly halves build + notarize time. (Release builds ship both.)
 #
-# Uses the same Sovra-org Apple secrets as release.yml — see RELEASING.md.
+# Uses the same Apple secrets as release.yml — see RELEASING.md.
 
 on:
   workflow_dispatch:

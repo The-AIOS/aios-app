@@ -31,13 +31,16 @@ where *we* own the signing instead of Apple doing it at submission.
 
 ## What only the operator can do (credentials — never an automation author)
 
-Signing needs the **Sovra-org Apple Developer** account (Sovra is enrolled; the
-individual account is not — Sovra is the deliberate signing identity, `AI-5`).
-The scripts and CI **consume** these; they are entered by the operator and never
-committed or seen by any build author:
+Signing needs an **organisation** Apple Developer account — a company is the
+deliberate signing identity here, not an individual (`AI-5`). The scripts and CI
+**consume** these; they are entered by the operator and never committed or seen by
+any build author:
 
-- **Developer ID Application certificate** — created/exported from the Sovra-org
-  Apple Developer portal as a `.p12` (with an export password).
+- **Developer ID Application certificate** — as a `.p12` (with an export password).
+  Note that only the **Account Holder** may create one; an Admin sees both Developer
+  ID rows greyed out. The way through, if you are an Admin: generate the CSR on your
+  own machine, have the Account Holder issue the certificate against it, and import
+  the result. The private key never leaves your Mac, so you need them exactly once.
 - **A notarization credential**, one of:
   - Apple ID + **app-specific password** + Team ID, or
   - an **App Store Connect API key** (Issuer ID + Key ID + `.p8`).
@@ -71,11 +74,11 @@ Actions):
 
 | Secret | What |
 |---|---|
-| `MAC_CSC_LINK` | base64 of the Developer ID Application `.p12` (`base64 -i cert.p12 \| pbcopy`) |
+| `MAC_CSC_LINK` | base64 of the Developer ID Application `.p12` — **`openssl base64 -A -in cert.p12`**. Not plain `base64`: on macOS it wraps at 76 columns, and a wrapped secret fails *silently* in CI (electron-builder reports `not a file`, which reads as a missing secret rather than a malformed one) |
 | `MAC_CSC_KEY_PASSWORD` | the `.p12` export password |
 | `APPLE_ID` | Apple ID used for notarization |
 | `APPLE_APP_SPECIFIC_PASSWORD` | app-specific password for that Apple ID |
-| `APPLE_TEAM_ID` | Sovra-org Developer Team ID |
+| `APPLE_TEAM_ID` | the Developer Team ID that owns the certificate (`Pulsar Labs`) |
 
 Then cut a release by pushing a version tag:
 

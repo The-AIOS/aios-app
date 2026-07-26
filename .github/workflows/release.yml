@@ -5,13 +5,13 @@ name: Release
 # build → Apple codesign + notarize → VERIFY → publish. Verify runs BEFORE the
 # release is created, so a build with a broken signature never reaches a user.
 #
-# Credentials are repository SECRETS, entered by the operator (Sovra-org Apple
-# account) — never committed, never seen by any automation author. See RELEASING.md.
+# Credentials are repository SECRETS, entered by the operator (the organisation's
+# Apple account) — never committed, never seen by any automation author. See RELEASING.md.
 #   MAC_CSC_LINK              base64 of the Developer ID Application .p12
 #   MAC_CSC_KEY_PASSWORD      the .p12 export password
 #   APPLE_ID                  Apple ID used for notarization
 #   APPLE_APP_SPECIFIC_PASSWORD   app-specific password for that Apple ID
-#   APPLE_TEAM_ID             the Sovra-org Developer Team ID
+#   APPLE_TEAM_ID             the Developer Team ID that owns the certificate
 # (An App Store Connect API key — APPLE_API_KEY/ID/ISSUER — is the alternative
 #  notarization path; see RELEASING.md.)
 
