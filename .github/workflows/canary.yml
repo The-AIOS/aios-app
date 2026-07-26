@@ -1,0 +1,55 @@
+name: Canary
+
+# A signed + notarized DMG built from ANY branch on demand — no tag, no Release,
+# no updater feed. Buzz port #5: hand a non-technical tester a real,
+# Gatekeeper-clean build to try WITHOUT cutting a version or touching the
+# auto-update channel. The artifact self-expires in 7 days.
+#
+# arm64-only, deliberately: the target tester's machine is Apple Silicon, and a
+# single arch roughly halves build + notarize time. (Release builds ship both.)
+#
+# Uses the same Sovra-org Apple secrets as release.yml — see RELEASING.md.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Signed canary (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npx electron-rebuild -f -w node-pty
+      - run: npm run compile
+
+      - name: Build signed + notarized DMG (arm64, no publish)
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac dmg --arm64 --publish never
+
+      - name: Verify signing (codesign · hardened runtime · Gatekeeper)
+        run: node scripts/verify-signing.mjs
+
+      - name: Upload canary DMG (expires in 7 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIOS-canary-arm64
+          path: dist/*.dmg
+          retention-days: 7
+          if-no-files-found: error

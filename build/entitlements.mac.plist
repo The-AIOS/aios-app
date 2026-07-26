@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  AIOS — macOS hardened-runtime entitlements (minimal, deliberate).
+
+  Only com.apple.security.cs.allow-jit is granted today: Electron's V8 engine
+  requires JIT (write-then-execute memory). This is always needed and is the
+  single safe baseline entitlement.
+
+  EMPIRICAL-ADD CANDIDATES — add ONLY if a signed + notarized build later fails
+  to sign, or the app fails to launch. These are NOT granted pre-emptively (each
+  one weakens the hardened runtime). They are likely to be needed because
+  node-pty is a bundled NATIVE module (asarUnpack'd .node binary) and the app
+  spawns child processes (the `claude` CLI inside real PTYs):
+
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+      -> if V8/native code hits W^X errors at launch.
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
+      -> if child processes need DYLD_* env vars.
+    <key>com.apple.security.cs.disable-library-validation</key><true/>
+      -> node-pty's native .node / any unsigned dylib the app dlopens.
+    <key>com.apple.security.cs.inherit</key><true/>
+      -> for spawned children to inherit the parent's entitlements
+         (belongs in the entitlementsInherit file; mutually exclusive with
+         granting per-binary entitlements, so weigh before adding here).
+
+  Rule: add on EVIDENCE (a real sign/launch failure), not preemptively.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+</dict>
+</plist>

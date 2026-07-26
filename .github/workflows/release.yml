@@ -1,0 +1,138 @@
+name: Release
+
+# Signed + notarized .dmg → GitHub Releases (the Buzz distribution lane, adapted
+# to electron-updater). Fires on a version tag. The load-bearing discipline:
+# build → Apple codesign + notarize → VERIFY → publish. Verify runs BEFORE the
+# release is created, so a build with a broken signature never reaches a user.
+#
+# Credentials are repository SECRETS, entered by the operator (Sovra-org Apple
+# account) — never committed, never seen by any automation author. See RELEASING.md.
+#   MAC_CSC_LINK              base64 of the Developer ID Application .p12
+#   MAC_CSC_KEY_PASSWORD      the .p12 export password
+#   APPLE_ID                  Apple ID used for notarization
+#   APPLE_APP_SPECIFIC_PASSWORD   app-specific password for that Apple ID
+#   APPLE_TEAM_ID             the Sovra-org Developer Team ID
+# (An App Store Connect API key — APPLE_API_KEY/ID/ISSUER — is the alternative
+#  notarization path; see RELEASING.md.)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build, e.g. v0.3.0'
+        required: true
+
+permissions:
+  contents: write   # create the Release + upload assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build · sign · notarize · verify · publish (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false   # supply-chain hygiene: no token left in .git
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npx electron-rebuild -f -w node-pty
+      - run: npm run compile
+
+      # Fail on the ACTUAL problem, before electron-builder disguises it.
+      # Observed on the v0.6.0 tag: with no secrets configured, CSC_LINK is empty, electron-builder
+      # treats the empty string as a path, and the run dies with
+      #   ⨯ /Users/runner/work/aios-app/aios-app not a file
+      # — which reads as a build bug and says nothing about the five secrets that are missing. The
+      # release path is rarely exercised, so whoever hits this next will be someone with no context
+      # (possibly months from now). Name the missing thing at the top instead.
+      - name: Preflight — signing credentials present
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot sign — these repository secrets are not set:$missing"
+            echo ""
+            echo "Set them under Settings → Secrets and variables → Actions:"
+            echo "  MAC_CSC_LINK                 base64 of the Developer ID Application .p12"
+            echo "  MAC_CSC_KEY_PASSWORD         that .p12's export password"
+            echo "  APPLE_ID                     Apple ID used for notarization"
+            echo "  APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that Apple ID"
+            echo "  APPLE_TEAM_ID                the Developer Team ID"
+            echo ""
+            echo "The certificate is created by the Apple account's ACCOUNT HOLDER — Apple reserves"
+            echo "Developer ID certificates to that role, so an Admin cannot produce one. See RELEASING.md."
+            exit 1
+          fi
+          echo "All five signing secrets are present."
+
+      # Build + Apple codesign + notarize. --publish never: we gate on verify first.
+      - name: Build signed + notarized DMG
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --mac --publish never
+
+      # The gate electron-builder won't give you free.
+      - name: Verify signing (codesign · hardened runtime · Gatekeeper)
+        run: node scripts/verify-signing.mjs
+
+      # electron-updater's feed = latest-mac.yml on the newest Release. If the
+      # build didn't emit it, publishing a release with no update feed is worse
+      # than failing — assert it exists before we create anything.
+      - name: Assert update manifest exists
+        run: |
+          ls -la dist/*.yml dist/*.dmg
+          test -f dist/latest-mac.yml || { echo '::error::dist/latest-mac.yml missing — updater feed would be broken'; exit 1; }
+
+      # Publish only after verify + manifest assertion. One versioned Release
+      # carries the .dmg(s) + blockmaps + latest-mac.yml; electron-updater polls
+      # the newest Release. No update server.
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          TAG="$RELEASE_TAG"
+          gh release create "$TAG" \
+            --title "AIOS $TAG" \
+            --generate-notes \
+            dist/*.dmg dist/*.dmg.blockmap dist/latest-mac.yml \
+          || gh release upload "$TAG" \
+            dist/*.dmg dist/*.dmg.blockmap dist/latest-mac.yml --clobber
+
+      # Buzz #4: never advertise a broken update. Private-repo-safe presence check
+      # (a true HTTP reachability probe on browser_download_url becomes possible
+      # once the repo is public — see RELEASING.md).
+      - name: Confirm assets landed on the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          TAG="$RELEASE_TAG"
+          ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          echo "$ASSETS"
+          echo "$ASSETS" | grep -q 'latest-mac.yml' || { echo '::error::manifest not on release'; exit 1; }
+          echo "$ASSETS" | grep -qE '\.dmg$'        || { echo '::error::no .dmg on release'; exit 1; }
+          echo "✓ release $TAG carries the manifest + installer(s)"

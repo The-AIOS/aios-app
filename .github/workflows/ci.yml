@@ -1,0 +1,55 @@
+name: CI
+
+# Gate: compile, unit tests, and the six-gate smoke (window + pty + state +
+# workbench + pulse + theme) must pass on macOS — the shell's home platform.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Compile + unit (ubuntu — cheap)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts # skip electron download for unit-only
+      - run: npm run compile
+      - run: node --test out/test/*.test.js
+
+  smoke:
+    # macOS minutes bill 10× on private repos — full smoke runs on PRs + manual,
+    # not every push. The local pre-commit habit covers pushes.
+    name: Six-gate smoke (macOS)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx electron-rebuild -f -w node-pty
+      - run: npm run compile
+      - run: npm run smoke
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --results=verified,unknown

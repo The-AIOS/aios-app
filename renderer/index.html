@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
+<link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+<div id="root">
+  <div id="drag"><span class="wtitle"><span id="dragMark"></span><b>AIOS</b><span class="wtag" data-i18n="window.tag">your team of agents</span></span>
+    <div id="dragacts"><button id="dragPanel" class="ribtn"></button><button id="railLayout" class="ribtn"></button><button id="dragReadme"></button><button id="dragHelp"></button><button id="dragCheat"></button><button id="dragGuide"></button><button id="railSetup" class="ribtn" hidden></button></div>
+  </div>
+  <div id="app">
+    <div id="panel">
+      <!-- Panel header + toolbar (Glass-extension parity): brand · framework status ·
+           collapse, then every control the rail used to hold. Same element IDs as
+           before, so all existing handlers/badges keep working. -->
+      <header id="phead">
+        <div class="pbrand"><span id="railMark"></span><span class="pwordmark">AIOS App</span></div>
+        <button id="railUpdate" class="pstatus"><span class="pdot"></span><span class="pupdtext"></span></button>
+      </header>
+      <div id="pGreet"></div>
+      <div id="ptoolbar" role="toolbar" aria-label="AIOS actions">
+        <div class="tgroup">
+          <button id="railFind" class="ribtn"></button>
+          <button id="railExplorer" class="ribtn on"></button>
+          <button id="railTheme" class="ribtn"></button>
+          <button id="railCompact" class="ribtn"></button>
+          <button id="railAgents" class="ribtn"></button>
+          <button id="railCloseAll" class="ribtn closeall" hidden></button>
+        </div>
+        <div class="tgroup">
+          <!-- "create custom" is hidden: the Designer is the one door to building an
+               agent / skill / plugin, and it hands the work to aios-builder -->
+          <button id="railAdd" class="ribtn" hidden></button>
+          <button id="railDesigner" class="ribtn"></button>
+          <button id="railSettings" class="ribtn"></button>
+          <button id="railPlugins" class="ribtn" style="display:none"></button>
+        </div>
+      </div>
+      <div id="pNudge"></div>
+      <div id="pStart"></div>
+      <div id="pInbox" class="pcard"></div>
+      <div id="pQuota"></div>
+      <!-- default card order (operator-set): daily · calendar · quick · running ·
+           about you · workspaces · learned · shipped · reports · health. The
+           needs-you inbox stays pinned above them all. -->
+      <div id="pDaily" class="pcard"></div>
+      <div id="pCal" class="pcard"></div>
+      <div id="pQuick" class="pcard"></div>
+      <div id="pRun" class="pcard"></div>
+      <div id="pAbout" class="pcard"></div>
+      <div id="pSpaces" class="pcard"></div>
+      <div id="pLearn" class="pcard"></div>
+      <div id="pOut" class="pcard"></div>
+      <div id="pReports" class="pcard"></div>
+      <div id="pHealth" class="pcard"></div>
+    </div>
+    <div id="psplit" class="vsplit"></div>
+    <div id="xwrap"><div id="xhead" data-i18n="explorer.heading">EXPLORER</div><div id="explorer"></div></div>
+    <div id="xsplit" class="vsplit"></div>
+    <div id="work">
+      <div id="viewzone" class="zone">
+        <div id="tabs" class="tabstrip"><span class="zlabel" id="zlabMain"></span><button class="newTab" data-i18n-title="tab.newTerminal">+</button><button class="zexp" id="zexpMain"></button></div>
+        <div id="panes" class="panezone">
+          <div id="empty">
+            <div class="emark" id="emptyMark"></div>
+            <div class="ehint"><span data-i18n="empty.askHint">Open a note from the vault &nbsp;·&nbsp; <kbd>⌘J</kbd> ask AIOS</span><br/><span data-i18n="empty.keysHint"><kbd>⌘T</kbd> terminal &nbsp;·&nbsp; <kbd>⌘N</kbd> Claude session &nbsp;·&nbsp; <kbd>⌘1–4</kbd> layouts</span></div>
+          </div>
+        </div>
+      </div>
+      <div id="hsplit"></div>
+      <div id="termzone" class="zone">
+        <div id="ttabs" class="tabstrip"><span class="zlabel" id="zlabTerm"></span><button class="newTab" data-i18n-title="tab.newTerminal">+</button><button class="zexp" id="zexpTerm"></button></div>
+        <div id="tpanes" class="panezone"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../node_modules/marked/lib/marked.umd.js"></script>
+<script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+<script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+<script src="../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"></script>
+<script src="../node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

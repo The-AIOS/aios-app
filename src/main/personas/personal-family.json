@@ -1,0 +1,5 @@
+{
+  "id": "personal-family",
+  "tasks": ["email", "ingest", "infographic", "meeting", "research"],
+  "agents": ["email-drafter", "content-writer", "meeting-prepper"]
+}

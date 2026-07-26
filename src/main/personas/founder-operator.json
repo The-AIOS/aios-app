@@ -1,0 +1,5 @@
+{
+  "id": "founder-operator",
+  "tasks": ["deck", "research", "meeting", "email", "post", "clarity"],
+  "agents": ["market-researcher", "deck-builder", "email-drafter"]
+}
