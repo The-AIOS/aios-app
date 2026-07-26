@@ -1,13 +1,9 @@
 # Security
 
-## Reporting a vulnerability
-
-Please **do not open a public issue** for a security problem. Use GitHub's private
-reporting instead — [Report a vulnerability](https://github.com/The-AIOS/aios-app/security/advisories/new)
-— which reaches the maintainers without disclosing the issue first.
-
-Expect an acknowledgement within a few days, and a fix or a clear explanation of
-why something is working as intended.
+**To report a vulnerability, follow the organisation policy:
+[The-AIOS/.github → SECURITY.md](https://github.com/The-AIOS/.github/blob/main/SECURITY.md).**
+It is the single reporting channel for every repo here, including this one — please don't open a
+public issue. This file adds only what is specific to *this* app.
 
 ## What this app can do, so you can judge the risk
 
@@ -15,22 +11,27 @@ AIOS is deliberately not sandboxed, and that shapes its threat model. It:
 
 - **spawns real processes** — the `claude` CLI in real PTYs, and setup scripts you press a button to run
 - **reads and writes your vault** — the framework directory (`~/aios` by default) and any workspace folders you add
-- **reads Claude Code's own config** — `~/.claude/settings.json` and `~/.claude.json`, to show and change settings you already own
-- **writes shell startup files** — a PATH line in `~/.zprofile`/`~/.zshrc` during setup, when you ask it to
+- **reads and writes Claude Code's own config** — `~/.claude/settings.json` and `~/.claude.json`, to show and change settings you already own
+- **appends to shell startup files** — a PATH line in `~/.zprofile` / `~/.zshrc` during setup, when you ask it to
+- **marks one directory as trusted for Claude Code** — the vault you asked it to set up, at the moment you press the button, so a first-run dialog cannot swallow the setup instruction
 
-None of that is hidden: every command runs in a **visible terminal** you can read, and
-the app never types into a session you cannot see. That is a design constraint, not a
-convention — a surface that runs commands on your behalf must show its work.
+None of that is hidden: every command runs in a **visible terminal you can read**, and the app
+never types into a session you cannot see. That is a design constraint rather than a convention —
+a program that acts on your behalf should show its work.
 
-It is also why the app is **not** on the Mac App Store: App Sandbox forbids all of the
-above. Distribution is a Developer-ID-signed, notarized `.dmg` from this repository's
-Releases, and the app verifies its own updates through that signature.
+It is also why this is not a Mac App Store app: App Sandbox forbids all of the above.
+Distribution is a Developer-ID-signed, notarized `.dmg` from this repository's Releases, and
+updates are verified through that same signature (see [RELEASING.md](./RELEASING.md)).
 
-## Scope
+## Especially interesting to us
 
-In scope: anything that lets a third party run code, read files, or reach credentials
-through the app — a malicious vault file that executes on render, a command-injection
-path through a filename, an update that installs unverified.
+- anything that makes the app **run code it wasn't asked to** — a crafted filename reaching a
+  shell, a vault file that executes on render, a path that escapes the allowed roots
+- anything that lets an **update install unverified**, since the updater's trust rests entirely
+  on the code signature
+- anything that **writes outside the operator's own directories**
 
-Out of scope: the app doing what it says on the tin (running `claude`, reading your
-vault), and vulnerabilities in Claude Code itself — report those to Anthropic.
+## Out of scope
+
+The app doing what it says on the tin — running `claude`, reading your vault, opening terminals.
+And vulnerabilities in Claude Code itself, which belong to Anthropic.
