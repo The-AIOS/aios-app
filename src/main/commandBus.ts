@@ -478,6 +478,16 @@ function surfaceDeadLetters(getWin: () => BrowserWindow | undefined): void {
 }
 
 export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersion = '0.0.0'): void {
+  /* AIOS_BUS_DISABLED=1 — for a DEV build sharing a machine with the installed app.
+     The inbox is machine-global, so two running surfaces both watch it and either may claim
+     any request. That is not hypothetical: it is how a live brief died on 2026-07-27, bounced
+     between instances until the release budget was spent (AI-67). Running a dev build while
+     real sessions coordinate over the bus therefore risks eating the operator's own traffic,
+     and the failure is silent from the sender's side. A dev instance can simply not listen. */
+  if (process.env.AIOS_BUS_DISABLED === '1') {
+    console.log('[bus] AIOS_BUS_DISABLED=1 — not watching the inbox (dev instance)');
+    return;
+  }
   const dir = inboxDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* non-fatal */ }
   ensureReadme(dir, appVersion);

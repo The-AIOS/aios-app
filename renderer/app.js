@@ -1549,13 +1549,69 @@ function moveTab(z, dragId, overId, after) {
   paintStrip(z);
 }
 
+/* AI-69 — A TERMINAL COMING BACK INTO VIEW MUST BE REPAINTED, and fit() cannot do it.
+   Switching panes showed garbled glyphs until you typed. `setActive()` calls `fit()`, but
+   **fit() is a no-op when the size has not changed** — which is precisely the pane-to-pane
+   switch — so nothing forced a redraw and the canvas kept whatever was last rasterised into
+   it. Corroborated from outside: the same artifact appears in other xterm hosts, where
+   RESIZING the window clears it — a resize changes dimensions, so it forces the repaint a
+   plain switch never asks for. `refresh()` does not depend on a size change, so it does. */
+function repaintTerm(p) {
+  if (!p || p.kind !== 'term' || !p.term) return;
+  try { p.term.refresh(0, p.term.rows - 1); } catch { /* disposed mid-switch */ }
+}
+
+/* A TERMINAL IS NEVER HIDDEN WITH `display:none`. That gives its container a ZERO-SIZE box,
+   and xterm's WebGL renderer bails on exactly that — `_refreshCharAtlas()` opens with
+   `if (char.width <= 0 && char.height <= 0) return void(this._isAttached = false)`. A session
+   that keeps PRINTING while you are on another tab therefore writes into a detached renderer,
+   and the canvas you come back to holds garbage until enough churn rebuilds it (typing). That
+   is why the artifact only appeared on terminals that were WORKING — an idle one has nothing
+   to mis-render while hidden.
+   `visibility` hides it without taking the box away, so the renderer stays attached and keeps
+   painting correctly the whole time. This costs nothing structurally: `.pane` is already
+   `position:absolute; inset:…`, so panes stack in one box rather than flowing — and a
+   visibility-hidden element takes no pointer events, so the visible pane still gets the clicks.
+   The trade is real and deliberate: hidden terminals keep rendering. For a handful of panes
+   that is cheaper than a class of corruption the operator has to type to clear.
+   VIEWERS keep using `display`: they have no renderer to detach, and leaving them out of
+   layout is free. */
+const PANE_HIDDEN = 'panehidden';
+
+function setPaneShown(p, on) {
+  if (p.kind === 'term') {
+    p.el.style.display = 'flex';          // always laid out; see the note above
+    p.el.classList.toggle(PANE_HIDDEN, !on);
+  } else {
+    p.el.style.display = on ? 'flex' : 'none';
+    p.el.classList.remove(PANE_HIDDEN);
+  }
+}
+
+/** On screen right now — must consult BOTH mechanisms, or terminals read as always-visible. */
+function paneShown(p) {
+  return !!p && !!p.el && p.el.style.display !== 'none' && !p.el.classList.contains(PANE_HIDDEN);
+}
+
+/** Every live terminal, visible or not. Hidden ones keep their box and stay attached, so they
+    can — and must — repaint when a SHARED resource changes underneath them. */
+function liveTerms() {
+  const out = [];
+  for (const q of panes.values()) if (q.kind === 'term' && q.term && !q.exited) out.push(q);
+  return out;
+}
+
 function setVisible(z) {
   const act = active[z];
   for (const [pid, p] of panes) {
     if (zoneOf(p) !== z) continue;
     const on = pid === act;
-    p.el.style.display = on ? 'flex' : 'none'; // both kinds are flex cards (term: tty fills the card)
+    const wasHidden = !paneShown(p);
+    setPaneShown(p, on);
     p.tab.classList.toggle('active', on);
+    // Repaint on the hidden → visible transition only; repainting an already-visible pane
+    // on every call would burn a frame on each tab click for nothing.
+    if (on && wasHidden) repaintTerm(p);
   }
 }
 
@@ -1879,13 +1935,43 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
      and is the way to PROVE it: if the flicker survives with WebGL off, the cause is elsewhere
      and this code should be reverted rather than kept as a charm. */
   let atlasTimer = null;
-  const scheduleAtlasClear = () => {
+  let bytesSinceClear = 0;
+  let lastClear = 0;
+  /* GATE THE CLEAR ON VOLUME, NOT MERELY ON QUIET. Debouncing on "output stopped" sounds
+     right and is wrong here: a running Claude session ticks its elapsed-time counter every
+     second, so output settles constantly and the shared atlas would be cleared — and every
+     terminal repainted — roughly once a second, forever. The artifact this exists for comes
+     from SUSTAINED full-screen redraws (holding arrow-down through a picker), which move
+     tens of KB; a spinner tick moves a handful of bytes. So require a real burst, and never
+     clear more than once every few seconds. */
+  const ATLAS_BURST_BYTES = 64 * 1024;
+  const ATLAS_MIN_GAP_MS = 5000;
+  const scheduleAtlasClear = (n) => {
     if (!p.gl) return;
+    bytesSinceClear += n || 0;
     if (atlasTimer) clearTimeout(atlasTimer);
     atlasTimer = setTimeout(() => {
       atlasTimer = null;
-      if (p.exited || p.el.style.display === 'none') return;
+      if (p.exited || !paneShown(p)) return;
+      const now = performance.now();
+      if (bytesSinceClear < ATLAS_BURST_BYTES || now - lastClear < ATLAS_MIN_GAP_MS) return;
+      bytesSinceClear = 0;
+      lastClear = now;
       try { p.gl.clearTextureAtlas(); } catch { /* addon disposed */ }
+      /* THE ATLAS IS SHARED, NOT PER-TERMINAL — verified in the addon: `acquireTextureAtlas`
+         keeps a global cache with `ownedBy` arrays, so every terminal on the same
+         font/theme/dpr uses ONE atlas. Clearing it here evicts glyphs out from under every
+         OTHER terminal — including the ones you cannot see.
+         REPAINT ALL OF THEM, NOT JUST THE VISIBLE ONES. Repainting only what was on screen
+         was the previous attempt and it left the exact reported symptom: a background session
+         keeps printing against a re-packed atlas, so its canvas fills with garbage while
+         hidden, and you meet that garbage on switching. It then clears about a second later —
+         the running session's own elapsed-time counter ticks, forces a render, and the frame
+         comes back correct. That one-second self-heal is the signature: the DATA was always
+         fine, only the painted frame was stale.
+         Now that a hidden terminal keeps its box (see setPaneShown) it is still attached and
+         can repaint on demand, so there is no reason to exclude it. */
+      for (const q of liveTerms()) if (q !== p) repaintTerm(q);
     }, 180);
   };
   p.scheduleAtlasClear = scheduleAtlasClear;
@@ -2076,7 +2162,7 @@ function pushPtyGeom(id, p) {
 function fitTerms() {
   requestAnimationFrame(() => {
     for (const [id, p] of panes) {
-      if (p.kind !== 'term' || p.el.style.display === 'none' || p.exited) continue;
+      if (p.kind !== 'term' || !paneShown(p) || p.exited) continue;
       try { p.fit.fit(); } catch { continue; }
       pushPtyGeom(id, p);
     }
@@ -2087,7 +2173,7 @@ window.glassShell.onPtyData((m) => {
   const p = panes.get(m.id);
   if (!p || p.kind !== 'term') return;
   p.term.write(m.data);
-  if (p.scheduleAtlasClear) p.scheduleAtlasClear();   // debounced; see the note at its definition
+  if (p.scheduleAtlasClear) p.scheduleAtlasClear((m.data || '').length);   // volume-gated; see its definition
   // pty-grade theater: tail the latest meaningful output line into the ticker
   // (throttled — TUI spinners redraw constantly; the ticker breathes, not thrashes)
   const now = Date.now();

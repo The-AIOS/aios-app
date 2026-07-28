@@ -240,6 +240,11 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
         box-shadow: var(--edge), var(--depth); overflow: hidden; }
 .pane.termcard { padding: 10px 12px 10px 12px; background: #101014; }
 .pane .xterm { height: 100%; }
+/* A hidden TERMINAL keeps its box (see app.js → setPaneShown): `display:none` zeroes the
+   container, xterm's WebGL renderer detaches on zero dimensions, and a session still printing
+   in the background then paints garbage into the canvas you return to. Hiding by visibility
+   keeps the renderer attached and takes no pointer events. */
+.pane.panehidden { visibility: hidden; pointer-events: none; }
 
 /* ── viewers ── */
 .pane.viewer { display: flex; flex-direction: column; }

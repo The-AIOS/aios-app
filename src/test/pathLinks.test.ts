@@ -179,3 +179,38 @@ test('SWEEP: a spaced path breaking at any realistic column still resolves', (t)
   assert.deepEqual(realistic, [],
     `every break past column 24 must resolve; these did not: ${realistic.join(', ')}`);
 });
+
+/* AI-69 — a terminal must never be hidden with `display:none`. xterm's WebGL renderer bails on
+   a zero-size container (`_refreshCharAtlas` → `_isAttached = false`), so a session still
+   printing in the background paints into a detached renderer and the canvas you switch back to
+   holds garbage. Guarded at source level because the failure is visual and non-deterministic —
+   there is no assertion a headless run can make about it, but there IS one about the mechanism. */
+
+test('AI-69: terminals hide by VISIBILITY, and every check consults both mechanisms', () => {
+  assert.match(app, /const PANE_HIDDEN = 'panehidden'/, 'the hidden class must be declared');
+
+  // setVisible must route through the helper, never assign display to a pane directly again
+  const setVis = /function setVisible\(z\) \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(setVis, 'setVisible must exist');
+  assert.doesNotMatch(setVis[0], /style\.display\s*=/,
+    'setVisible must delegate to setPaneShown — a raw display assignment reintroduces the bug');
+  assert.match(setVis[0], /setPaneShown\(p, on\)/, 'and it must use the helper');
+
+  /* No OTHER site may test visibility by display: a hidden terminal is still `display:flex`,
+     so such a check silently reads it as on-screen. The one legitimate raw read is inside
+     paneShown() itself, which is the abstraction — exempt it by name, not by counting. */
+  const shown = /function paneShown\(p\) \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(shown, 'paneShown must exist — it is the only sanctioned reader');
+  const elsewhere = app.replace(shown[0], '');
+  const strays = [...elsewhere.matchAll(/\.el\.style\.display\s*(===|!==)\s*'none'/g)];
+  assert.deepEqual(strays.map((m) => m[0]), [],
+    'a raw display check reads a hidden TERMINAL as visible — go through paneShown()');
+});
+
+test('AI-69: the CSS actually hides it, and blocks its pointer events', () => {
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.pane\.panehidden\s*\{[^}]*visibility:\s*hidden/,
+    'the class must hide by visibility, not display');
+  assert.match(css, /\.pane\.panehidden\s*\{[^}]*pointer-events:\s*none/,
+    'a stacked, invisible pane must not eat the visible pane\'s clicks');
+});
