@@ -55,7 +55,15 @@ jobs:
       # rebuilt above, so the pty round-trips run here even though the cheap linux job skips
       # them — the one place a release is cut is the one place everything must pass.
       - run: npm test
-      - run: npm run smoke
+
+      # NOT `npm run smoke` here. The six-gate smoke boots the real workbench against the
+      # operator's vault — it asserts an operator name, agent/command/skill counts and a file
+      # that actually renders. A bare runner has no vault, so it fails on ABSENT FIXTURES
+      # rather than on a bad build (observed on the v0.7.1 tag: state=false, setup=false,
+      # "VIEWER FAILED — a file opened but rendered nothing"). A gate that fails for reasons
+      # unrelated to what it guards gets disabled within a week, so it does not belong here
+      # until it can seed a minimal vault fixture. Smoke stays a pre-tag gate run locally on a
+      # real vault; `npm test` is the environment-independent one and now runs on every tag.
 
       # Fail on the ACTUAL problem, before electron-builder disguises it.
       # Observed on the v0.6.0 tag: with no secrets configured, CSC_LINK is empty, electron-builder
