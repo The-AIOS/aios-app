@@ -1630,7 +1630,13 @@ if (window.glassShell.onUpdater) {
   window.glassShell.onUpdater(({ channel, payload }) => {
     if (channel === 'ready') showUpdatePill((payload || {}).version);
     else if (channel === 'none' || channel === 'error') hideUpdatePill();
-    // 'checking' | 'available' | 'progress' are deliberately silent — see above.
+    /* 'checking' | 'available' | 'progress' stay silent in the UI — but NOT in the log. An
+       update that is offered and then fails to download used to leave no trace anywhere: the
+       pill only appears once a download COMPLETES, so v0.7.0's dead feed looked exactly like
+       "no update available". One line per transition is what turns the next silent failure
+       into a five-second diagnosis. */
+    else console.log('[updater]', channel, JSON.stringify(payload || {}));
+    if (channel === 'error') console.warn('[updater] update failed:', (payload || {}).message);
   });
 }
 

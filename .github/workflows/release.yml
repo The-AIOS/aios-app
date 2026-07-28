@@ -113,6 +113,14 @@ jobs:
         run: |
           ls -la dist/*.yml dist/*.dmg
           test -f dist/latest-mac.yml || { echo '::error::dist/latest-mac.yml missing — updater feed would be broken'; exit 1; }
+          # Existing-but-unusable is the failure this missed. electron-updater's MacUpdater
+          # calls findFile(files, "zip", ["pkg", "dmg"]) — it requires a ZIP and explicitly
+          # EXCLUDES the dmg. v0.7.0 shipped a manifest listing only the .dmg, so the feed
+          # parsed, "update available" fired, and the download died with
+          # ERR_UPDATER_ZIP_FILE_NOT_FOUND — invisible, because the in-app pill only appears
+          # once a download completes. Assert the manifest is USABLE, not merely present.
+          grep -q '\.zip' dist/latest-mac.yml || { echo '::error::latest-mac.yml lists no .zip — MacUpdater cannot update from a dmg'; exit 1; }
+          test -f dist/*.zip || { echo '::error::no .zip built — add it to build.mac.target'; exit 1; }
 
       # Publish only after verify + manifest assertion. One versioned Release
       # carries the .dmg(s) + blockmaps + latest-mac.yml; electron-updater polls
