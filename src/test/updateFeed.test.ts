@@ -50,3 +50,15 @@ test('electron-updater still requires a zip — pinned to the installed dependen
   assert.match(src, /findFile\)?\(files, "zip", \["pkg", "dmg"\]\)/,
     'the zip requirement is no longer stated this way — re-verify what MacUpdater accepts');
 });
+
+test('the release workflow uploads the zip it advertises', () => {
+  /* v0.7.1 published a manifest naming AIOS-arm64.zip and never attached it — the third
+     variant of one mistake in one evening: the check and the requirement were not the same
+     thing. The manifest existed, a .dmg was attached, both gates passed, and every updating
+     client would have got a 404. */
+  const wf = fs.readFileSync('.github/workflows/release.yml', 'utf8');
+  const uploads = [...wf.matchAll(/dist\/\*\.dmg dist\/\*\.dmg\.blockmap dist\/\*\.zip dist\/latest-mac\.yml/g)];
+  assert.equal(uploads.length, 2, 'both the create and the fallback upload must include the zip');
+  assert.match(wf, /grep -m1 '\^path:' dist\/latest-mac\.yml/,
+    'and the post-publish check must read the file the MANIFEST names, not a hardcoded extension');
+});

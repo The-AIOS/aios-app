@@ -142,9 +142,9 @@ jobs:
           gh release create "$TAG" \
             --title "AIOS $TAG" \
             --generate-notes \
-            dist/*.dmg dist/*.dmg.blockmap dist/latest-mac.yml \
+            dist/*.dmg dist/*.dmg.blockmap dist/*.zip dist/latest-mac.yml \
           || gh release upload "$TAG" \
-            dist/*.dmg dist/*.dmg.blockmap dist/latest-mac.yml --clobber
+            dist/*.dmg dist/*.dmg.blockmap dist/*.zip dist/latest-mac.yml --clobber
 
       # Buzz #4: never advertise a broken update. Private-repo-safe presence check
       # (a true HTTP reachability probe on browser_download_url becomes possible
@@ -159,4 +159,11 @@ jobs:
           echo "$ASSETS"
           echo "$ASSETS" | grep -q 'latest-mac.yml' || { echo '::error::manifest not on release'; exit 1; }
           echo "$ASSETS" | grep -qE '\.dmg$'        || { echo '::error::no .dmg on release'; exit 1; }
+          # The manifest names the file the updater downloads. Asserting the manifest exists,
+          # or that SOME installer is attached, both passed on v0.7.1 while latest-mac.yml
+          # pointed at an AIOS-arm64.zip that was never uploaded — a 404 for every updating
+          # client. Assert the named file is actually ON the release.
+          WANT=$(grep -m1 '^path:' dist/latest-mac.yml | awk '{print $2}')
+          echo "manifest points at: $WANT"
+          echo "$ASSETS" | grep -qx "$WANT" || { echo "::error::latest-mac.yml points at $WANT but it is not attached to the release"; exit 1; }
           echo "✓ release $TAG carries the manifest + installer(s)"
