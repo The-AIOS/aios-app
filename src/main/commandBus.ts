@@ -6,7 +6,7 @@ import * as aios from './aios';
 import { parseRequest, buildSpawnCmd, needsTaskFile, type BusRequest } from '../core/commandBus';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
-  INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS,
+  INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
   shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, type SendTarget,
 } from '../core/sendQueue';
@@ -253,23 +253,25 @@ async function runSend(
     // idle → deliver, then prove it in the target's own transcript
     const sessionId = target ? target.sessionId : '';
     const before = countUserTurnsContaining(readTranscript(sessionId), needle);
-    if (attempts >= MAX_DELIVERY_ATTEMPTS) {
-      /* Out of sends, not out of hope. Watch the transcript for a late arrival until the hold
-         budget expires; never type again. Retiring here would repeat the original bug, and
-         sending again would risk the duplicate that bug's fix must not cause. */
+    /* THE CAP HAS TO SIT HERE, before the send — not only in the after-a-miss decision.
+       A 'wait' verdict does `continue`, which re-enters this branch, so a cap enforced only
+       downstream changed a log line and nothing else: the loop would still re-type the message
+       every cycle for the full hold. Caught by tracing the control flow rather than trusting
+       the counter, which is the same lesson as everything else in this ticket. */
+    if (attempts >= TIMINGS.MAX_DELIVERY_ATTEMPTS) {
       const late = countUserTurnsContaining(readTranscript(sessionId), needle);
-      if (verifyVerdict(before, late) !== 'pending' || late > before) {
+      if (verifyVerdict(before, late) !== 'pending') {
         try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
         log(`delivered → '${req.name}' (verified late)`);
         return;
       }
       if (Date.now() - claimedAt >= MAX_HOLD_MS) {
-        markUndelivered(heldPath, req, `sent to '${req.name}' ${attempts}x over ${Math.round((Date.now() - claimedAt) / 60000)} min and it never appeared in that session's transcript`);
+        markUndelivered(heldPath, req, `sent to '${req.name}' ${attempts}x over ${Math.round((Date.now() - claimedAt) / 60000)} min without it ever appearing in that session's transcript`);
         return;
       }
       await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
       if (!fs.existsSync(heldPath)) return;
-      continue;
+      continue;   // watch, never type again
     }
     attempts++;
     const emittedAt = Date.now();
@@ -283,10 +285,10 @@ async function runSend(
        was meant to fix: observed today, a second App with no matching pane claimed a request,
        spent both sibling releases, and killed a brief the other App could have delivered.
        So: hand it back first, and only retire when the release budget is genuinely gone. */
-    const verdict = await awaitSendVerdict(req.name, emittedAt);
-    if (verdict && !verdict.ok) {
-      if (releaseForSibling(heldPath, req, verdict.reason)) return;   // let another surface try
-      markUndelivered(heldPath, req, verdict.reason);
+    const sendResult = await awaitSendVerdict(req.name, emittedAt);
+    if (sendResult && !sendResult.ok) {
+      if (releaseForSibling(heldPath, req, sendResult.reason)) return;   // let another surface try
+      markUndelivered(heldPath, req, sendResult.reason);
       return;
     }
     const until = Date.now() + VERIFY_WINDOW_MS;
@@ -303,45 +305,34 @@ async function runSend(
       }
       return;
     }
-    /* It never landed. Three DIFFERENT states used to collapse into one retirement here, and
-       the conflation cost a real message:
-
-         "a sibling window may own that terminal"  → hand the claim back (bounded by MAX_RELEASES)
-         "no sibling left to try"                  → NOT a failure. Keep waiting.
-         "the hold budget is gone / target is dead" → genuinely undeliverable
-
-       MAX_RELEASES is a bound on HANDOFFS, not a deadline. Treating "no sibling left" as
-       "undeliverable" retired a brief to aios-canonical after TWENTY SECONDS while 29m40s of
-       MAX_HOLD_MS sat unspent — the target was alive and merely mid-turn the whole time, which
-       is the exact case the 30-minute hold exists for. A busy session was declared unreachable
-       in the time it takes to answer one prompt.
-
-       So: exhausting the handoffs drops us back into the hold loop rather than ending it. Only
-       MAX_HOLD_MS expiry or a target that is actually gone retires a request. */
-    if (releaseForSibling(heldPath, req, 'not verified in the target transcript')) return;
-
-    const heldFor = Date.now() - claimedAt;
-    const stillThere = !!targetByName(req.name);
-    if (stillThere && heldFor < MAX_HOLD_MS) {
-      /* Re-verify BEFORE any re-delivery. The turn may have landed after our verify window
-         closed, and re-sending a message that already arrived is double delivery — the worst
-         outcome this protocol can produce, worse than the delay we are avoiding. The outer
-         loop re-reads the transcript baseline, so a late arrival is caught there. */
+    /* It never landed. The four-way decision is SHARED with the other fulfiller (see
+       decideAfterVerifyMiss in core/sendQueue) rather than re-derived here: both surfaces got
+       this wrong in the same way independently, which is exactly what a hand-copied policy
+       produces. Retiring is now reachable only two ways — a dead target, or a genuinely spent
+       hold budget. "No sibling left to try" is not one of them. */
+    const miss = decideAfterVerifyMiss({
+      targetAlive: !!targetByName(req.name),
+      heldMs: Date.now() - claimedAt,
+      releases: req.releases ?? 0,
+      attempts,
+    });
+    log(`send → '${req.name}' not verified — ${miss.do}: ${miss.reason}`);
+    if (miss.do === 'release') { if (releaseForSibling(heldPath, req, miss.reason)) return; }
+    if (miss.do === 'retry' || miss.do === 'release') continue;
+    if (miss.do === 'wait') {
+      /* Out of sends, not out of hope: watch for a late arrival and never type again. A turn
+         that lands after the window closed must not be sent twice. */
       const late = countUserTurnsContaining(readTranscript(sessionId), needle);
       if (verifyVerdict(before, late) !== 'pending') {
         try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
-        log(`delivered → '${req.name}' (verified late, after the window closed)`);
+        log(`delivered → '${req.name}' (verified late)`);
         return;
       }
-      log(`send → '${req.name}' not verified and no sibling left to try — HOLDING (${Math.round(heldFor / 1000)}s of ${Math.round(MAX_HOLD_MS / 1000)}s used). A busy target is not an undeliverable one.`);
       await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
-      if (!fs.existsSync(heldPath)) return;   // adopted or cleaned up elsewhere
-      continue;                                // back to the top: re-decide, re-deliver if idle
+      if (!fs.existsSync(heldPath)) return;
+      continue;
     }
-
-    markUndelivered(heldPath, req, stillThere
-      ? `sent to '${req.name}' repeatedly for ${Math.round(heldFor / 60000)} min without it ever appearing in that session's transcript`
-      : `'${req.name}' is no longer a live session`);
+    markUndelivered(heldPath, req, `sent to '${req.name}' — ${miss.reason}`);
     return;
   }
 }
@@ -460,6 +451,7 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
 
    The verifier was never the problem — it refused to claim a delivery it could not prove, which
    is exactly right. The gap is that its refusal was addressed to no one. */
+const announcedDeadLetters = new Set<string>();
 function surfaceDeadLetters(getWin: () => BrowserWindow | undefined): void {
   const dir = inboxDir();
   let files: string[] = [];
@@ -476,7 +468,13 @@ function surfaceDeadLetters(getWin: () => BrowserWindow | undefined): void {
     return { file: f, to, reason, at };
   });
   for (const it of items) log(`DEAD LETTER — a message to '${it.to}' was never delivered: ${it.reason} (${it.file})`);
-  emit(getWin(), 'deadLetters', { items });
+  /* Notify ONCE per dead letter, not every sweep. Repeating an alert the operator has already
+     read trains them to dismiss it unseen, which is how the next one gets missed — the very
+     failure this exists to prevent. The log still records every sweep; only the interruption
+     is deduplicated. */
+  const fresh = items.filter((it) => !announcedDeadLetters.has(it.file));
+  for (const it of fresh) announcedDeadLetters.add(it.file);
+  if (fresh.length) emit(getWin(), 'deadLetters', { items: fresh });
 }
 
 export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersion = '0.0.0'): void {

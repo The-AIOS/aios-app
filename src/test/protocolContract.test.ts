@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { TIMINGS } from '../core/sendQueue';
+import { TIMINGS, decideAfterVerifyMiss } from '../core/sendQueue';
 
 /* THE CROSS-REPO DIFF-GUARD.
  *
@@ -48,4 +48,65 @@ test('PROTOCOL: the values themselves are the agreed ones', () => {
   assert.equal(TIMINGS.MAX_DELIVERY_ATTEMPTS, 3);
   // MAX_HOLD_MS must stay below HOLD_STALE_MS or a claimer gives up after its hold is adoptable.
   assert.ok(TIMINGS.MAX_HOLD_MS < TIMINGS.HOLD_STALE_MS, 'a fulfiller must give up before its claim goes stale');
+});
+
+/* AI-66 pt4 — the four-way decision after a delivery that did not verify.
+   Pure, so it can be exhaustively tested WITHOUT an extension host or an Electron window —
+   which is the whole reason it lives in this module rather than inside each surface's async
+   delivery loop, where the bug originally hid in two places at once. */
+
+test('a verify miss on a LIVE target inside the hold budget never retires', () => {
+  // The bug: "no sibling left" was read as "undeliverable" and a brief died in 20 seconds
+  // with 29m40s of MAX_HOLD_MS unspent. Nothing below may return 'retire' while the target
+  // is alive and the clock has not run out.
+  for (const releases of [0, 1, 2, 3]) {
+    for (const attempts of [0, 1, 2, 3, 9]) {
+      const d = decideAfterVerifyMiss({ targetAlive: true, heldMs: 20_000, releases, attempts });
+      assert.notEqual(d.do, 'retire', `alive + 20s in must never retire (releases=${releases} attempts=${attempts})`);
+    }
+  }
+});
+
+test('sibling handoffs come first, and are bounded', () => {
+  assert.equal(decideAfterVerifyMiss({ targetAlive: true, heldMs: 0, releases: 0, attempts: 0 }).do, 'release');
+  assert.equal(decideAfterVerifyMiss({ targetAlive: true, heldMs: 0, releases: 1, attempts: 0 }).do, 'release');
+  // spent: must fall through to retrying, NOT to retiring
+  assert.equal(decideAfterVerifyMiss({ targetAlive: true, heldMs: 0, releases: TIMINGS.MAX_RELEASES, attempts: 0 }).do, 'retry');
+});
+
+test('sends are capped, patience is not', () => {
+  const spent = { targetAlive: true, heldMs: 60_000, releases: TIMINGS.MAX_RELEASES };
+  assert.equal(decideAfterVerifyMiss({ ...spent, attempts: TIMINGS.MAX_DELIVERY_ATTEMPTS - 1 }).do, 'retry');
+  // out of sends but still inside the hold: WAIT. Retrying forever would re-type the message
+  // every verify window for 30 minutes — double delivery, which is worse than the delay.
+  assert.equal(decideAfterVerifyMiss({ ...spent, attempts: TIMINGS.MAX_DELIVERY_ATTEMPTS }).do, 'wait');
+  assert.equal(decideAfterVerifyMiss({ ...spent, attempts: 99 }).do, 'wait');
+});
+
+test('only a dead target or a spent hold budget retires a request', () => {
+  const dead = decideAfterVerifyMiss({ targetAlive: false, heldMs: 0, releases: 0, attempts: 0 });
+  assert.equal(dead.do, 'retire');
+  assert.match(dead.reason, /no longer a live session/);
+  const timedOut = decideAfterVerifyMiss({ targetAlive: true, heldMs: TIMINGS.MAX_HOLD_MS, releases: 9, attempts: 9 });
+  assert.equal(timedOut.do, 'retire');
+  assert.match(timedOut.reason, /held for \d+ min/);
+  // one millisecond short of the budget is still not a failure
+  assert.notEqual(decideAfterVerifyMiss({ targetAlive: true, heldMs: TIMINGS.MAX_HOLD_MS - 1, releases: 9, attempts: 9 }).do, 'retire');
+});
+
+test('a dead target beats every other consideration', () => {
+  // Ordering matters: no amount of remaining budget makes a vanished session deliverable.
+  assert.equal(decideAfterVerifyMiss({ targetAlive: false, heldMs: 0, releases: 0, attempts: 0 }).do, 'retire');
+});
+
+test('the delivery cap gates the SEND, not just the log line', () => {
+  /* Traced, not assumed: a 'wait' verdict does `continue`, which re-enters the delivery
+     branch. A cap enforced only in the after-a-miss decision therefore capped NOTHING — the
+     loop would keep re-typing the message for the whole hold budget. The guard must sit
+     before the send itself. */
+  const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(src, /attempts >= TIMINGS\.MAX_DELIVERY_ATTEMPTS/, 'the cap must be checked BEFORE delivering');
+  const gate = src.indexOf('attempts >= TIMINGS.MAX_DELIVERY_ATTEMPTS');
+  const bump = src.indexOf('attempts++', gate);
+  assert.ok(gate > 0 && bump > gate, 'the guard must precede the attempt counter, or it runs too late');
 });

@@ -94,25 +94,27 @@ test('INVARIANT: neither surface delivers a send without the length gate', () =>
   assert.match(bus, /needsPointer|busPayload/, 'the App bus send must consult the length gate');
 });
 
-/* AI-66 pt4 — the conflation that killed a real message. Source-level, because the bug was a
-   control-flow shape: three distinct states collapsing into one retirement. */
+/* AI-66 pt4 — the conflation that killed a real message.
+   The BEHAVIOUR is tested where it lives: decideAfterVerifyMiss in protocolContract.test.ts,
+   pure and exhaustive. What is asserted here is that the surface DELEGATES to it. Both
+   fulfillers previously re-derived this policy by hand and both got it wrong the same way, so
+   "does this surface still own a copy of the decision?" is the regression worth guarding. */
 
-test('INVARIANT: running out of sibling handoffs is not a delivery failure', () => {
+test('INVARIANT: the surface delegates the miss decision, never re-derives it', () => {
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  // The old shape: releaseForSibling(...) fails → markUndelivered immediately. A brief to
-  // aios-canonical died in 20 SECONDS that way, with 29m40s of MAX_HOLD_MS unspent.
-  assert.match(bus, /MAX_HOLD_MS/, 'a hold budget must exist');
-  assert.match(bus, /no sibling left to try — HOLDING/, 'exhausted handoffs must fall back to holding, not retiring');
-  // Only a spent hold budget or a dead target may retire a request.
-  assert.match(bus, /is no longer a live session/, 'a genuinely absent target is a real failure');
+  assert.match(bus, /decideAfterVerifyMiss\(/, 'the surface must call the shared decision');
+  // All four outcomes must be handled — dropping one silently reintroduces a conflation.
+  for (const arm of ['release', 'retry', 'wait']) {
+    assert.match(bus, new RegExp(`miss\\.do === '${arm}'`), `the '${arm}' outcome must be handled`);
+  }
+  // And retirement must be the FALL-THROUGH, i.e. only what the decision did not claim.
+  assert.match(bus, /markUndelivered\(heldPath, req, `sent to '\$\{req\.name\}' — \$\{miss\.reason\}`\)/,
+    'retiring must use the shared decision\'s reason, not a locally invented one');
 });
 
-test('INVARIANT: patience is unbounded, but SENDS are capped', () => {
-  // Falling back into the hold loop without a cap would re-type the message every verify
-  // window for the whole 30-minute hold — ~90 copies. Double delivery is documented as the
-  // worst outcome this protocol can produce, so the retry budget must be small and finite.
+test('INVARIANT: contract values are never re-declared in the surface', () => {
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(bus, /MAX_DELIVERY_ATTEMPTS = TIMINGS\.MAX_DELIVERY_ATTEMPTS/, 'the send cap must come from the contract');
-  assert.match(bus, /attempts >= MAX_DELIVERY_ATTEMPTS/, 'the cap must gate actual delivery');
-  assert.match(bus, /verified late/, 'after the cap it must still watch for a late arrival');
+  for (const k of ['MAX_HOLD_MS', 'MAX_RELEASES', 'RETIRE_TTL_MS', 'HOLD_STALE_MS', 'MAX_DELIVERY_ATTEMPTS']) {
+    assert.match(bus, new RegExp(`const ${k} = TIMINGS\\.`), `${k} must come from the contract`);
+  }
 });

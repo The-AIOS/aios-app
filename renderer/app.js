@@ -22,6 +22,20 @@ const ICONS = {
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
+  /* QUICK is a lightning bolt, not a rocket: the rocket is the DESIGNER's rail glyph (#34), so
+     wearing it here made the card and its spawn row read as "designer". Worse, at 13-16px the
+     rocket and the `design` pencil are the same shape — a diagonal stroke with a tail at the
+     bottom-left — so the two were indistinguishable at the only size they ever render. */
+  bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  /* Spawn a session = a prompt with a plus. The neighbours decide this one: `robot` is two rows
+     up (launch agent) and `term` is the card below (running sessions), so the glyph has to say
+     "a NEW one of those" rather than "an agent" or "a terminal". A bare prompt+plus was tried
+     and rejected: `term` is a bare prompt, so at 13px the two differed only by a small glyph
+     floating beside them. The BOX is what carries the distinction at render size — a pane with
+     a prompt inside and a plus at its corner, the convention every editor uses for a new
+     terminal, which is exactly what this opens. Checked on a contact sheet at 13/15/16/22px
+     against its neighbours rather than judged at 24. */
+  spawn: '<rect x="2.5" y="5" width="13" height="14" rx="2.4"/><polyline points="5.6 10 8 12 5.6 14"/><path d="M19 3v6M16 6h6"/>',
   rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   chevR: '<polyline points="9 18 15 12 9 6"/>',
@@ -42,7 +56,12 @@ const ICONS = {
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   star: '<polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2"/>',
-  skill: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  /* A mortarboard: a skill is packaged know-how Claude LEARNS for a task. It used to be a
+     lightning bolt — which is now QUICK's card glyph, so the card header and one of its own
+     rows were the same shape. A puzzle piece is the obvious alternative and was rejected twice
+     over: it collapses into a rounded cross at 13px, and "pluggable component" is what PLUGINS
+     are (they own `box`) — worth keeping the two ideas visually apart. */
+  skill: '<path d="M12 3.2 22 8l-10 4.8L2 8z"/><path d="M6 10.2V15c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.8"/>',
   command: '<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3z"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
@@ -362,7 +381,7 @@ const CARD_ICONS = {
   pInbox: 'inbox',       // needs you
   pDaily: 'note',        // today's note
   pCal: 'calendar',
-  pQuick: 'rocket',      // quick actions
+  pQuick: 'bolt',        // quick actions — NOT rocket, that is the Designer's glyph
   pRun: 'term',          // running sessions
   pAbout: 'id',          // about you
   pSpaces: 'users',      // shared spaces
@@ -646,7 +665,7 @@ function renderActionCards(m) {
   pbtn(Q, { emoji: 'skill', label: t('pulse.loadSkill'), key: t('pulse.loadSkillKey'), val: m.skills, onClick: () => void pickSkill() });
   pbtn(Q, { emoji: 'command', label: t('pulse.runCommand'), key: t('pulse.runCommandKey'), val: m.commands, onClick: () => void pickCommand() });
   pbtn(Q, { emoji: 'download', label: t('pulse.ingest'), key: t('pulse.ingestKey'), onClick: () => void ingestFlow() });
-  pbtn(Q, { emoji: 'rocket', label: t('pulse.spawn'), key: t('pulse.spawnKey'), onClick: () => void spawnWorkerFlow() });
+  pbtn(Q, { emoji: 'spawn', label: t('pulse.spawn'), key: t('pulse.spawnKey'), onClick: () => void spawnWorkerFlow() });
   // Marketplace is hidden until it actually exists (#39) — an empty storefront is
   // worse than none. Re-enable this row (and the menu) when the partner shelf is real.
 
@@ -835,7 +854,22 @@ function feedPrime(...colls) { for (const c of colls) FEED.primed.add(c); }
 /* The RUNNING card (Glass's "Running"): quota · Sessions (registry-wide) ·
    Terminals (this window's panes). Re-renders on the 2s poll AND on pane open/close. */
 function renderPulseRunning(m) {
-  if (m && Array.isArray(m.running)) pulse.lastRunning = m;
+  if (m && Array.isArray(m.running)) {
+    pulse.lastRunning = m;
+    /* A session ENDS when the registry says so — not when a title looks unfamiliar. This is
+       the positive evidence the title listener cannot give: a pane that once carried a
+       confirmed session name, whose name is no longer live, is a shell now. Ctrl+C twice
+       lands here on the next pulse. */
+    const liveNames = new Set(m.running.map((a) => a.name));
+    for (const [pid, pane] of panes) {
+      if (pane.kind !== 'term' || !pane.confirmedName) continue;
+      if (liveNames.has(pane.confirmedName)) continue;
+      pane.isSession = false;
+      const was = pane.confirmedName;
+      pane.confirmedName = null;
+      renamePane(pid, t('tab.endedSession', { name: was }));
+    }
+  }
   const data = pulse.lastRunning || {};
   const sessions = data.running || [];
   trackTheater(sessions);
@@ -1251,7 +1285,109 @@ function updateEmpty() {
    existence check is what stops half the screen underlining — and it doubles as containment.
    Resolution is ONE batched IPC per line, memoised per line-text: the per-candidate round trip
    was the actual latency. */
+/* Two patterns, tried in order, because a space is genuinely ambiguous in terminal output —
+   it separates arguments as often as it sits inside a filename, and no regex can tell which.
+   So spaces are only honoured where the text itself DELIMITS them: inside quotes or backticks.
+   That covers the cases that actually occur — `git status` quotes paths containing spaces, and
+   this vault is full of them ("00 - notes/...") — without turning every sentence into a
+   candidate link. Unquoted paths keep the conservative rule. */
+const PATH_QUOTED_RE = /["'`]([^"'`\n]{2,200}?\.[A-Za-z]{1,8}(?::\d+)?)["'`]|["'`]([^"'`\n]{2,200}?\/[^"'`\n]{1,200}?)["'`]/g;
 const PATH_RE = /(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\d+)?|\b[A-Za-z0-9._@+-]+\.[A-Za-z]{1,8}(?::\d+)?/g;
+
+/** Candidates on one line. Quoted matches first (their quotes delimit any spaces), then bare
+    tokens — and each bare token also gets EXTENDED across the spaces that follow it.
+
+    A space is ambiguous in terminal output: it separates arguments as often as it sits inside a
+    filename, and no regex can tell which. But we already validate every candidate against the
+    filesystem, so the ambiguity does not have to be solved by pattern — it can be RESOLVED BY
+    FACT. `…/vault/00` extended by `-` and then `notes/context/observed/antifragile.md` becomes a
+    path that exists, and existence is the answer. The longest candidate that resolves wins, so a
+    real filename beats its own truncated prefix. */
+function pathCandidates(text) {
+  const out = [];
+  for (const m of text.matchAll(PATH_QUOTED_RE)) {
+    const val = m[1] ?? m[2];
+    if (!val) continue;
+    out.push({ value: val, index: m.index + 1, length: val.length, alts: [] });
+  }
+  const covered = (i) => out.some((o) => i >= o.index - 1 && i < o.index + o.length + 1);
+  const MAX_SPAN = 6;   // tokens a filename may plausibly span; bounds the candidate count
+  for (const m of text.matchAll(PATH_RE)) {
+    if (covered(m.index)) continue;
+    /* Extend across REAL tokens only. A buffer row is padded to the terminal width, so a
+       naive split(' ') yields a tail of empty strings and the extension budget gets spent
+       generating `"…/03 - "`, `"…/03 -  "`, `"…/03 -   "` — six candidates that differ only by
+       trailing whitespace, none of which can exist, while a genuine continuation further along
+       never gets tried. Observed in the provider's own log. */
+    const rest = text.slice(m.index).replace(/\s+$/, '');
+    const toks = rest.split(' ').filter((tk) => tk.length > 0);
+    const alts = [];
+    let acc = toks[0] ?? m[0];
+    for (let i = 1; i < Math.min(toks.length, MAX_SPAN); i++) {
+      acc += ' ' + toks[i];
+      const trimmed = acc.replace(/[)\]},.;:'"]+$/, '');
+      if (trimmed.length > m[0].length) alts.push(trimmed);
+      /* Keep the UNTRIMMED form too. Stripping trailing punctuation is right for prose
+         (`see /tmp/a.md.`) and wrong when a line BREAKS just after a dot: `…-notas.` ⏎ `html`
+         loses the dot, so the candidate stops one char short of the line end, loses eligibility
+         for the join to the relative echo of itself, and the absolute path is never offered.
+         Both forms cost one stat each and the filesystem decides which is real. */
+      if (acc.length > m[0].length && acc !== trimmed) alts.push(acc);
+    }
+    out.push({ value: m[0], index: m.index, length: m[0].length, alts });
+  }
+  return out.slice(0, 16);
+}
+
+/* Reassemble a path broken by a HARD newline. Kept a NAMED function, not inline in the link
+   provider, because that is exactly where the last defect hid: two features that were each
+   correct alone, composed wrong, with no test able to reach the seam.
+
+   Joining looks reckless — glue any two lines together and you could link across unrelated
+   prose — but the same guarantee that makes space-extension safe applies: nothing becomes a
+   link unless it RESOLVES TO A REAL FILE, so a false positive would have to be an actual path.
+   Only the LAST candidate is eligible (a break can only happen at the end of a line), and both
+   joins are offered — with and without a space — because the newline may or may not have
+   replaced one. The filesystem picks. */
+function joinAcrossBreak(hits, next, nextRow) {
+  /* Which candidate is eligible? NOT `hits[hits.length - 1]`. A path with spaces produces a
+     second, relative-looking match for its own tail (`…/03 - export/deck.html` also yields
+     `export/deck.html`), so the array tail can start MID-path. Joining that one would offer
+     `export/…/gifts/espacios-…` — resolvable only by accident against the cwd — while the
+     absolute form never gets tried. The candidate that matters is the one whose furthest
+     extension REACHES THE END of the line, since that is where a break can occur. Ties go to
+     the earlier start, i.e. the longer, more-qualified form. */
+  const list = hits || [];
+  const extent = (h) => h.index + h.alts.reduce((n, a2) => Math.max(n, a2.length), h.length);
+  const lineEnd = list.reduce((n, h) => Math.max(n, extent(h)), -1);
+  /* EVERY candidate reaching that end, not the single best. Picking one needs a tie-break, and
+     the tie is common: space-extension lets an earlier path also stretch to the line end, so
+     `see /tmp/a.md and /Users/…/03 - ` has two candidates ending together and the wrong winner
+     means the real path never joins at all. There is no cost to offering both — the filesystem
+     is the gate, and a candidate that cannot exist simply fails to resolve. */
+  const eligible = next ? list.filter((h) => extent(h) === lineEnd) : [];
+  for (const tail of eligible) {
+  /* EVERY form the tail can take, not just the bare regex match. The match stops at the first
+     space, so when the break falls after a space-containing segment (`…/vault/03 - ` ⏎
+     `export/…`) the correct string is an EXTENSION plus the next line. Joining only the bare
+     match drops the ` - ` and offers two strings that cannot exist — which is precisely why one
+     path refused to link while every other two-line case worked. The spread snapshots the
+     array, so pushing into it inside the loop is safe. */
+    tail.joined = new Set();
+    for (const head of [tail.value, ...tail.alts]) {
+      for (const j of [head + ' ' + next, head + next]) {
+        if (tail.joined.has(j)) continue;
+        tail.joined.add(j);
+        tail.alts.push(j);
+      }
+    }
+    tail.spansTo = { row: nextRow, len: next.length };
+  }
+  return eligible;
+}
+
+const NO_WEBGL = !!(window.glassShell.env && window.glassShell.env.AIOS_NO_WEBGL);
+const LINK_DEBUG = false;  // flip on to have the provider narrate what it sees
 const linkCache = new Map();   // `${cwd}\n${lineText}` → { token: absPath }
 
 let pathTip = null;
@@ -1259,30 +1395,84 @@ function showPathTip(x, y, text) {
   if (!pathTip) { pathTip = el('div', 'pathtip'); document.body.appendChild(pathTip); }
   pathTip.textContent = text;
   pathTip.hidden = false;
-  // clamp so a path near the right edge stays on screen
   const w = pathTip.offsetWidth || 220;
   pathTip.style.left = Math.max(8, Math.min(x + 12, window.innerWidth - w - 8)) + 'px';
   pathTip.style.top = Math.max(8, y - 34) + 'px';
 }
 function hidePathTip() { if (pathTip) pathTip.hidden = true; }
 
+/* A WRAPPED path is still one path. provideLinks() is handed a single buffer ROW, but xterm
+   wraps a long line across several — so a path longer than the terminal is width-split and the
+   fragment never resolves. Measured: paths up to 76 chars linked, 96+ did not, and it had
+   nothing to do with the spaces I had assumed. Rebuild the logical line from its wrapped rows,
+   then map match offsets back to (row, column) so the link still highlights in the right place.
+   `isWrapped` on a row means "I am a continuation of the row above". */
+function logicalLine(term, y) {
+  const buf = term.buffer.active;
+  let start = y - 1;
+  while (start > 0 && buf.getLine(start) && buf.getLine(start).isWrapped) start--;
+  const rows = [];
+  for (let i = start; buf.getLine(i) && (i === start || buf.getLine(i).isWrapped); i++) rows.push(i);
+  // translateToString(false): keep the padding, or the column arithmetic below drifts.
+  const text = rows.map((r) => buf.getLine(r).translateToString(false)).join('');
+  const after = buf.getLine(rows[rows.length - 1] + 1);
+  return {
+    text, startRow: start, cols: term.cols,
+    nextRow: rows[rows.length - 1] + 1,
+    // The continuation of a HARD-wrapped path: text the printer broke itself, usually indented.
+    next: after ? after.translateToString(true).replace(/^\s+/, '') : '',
+  };
+}
+
 function attachPathLinks(term, cwd) {
   term.registerLinkProvider({
     provideLinks(y, cb) {
       const line = term.buffer.active.getLine(y - 1);
       if (!line) { cb(undefined); return; }
-      const text = line.translateToString(true);
-      const hits = [...text.matchAll(PATH_RE)].slice(0, 24);
+      const L = logicalLine(term, y);
+      const text = L.text;
+      // absolute offset in the logical line -> the cell it actually occupies on screen
+      const at = (i) => ({ x: (i % L.cols) + 1, y: L.startRow + Math.floor(i / L.cols) + 1 });
+      const hits = pathCandidates(text);
+      /* A path can be broken by a HARD newline, not just by the terminal: a session printing
+         markdown wraps its own output and indents the continuation, so `…/vault/03 -` ends one
+         line and `export/…/notes.html` begins the next with `isWrapped` false. Reassembling that
+         looks reckless — join any two lines and you could link across unrelated prose — but the
+         same guarantee that makes space-extension safe applies here: nothing becomes a link
+         unless it RESOLVES TO A REAL FILE. A false positive would have to be an actual path.
+         Only the LAST candidate on a line is eligible (a break can only happen at the end), and
+         both joins are offered — with and without a space — because the newline may or may not
+         have replaced one. The filesystem picks. */
+      joinAcrossBreak(hits, L.next, L.nextRow);
+      /* TEMPORARY (AI-64 follow-up): one path refuses to link and the screenshot contradicts
+         the wrap theory — a 105-char line sits unwrapped while a 57-char break appears above.
+         Log what the provider actually sees rather than reason about it again. */
+      if (LINK_DEBUG && /espacios|03 -/.test(text)) {
+        console.log('[link] cols=' + L.cols + ' startRow=' + L.startRow + ' rows=' + Math.ceil(text.length / L.cols));
+        console.log('[link] logical=' + JSON.stringify(text.replace(/\s+$/, '')));
+        console.log('[link] candidates=' + JSON.stringify(hits.map((h) => [h.value, ...h.alts])));
+      }
       if (!hits.length) { cb(undefined); return; }
-      const key = (cwd || '') + '\n' + text;
+      const key = (cwd || '') + '\n' + text;   // logical line, so wrapped rows share one entry
       const build = (map) => {
         const links = [];
         for (const m of hits) {
-          const abs = map[m[0]];
-          if (!abs) continue;
+          /* Longest wins: a filename containing spaces must beat the shorter prefix that also
+             happens to exist (a directory, usually). Shortest-match would link the folder. */
+          let best = null;
+          for (const cand of [...m.alts].sort((a2, b2) => b2.length - a2.length)) {
+            if (map[cand]) { best = { text: cand, abs: map[cand] }; break; }
+          }
+          if (!best && map[m.value]) best = { text: m.value, abs: map[m.value] };
+          if (!best) continue;
+          const abs = best.abs;
           links.push({
-            range: { start: { x: m.index + 1, y }, end: { x: m.index + m[0].length, y } },
-            text: m[0],
+            /* A joined candidate ends on the NEXT row, so its range must too — xterm ranges
+               may span rows, and clamping to this one would underline only half the path. */
+            range: (m.spansTo && m.joined && m.joined.has(best.text))
+              ? { start: at(m.index), end: { x: Math.max(1, m.spansTo.len), y: m.spansTo.row + 1 } }
+              : { start: at(m.index), end: at(m.index + best.text.length - 1) },
+            text: best.text,
             decorations: { pointerCursor: true, underline: true },
             hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t('term.cmdClickOpen')),
             leave: () => hidePathTip(),
@@ -1299,8 +1489,9 @@ function attachPathLinks(term, cwd) {
       };
       const cached = linkCache.get(key);
       if (cached) { build(cached); return; }
-      window.glassShell.resolveFiles(hits.map((m) => m[0]), cwd).then((map) => {
+      window.glassShell.resolveFiles(hits.flatMap((m) => [m.value, ...m.alts]), cwd).then((map) => {
         if (linkCache.size > 400) linkCache.clear();   // bounded; the buffer scrolls forever
+        if (LINK_DEBUG && /espacios|03 -/.test(text)) console.log('[link] resolved=' + JSON.stringify(map));
         linkCache.set(key, map || {});
         build(map || {});
       }).catch(() => cb(undefined));
@@ -1495,7 +1686,7 @@ function sessionNameFromTitle(title) {
 
 /* TEMPORARY (AI-64 investigation): log every title a pty emits so the real format can be
    read off a live session instead of guessed. Remove before shipping. */
-const TITLE_DEBUG = true;
+const TITLE_DEBUG = false;  // flip on to log the tty titles panes actually emit
 
 function makeTab(id, name, iconName) {
   const tab = document.createElement('button');
@@ -1662,13 +1853,37 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   // WebGL is the renderer VS Code and Antigravity use. If the GPU context is lost or refused
   // we dispose the addon and fall back to DOM rather than showing a dead terminal.
   try {
-    if (window.WebglAddon && window.WebglAddon.WebglAddon) {
+    if (window.WebglAddon && window.WebglAddon.WebglAddon && !NO_WEBGL) {
       const gl = new window.WebglAddon.WebglAddon();
       gl.onContextLoss(() => { try { gl.dispose(); } catch { /* already gone */ } });
       term.loadAddon(gl);
       p.gl = gl;
     }
   } catch { /* no GPU path available — DOM renderer still works */ }
+  /* GLYPH FLICKER UNDER RAPID FULL-SCREEN REDRAWS.
+     Reported in the `claude --resume` picker: holding arrow-down through a long list garbles
+     glyphs, it is independent of window size, and typing in the search box clears it. That
+     signature is the WebGL renderer's TEXTURE ATLAS going stale, not a layout fault — typing
+     "fixes" it because it forces a full repaint, which is a symptom of a rendering cache, not
+     of geometry.
+     So: after a burst of output settles, clear the atlas once. Debounced because clearing on
+     every frame would cost more than the artifact does, and only while the pane is visible.
+     Honest status: this is a targeted MITIGATION for the most likely cause, not a diagnosis —
+     the artifact has not been reproduced here. `AIOS_NO_WEBGL=1` disables the renderer entirely
+     and is the way to PROVE it: if the flicker survives with WebGL off, the cause is elsewhere
+     and this code should be reverted rather than kept as a charm. */
+  let atlasTimer = null;
+  const scheduleAtlasClear = () => {
+    if (!p.gl) return;
+    if (atlasTimer) clearTimeout(atlasTimer);
+    atlasTimer = setTimeout(() => {
+      atlasTimer = null;
+      if (p.exited || p.el.style.display === 'none') return;
+      try { p.gl.clearTextureAtlas(); } catch { /* addon disposed */ }
+    }, 180);
+  };
+  p.scheduleAtlasClear = scheduleAtlasClear;
+
   /* Emoji are WIDE (2 cells). xterm defaults to Unicode 6 tables, where most of them measure
      1 — so the terminal's idea of the cursor position drifts from the writer's on every
      emoji, and a line like the statusline ends up visibly mis-spaced (📁obsidian instead of
@@ -1734,23 +1949,31 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   term.onData((d) => window.glassShell.ptyWrite(id, d));
   attachPathLinks(term, cwd);
   /* AI-64: the session tells us its own name through the tty title. */
+  /* Titles CONFIRM a session; only the REGISTRY can declare one over.
+     My last two attempts both got this wrong in opposite directions. Keying off the launch
+     command missed a session started by hand in a plain terminal. Then treating "this title is
+     not a live session name" as evidence of an ending marked EVERY pane "(ended)" — because a
+     session emits many titles, most of which are not its name, and the registry snapshot can be
+     a beat stale. Absence of evidence was being read as evidence of absence.
+     So: a title may only ever CONFIRM (positive, checked against the live registry). Ending is
+     decided elsewhere, from the registry itself, where the fact actually lives. */
   term.onTitleChange((title) => {
-    if (!paneIsClaude(p.cmd)) return;
+    if (TITLE_DEBUG) console.log('[title]', id, JSON.stringify(String(title).slice(0, 120)));
     const nm = sessionNameFromTitle(title);
-    if (nm) { p.isSession = true; renamePane(id, nm); return; }
-    /* THE SESSION ENDED IN A PANE THAT KEEPS ITS NAME.
-       Ctrl+C twice drops Claude and hands the pane back to the shell, which retitles the tty
-       to its cwd. The tab used to keep the session's name forever — and that is not cosmetic:
-       byName() would still match this pane, so a bus `send` addressed to the session got typed
-       into a BASH PROMPT. Canonical mode then cut it at 1024 bytes and the shell tried to
-       EXECUTE it. Observed today: a 1,343-byte brief delivered into a shell, verified missing
-       from the transcript, retired as .undelivered.
-       So a non-session title is positive evidence the session is gone: drop the claim to the
-       name, and stop answering to it. Optimistic default (isSession starts true for a Claude
-       pane) so a session whose title we never parse still receives — we only ever REMOVE
-       deliverability on evidence, never withhold it on silence. */
-    p.isSession = false;
-    renamePane(id, t('tab.endedSession', { name: p.name }));
+    if (!nm) return;
+    /* TWO QUESTIONS, and conflating them was the bug. Measured titles: "✳ keen-otter",
+       "✳ koala", "claude · resume".
+         NAMING — what should the tab say? Cosmetic and safe, so the title alone decides.
+           Requiring a registry match here meant a session displaying "koala" while registered
+           as "brisk-koala" never renamed at all.
+         DELIVERABILITY — may the bus type into this pane? That needs PROOF, because getting it
+           wrong routes someone's message into the wrong session. Only a live registry match
+           earns it, and only that name may later be declared ended. */
+    renamePane(id, nm);
+    const live = ((pulse.lastRunning || {}).running || []).some((a) => a.name === nm);
+    if (!live) return;
+    p.isSession = true;
+    p.confirmedName = nm;
   });
   // one source of truth for geometry pushes, so xterm's own resize event cannot re-send
   // a size pushPtyGeom already sent (or vice versa)
@@ -1858,6 +2081,7 @@ window.glassShell.onPtyData((m) => {
   const p = panes.get(m.id);
   if (!p || p.kind !== 'term') return;
   p.term.write(m.data);
+  if (p.scheduleAtlasClear) p.scheduleAtlasClear();   // debounced; see the note at its definition
   // pty-grade theater: tail the latest meaningful output line into the ticker
   // (throttled — TUI spinners redraw constantly; the ticker breathes, not thrashes)
   const now = Date.now();
@@ -2192,9 +2416,19 @@ async function openViewer(p) {
       const after = (v) => save(v).then(() => { try { editor.refreshGutter?.(); } catch { /* gone */ } });
       /* The change stepper lives in the viewer header and only exists when the file HAS
          uncommitted changes — a "0 changes ‹ ›" control is noise on a clean file. */
-      const chg = el('span', 'chgnav'); chg.hidden = true;
-      const chgN = el('span', 'chgcount');
-      const mk = (label, dir) => { const b2 = el('button', 'chgbtn', label); b2.addEventListener('click', () => editor.stepChange?.(dir)); return b2; };
+      /* NOTE: `el` is SHADOWED in this function (line ~2122 declares a local <div> named el),
+         so the global el() helper is unreachable here. Calling it threw "el is not a function"
+         before the viewer rendered anything — every file, every type, silently blank. Build
+         these with document.createElement directly rather than reintroducing the trap. */
+      const mkEl = (tag, cls, text) => {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text) n.textContent = text;
+        return n;
+      };
+      const chg = mkEl('span', 'chgnav'); chg.hidden = true;
+      const chgN = mkEl('span', 'chgcount');
+      const mk = (label, dir) => { const b2 = mkEl('button', 'chgbtn', label); b2.addEventListener('click', () => editor.stepChange?.(dir)); return b2; };
       chg.append(chgN, mk('‹', -1), mk('›', 1));
       const editor = buildCodeEditor(file.content, langFor(name), {
         onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },

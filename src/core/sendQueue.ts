@@ -258,6 +258,44 @@ export function shouldReleaseForSibling(releases: number, maxReleases: number = 
   return releases < maxReleases;
 }
 
+/* ── After a delivery that did not verify: FOUR states, not two ───────────────
+   This was imperative and duplicated, and both copies got it wrong the same way: they
+   collapsed "no sibling left to try" into "undeliverable" and retired the request. A brief
+   died twenty seconds after being claimed, with 29m40s of MAX_HOLD_MS unspent, because the
+   target was merely busy — the exact case the hold budget exists for.
+
+   It lives here, pure, for the reason every other value in this file does: a decision that
+   governs cross-process behaviour cannot be re-derived correctly in two codebases by hand.
+   Both surfaces call this and therefore agree by construction rather than by discipline.
+
+     retire   the target is gone, or the hold budget really is spent — a true failure
+     release  another window may own that terminal; hand the claim back (bounded)
+     retry    we still have sends left; deliver again
+     wait     out of sends but NOT out of time — keep watching for a late arrival,
+              and never type again. Bounded sends, unbounded patience: double delivery
+              is worse than latency, so exhausting the retries must not end the wait. */
+export type MissAction = 'retire' | 'release' | 'retry' | 'wait';
+
+export function decideAfterVerifyMiss(s: {
+  targetAlive: boolean;
+  heldMs: number;
+  releases: number;
+  attempts: number;
+}): { do: MissAction; reason: string } {
+  if (!s.targetAlive) return { do: 'retire', reason: 'the target is no longer a live session' };
+  if (s.heldMs >= TIMINGS.MAX_HOLD_MS) {
+    return { do: 'retire', reason: `held for ${Math.round(s.heldMs / 60000)} min without the message ever appearing in the target transcript` };
+  }
+  if (shouldReleaseForSibling(s.releases)) {
+    return { do: 'release', reason: 'not verified here; another window may own that terminal' };
+  }
+  if (s.attempts < TIMINGS.MAX_DELIVERY_ATTEMPTS) {
+    return { do: 'retry', reason: `no sibling left to try; re-delivering (attempt ${s.attempts + 1}/${TIMINGS.MAX_DELIVERY_ATTEMPTS})` };
+  }
+  return { do: 'wait', reason: 'out of send attempts but still inside the hold budget — watching for a late arrival' };
+}
+
+
 /**
  * Never DOWNGRADE a README that declares a HIGHER contract than we implement — a newer
  * fulfiller's doc is the accurate one, and stomping it would replace correct instructions

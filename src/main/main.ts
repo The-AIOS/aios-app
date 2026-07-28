@@ -21,6 +21,8 @@ import * as fs from 'fs';
  * then exits 0/1 — the in-app smoke gate, here from day one.
  */
 const SMOKE = process.argv.includes('--smoke');
+/* Any uncaught renderer error fails a smoke run — see the verdict block. */
+const rendererErrors: string[] = [];
 const SHOT = process.argv.find((a) => a.startsWith('--shot')); // --shot[=/path.png] : render + screenshot + exit (dev/QA)
 const EVAL = process.argv.find((a) => a.startsWith('--eval=')); // --eval=<js> : run JS in the renderer, print result, exit (dev/QA)
 const ptys = new Map<number, pty.IPty>();
@@ -579,6 +581,14 @@ app.whenReady().then(() => {
       if (msg) console.log('[renderer]', String(msg));
     });
   }
+  if (SMOKE) {
+    win.webContents.on('console-message', (...args: unknown[]) => {
+      const d = args[0] as { message?: string; level?: string | number } | undefined;
+      const msg = String((d && typeof d === 'object' && 'message' in d ? d.message : args[1]) ?? '');
+      if (/Uncaught|is not a function|is not defined|TypeError|ReferenceError/.test(msg)
+          && !/Content-Security-Policy/.test(msg)) rendererErrors.push(msg.slice(0, 200));
+    });
+  }
   win.on('focus', () => { host?.refreshUpdateStatus(); rewireForRoots(win); });
   /* Every 4s while the window is up. Cheap (two path resolutions) and it only acts on a CHANGE,
      so the common case — roots that already exist — costs nothing after the first tick. */
@@ -672,13 +682,49 @@ app.whenReady().then(() => {
         const clickable = await win.webContents.executeJavaScript("document.querySelectorAll('.onboarding .vbtn').length").catch(() => -1);
         const repaint = await win.webContents.executeJavaScript("typeof onboardingRepaint === 'function'").catch(() => false);
         setupOk = Number(steps) >= 1 && Number(clickable) >= 1 && !!repaint;
+      /* OPEN A FILE. No gate did, and a crash in openViewer therefore reached the operator:
+         `el` is shadowed by a local <div> in that function, so calling the el() helper threw
+         and EVERY file opened blank — markdown, TypeScript, all of it. Unit tests read source,
+         smoke opened only the Setup tab, and the one screen nobody exercised was the one that
+         broke. This opens a real file and counts what rendered. */
+      try {
+        const viewerOk = await win.webContents.executeJavaScript(
+          `(async () => { await openViewer('${path.join(__dirname, '..', '..', 'package.json').replace(/\\/g, '/')}');
+             await new Promise(r => setTimeout(r, 800));
+             return document.querySelectorAll('.pane .codeedit, .pane .mdview, .pane pre').length; })()`,
+        ).catch(() => 0);
+        console.log(`shell-smoke: viewer — panes rendered=${viewerOk}`);
+        /* Lazy code paths need their own check. The terminal link provider only runs on HOVER,
+           so a missing declaration inside it throws nothing during a smoke run and the
+           uncaught-error gate stays silent — that is exactly how `linkCache is not defined`
+           survived a green suite. `typeof` on an undeclared name returns "undefined" instead of
+           throwing, which makes the dependency itself testable without invoking the path. */
+        const deps = await win.webContents.executeJavaScript(
+          `[typeof linkCache, typeof pathCandidates, typeof showPathTip, typeof hidePathTip, typeof renamePane, typeof sessionNameFromTitle].join(',')`,
+        ).catch(() => 'ERR');
+        console.log(`shell-smoke: lazy-path deps — ${deps}`);
+        if (String(deps).includes('undefined') || deps === 'ERR') {
+          setupOk = false;
+          console.error('shell-smoke: LAZY PATH BROKEN — a symbol the terminal link provider needs is not declared; it would throw on first hover');
+        }
+        if (Number(viewerOk) < 1) { setupOk = false; console.error('shell-smoke: VIEWER FAILED — a file opened but rendered nothing'); }
+      } catch (e) { console.error('shell-smoke: viewer gate error', e); setupOk = false; }
         console.log(`shell-smoke: setup — steps=${steps}, clickable=${clickable}, repaintWired=${repaint}`);
       } catch (err) { console.error('shell-smoke: setup gate error', err); }
       const ptyOk = buf.includes('GLASS_SHELL_PTY_OK');
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk;
+      /* A renderer that threw is broken whether or not the thing it broke is something a gate
+         happens to look at. Three uncaught errors reached a human tester tonight with every
+         other check green — a shadowed helper that killed the file viewer, and a swallowed
+         declaration, twice. Watch for the failure, not for the symptom. */
+      if (rendererErrors.length) {
+        console.error(`shell-smoke: RENDERER THREW ${rendererErrors.length} uncaught error(s):`);
+        for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
+      }
+      const clean = rendererErrors.length === 0;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([
