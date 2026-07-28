@@ -1,6 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as pty from 'node-pty';
+/* node-pty is a NATIVE module, built for the platform that packages the app. The cheap linux
+   CI job installs no prebuild, so these cannot run there — and that is how the suite went red
+   on its first push. But a pty test that quietly stops running EVERYWHERE is worse than no pty
+   test, which is precisely the failure class this ticket exists for. So skip only where a pty
+   genuinely cannot exist, and treat a missing pty on darwin — dev machines and the release
+   runner, the two places that must be honest — as a hard error rather than a quirk. */
+let pty: typeof import('node-pty') | null = null;
+let ptyLoadError = '';
+try { pty = require('node-pty') as typeof import('node-pty'); }
+catch (e) { ptyLoadError = String((e as Error)?.message ?? e); }
+if (!pty && process.platform === 'darwin') {
+  throw new Error(`node-pty must load on macOS — run: npx electron-rebuild -f -w node-pty (${ptyLoadError})`);
+}
+const skip = pty ? false : `no node-pty prebuild on ${process.platform}; pty round-trips run on macOS`;
 import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '../core/busPayload';
 
 /* AI-66 end-to-end. The other suite reasons about the RULE; this one puts bytes through a real
@@ -14,7 +27,7 @@ import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '../core/bus
 /** Write `payload` into a raw-mode pty and return exactly what came back out. */
 function roundTrip(payload: string, mutate: (s: string) => string = (s) => s): Promise<string> {
   return new Promise((resolve) => {
-    const p = pty.spawn('/bin/sh', ['-c', 'stty raw -echo; cat'], {
+    const p = pty!.spawn('/bin/sh', ['-c', 'stty raw -echo; cat'], {
       name: 'xterm-256color', cols: 200, rows: 50,
     });
     let got = '';
@@ -28,7 +41,7 @@ function roundTrip(payload: string, mutate: (s: string) => string = (s) => s): P
 const intact = (sent: string, received: string): boolean =>
   received.includes(sent) && byteLength(received) >= byteLength(sent);
 
-test('E2E: a message well over the inline limit arrives whole', async () => {
+test('E2E: a message well over the inline limit arrives whole', { skip }, async () => {
   // 2.6KB — the size of the brief that was cut at 2043 in the field.
   const sent = 'AI66-HEAD ' + 'x'.repeat(2600) + ' AI66-TAIL-do-NOT-push';
   assert.ok(byteLength(sent) > INLINE_LIMIT, 'the fixture must exceed the limit or it proves nothing');
@@ -38,7 +51,7 @@ test('E2E: a message well over the inline limit arrives whole', async () => {
   assert.equal(intact(sent, got), true, 'every byte must arrive');
 });
 
-test('E2E NEGATIVE CONTROL: the same assertion FAILS on a deliberately truncated delivery', async () => {
+test('E2E NEGATIVE CONTROL: the same assertion FAILS on a deliberately truncated delivery', { skip }, async () => {
   /* Chuy's requirement. The test above is worthless unless it can fail, and a silent bug needs
      a test proven able to detect silence. So: truncate on purpose, at exactly the byte the real
      incident was cut at, and assert the check REJECTS it. If this test ever stops failing to
@@ -52,7 +65,7 @@ test('E2E NEGATIVE CONTROL: the same assertion FAILS on a deliberately truncated
     'THE CHECK MUST FAIL HERE. If it passes, the E2E test above cannot see truncation.');
 });
 
-test('E2E: under the new rule the long prompt never travels inline at all', async () => {
+test('E2E: under the new rule the long prompt never travels inline at all', { skip }, async () => {
   // The point of the fix: the ceiling stops being load-bearing, because the long form is not
   // what crosses the channel. Only the pointer does, and the pointer is small by construction.
   const long = 'x'.repeat(2600);

@@ -49,6 +49,14 @@ jobs:
       - run: npx electron-rebuild -f -w node-pty
       - run: npm run compile
 
+      # The release path had NO test gate: v0.7.0 was signed, notarized and published while
+      # the CI unit job was red, and nothing here would ever have noticed. A gate that cannot
+      # fail the thing it guards is not a gate. This runs on macOS with node-pty already
+      # rebuilt above, so the pty round-trips run here even though the cheap linux job skips
+      # them — the one place a release is cut is the one place everything must pass.
+      - run: npm test
+      - run: npm run smoke
+
       # Fail on the ACTUAL problem, before electron-builder disguises it.
       # Observed on the v0.6.0 tag: with no secrets configured, CSC_LINK is empty, electron-builder
       # treats the empty string as a path, and the run dies with
