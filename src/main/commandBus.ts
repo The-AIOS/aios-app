@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -6,10 +6,11 @@ import * as aios from './aios';
 import { parseRequest, buildSpawnCmd, needsTaskFile, type BusRequest } from '../core/commandBus';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
-  INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor,
+  INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
   shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, type SendTarget,
 } from '../core/sendQueue';
+import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -46,18 +47,24 @@ const log = (msg: string): void => console.log(`[command-bus] ${msg}`);
  * safe direction for adoption, and waiting is cheap when the file is the queue.
  */
 /** Addressed elsewhere and unclaimed for this long → any surface may retire it. */
-const RETIRE_TTL_MS = 10 * 60_000;        // Glass: TARGET_TTL_MS
+const RETIRE_TTL_MS = TIMINGS.RETIRE_TTL_MS;   // contract
 /** A hold this old is adoptable even if its claimer still lives. */
-const HOLD_STALE_MS = 45 * 60_000;        // Glass: HOLD_STALE_MS
+const HOLD_STALE_MS = TIMINGS.HOLD_STALE_MS;   // contract
 /** How long we wait for a target to go idle before giving up loudly. */
-const MAX_HOLD_MS = 30 * 60_000;          // Glass: MAX_HOLD_MS
+const MAX_HOLD_MS = TIMINGS.MAX_HOLD_MS;   // contract — see TIMINGS in core/sendQueue
 /** Re-check a held request on this cadence (registry reads are cheap). */
 const HOLD_TICK_MS = 3_000;
 /** How long to wait for the text to appear in the target's transcript. */
 const VERIFY_WINDOW_MS = 20_000;
 const VERIFY_TICK_MS = 1_000;
 /** Bound on sibling handoffs, so two fulfillers cannot ping-pong a request. */
-const MAX_RELEASES = 2;
+const MAX_RELEASES = TIMINGS.MAX_RELEASES;   // contract
+/* Sends are capped; waiting is not. Dropping back into the hold loop (instead of retiring when
+   the sibling handoffs run out) fixed a message dying in 20 seconds — but a naive retry would
+   re-deliver every verify window for the whole 30-minute hold, i.e. ~90 copies into one
+   session. Double delivery is the worst outcome this protocol can produce, explicitly worse
+   than latency, so the retry budget is small and the patience budget is the full hold. */
+const MAX_DELIVERY_ATTEMPTS = TIMINGS.MAX_DELIVERY_ATTEMPTS;   // contract
 /**
  * fs.watch fires on CREATE, which can beat the writer's content to disk — so a request can
  * read back empty or half-written. Retiring that as "unparseable" turns a transient read
@@ -110,6 +117,56 @@ const alive = (pid: number): boolean => {
   try { process.kill(pid, 0); return true; } catch { return false; }
 };
 
+/* AI-66 pt3 — the renderer's verdict on the last send it was asked to make. Fire-and-forget
+   emit + wait-for-the-transcript was the old shape, and it could not tell "delivered, waiting
+   to see it" from "there was nothing here to deliver to". A pane that is gone, or that is no
+   longer running the session, is knowable IMMEDIATELY — and knowing it early is what stops a
+   request burning its whole release budget before anyone finds out. */
+const sendVerdicts = new Map<string, { ok: boolean; reason: string; at: number }>();
+ipcMain.on('bus:sendResult', (_e, v: { name: string; ok: boolean; reason: string }) => {
+  if (v && v.name) sendVerdicts.set(v.name, { ok: !!v.ok, reason: String(v.reason || ''), at: Date.now() });
+});
+/** Wait briefly for the renderer's verdict. Undefined means it never answered — treat that as
+ *  "no information", never as failure: a slow renderer must not retire a good request. */
+async function awaitSendVerdict(name: string, since: number): Promise<{ ok: boolean; reason: string } | undefined> {
+  for (let i = 0; i < 20; i++) {                     // ~1s, generous for an IPC round trip
+    const v = sendVerdicts.get(name);
+    if (v && v.at >= since) return { ok: v.ok, reason: v.reason };
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return undefined;
+}
+
+/* Payload store for spilled prompts. NOT inside the inbox: that directory is watched for
+   `*.json` requests and a stray file there is a request-shaped question nobody wants to
+   answer. Files are aged out on every write — they hold arbitrary prompt text, which can be
+   anything the operator has been discussing, so they must not accumulate forever. */
+function payloadDir(): string {
+  return path.join(os.homedir(), '.aios', 'bus-payloads');
+}
+function sweepPayloads(): void {
+  const dir = payloadDir();
+  const now = Date.now();
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      const fp = path.join(dir, f);
+      try { if (isStalePayload(fs.statSync(fp).mtimeMs, now)) fs.unlinkSync(fp); } catch { /* next */ }
+    }
+  } catch { /* no dir yet */ }
+}
+/** Write a long prompt to disk; returns the path, or '' if it could not be written. */
+function writePayload(name: string, prompt: string): string {
+  try {
+    const dir = payloadDir();
+    fs.mkdirSync(dir, { recursive: true });
+    sweepPayloads();
+    const safe = String(name || 'session').replace(/[^a-z0-9-]/gi, '-').slice(0, 40);
+    const file = path.join(dir, `${safe}-${Date.now()}.md`);
+    fs.writeFileSync(file, prompt, { mode: 0o600 });   // arbitrary prompt text: owner-only
+    return file;
+  } catch { return ''; }
+}
+
 /** Read the target's transcript; the counting RULE is pure and lives in core/sendQueue. */
 function readTranscript(sessionId: string): string {
   if (!sessionId) return '';
@@ -124,6 +181,7 @@ function readTranscript(sessionId: string): string {
 
 /** Move a request to `.undelivered`, recording why. Loud beats silent. */
 function markUndelivered(fromPath: string, req: BusRequest | null, reason: string): void {
+  log(`DEAD LETTER — a message to '${req?.name ?? '?'}' was never delivered: ${reason}`);
   const dest = undeliveredPathFor(fromPath);
   try {
     let body: Record<string, unknown> = {};
@@ -165,7 +223,24 @@ async function runSend(
   claimedAt: number,
 ): Promise<void> {
   if (!req.prompt) { markUndelivered(heldPath, req, "send request carried no 'prompt'"); return; }
-  const needle = safeNeedle(req.prompt);
+  /* AI-66 — spill BEFORE anything else looks at the text. A prompt over the measured
+     inline ceiling is written to a payload file and what gets typed is a pointer to it.
+     Nothing downstream may see the long form: the needle is taken from the DELIVERED text so
+     verification proves the pointer arrived, and a verified pointer is a verified message —
+     whereas verifying a needle from the long form would confirm a message we never sent.
+     If the spill itself fails we mark undelivered. Loud beats a partial prompt. */
+  let deliverText = req.prompt;
+  if (needsPointer(req.prompt)) {
+    const spilled = writePayload(req.name, req.prompt);
+    if (!spilled) {
+      markUndelivered(heldPath, req, `prompt is ${byteLength(req.prompt)} bytes (inline limit ${INLINE_LIMIT}) and the payload file could not be written`);
+      return;
+    }
+    deliverText = pointerText(spilled);
+    log(`send → '${req.name}' is ${byteLength(req.prompt)} bytes; delivering a pointer to ${spilled}`);
+  }
+  const needle = safeNeedle(deliverText);
+  let attempts = 0;   // how many times we have actually TYPED into the target
   for (;;) {
     const target = targetByName(req.name);
     const decision = decideSend(target, Date.now() - claimedAt, MAX_HOLD_MS);
@@ -178,7 +253,42 @@ async function runSend(
     // idle → deliver, then prove it in the target's own transcript
     const sessionId = target ? target.sessionId : '';
     const before = countUserTurnsContaining(readTranscript(sessionId), needle);
-    emit(win(), 'sendByName', { name: req.name, text: req.prompt });
+    if (attempts >= MAX_DELIVERY_ATTEMPTS) {
+      /* Out of sends, not out of hope. Watch the transcript for a late arrival until the hold
+         budget expires; never type again. Retiring here would repeat the original bug, and
+         sending again would risk the duplicate that bug's fix must not cause. */
+      const late = countUserTurnsContaining(readTranscript(sessionId), needle);
+      if (verifyVerdict(before, late) !== 'pending' || late > before) {
+        try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+        log(`delivered → '${req.name}' (verified late)`);
+        return;
+      }
+      if (Date.now() - claimedAt >= MAX_HOLD_MS) {
+        markUndelivered(heldPath, req, `sent to '${req.name}' ${attempts}x over ${Math.round((Date.now() - claimedAt) / 60000)} min and it never appeared in that session's transcript`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+      if (!fs.existsSync(heldPath)) return;
+      continue;
+    }
+    attempts++;
+    const emittedAt = Date.now();
+    emit(win(), 'sendByName', { name: req.name, text: deliverText });
+    /* If the surface says it could not deliver, stop here. Waiting out the verification window
+       on a message that was never typed is how one request consumed its entire sibling-release
+       budget and then retired — 20 minutes after the fact, with nobody watching. */
+    /* An undeliverable verdict means undeliverable HERE — never globally. Contract 2 has the
+       surfaces race, so "no pane by that name in this window" is precisely the case a sibling
+       may be able to serve. Retiring on it would make a message die FASTER than the bug this
+       was meant to fix: observed today, a second App with no matching pane claimed a request,
+       spent both sibling releases, and killed a brief the other App could have delivered.
+       So: hand it back first, and only retire when the release budget is genuinely gone. */
+    const verdict = await awaitSendVerdict(req.name, emittedAt);
+    if (verdict && !verdict.ok) {
+      if (releaseForSibling(heldPath, req, verdict.reason)) return;   // let another surface try
+      markUndelivered(heldPath, req, verdict.reason);
+      return;
+    }
     const until = Date.now() + VERIFY_WINDOW_MS;
     while (Date.now() < until) {
       await new Promise((r) => setTimeout(r, VERIFY_TICK_MS));
@@ -193,11 +303,45 @@ async function runSend(
       }
       return;
     }
-    // It never landed. A sibling window or the other surface may own that terminal, and
-    // handing the claim back is very different from declaring the message undeliverable.
+    /* It never landed. Three DIFFERENT states used to collapse into one retirement here, and
+       the conflation cost a real message:
+
+         "a sibling window may own that terminal"  → hand the claim back (bounded by MAX_RELEASES)
+         "no sibling left to try"                  → NOT a failure. Keep waiting.
+         "the hold budget is gone / target is dead" → genuinely undeliverable
+
+       MAX_RELEASES is a bound on HANDOFFS, not a deadline. Treating "no sibling left" as
+       "undeliverable" retired a brief to aios-canonical after TWENTY SECONDS while 29m40s of
+       MAX_HOLD_MS sat unspent — the target was alive and merely mid-turn the whole time, which
+       is the exact case the 30-minute hold exists for. A busy session was declared unreachable
+       in the time it takes to answer one prompt.
+
+       So: exhausting the handoffs drops us back into the hold loop rather than ending it. Only
+       MAX_HOLD_MS expiry or a target that is actually gone retires a request. */
     if (releaseForSibling(heldPath, req, 'not verified in the target transcript')) return;
-    markUndelivered(heldPath, req,
-      `sent to '${req.name}' but it never appeared in that session's transcript, and the sibling-release budget is spent`);
+
+    const heldFor = Date.now() - claimedAt;
+    const stillThere = !!targetByName(req.name);
+    if (stillThere && heldFor < MAX_HOLD_MS) {
+      /* Re-verify BEFORE any re-delivery. The turn may have landed after our verify window
+         closed, and re-sending a message that already arrived is double delivery — the worst
+         outcome this protocol can produce, worse than the delay we are avoiding. The outer
+         loop re-reads the transcript baseline, so a late arrival is caught there. */
+      const late = countUserTurnsContaining(readTranscript(sessionId), needle);
+      if (verifyVerdict(before, late) !== 'pending') {
+        try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+        log(`delivered → '${req.name}' (verified late, after the window closed)`);
+        return;
+      }
+      log(`send → '${req.name}' not verified and no sibling left to try — HOLDING (${Math.round(heldFor / 1000)}s of ${Math.round(MAX_HOLD_MS / 1000)}s used). A busy target is not an undeliverable one.`);
+      await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+      if (!fs.existsSync(heldPath)) return;   // adopted or cleaned up elsewhere
+      continue;                                // back to the top: re-decide, re-deliver if idle
+    }
+
+    markUndelivered(heldPath, req, stillThere
+      ? `sent to '${req.name}' repeatedly for ${Math.round(heldFor / 60000)} min without it ever appearing in that session's transcript`
+      : `'${req.name}' is no longer a live session`);
     return;
   }
 }
@@ -306,10 +450,42 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
   }
 }
 
+/* AI-66 pt4 — DEAD LETTERS NEED A READER.
+   `.undelivered` was written honestly and then read by nobody. The README's promise that
+   "nothing rots" is about CONTENTION — retirement stops a stuck claim blocking another
+   surface — but it reads as a promise about MESSAGES, and it is not one. Retiring a request
+   does not deliver it. So from the sender's side a verified-FAILED send looked exactly like a
+   successful one: aios-app believed it had handed off work that never arrived, and the file
+   sat for twenty minutes until someone happened to `ls` the directory for an unrelated reason.
+
+   The verifier was never the problem — it refused to claim a delivery it could not prove, which
+   is exactly right. The gap is that its refusal was addressed to no one. */
+function surfaceDeadLetters(getWin: () => BrowserWindow | undefined): void {
+  const dir = inboxDir();
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.undelivered')); } catch { return; }
+  if (!files.length) return;
+  const items = files.map((f) => {
+    let to = '?', reason = 'unknown', at = 0;
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+      to = String(j.name ?? '?');
+      reason = String(j?._undelivered?.reason ?? 'unknown');
+      at = Number(j?._undelivered?.at ?? 0);
+    } catch { /* unreadable — still worth reporting that it exists */ }
+    return { file: f, to, reason, at };
+  });
+  for (const it of items) log(`DEAD LETTER — a message to '${it.to}' was never delivered: ${it.reason} (${it.file})`);
+  emit(getWin(), 'deadLetters', { items });
+}
+
 export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersion = '0.0.0'): void {
   const dir = inboxDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* non-fatal */ }
   ensureReadme(dir, appVersion);
+  // On boot and every 5 min: a dead letter must not be able to sit unseen.
+  surfaceDeadLetters(getWin);
+  setInterval(() => surfaceDeadLetters(getWin), 5 * 60 * 1000);
   recheck = (p: string) => { if (fs.existsSync(p)) consume(getWin, p); };
   try {
     // Only `*.json` is a request — `.holding` and `.undelivered` sit deliberately OUTSIDE

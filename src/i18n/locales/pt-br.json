@@ -859,5 +859,14 @@
   "setupCheck.ghNoBrew": "O GitHub CLI não está instalado, e o Homebrew neste Mac pertence a outra conta — então este app não pode instalá-lo para você. Instale em cli.github.com ou peça a quem administra o Mac.",
   "setupCheck.claudeRcBroken": "O Claude está instalado, mas o seu arquivo de inicialização do shell para no meio ({rc}) — nada depois daquela linha roda, incluindo a entrada de PATH. Corrija aquela linha ou use ~/.zprofile.",
   "setupCheck.accountUnfinished": "Conectado como {acct}, mas a primeira execução do Claude não terminou — responda às perguntas no terminal (tema, dicas) e ele para de perguntar.",
-  "setup.finishThenSend": "Sua sessão de configuração está esperando uma resposta — responda o que está na tela, depois pressione ↑ e Enter para enviar a instrução."
+  "setup.finishThenSend": "Sua sessão de configuração está esperando uma resposta — responda o que está na tela, depois pressione ↑ e Enter para enviar a instrução.",
+  "update.pill": "Atualizar o AIOS App",
+  "update.tip": "O AIOS {version} já foi baixado — reinicie para instalar",
+  "update.confirm": "Reiniciar o AIOS para instalar {version}?\n\nOs terminais abertos serão fechados.",
+  "update.confirmYes": "Reiniciar agora",
+  "update.confirmNo": "Depois",
+  "term.cmdClickOpen": "⌘-clique para abrir",
+  "viewer.changes": "{n} alterações",
+  "tab.endedSession": "{name} (encerrada)",
+  "bus.deadLetter": "Uma mensagem para {name} nunca foi entregue — veja o log"
 }

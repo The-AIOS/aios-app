@@ -159,6 +159,30 @@ export function verifyVerdict(before: number, now: number): VerifyVerdict {
 
 export const INBOX_CONTRACT = 2;
 
+/* ── Protocol TIMINGS — these are CONTRACT, not local tuning ──────────────────
+   Every fulfiller must use the same four numbers, because they decide *cross-process
+   ownership*. Measured by the AIOS App on 2026-07-25: with Glass holding at 45 min and
+   the App at 15, there is a 30-minute window where Glass believes it owns a hold the App
+   considers stale and adopts — and BOTH deliver. That is the double delivery contract 2
+   exists to prevent, reachable with neither implementation wrong on its own terms.
+   Change these only in lockstep across every fulfiller, and update the inbox README so
+   the next one inherits them. */
+export const TIMINGS = {
+  /** A `.holding` older than this may be adopted even if its claimer still lives. */
+  HOLD_STALE_MS: 45 * 60 * 1000,
+  /** How long a fulfiller waits for a target to become deliverable before giving up. */
+  MAX_HOLD_MS: 30 * 60 * 1000,
+  /** A request addressed to a surface that never took it is retired after this. */
+  RETIRE_TTL_MS: 10 * 60 * 1000,
+  /** Sibling-window handoffs before a request is declared undeliverable. */
+  MAX_RELEASES: 2,
+  /** How many times a fulfiller may actually TYPE a message before it stops re-sending and
+   *  only watches for a late arrival. Bounded because double delivery is the worst outcome
+   *  this protocol can produce — explicitly worse than latency. Exhausting it is NOT a
+   *  failure: the fulfiller keeps waiting out MAX_HOLD_MS in silence. */
+  MAX_DELIVERY_ATTEMPTS: 3,
+} as const;
+
 /** Which fulfiller a request is addressed to. Absent → any (contract-1 behaviour). */
 export type Surface = 'glass' | 'app';
 
@@ -224,7 +248,13 @@ export function canAdoptHold(
  * another window) might. Releasing the claim back to `*.json` is very different from
  * declaring the message undeliverable. Bounded, so two fulfillers can't ping-pong it.
  */
-export function shouldReleaseForSibling(releases: number, maxReleases: number): boolean {
+export function shouldReleaseForSibling(releases: number, maxReleases: number = TIMINGS.MAX_RELEASES): boolean {
+  /* The bound now DEFAULTS to the contract value instead of relying on every caller to pass
+     the right one. It was a required parameter, which meant this pure, fully unit-tested
+     function did not own the number that decides cross-process behaviour — so both surfaces
+     could pass different values and both test suites would still be green. That is the exact
+     shape of every failure in this ticket: a check that is correct about something nobody
+     verified. Callers may still override for tests; production passes nothing. */
   return releases < maxReleases;
 }
 

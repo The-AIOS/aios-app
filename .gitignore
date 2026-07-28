@@ -4,3 +4,6 @@ panel/index.html
 *.log
 .DS_Store
 dist/
+
+# isolated dev profile (npm run start:isolated) — never committed
+.dev-userdata/

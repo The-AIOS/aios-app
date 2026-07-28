@@ -2304,6 +2304,50 @@ export interface GitSnapshot { files: Record<string, string>; dirty: string[]; r
 // fs watcher events both ask for status repeatedly; one short-lived snapshot serves
 // them all. (The repo LIST was already cached; the expensive status pass wasn't.)
 let gitSnapCache: { key: string; at: number; snap: GitSnapshot } | null = null;
+/* Changed LINE RANGES for one file, for the editor's gutter — `git diff -U0` gives hunk
+   headers with no context, so `@@ -a,b +c,d @@` maps straight onto working-file lines.
+   Both diffs are read: unstaged AND --cached, because a file can be partly staged and the
+   operator wants to see everything not yet committed, not everything not yet staged.
+   An untracked file reports its whole length as added — the honest answer, and cheap.
+   Cached for 2s like gitStatusOne, since the gutter repaints on every keystroke. */
+const diffCache = new Map<string, { at: number; ranges: Array<[number, number]> }>();
+export function gitDirtyLines(absFile: string): Array<[number, number]> {
+  const now = Date.now();
+  const hit = diffCache.get(absFile);
+  if (hit && now - hit.at < 2000) return hit.ranges;
+  const ranges: Array<[number, number]> = [];
+  const root = repoRootOf(path.dirname(absFile));
+  if (!root) { diffCache.set(absFile, { at: now, ranges }); return ranges; }
+  const rel = path.relative(root, absFile);
+  const run = (args: string[]): string => {
+    try { return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+    catch { return ''; }
+  };
+  // untracked → every line is new
+  const tracked = run(['ls-files', '--error-unmatch', '--', rel]).trim().length > 0;
+  if (!tracked) {
+    try {
+      const n = fs.readFileSync(absFile, 'utf8').split('\n').length;
+      ranges.push([1, Math.max(1, n)]);
+    } catch { /* unreadable — no marks */ }
+    diffCache.set(absFile, { at: now, ranges });
+    return ranges;
+  }
+  for (const args of [['diff', '-U0', '--', rel], ['diff', '-U0', '--cached', '--', rel]]) {
+    for (const line of run(args).split('\n')) {
+      // @@ -12,3 +12,4 @@  → the +side is the working file. A count of 0 means a pure
+      // DELETION at that point: mark the surviving line so the change is still visible.
+      const m = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      if (!m) continue;
+      const start = Number(m[1]);
+      const count = m[2] === undefined ? 1 : Number(m[2]);
+      ranges.push(count === 0 ? [Math.max(1, start), Math.max(1, start)] : [start, start + count - 1]);
+    }
+  }
+  diffCache.set(absFile, { at: now, ranges });
+  return ranges;
+}
+
 export function gitStatusForRoots(roots: string[]): GitSnapshot {
   const key = roots.join(' ');
   const now = Date.now();

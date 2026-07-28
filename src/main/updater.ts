@@ -29,6 +29,16 @@ import { autoUpdater } from 'electron-updater';
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 
 export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
+  /* The single renderer sender. Kept above the isPackaged return so any future dev-side emit
+     can use it without reintroducing a TDZ: a `const` referenced above its own declaration
+     throws at module load and `node --check` cannot see it — this repo has already lost a
+     build to exactly that. */
+  const send = (channel: string, payload?: unknown): void => {
+    const win = getWin();
+    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('shell:updater', { channel, payload });
+    }
+  };
   // Never in dev / smoke / CI: an unpackaged app has no `app-update.yml`
   // (electron-builder bundles it from the `publish` block), and firing the
   // updater without a real code signature is exactly the mistake the Buzz
@@ -38,12 +48,7 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   autoUpdater.autoDownload = true;          // fetch in the background…
   autoUpdater.autoInstallOnAppQuit = true;  // …install on the next quit (no forced restart)
 
-  const emit = (channel: string, payload?: unknown): void => {
-    const win = getWin();
-    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
-      win.webContents.send('shell:updater', { channel, payload });
-    }
-  };
+  const emit = send;
 
   /* electron-updater logs to the console by default, and until this repo publishes releases
      the feed 404s — so every launch dumped a full HttpError with headers and a stack into the

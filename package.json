@@ -16,7 +16,8 @@
     "sync-core": "node scripts/sync-core.mjs",
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",
     "dist": "npm run compile && electron-builder --mac dmg && npm run verify:package",
-    "verify:package": "node scripts/verify-package.mjs"
+    "verify:package": "node scripts/verify-package.mjs",
+    "start:isolated": "npm run compile && electron . --user-data-dir=.dev-userdata"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",

@@ -9,6 +9,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import { TIMINGS } from '../core/sendQueue';
 import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor,
   isHoldPath, isBusy, isDeliverable, decideSend, safeNeedle, isSurface, claimVerdict,
@@ -167,18 +168,23 @@ test('giving up always leaves a readable artifact', () => {
   assert.match(src, /unparseable request/);
 });
 
-test('protocol timings match Glass exactly — they are contract, not tuning', () => {
+test('protocol timings are READ from the contract, never re-declared locally', () => {
+  /* This test used to assert that commandBus.ts contained its own literal `const MAX_HOLD_MS =
+     30 * 60_000;` and friends, "matching Glass exactly" — a claim it had no way to check, since
+     it cannot see the other repo. It was a hand-maintained mirror, and mirrors drift: TIMINGS
+     turned out to exist ONLY in Glass, with the App carrying loose consts linked by a comment.
+     So the assertion is inverted. The App must NOT own these numbers; it must read them from
+     the shared module, where the cross-repo hash guard (protocolContract.test.ts) enforces that
+     both copies are byte-identical. */
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  // Both surfaces reason about the same files, so a mismatch is a protocol bug, not a
-  // preference. HOLD_STALE was ours 15 min vs Glass's 45: in that 30-minute window Glass
-  // still owned a hold we would have adopted, and both would have delivered.
-  assert.match(src, /const RETIRE_TTL_MS = 10 \* 60_000;/);
-  assert.match(src, /const HOLD_STALE_MS = 45 \* 60_000;/);
-  assert.match(src, /const MAX_HOLD_MS = 30 \* 60_000;/);
-  assert.match(src, /const MAX_RELEASES = 2;/);
-  assert.match(src, /CONTRACT, not tuning/, 'say why, so nobody re-tunes one side');
+  for (const k of ['MAX_HOLD_MS', 'MAX_RELEASES', 'RETIRE_TTL_MS', 'HOLD_STALE_MS']) {
+    assert.match(src, new RegExp(`const ${k} = TIMINGS\\.`), `${k} must come from TIMINGS`);
+  }
+  assert.doesNotMatch(src, /const (MAX_HOLD_MS|HOLD_STALE_MS|RETIRE_TTL_MS) = \d+ \* 60_000/,
+    'no local literal may shadow a contract value — that is how the two surfaces drifted');
+  assert.match(fs.readFileSync('src/core/sendQueue.ts', 'utf8'), /CONTRACT, not local tuning/,
+    'say why, so nobody re-tunes one side');
 });
-
 /* ── delivery verification: the rule that makes "exactly 1" measurable ───────── */
 
 /** A transcript shaped like the real one that produced 5 substring hits for ONE delivery. */
@@ -230,15 +236,9 @@ test('the main side reads the transcript but delegates the RULE to core', () => 
 });
 
 test('HOLD_STALE_MS > MAX_HOLD_MS — a hold must not become adoptable before its holder gives up', () => {
-  // fleet-heron's invariant: if adoption could happen while the original holder is still
-  // legitimately waiting, the protocol invites the double delivery it exists to prevent
-  const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  const num = (name: string): number => {
-    const m = new RegExp(`const ${name} = (\\d+) \\* 60_000`).exec(src);
-    assert.ok(m, `${name} must be declared in minutes`);
-    return Number(m[1]);
-  };
-  const stale = num('HOLD_STALE_MS'), maxHold = num('MAX_HOLD_MS'), retire = num('RETIRE_TTL_MS');
-  assert.ok(stale > maxHold, `HOLD_STALE (${stale}m) must exceed MAX_HOLD (${maxHold}m)`);
-  assert.equal(stale, 45); assert.equal(maxHold, 30); assert.equal(retire, 10);
+  // If adoption could happen while the original holder is still legitimately waiting, the
+  // protocol invites the double delivery it exists to prevent. Asserted on the VALUES now,
+  // not scraped from source text.
+  assert.ok(TIMINGS.HOLD_STALE_MS > TIMINGS.MAX_HOLD_MS,
+    'a fulfiller must give up before its own claim becomes adoptable');
 });

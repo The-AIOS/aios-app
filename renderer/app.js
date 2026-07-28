@@ -315,12 +315,25 @@ function applyLayout() {
 
 function applySplit() {
   const tz = document.getElementById('termzone');
+  const vz = document.getElementById('viewzone');
   const hs = document.getElementById('hsplit');
   const anyTerm = [...panes.values()].some((p) => p.kind === 'term');
+  const anyMain = [...panes.values()].some((p) => zoneOf(p) === 'main');
   const show = split && anyTerm; // empty dock = invisible dock (less cockpit)
+  /* The editor zone earns the same rule the dock has always had. It used to stay open when
+     empty, which is what let the welcome state paint over an expanded terminal: expand only
+     redistributes (th → 0.93), so the zone survived as a ~7% sliver too short for its own
+     content, and a centred flex box spills both ways out of a box it does not fit.
+     Hiding it removes the overlap by construction rather than clipping it.
+     The AND is load-bearing: with NO terminal either, the welcome IS the window — an app
+     that opens to nothing at all would be worse than one with a stray logo. */
+  const showMain = anyMain || !show;
+  vz.style.display = showMain ? '' : 'none';
   tz.style.display = show ? '' : 'none';
-  hs.style.display = show ? '' : 'none';
-  tz.style.height = Math.round(th * 100) + '%';
+  hs.style.display = (show && showMain) ? '' : 'none';
+  // Sole survivor takes the whole work area — otherwise a hidden editor leaves th's
+  // remainder as dead space below the terminal.
+  tz.style.height = showMain ? Math.round(th * 100) + '%' : '100%';
   // re-home every pane + tab to its zone
   for (const [id, p] of panes) homePane(id, p);
   ensureActive('main');
@@ -1199,19 +1212,150 @@ const panesEl = (z) => document.getElementById(z === 'term' ? 'tpanes' : 'panes'
 function homePane(id, p, { fresh = false } = {}) {
   const z = zoneOf(p);
   // label · tabs · (+) … expand — the (+) travels with the tabs, expand pins right
-  tabsEl(z).insertBefore(p.tab, tabsEl(z).querySelector('.newTab'));
+  registerTab(id, z);
+  paintStrip(z);
   panesEl(z).appendChild(p.el);
   setVisible(z);
   updateEmpty();
-  const tz = document.getElementById('termzone');
-  if (split && p.kind === 'term' && tz.style.display === 'none') applySplit();
+  /* A pane landing in a HIDDEN zone must un-hide it, or the operator opens something and
+     nothing appears. This was terminal-only because only the dock could hide; now that the
+     editor zone hides on the same rule, both directions need it. */
+  const zoneEl = document.getElementById(z === 'term' ? 'termzone' : 'viewzone');
+  if (split && zoneEl && zoneEl.style.display === 'none') applySplit();
   if (fresh) revealZone(z);
 }
 
+/* The welcome state belongs to an EMPTY WINDOW, not to an empty editor zone. Keying it off
+   the main zone alone is what put the AIOS logo on top of an expanded terminal: no editor
+   pane meant "show the welcome" even when the operator was clearly working in a terminal. */
 function updateEmpty() {
-  const any = [...panes.values()].some((p) => zoneOf(p) === 'main');
+  const anyPane = panes.size > 0;
   const e = document.getElementById('empty');
-  if (e) e.style.display = any ? 'none' : 'flex';
+  if (e) e.style.display = anyPane ? 'none' : 'flex';
+}
+
+/* ═══ ⌘-CLICK A PATH IN A TERMINAL → OPEN IT IN THE EDITOR ═══════════════════
+   Asked for by an operator: "cuando nombra un archivo, poder hacer command + click para
+   abrirlo en el editor."
+
+   The first cut gated the whole provider on ⌘ being held, so nothing underlined until you
+   MOVED the mouse — xterm only re-queries a link provider on mouse movement, so pressing ⌘
+   over a stationary cursor did nothing at all. It read as lag; it was a missing trigger.
+
+   Now: hovering ALWAYS underlines and shows "⌘-click to open". That removes the trigger
+   problem, and it removes the reason the gate existed — an underline that a plain click
+   ignores is only confusing if nothing explains it. The tooltip explains it.
+
+   A candidate becomes a link only if it RESOLVES to a real file inside the allowed roots.
+   Terminal output is dense with path-shaped text (URLs, package names, `a/b` in diffs), so the
+   existence check is what stops half the screen underlining — and it doubles as containment.
+   Resolution is ONE batched IPC per line, memoised per line-text: the per-candidate round trip
+   was the actual latency. */
+const PATH_RE = /(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\d+)?|\b[A-Za-z0-9._@+-]+\.[A-Za-z]{1,8}(?::\d+)?/g;
+const linkCache = new Map();   // `${cwd}\n${lineText}` → { token: absPath }
+
+let pathTip = null;
+function showPathTip(x, y, text) {
+  if (!pathTip) { pathTip = el('div', 'pathtip'); document.body.appendChild(pathTip); }
+  pathTip.textContent = text;
+  pathTip.hidden = false;
+  // clamp so a path near the right edge stays on screen
+  const w = pathTip.offsetWidth || 220;
+  pathTip.style.left = Math.max(8, Math.min(x + 12, window.innerWidth - w - 8)) + 'px';
+  pathTip.style.top = Math.max(8, y - 34) + 'px';
+}
+function hidePathTip() { if (pathTip) pathTip.hidden = true; }
+
+function attachPathLinks(term, cwd) {
+  term.registerLinkProvider({
+    provideLinks(y, cb) {
+      const line = term.buffer.active.getLine(y - 1);
+      if (!line) { cb(undefined); return; }
+      const text = line.translateToString(true);
+      const hits = [...text.matchAll(PATH_RE)].slice(0, 24);
+      if (!hits.length) { cb(undefined); return; }
+      const key = (cwd || '') + '\n' + text;
+      const build = (map) => {
+        const links = [];
+        for (const m of hits) {
+          const abs = map[m[0]];
+          if (!abs) continue;
+          links.push({
+            range: { start: { x: m.index + 1, y }, end: { x: m.index + m[0].length, y } },
+            text: m[0],
+            decorations: { pointerCursor: true, underline: true },
+            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t('term.cmdClickOpen')),
+            leave: () => hidePathTip(),
+            activate: (ev) => {
+              hidePathTip();
+              // ⌘/Ctrl required, as asked. A plain click falls through to the terminal, so
+              // selecting text over a path still behaves like a terminal.
+              if (!ev.metaKey && !ev.ctrlKey) return;
+              void openViewer(abs);
+            },
+          });
+        }
+        cb(links.length ? links : undefined);
+      };
+      const cached = linkCache.get(key);
+      if (cached) { build(cached); return; }
+      window.glassShell.resolveFiles(hits.map((m) => m[0]), cwd).then((map) => {
+        if (linkCache.size > 400) linkCache.clear();   // bounded; the buffer scrolls forever
+        linkCache.set(key, map || {});
+        build(map || {});
+      }).catch(() => cb(undefined));
+    },
+  });
+}
+
+/* ═══ TAB ORDER — a MODEL, not a DOM artifact ════════════════════════════════
+   applySplit() re-homes every pane on every layout change, and homePane() re-inserts each
+   tab with insertBefore — which MOVES an existing node. So the strip's order was always a
+   replay of `panes` Map iteration order, and a Map cannot be reordered in place. Any drag
+   that only rearranged the DOM would look correct and then snap back on the next expand,
+   split toggle or theme change.
+
+   So order lives here, per zone, as the single source the strip is painted from. A pane can
+   change zones (a terminal moves between 'main' and 'term' when split toggles), so
+   registerTab keeps it in exactly one list. */
+const tabOrder = { main: [], term: [] };
+
+function registerTab(id, z) {
+  const other = z === 'main' ? 'term' : 'main';
+  const oi = tabOrder[other].indexOf(id);
+  if (oi >= 0) tabOrder[other].splice(oi, 1);
+  if (!tabOrder[z].includes(id)) tabOrder[z].push(id);
+}
+
+function unregisterTab(id) {
+  for (const z of ['main', 'term']) {
+    const i = tabOrder[z].indexOf(id);
+    if (i >= 0) tabOrder[z].splice(i, 1);
+  }
+}
+
+/* Paint the strip from the order model. Called after any re-home, which is what makes a
+   manual order survive the layout churn that used to erase it. */
+function paintStrip(z) {
+  const strip = tabsEl(z);
+  if (!strip) return;
+  const plus = strip.querySelector('.newTab');
+  for (const id of tabOrder[z]) {
+    const p = panes.get(id);
+    if (p && p.tab) strip.insertBefore(p.tab, plus);
+  }
+}
+
+/* Move `dragId` to just before/after `overId` inside one strip. Same-strip only by design:
+   a tab cannot cross zones, land in the explorer, or enter the panel. */
+function moveTab(z, dragId, overId, after) {
+  const list = tabOrder[z];
+  const from = list.indexOf(dragId);
+  if (from < 0) return;
+  list.splice(from, 1);
+  let to = list.indexOf(overId);
+  if (to < 0) { list.push(dragId); } else { list.splice(after ? to + 1 : to, 0, dragId); }
+  paintStrip(z);
 }
 
 function setVisible(z) {
@@ -1251,6 +1395,108 @@ function ensureActive(z) {
   setVisible(z);
 }
 
+/* ═══ APP UPDATE PILL ═══════════════════════════════════════════════════════
+   The mechanism has always worked (download + install-on-quit + a native OS notification);
+   what was missing was any in-app way to KNOW. updater.ts emitted on `shell:updater` and
+   nothing listened.
+
+   It appears on `ready` ONLY — never on `available`. While a download is in flight there is
+   nothing the operator can do, and a pill that invites a click it cannot honour is worse than
+   no pill. By the time it shows, the bytes are on disk and the only remaining act is a restart.
+
+   The text names the ACTION, not the state. "Update available" reports a fact and leaves the
+   reader to work out their move; "Restart to update" IS the move, and it is honest about the
+   cost — which matters here because a restart currently closes every terminal. */
+function showUpdatePill(version) {
+  const acts = document.getElementById('dragacts');
+  if (!acts) return;
+  let pill = document.getElementById('updPill');
+  if (!pill) {
+    pill = document.createElement('button');
+    pill.id = 'updPill';
+    pill.className = 'updpill';
+    acts.appendChild(pill);   // last child = rightmost in the title bar
+    pill.addEventListener('click', async () => {
+      const v = pill.dataset.version || '';
+      // Confirm, because this closes live terminals. Once session-restore lands the cost
+      // drops and this prompt can soften — until then it must not be a surprise.
+      if (!window.confirm(t('update.confirm', { version: v }))) return;
+      await window.glassShell.updaterInstall();
+    });
+  }
+  pill.dataset.version = version || '';
+  pill.textContent = t('update.pill');
+  pill.title = t('update.tip', { version: version || '' });
+  pill.hidden = false;
+}
+
+function hideUpdatePill() {
+  const pill = document.getElementById('updPill');
+  if (pill) pill.hidden = true;
+}
+
+if (window.glassShell.onUpdater) {
+  window.glassShell.onUpdater(({ channel, payload }) => {
+    if (channel === 'ready') showUpdatePill((payload || {}).version);
+    else if (channel === 'none' || channel === 'error') hideUpdatePill();
+    // 'checking' | 'available' | 'progress' are deliberately silent — see above.
+  });
+}
+
+/* AI-64 — THE TAB FOLLOWS THE SESSION, instead of freezing whatever it was called at launch.
+   A pane's name used to be set once by makeTab() and never revisited, which produced two
+   distinct bugs from one cause: `claude --resume` opened a pane hardcoded to the literal
+   "resume" while a differently-named session lived inside it, and `/rename` inside a session
+   never reached the tab. The app then disagreed with itself — byName() could not find the
+   session's pane, so Running offered to "open" an already-open session and fired a SECOND
+   resume into the same transcript.
+
+   The fix listens to something we were already being told and ignoring: Claude sets the tty
+   title, and `--name` is documented as "shown in the prompt box, /resume picker, and terminal
+   title". So the session announces its own identity, and xterm surfaces it as onTitleChange.
+   That makes the tab self-correcting for free — whatever the session believes it is called is
+   what the tab says, on resume, on rename, forever. No pid plumbing (the pty is a login
+   shell, so its pid is not Claude's) and no registry polling. */
+function renamePane(id, name) {
+  const p = panes.get(id);
+  if (!p || !name || name === p.name) return;
+  p.name = name;
+  const nm = p.tab.querySelector('.tname');
+  if (nm) nm.textContent = name;
+  // Running correlates by name, so it has to be repainted or the row stays orphaned.
+  paintRunning();
+}
+
+/* Only a Claude pane may be renamed by its title. A plain shell's title is its cwd or the
+   running command, and letting that rename the tab would turn "terminal" into "~/aios" or
+   "vim" on every keystroke. */
+function paneIsClaude(cmd) {
+  if (!cmd) return false;
+  return new RegExp('(^|[\\s\'"])' + CLAUDE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([\\s\'"]|$)').test(String(cmd));
+}
+
+/* Extract a session name from a tty title. Deliberately CONSERVATIVE: it returns null
+   unless the title looks like a session handle, because a wrong name is worse than a stale
+   one — a wrong name would make byName() match the WRONG pane and route an interrupt into
+   somebody else's session. Tightened against real observed titles (see TITLE_DEBUG). */
+function sessionNameFromTitle(title) {
+  const raw = String(title || '').trim();
+  if (!raw) return null;
+  // Strip a leading status glyph (Claude prefixes one) and any "— claude"/"· claude" suffix.
+  const cleaned = raw
+    .replace(/^[^\w~/]+/, '')
+    .replace(/\s*[—–·|-]\s*claude\s*$/i, '')
+    .trim();
+  // A session handle is the kebab-case slug the app itself generates. Anything with a path
+  // separator, a dot, or spaces is a cwd or a command, not a name.
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/i.test(cleaned)) return null;
+  return cleaned;
+}
+
+/* TEMPORARY (AI-64 investigation): log every title a pty emits so the real format can be
+   read off a live session instead of guessed. Remove before shipping. */
+const TITLE_DEBUG = true;
+
 function makeTab(id, name, iconName) {
   const tab = document.createElement('button');
   tab.className = 'tab';
@@ -1262,7 +1508,59 @@ function makeTab(id, name, iconName) {
     if (e.target === tx) { closePane(id); return; }
     setActive(id);
   });
+
+  /* ── drag to reorder, WITHIN ONE STRIP ONLY ──
+     Deliberately not a general drag-and-drop surface: a tab cannot cross into the other zone,
+     the explorer, or the panel. It moves left or right among its siblings and nothing else,
+     which is both what was asked for and the version with no ambiguous drop targets to
+     mis-handle. The drop point is decided by which HALF of the hovered tab the cursor is in,
+     so a short drag past a neighbour swaps them rather than requiring a full overshoot.
+
+     `effectAllowed = 'move'` plus a same-zone check on drop: the explorer already installs its
+     own dragover/drop handlers for file paths, and without the guard a tab dropped there would
+     be read as a path. */
+  tab.draggable = true;
+  tab.addEventListener('dragstart', (ev) => {
+    const p = panes.get(id);
+    if (!p) return;
+    dragTab = { id, zone: zoneOf(p) };
+    ev.dataTransfer.effectAllowed = 'move';
+    // A tab is not a file: publish an app-private type so no other drop target claims it.
+    try { ev.dataTransfer.setData('application/x-aios-tab', String(id)); } catch { /* older engines */ }
+    tab.classList.add('dragging');
+  });
+  tab.addEventListener('dragend', () => { dragTab = null; tab.classList.remove('dragging'); clearDropHint(); });
+  tab.addEventListener('dragover', (ev) => {
+    if (!dragTab) return;
+    const p = panes.get(id);
+    if (!p || zoneOf(p) !== dragTab.zone || dragTab.id === id) return;   // same strip, not itself
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    const r = tab.getBoundingClientRect();
+    const after = (ev.clientX - r.left) > r.width / 2;
+    clearDropHint();
+    tab.classList.add(after ? 'drop-after' : 'drop-before');
+  });
+  tab.addEventListener('dragleave', () => tab.classList.remove('drop-before', 'drop-after'));
+  tab.addEventListener('drop', (ev) => {
+    if (!dragTab) return;
+    const p = panes.get(id);
+    if (!p || zoneOf(p) !== dragTab.zone) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const r = tab.getBoundingClientRect();
+    moveTab(dragTab.zone, dragTab.id, id, (ev.clientX - r.left) > r.width / 2);
+    clearDropHint();
+    dragTab = null;
+  });
   return tab;
+}
+
+let dragTab = null;
+function clearDropHint() {
+  for (const el of document.querySelectorAll('.tab.drop-before, .tab.drop-after')) {
+    el.classList.remove('drop-before', 'drop-after');
+  }
 }
 
 /* Does this command need AIOS to be SET UP? Anything that invokes the Claude CLI does —
@@ -1347,9 +1645,10 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   term.loadAddon(fit);
   // cwd powers "open terminal here"; main validates it against the allowed roots and
   // falls back to the framework root. It was accepted there and silently dropped here.
-  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd });
+  // `name` travels as data, not smuggled inside the command string — see termEnv().
+  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name });
   const tab = makeTab(id, name, 'term');
-  const p = { kind: 'term', name, el, tab, term, fit, exited: false };
+  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, isSession: paneIsClaude(cmd) };
   panes.set(id, p);
   homePane(id, p, { fresh: true });
   // raw tty fills the pane — type straight into the session; drag with the mouse
@@ -1385,6 +1684,11 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   fit.fit();
   ensureTermRoom(id, p);
   pushPtyGeom(id, p);
+  /* ONLY NOW run the opening command. Everything above establishes the real geometry — fit
+     measures the pane, ensureTermRoom may grow the dock, pushPtyGeom tells the pty. Launching
+     the command before this point ran it at 80×24 and then resized underneath it, which is
+     what garbled the `claude --resume` picker. A TUI must never be started at a lie. */
+  if (cmd) void window.glassShell.ptyRun(id, cmd);
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === 'keydown' && handleChord(e)) return false; // ⌘⌥G chords win everywhere
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
@@ -1393,7 +1697,16 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
     // will try first. Without these, ⌘C sent nothing and ⌘←/→ did nothing at all.
     const k = e.key;
     if (k === 'c') { const sel = term.getSelection(); if (sel) { void window.glassShell.copyText(sel); return false; } return true; }
-    if (k === 'v') { void window.glassShell.readText().then((txt) => { if (txt) window.glassShell.ptyWrite(id, txt); }); return false; }
+    /* ⌘V is deliberately NOT handled here. It used to be, and it pasted EVERYTHING TWICE:
+       returning false suppresses xterm's KEYBOARD handling but not the browser's native
+       `paste` event, which xterm also listens for on its helper textarea — so our write and
+       xterm's write both landed. (`role: 'editMenu'` in menu.ts is what delivers that native
+       paste, so the built-in path was always live.)
+       Removing ours also fixes something quieter: xterm wraps pasted text in BRACKETED PASTE
+       sequences when the mode is on, and our raw ptyWrite did not — so multi-line pastes into
+       Claude Code were being read as a series of submissions instead of one block. The
+       hand-rolled path was not just redundant, it was the wrong one. ⌘C still needs help
+       (xterm has no native copy for a terminal selection), which is why it stays. */
     if (k === 'ArrowLeft') { window.glassShell.ptyWrite(id, '\x01'); return false; }   // line start
     if (k === 'ArrowRight') { window.glassShell.ptyWrite(id, '\x05'); return false; }  // line end
     if (k === 'ArrowUp') { term.scrollToTop(); return false; }
@@ -1419,6 +1732,26 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   // the pane under the pointer is the one the operator meant)
   attachDropZone(el, (paths) => { window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id); });
   term.onData((d) => window.glassShell.ptyWrite(id, d));
+  attachPathLinks(term, cwd);
+  /* AI-64: the session tells us its own name through the tty title. */
+  term.onTitleChange((title) => {
+    if (!paneIsClaude(p.cmd)) return;
+    const nm = sessionNameFromTitle(title);
+    if (nm) { p.isSession = true; renamePane(id, nm); return; }
+    /* THE SESSION ENDED IN A PANE THAT KEEPS ITS NAME.
+       Ctrl+C twice drops Claude and hands the pane back to the shell, which retitles the tty
+       to its cwd. The tab used to keep the session's name forever — and that is not cosmetic:
+       byName() would still match this pane, so a bus `send` addressed to the session got typed
+       into a BASH PROMPT. Canonical mode then cut it at 1024 bytes and the shell tried to
+       EXECUTE it. Observed today: a 1,343-byte brief delivered into a shell, verified missing
+       from the transcript, retired as .undelivered.
+       So a non-session title is positive evidence the session is gone: drop the claim to the
+       name, and stop answering to it. Optimistic default (isSession starts true for a Claude
+       pane) so a session whose title we never parse still receives — we only ever REMOVE
+       deliverability on evidence, never withhold it on silence. */
+    p.isSession = false;
+    renamePane(id, t('tab.endedSession', { name: p.name }));
+  });
   // one source of truth for geometry pushes, so xterm's own resize event cannot re-send
   // a size pushPtyGeom already sent (or vice versa)
   term.onResize(() => pushPtyGeom(id, p));
@@ -1450,9 +1783,13 @@ function closePane(id) {
   p.el.remove();
   p.tab.remove();
   panes.delete(id);
+  unregisterTab(id);
   if (active[z] === id) ensureActive(z);
   updateEmpty();
-  if (split && ![...panes.values()].some((q) => q.kind === 'term')) applySplit();
+  /* Unconditional now. It used to re-split only when the LAST TERMINAL closed, which was
+     right when only the dock could hide; the editor zone hides on the same rule today, so
+     closing the last editor pane has to re-run the split too or the zone stays open empty. */
+  if (split) applySplit();
   paintRunning();
 }
 
@@ -1665,13 +2002,91 @@ window.addEventListener('keydown', (e) => {
    editing shows colors live (the CodeJar/Prism overlay technique), via highlight.js. */
 const LANG_MAP = { md: 'markdown', markdown: 'markdown', mdx: 'markdown', js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', mts: 'typescript', json: 'json', jsonc: 'json', css: 'css', scss: 'scss', less: 'less', html: 'xml', htm: 'xml', xml: 'xml', svg: 'xml', vue: 'xml', py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', sql: 'sql', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', c: 'c', h: 'c', cpp: 'cpp', txt: '' };
 function langFor(name) { return LANG_MAP[(name.split('.').pop() || '').toLowerCase()] ?? ''; }
-function buildCodeEditor(initial, lang, hooks) {
+function buildCodeEditor(initial, lang, hooks, gitPath) {
   const wrap = el('div', 'codeedit');
   const pre = el('pre', 'codehl hljs');
   const code = document.createElement('code'); pre.appendChild(code);
   const ta = document.createElement('textarea'); ta.className = 'codeta'; ta.spellcheck = false; ta.value = initial;
   ta.setAttribute('wrap', 'off');
   wrap.append(pre, ta);
+  /* UNCOMMITTED-CHANGE BARS. A 3px column at the left edge, NOT a real gutter: this editor is
+     a highlighted <pre> sitting exactly behind a transparent <textarea>, and the two must align
+     to the pixel or the caret drifts from the glyphs. Inserting a gutter would shift both and
+     put that alignment at risk for a decoration. An overlay costs nothing and cannot break it.
+     Positions come from git's own hunk headers (`git diff -U0`, unstaged AND --cached, so a
+     partly-staged file still shows everything uncommitted). */
+  const gut = el('div', 'codegutter');
+  wrap.appendChild(gut);
+  let dirtyRanges = [];
+  const paintGutter = () => {
+    const cs = getComputedStyle(pre);
+    const lh = parseFloat(cs.lineHeight) || 18;
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    gut.replaceChildren();
+    for (const [from, to] of dirtyRanges) {
+      const d = el('div', 'dirtymark');
+      d.style.top = (padTop + (from - 1) * lh - ta.scrollTop) + 'px';
+      d.style.height = Math.max(2, (to - from + 1) * lh) + 'px';
+      gut.appendChild(d);
+    }
+  };
+  /* ── SKIMMING CHANGES ──
+     Two different jobs, so two different affordances:
+
+     The RULER answers "where are the changes?" without scrolling at all — a full-height strip
+     on the right with every hunk at its proportional position. That is the piece that removes
+     the hunt: you see the shape of the diff in one glance, and click to land on any of it.
+     A left-margin bar can only ever tell you about the screenful you are already looking at.
+
+     The STEPPER answers "take me through them, in order" — ‹ › with a count, wired to ⌥↑/⌥↓.
+     Buttons rather than shortcut-only because this app has non-technical operators; a
+     shortcut nobody discovers is not a feature. */
+  const over = el('div', 'codeoverview');
+  wrap.appendChild(over);
+  let cursor = -1;   // which hunk the stepper last landed on
+  const totalLines = () => Math.max(1, ta.value.split('\n').length);
+  const lineH = () => parseFloat(getComputedStyle(pre).lineHeight) || 18;
+
+  const paintOverview = () => {
+    const n = totalLines();
+    over.replaceChildren();
+    for (const [from, to] of dirtyRanges) {
+      const d = el('div', 'ovmark');
+      d.style.top = ((from - 1) / n * 100) + '%';
+      d.style.height = Math.max(0.6, (to - from + 1) / n * 100) + '%';
+      over.appendChild(d);
+    }
+  };
+  // click the ruler → jump to that proportional point in the file
+  over.addEventListener('click', (ev) => {
+    const r = over.getBoundingClientRect();
+    const line = Math.round(((ev.clientY - r.top) / Math.max(1, r.height)) * totalLines());
+    centerLine(line);
+  });
+
+  function centerLine(line) {
+    const lh = lineH();
+    const padTop = parseFloat(getComputedStyle(pre).paddingTop) || 0;
+    ta.scrollTop = Math.max(0, padTop + (line - 1) * lh - ta.clientHeight / 2);
+    sync();
+  }
+  function step(dir) {
+    if (!dirtyRanges.length) return;
+    cursor = (cursor + dir + dirtyRanges.length) % dirtyRanges.length;
+    if (cursor < 0) cursor = dirtyRanges.length - 1;
+    centerLine(dirtyRanges[cursor][0]);
+    hooks.onStep?.(cursor + 1, dirtyRanges.length);
+  }
+
+  const refreshGutter = async () => {
+    if (!gitPath) return;
+    try { dirtyRanges = (await window.glassShell.dirtyLines(gitPath)) || []; } catch { dirtyRanges = []; }
+    // hunks come from two diffs (unstaged + cached) so they arrive unsorted and can overlap
+    dirtyRanges.sort((x, z) => x[0] - z[0]);
+    paintGutter();
+    paintOverview();
+    hooks.onChanges?.(dirtyRanges.length);
+  };
   const hl = () => {
     let t = ta.value; if (t.endsWith('\n')) t += ' '; // render the trailing blank line
     if (lang && window.hljs && window.hljs.getLanguage(lang)) {
@@ -1679,15 +2094,20 @@ function buildCodeEditor(initial, lang, hooks) {
     }
     code.textContent = t;
   };
-  const sync = () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; };
+  const sync = () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; paintGutter(); };
   ta.addEventListener('input', () => { hl(); hooks.onInput(ta.value); });
   ta.addEventListener('scroll', sync);
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; hl(); hooks.onInput(ta.value); }
     else if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); hooks.onSave(ta.value); }
+    // ⌥↓ / ⌥↑ — next / previous uncommitted change
+    else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); step(e.key === 'ArrowDown' ? 1 : -1); }
   });
   ta.addEventListener('blur', () => hooks.onBlur(ta.value));
   hl();
+  void refreshGutter();
+  wrap.refreshGutter = refreshGutter;   // the viewer re-reads git after a save
+  wrap.stepChange = step;               // the header stepper drives the same path as ⌥↑/⌥↓
   return wrap;
 }
 
@@ -1769,11 +2189,21 @@ async function openViewer(p) {
     if (mode === 'source') {
       // source IS the editor — now syntax-highlighted (code-editor style): autosaves
       // 700ms after you stop typing, on blur, and on ⌘S.
+      const after = (v) => save(v).then(() => { try { editor.refreshGutter?.(); } catch { /* gone */ } });
+      /* The change stepper lives in the viewer header and only exists when the file HAS
+         uncommitted changes — a "0 changes ‹ ›" control is noise on a clean file. */
+      const chg = el('span', 'chgnav'); chg.hidden = true;
+      const chgN = el('span', 'chgcount');
+      const mk = (label, dir) => { const b2 = el('button', 'chgbtn', label); b2.addEventListener('click', () => editor.stepChange?.(dir)); return b2; };
+      chg.append(chgN, mk('‹', -1), mk('›', 1));
       const editor = buildCodeEditor(file.content, langFor(name), {
-        onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void save(v), 700); },
-        onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void save(v); },
-        onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void save(v); } },
-      });
+        onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },
+        onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
+        onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
+        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t('viewer.changes', { n }); },
+        onStep: (i, n) => { chgN.textContent = i + '/' + n; },
+      }, file.path);
+      head.appendChild(chg);
       body.appendChild(editor);
       return;
     }
@@ -2006,7 +2436,17 @@ function paintDropHints() {
 }
 paintDropHints();
 const clearDragging = () => { dragDepth = 0; document.body.classList.remove('dragging'); };
-window.addEventListener('dragenter', () => setDragging(true));
+/* A TAB DRAG IS NOT A FILE DRAG. This lights the editor + terminal drop zones for anything
+   entering the window, which was right while every drag was a path from the explorer or
+   Finder. Reordering a tab is now also a drag, and it made both zones offer themselves as
+   drop targets for something they can never accept — the tab handlers refused it correctly,
+   so the zones lit up and then did nothing, which reads as a broken drop rather than an
+   invalid one.
+   The type test has to read `types`, not getData(): during a drag the DataTransfer is in
+   PROTECTED MODE and getData() returns '' by spec (see attachDropZone below, where testing
+   getData() once broke dropping entirely). */
+const isTabDrag = (ev) => [...(ev.dataTransfer?.types || [])].includes('application/x-aios-tab');
+window.addEventListener('dragenter', (ev) => { if (!isTabDrag(ev)) setDragging(true); });
 window.addEventListener('dragleave', (ev) => { if (!ev.relatedTarget) clearDragging(); });
 /* `dragend` only fires on the element the drag STARTED from, so an external drag never
    produces one — for a Finder drop, `drop` is the only signal we get. And it has to be
@@ -2037,6 +2477,9 @@ function attachDropZone(elm, onPath, opts = {}) {
   const DROP_TYPES = ['application/x-aios-path', 'text/uri-list', 'text/plain', 'Files'];
   const ok = (ev) => {
     const types = [...(ev.dataTransfer?.types || [])];
+    // Explicit refusal, not refusal-by-omission: a tab reorder must never be read as a path,
+    // even if a future change adds 'text/plain' to a tab's dataTransfer.
+    if (types.includes('application/x-aios-tab')) return false;
     return types.some((tp) => DROP_TYPES.includes(tp));
   };
   elm.addEventListener('dragover', (ev) => {
@@ -2670,9 +3113,26 @@ window.glassShell.onIntent(async (m) => {
       if (active.term !== null) closePane(active.term);
       else if (active.main !== null && panes.get(active.main)?.kind === 'term') closePane(active.main);
       return;
+    case 'deadLetters': {
+      /* A dead letter is a message that died. It gets a toast per item, because the failure
+         mode being fixed is precisely that this was written down and never read. */
+      for (const it of (m.items || []).slice(0, 3)) {
+        toast(t('bus.deadLetter', { name: it.to }));
+      }
+      return;
+    }
     case 'sendByName': {
+      /* A `send` addresses a SESSION. Typing into a pane that merely still carries the name is
+         how a brief ended up executing at a bash prompt. Report the outcome back so the bus can
+         retire the request immediately instead of burning its release budget waiting for a
+         verification that can never succeed. */
       const hit = byName(m.name);
-      if (hit) { submitToPty(hit[0], m.text); setActive(hit[0]); }
+      const p = hit ? panes.get(hit[0]) : null;
+      if (!p || p.exited) { window.glassShell.busSendResult(m.name, false, 'no pane by that name in this surface'); return; }
+      if (!p.isSession) { window.glassShell.busSendResult(m.name, false, 'that pane is no longer running the session (its Claude exited; it is a shell now)'); return; }
+      submitToPty(hit[0], m.text);
+      setActive(hit[0]);
+      window.glassShell.busSendResult(m.name, true, '');
       return;
     }
     case 'escByName': {

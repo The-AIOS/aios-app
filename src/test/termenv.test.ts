@@ -16,7 +16,7 @@ test('INVARIANT: termEnv clears CLAUDE_CODE_CHILD_SESSION + forces session persi
   assert.match(src, /function termEnv\(/, 'a termEnv() chokepoint must exist');
   assert.match(src, /delete env\.CLAUDE_CODE_CHILD_SESSION/, 'must CLEAR the inherited child-session marker');
   assert.match(src, /CLAUDE_CODE_FORCE_SESSION_PERSIST\s*=\s*'1'/, 'must FORCE session persistence');
-  assert.match(src, /env:\s*termEnv\(opts\.cmd\)/, 'pty:spawn must use termEnv(opts.cmd), not raw process.env');
+  assert.match(src, /env:\s*termEnv\(opts\.cmd,\s*opts\.name\)/, 'pty:spawn must route env through termEnv and pass the name EXPLICITLY — deriving it from the command string is what let resume ship unnamed');
 });
 
 test('INVARIANT: termEnv sets CLAUDE_AGENT_NAME so the session ritual runs', () => {
@@ -24,7 +24,17 @@ test('INVARIANT: termEnv sets CLAUDE_AGENT_NAME so the session ritual runs', () 
   // no identity and skips CLAUDE.md's Session Start Ritual (agent match + context).
   const src = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(src, /env\.CLAUDE_AGENT_NAME\s*=/, 'must set CLAUDE_AGENT_NAME for named sessions');
-  assert.match(src, /--name/, 'must derive the name from the command so every launch path is covered');
+  assert.match(src, /--name/, 'the command-embedded fallback must remain for callers that spell --name themselves');
+  // AI-64: the name is a PARAMETER now. Regex-over-the-command was the whole bug — a path
+  // that never spells --name (every resume) came up unnamed with nothing reporting it.
+  assert.match(src, /function termEnv\(cmd\?: string, name\?: string\)/, 'termEnv must accept the name explicitly, not only recover it from the command');
+  assert.match(src, /const explicit = \(name \|\| ''\)/, 'the explicit name must take precedence over the command-derived fallback');
+});
+
+test('INVARIANT: every renderer pane passes its name to ptySpawn', () => {
+  // The pane already knew its name for the tab; it just never reached the pty env.
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /ptySpawn\(\{[^}]*name[^}]*\}\)/, 'createPane must forward `name` to ptySpawn');
 });
 
 test('INVARIANT: a session launched with no task still gets a ritual bootstrap prompt', () => {
@@ -34,4 +44,13 @@ test('INVARIANT: a session launched with no task still gets a ritual bootstrap p
   assert.match(app, /RITUAL_BOOTSTRAP/, 'renderer must pass a bootstrap prompt when no task is given');
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(bus, /req\.task \|\| 'Start session'/, 'the bus must bootstrap a task-less spawn');
+});
+
+test('INVARIANT: paste is never hand-rolled — one write, bracketed', () => {
+  // A custom Cmd+V handler pasted twice: returning false from attachCustomKeyEventHandler
+  // stops xterm's KEY handling but not the native `paste` event it also listens for. It also
+  // bypassed bracketed paste, so multi-line pastes submitted line by line.
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.doesNotMatch(app, /k === 'v'\s*\)\s*\{[^}]*ptyWrite/, 'Cmd+V must not write the clipboard itself');
+  assert.match(app, /k === 'c'/, "Cmd+C must stay — xterm has no native copy for a terminal selection");
 });

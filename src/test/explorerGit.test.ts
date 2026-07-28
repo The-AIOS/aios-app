@@ -95,7 +95,9 @@ test('"open terminal here" actually reaches the pty as a cwd', () => {
   // main validated and honoured `cwd` all along; the renderer's destructure dropped it, so
   // every "open terminal here" silently landed in the framework root instead
   assert.match(app, /async function createPane\(\{ name = 'terminal', cmd, cwd, bypassReady = false \} = \{\}\)/);
-  assert.match(app, /ptySpawn\(\{ cols: 80, rows: 24, cmd, cwd \}\)/);
+  // Asserts the INTENT (cwd reaches the pty), not the literal argument list — the list grew
+  // a `name` for AI-64 and a shape-exact regex made an unrelated test fail.
+  assert.match(app, /ptySpawn\(\{[^}]*\bcwd\b[^}]*\}\)/);
   assert.match(app, /void createPane\(\{ name: dir\.split\('\/'\)\.pop\(\) \|\| 'terminal', cwd: dir \}\)/);
 });
 
@@ -168,8 +170,22 @@ test('the drop accept-test reads TYPES, never getData — dragover is protected'
   // preventDefault was never called and the browser rejected every drop — the zone lit up
   // (that comes from the window-level dragenter) and releasing did nothing.
   assert.match(app, /const DROP_TYPES = \['application\/x-aios-path', 'text\/uri-list', 'text\/plain', 'Files'\];/);
-  assert.match(app, /const types = \[\.\.\.\(ev\.dataTransfer\?\.types \|\| \[\]\)\];\n\s*return types\.some/);
+  // Intent, not layout: the accept test must READ types and must not call getData. Pinning
+  // the two lines as ADJACENT broke when a tab-drag guard was inserted between them.
+  assert.match(app, /const ok = \(ev\) => \{[\s\S]{0,400}?ev\.dataTransfer\?\.types[\s\S]{0,400}?types\.some\(/, 'ok() must read dataTransfer.types');
+  const okBody = /const ok = \(ev\) => \{([\s\S]*?)\n  \};/.exec(app)?.[1] ?? '';
+  assert.ok(okBody.length > 0, 'ok() body must be findable');
+  assert.doesNotMatch(okBody, /getData/, 'ok() must never call getData — protected mode returns \'\' by spec');
   assert.doesNotMatch(app, /const ok = \(ev\) => !!draggedPath\(ev\)/, 'the getData-based test is gone');
+});
+
+test('a tab reorder drag never arms the file drop zones', () => {
+  // A tab drag is a drag, and the window-level dragenter lit both zones for ANY drag — so
+  // reordering a tab offered two drop targets that could never accept it.
+  assert.match(app, /const isTabDrag = \(ev\) =>[\s\S]{0,200}?application\/x-aios-tab/, 'a tab-drag test must exist');
+  assert.match(app, /dragenter', \(ev\) => \{ if \(!isTabDrag\(ev\)\) setDragging\(true\); \}\)/, 'the window dragenter must skip tab drags');
+  assert.match(app, /if \(types\.includes\('application\/x-aios-tab'\)\) return false;/, 'the zone accept-test must refuse tab drags explicitly');
+  assert.match(app, /tab\.draggable = true/, 'tabs must be draggable');
 });
 
 test('the drop overlay lands where pane content begins', () => {

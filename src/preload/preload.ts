@@ -7,7 +7,15 @@ contextBridge.exposeInMainWorld('glassShell', {
      like they work and then do nothing. */
   pathForFile: (f: File): string => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
   addFolderPath: (p: string): Promise<string | null> => ipcRenderer.invoke('fs:addFolderPath', p),
-  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
+  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
+  /* App self-update. `updater.ts` has emitted on `shell:updater` since it was written and
+     NOTHING listened — its own comment called the renderer surface a "future" one. These
+     three lines are that surface's whole cost. */
+  onUpdater: (cb: (m: { channel: string; payload?: unknown }) => void): void => {
+    ipcRenderer.on('shell:updater', (_e, m) => cb(m));
+  },
+  updaterCheck: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),
+  updaterInstall: (): Promise<unknown> => ipcRenderer.invoke('updater:quitAndInstall'),
   ptyWrite: (id: number, data: string) => ipcRenderer.send('pty:write', { id, data }),
   ptyResize: (id: number, cols: number, rows: number) => ipcRenderer.send('pty:resize', { id, cols, rows }),
   ptyKill: (id: number) => ipcRenderer.send('pty:kill', { id }),
@@ -26,6 +34,13 @@ contextBridge.exposeInMainWorld('glassShell', {
   setMasterSort: (mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setMasterSort', mode),
   fsRead: (p: string): Promise<{ path: string; content: string } | null> => ipcRenderer.invoke('fs:read', p),
   resolveNote: (name: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveNote', name),
+  resolveFile: (cand: string, base?: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveFile', cand, base),
+  dirtyLines: (abs: string): Promise<Array<[number, number]>> => ipcRenderer.invoke('fs:dirtyLines', abs),
+  resolveFiles: (cands: string[], base?: string): Promise<Record<string, string>> => ipcRenderer.invoke('fs:resolveFiles', cands, base),
+  ptyRun: (id: number, cmd: string): Promise<boolean> => ipcRenderer.invoke('pty:run', { id, cmd }),
+  /* AI-66 pt3 — the renderer tells the bus whether a send actually landed, so a request that
+     cannot be delivered here is retired at once instead of waiting out a verification window. */
+  busSendResult: (name: string, ok: boolean, reason: string): void => { ipcRenderer.send('bus:sendResult', { name, ok, reason }); },
   vaultRoot: (): Promise<string | null> => ipcRenderer.invoke('shell:vaultRoot'),
   fsWrite: (p: string, content: string): Promise<boolean> => ipcRenderer.invoke('fs:write', p, content),
   setupCheck: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('setup:check'),

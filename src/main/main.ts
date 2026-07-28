@@ -59,7 +59,7 @@ function createWindow(): BrowserWindow {
 //  • FORCE CLAUDE_CODE_FORCE_SESSION_PERSIST — a persisted, resumable session.
 //  • AIOS_GLASS_TERM — mark the terminal so the shell `spawn` wrapper boots a worker IN-PLACE
 //    here (not osascript a detached window) if `spawn` is ever run from inside a pane.
-function termEnv(cmd?: string): Record<string, string> {
+function termEnv(cmd?: string, name?: string): Record<string, string> {
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
   delete env.CLAUDE_CODE_CHILD_SESSION;
   env.CLAUDE_CODE_FORCE_SESSION_PERSIST = '1';
@@ -72,11 +72,19 @@ function termEnv(cmd?: string): Record<string, string> {
   // between an app-launched session and an IDE/Glass one. Deriving it from the
   // command's own `--name` covers EVERY launch path at this one chokepoint
   // (spawn button, agents, skills, commands, rituals, resume, the command bus).
+  //
+  // The name arrives EXPLICITLY from the caller. It used to be recovered by regex from the
+  // command string, and that is how resume shipped unnamed for months: the comment above
+  // claimed resume was covered, but `claude --resume` spells no `--name`, so the regex found
+  // nothing and said nothing. A parameter makes an unnamed launch visible at the call site
+  // instead of silently absent here.
+  const explicit = (name || '').trim();
+  // Fallback for callers that embed `--name` in the command itself (rituals, agents, the
+  // command bus). Kept so nothing regresses — but it is the fallback now, not the mechanism.
   const m = /--name\s+("[^"]+"|'[^']+'|\S+)/.exec(cmd || '');
-  if (m) {
-    const name = m[1].replace(/^["']|["']$/g, '');
-    if (/^[a-z0-9][a-z0-9-]*$/i.test(name)) env.CLAUDE_AGENT_NAME = name;
-  }
+  const derived = m ? m[1].replace(/^["']|["']$/g, '') : '';
+  const chosen = explicit || derived;
+  if (chosen && /^[a-z0-9][a-z0-9-]*$/i.test(chosen)) env.CLAUDE_AGENT_NAME = chosen;
   return env;
 }
 
@@ -114,7 +122,7 @@ function spillLongCommand(cmd: string): string {
   }
 }
 
-ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string }) => {
+ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }) => {
   const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh');
   /* The working directory must EXIST, or node-pty exits immediately with code 1 and every
      terminal is born "[session ended]". The old fallback was ~/aios unconditionally, so on
@@ -133,14 +141,28 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
     name: 'xterm-256color',
     cols: opts.cols, rows: opts.rows,
     cwd,
-    env: termEnv(opts.cmd),
+    env: termEnv(opts.cmd, opts.name),
   });
   const id = nextId++;
   ptys.set(id, p);
   p.onData((data) => { if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data }); });
   p.onExit(({ exitCode }) => { ptys.delete(id); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
-  if (opts.cmd) p.write(spillLongCommand(opts.cmd) + '\r');
+  /* THE COMMAND IS NOT WRITTEN HERE ANY MORE — see `pty:run`.
+     It used to run right at spawn, while the pty was still at the hardcoded 80×24 the renderer
+     passes before it has measured anything. A shell prompt survives that (it reflows), but a
+     FULL-SCREEN TUI does not: `claude --resume` painted its picker at 80 columns and then the
+     pty was resized to the real grid, so xterm reflowed a half-drawn full-screen interface.
+     That is the resume glitch — visible only on resume because only resume opens a TUI. */
   return id;
+});
+/* Run a pane's opening command AFTER the renderer has fitted the terminal and pushed the real
+   geometry. Stays in main because spillLongCommand needs userData + fs (the 1024-byte MAX_CANON
+   spill), and that protection must not be bypassable from the renderer. */
+ipcMain.handle('pty:run', (_e, { id, cmd }: { id: number; cmd: string }) => {
+  const p = ptys.get(id);
+  if (!p || !cmd) return false;
+  p.write(spillLongCommand(String(cmd)) + '\r');
+  return true;
 });
 ipcMain.on('pty:write', (_e, { id, data }: { id: number; data: string }) => ptys.get(id)?.write(data));
 ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: number; cols: number; rows: number }) => ptys.get(id)?.resize(cols, rows));
@@ -236,6 +258,46 @@ ipcMain.handle('fs:list', (_e, dirPath: string) => {
   } catch { return []; }
 });
 // AI-58: sort prefs (shared shape with Glass — src/core/sort.ts keys in .glass/state.json)
+/* Resolve a path-shaped token from terminal output into a real, openable file.
+   Existence inside the allowed roots is BOTH the safety property and the precision filter:
+   terminal output is full of things that look like paths, and only underlining the ones that
+   actually resolve is what stops the whole screen from lighting up. Returns the absolute path
+   or null — deliberately not the content, because this runs on hover. */
+ipcMain.handle('fs:resolveFile', (_e, cand: string, base?: string) => {
+  try {
+    let c = String(cand || '').trim().replace(/[)\]},.;:'"]+$/, '');   // trailing punctuation from prose
+    if (!c) return null;
+    c = c.replace(/:\d+(?::\d+)?$/, '');                              // file.ts:42[:7] → file.ts
+    if (c.startsWith('~')) c = path.join(os.homedir(), c.slice(1));
+    const bases = [base, aios.frameworkRoot(), os.homedir()].filter(Boolean) as string[];
+    const cands = path.isAbsolute(c) ? [c] : bases.map((b) => path.resolve(b, c));
+    for (const abs of cands) {
+      if (!inAllowed(abs)) continue;
+      try { if (fs.statSync(abs).isFile()) return abs; } catch { /* next */ }
+    }
+    return null;
+  } catch { return null; }
+});
+/* Plural form: a hovered terminal line can hold a dozen path-shaped tokens, and resolving
+   them one IPC at a time is what made the first hover feel slow. */
+ipcMain.handle('fs:resolveFiles', (_e, cands: string[], base?: string) => {
+  const out: Record<string, string> = {};
+  for (const c of (Array.isArray(cands) ? cands : []).slice(0, 24)) {
+    try {
+      let v = String(c || '').trim().replace(/[)\]},.;:'"]+$/, '');
+      if (!v) continue;
+      v = v.replace(/:\d+(?::\d+)?$/, '');
+      if (v.startsWith('~')) v = path.join(os.homedir(), v.slice(1));
+      const bases = [base, aios.frameworkRoot(), os.homedir()].filter(Boolean) as string[];
+      const tries = path.isAbsolute(v) ? [v] : bases.map((b) => path.resolve(b, v));
+      for (const abs of tries) {
+        if (!inAllowed(abs)) continue;
+        try { if (fs.statSync(abs).isFile()) { out[c] = abs; break; } } catch { /* next */ }
+      }
+    } catch { /* skip */ }
+  }
+  return out;
+});
 ipcMain.handle('fs:sortState', () => ({ master: aios.masterSort(), overrides: aios.folderSorts() }));
 ipcMain.handle('fs:setSort', (_e, folder: string, mode: string) => {
   if (typeof folder !== 'string' || !inAllowed(folder)) return { master: aios.masterSort(), overrides: aios.folderSorts() };
@@ -243,6 +305,7 @@ ipcMain.handle('fs:setSort', (_e, folder: string, mode: string) => {
 });
 ipcMain.handle('fs:setMasterSort', (_e, mode: string) => aios.setMasterSortPref(mode));
 ipcMain.handle('fs:git', () => aios.gitStatusForRoots(allowedRoots()));
+ipcMain.handle('fs:dirtyLines', (_e, abs: string) => (inAllowed(String(abs)) ? aios.gitDirtyLines(String(abs)) : []));
 // Render an HTML file to a high-res PNG (full page) via an offscreen window — the
 // "download this deck/infographic as an image" action. Captures at the display's
 // pixel ratio (2× on retina = HD). Saves <name>.png next to the source.
@@ -505,6 +568,17 @@ app.whenReady().then(() => {
   // Glass re-checks status whenever its panel becomes visible again; the App's
   // panel never hides, so window focus is the equivalent signal — come back from
   // a push or a pull elsewhere and the pill is current. Rate-limited in the host.
+  /* DEV ONLY: renderer console → this process's stdout. Electron routes renderer logs to
+     DevTools, so a `console.log` in app.js is invisible to anyone tailing the app's output —
+     which once made an empty log read as "the feature never fired". Never in a packaged
+     build: a shipped app should not narrate its renderer into the system log. */
+  if (!app.isPackaged) {
+    win.webContents.on('console-message', (...args: unknown[]) => {
+      const d = args[0] as { message?: string; level?: unknown } | undefined;
+      const msg = d && typeof d === 'object' && 'message' in d ? d.message : (args[1] as string);
+      if (msg) console.log('[renderer]', String(msg));
+    });
+  }
   win.on('focus', () => { host?.refreshUpdateStatus(); rewireForRoots(win); });
   /* Every 4s while the window is up. Cheap (two path resolutions) and it only acts on a CHANGE,
      so the common case — roots that already exist — costs nothing after the first tick. */
@@ -583,8 +657,18 @@ app.whenReady().then(() => {
       let setupOk = false;
       try {
         await win.webContents.executeJavaScript('openSetupTab(), 1');
-        await new Promise((r) => setTimeout(r, 2500));
-        const steps = await win.webContents.executeJavaScript("document.querySelectorAll('.onboarding .step').length").catch(() => -1);
+        /* POLL, never a fixed sleep. This was `setTimeout(2500)` and the gate failed roughly
+           one run in three with steps=0 — the pane builds asynchronously, so a hardcoded wait
+           is racing it. A flaky gate is worse than a failing one: this is the check that caught
+           the CFBundleName packaging break and a temporal-dead-zone crash, and a gate that
+           cries wolf is one people learn to re-run until it is green. Poll for the condition
+           and only give up after a budget that is generously longer than the old sleep. */
+        let steps: number = 0;
+        for (let i = 0; i < 60; i++) {                       // up to ~6s, checked every 100ms
+          steps = Number(await win.webContents.executeJavaScript("document.querySelectorAll('.onboarding .step').length").catch(() => 0));
+          if (steps >= 1) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
         const clickable = await win.webContents.executeJavaScript("document.querySelectorAll('.onboarding .vbtn').length").catch(() => -1);
         const repaint = await win.webContents.executeJavaScript("typeof onboardingRepaint === 'function'").catch(() => false);
         setupOk = Number(steps) >= 1 && Number(clickable) >= 1 && !!repaint;

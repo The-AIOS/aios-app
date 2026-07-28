@@ -412,8 +412,15 @@ test('a command longer than the tty can accept is written to a file, not typed',
   assert.equal(needsSpill('—'.repeat(400)), true, 'byte length, not string length');
   // and the pty write site must actually route through it
   const main = fs.readFileSync('src/main/main.ts', 'utf8');
-  assert.match(main, /p\.write\(spillLongCommand\(opts\.cmd\) \+ '\\r'\)/,
-    'pty:spawn is the one chokepoint every surface passes through');
+  // The spill MOVED from pty:spawn to pty:run — the command is now written after the renderer
+  // has pushed real geometry (a TUI started at the hardcoded 80×24 then resized was the resume
+  // glitch). The invariant is unchanged: every opening command still passes through the spill,
+  // and it still lives in MAIN so the renderer cannot bypass the 1024-byte protection.
+  assert.match(main, /ipcMain\.handle\('pty:run'/, 'a pty:run chokepoint must exist');
+  assert.match(main, /p\.write\(spillLongCommand\(String\(cmd\)\) \+ '\\r'\)/,
+    'pty:run is the one chokepoint every opening command passes through');
+  assert.doesNotMatch(main, /p\.write\(spillLongCommand\(opts\.cmd\)/,
+    'pty:spawn must NOT run the command — geometry is not known yet at spawn');
   assert.match(main, /mode: 0o700/, 'the spilled script is not world-readable');
 });
 
@@ -477,4 +484,16 @@ test('no stray keyword was left dangling by an edit', () => {
   for (const kw of ['await', 'return', 'const', 'let']) {
     assert.doesNotMatch(app, new RegExp(`\\b${kw}\\s*\\n\\s*/\\*`), `dangling \`${kw}\` before a comment`);
   }
+});
+
+test('INVARIANT: a pane\'s opening command runs only after real geometry is pushed', () => {
+  /* A full-screen TUI started at the placeholder 80×24 and then resized underneath is what
+     garbled `claude --resume`: xterm reflowed a half-drawn interface. The ordering below is
+     the fix, so it is asserted rather than trusted — fit → ensureTermRoom → pushPtyGeom → run. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const seq = /fit\.fit\(\);\s*\n\s*ensureTermRoom\(id, p\);\s*\n\s*pushPtyGeom\(id, p\);[\s\S]{0,600}?ptyRun\(id, cmd\)/;
+  assert.match(app, seq, 'ptyRun must come after fit + ensureTermRoom + pushPtyGeom');
+  const runIdx = app.indexOf('ptyRun(id, cmd)');
+  const geomIdx = app.indexOf('pushPtyGeom(id, p);');
+  assert.ok(geomIdx > 0 && runIdx > geomIdx, 'the command must not be issued before the resize');
 });

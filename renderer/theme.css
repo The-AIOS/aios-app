@@ -6,6 +6,8 @@
 
 :root {
   --bg: #0b0b0d;            /* window void */
+  --zone-edit: #131317;     /* editor zone — the lighter of the two work surfaces */
+  --zone-term: #08080a;     /* terminal dock — deliberately the darkest thing on screen */
   --surface: #121215;       /* panes of glass */
   --surface-2: #1a1a1f;     /* raised */
   --line: rgba(255,255,255,.07);
@@ -194,7 +196,17 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 /* ── work area: zones ── */
 #work { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 .zone { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-#termzone { flex: 0 0 auto; height: 38%; background: #09090b; }
+/* ZONE CONTRAST. These were #0b0b0d vs #09090b — a two-point difference, i.e. none. The
+   intent was right and invisible, and the cost showed up on expand: two tab strips meeting
+   edge to edge in the same colour read as ONE strip with a confusing mix of tabs. The editor
+   is the LIGHTER surface (it holds documents), the dock the darker (it holds terminals), and
+   the gap is now wide enough to name a zone at a glance without reading its label. */
+#viewzone { background: var(--zone-edit); }
+#termzone { flex: 0 0 auto; height: 38%; background: var(--zone-term); }
+/* The strips inherit their zone's tone, so the boundary is legible exactly where the
+   ambiguity was — at the tabs, not just in the empty space below them. */
+#viewzone .tabstrip { background: var(--zone-edit); }
+#termzone .tabstrip { background: var(--zone-term); }
 
 /* tab strips */
 /* the strip scrolls horizontally, and the (+) STAYS reachable: it sticks to the right
@@ -407,6 +419,14 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 /* ── light theme (The-AIOS light: paper surfaces, same coral) ── */
 body.light {
   --bg: #f4f4f2;
+  /* Inverted vs dark, and a much smaller step. In LIGHT theme the terminal itself renders
+     near-white (see termTheme('light') → #faf9f6), so a recessed dock framed a pale card in a
+     darker surround and read as the loudest edge on screen. So the dock is the LIGHTER zone
+     here — inverted from dark theme — but both are pulled off pure white: at #f9f9f7 the dock
+     read as a blank sheet with a terminal floating on it. Delta is 8 points, and each zone now
+     sits just under the card it frames, so the card reads as raised in both. */
+  --zone-edit: #e9e9e6;     /* editor zone — the tinted frame; document cards are pure white */
+  --zone-term: #f1f1ee;     /* terminal dock — lighter than the editor, but OFF white */
   --surface: #ffffff;
   --surface-2: #ececea;
   --line: rgba(0,0,0,.08);
@@ -418,7 +438,7 @@ body.light {
 }
 body.light .pbtn.primary { color: #fff; }  /* white-on-coral Launch reads better than black in light */
 body.light .pbtn.primary .pblabel { color: #fff; }
-body.light #termzone { background: #ebebe9; }
+/* (zone tones now come from --zone-edit / --zone-term, set per theme) */
 body.light .pane.termcard { background: #faf9f6; } /* terminals follow the theme */
 body.light .mdview pre { background: #f7f7f5; }
 body.light .modal-wrap { background: rgba(0,0,0,.25); }
@@ -1016,3 +1036,74 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
                                            border-radius: 8px; background-clip: content-box; }
 .pane.termcard:hover .xterm-viewport::-webkit-scrollbar-thumb { background: var(--line-strong); background-clip: content-box; }
 .xterm-viewport::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── app update pill (title bar, rightmost) ──
+   Selector is `#dragacts .updpill` (1 id + 1 class), NOT a bare `.updpill`: the shared rule
+   `#dragacts button` forces every title-bar control into a 26×26 box with zero padding, and
+   a one-class selector loses to it — so the pill rendered as cramped text sitting on top of
+   the buttons rather than as a pill. Each override below undoes one of those forced values.
+   Coral because it is the only thing in the chrome that asks to be acted on, and it stays
+   hidden until there is genuinely something to act on. */
+#dragacts .updpill {
+  width: auto;                 /* undo the 26px square */
+  height: 24px;
+  padding: 0 11px;             /* undo padding: 0 */
+  margin-left: 8px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;                 /* white in BOTH themes — the coral does not flip, so neither does this */
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+  transition: filter .18s ease, transform .18s ease;
+}
+#dragacts .updpill:hover { filter: brightness(1.06); transform: translateY(-1px); background: var(--accent); color: #fff; }
+#dragacts .updpill[hidden] { display: none; }
+
+/* ── tab drag-reorder feedback ──
+   A coral edge on the side the tab will land, and the dragged tab dimmed. Deliberately an
+   INSERTION LINE rather than a moving placeholder: the strip scrolls horizontally, and a
+   reflowing placeholder inside a scroll container fights the scroll position mid-drag. */
+.tab.dragging { opacity: .45; }
+.tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.drop-after  { box-shadow: inset -2px 0 0 var(--accent); }
+
+/* ── uncommitted-change bars (source editor) ──
+   An overlay column, not a gutter: the highlighted <pre> and the transparent <textarea> must
+   stay pixel-aligned, so nothing here may shift either of them. pointer-events:none keeps the
+   caret and selection reachable straight through the bars. */
+.codegutter { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; pointer-events: none; z-index: 3; overflow: hidden; }
+.dirtymark { position: absolute; left: 0; width: 3px; border-radius: 2px; background: var(--accent); opacity: .85; }
+
+/* ── path hover tooltip (terminal ⌘-click) ── */
+.pathtip {
+  position: fixed; z-index: 9000; pointer-events: none;
+  max-width: 60vw; padding: 5px 9px; border-radius: 7px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--ink); font-family: var(--mono); font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 6px 22px rgba(0,0,0,.35);
+}
+.pathtip[hidden] { display: none; }
+
+/* ── change overview ruler + stepper ──
+   The ruler is PROPORTIONAL to the whole file, not to the viewport: that is what makes it a
+   map rather than a second copy of the left-margin bars. It needs no scroll repaint for the
+   same reason. */
+.codeoverview { position: absolute; right: 0; top: 0; bottom: 0; width: 9px; z-index: 3; cursor: pointer;
+                background: linear-gradient(to right, transparent, rgba(127,127,127,.06)); }
+.ovmark { position: absolute; right: 2px; width: 5px; min-height: 2px; border-radius: 2px; background: var(--accent); opacity: .8; }
+.codeoverview:hover .ovmark { opacity: 1; }
+.chgnav { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+.chgnav[hidden] { display: none; }
+.chgcount { font-family: var(--mono); font-size: 10.5px; color: var(--accent); white-space: nowrap; }
+.chgbtn { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 5px;
+          background: transparent; color: var(--subtle); font-size: 12px; line-height: 1; cursor: pointer; }
+.chgbtn:hover { color: var(--accent); border-color: var(--accent); }
