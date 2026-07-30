@@ -47,23 +47,43 @@ test('⌘B toggles the panel from the native menu, mirroring ⌘E for the explor
   // keydown would be shadowed, since the OS resolves menu accelerators first
   assert.match(menu, /CmdOrCtrl\+E'[\s\S]{0,600}CmdOrCtrl\+B'/);
   assert.doesNotMatch(app, /key(?:Code)? === 'b'|'KeyB'[^)]*togglePanel/);
-  assert.match(app, /\['⌘B', 'shortcuts\.panel'\]/, 'and it must appear in the sheet');
+  /* It no longer has to be LISTED anywhere: the shortcut map is generated from the installed
+     menu, so binding it in the menu is what publishes it. That is the point of the change — the
+     hardcoded table had already drifted four entries behind the menu in a single day. */
+  assert.match(app, /await window\.glassShell\.menuShortcuts\(\)/,
+    'the map must be read from the installed menu, not from a list in the renderer');
 });
 
-test('no label in the shortcuts sheet points at its own container', () => {
-  // The same rows render in the ⌘/ tab AND inline on Home, so "This sheet" named the wrong
-  // thing in one of the two places. Labels name the artifact instead.
-  assert.doesNotMatch(app, /shortcuts\.this/);
-  for (const loc of ['en', 'es', 'pt-br']) {
-    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
-    assert.ok(!j['shortcuts.this'], `${loc} must drop the self-referential label`);
-    assert.ok(j['shortcuts.sheet'], `${loc} must name the sheet`);
-    assert.ok(j['shortcuts.panel'] && j['menu.togglePanel'], `${loc} must label the panel toggle`);
-    assert.doesNotMatch(j['shortcuts.sheet'], /\bthis\b|\beste\b|\besta\b/i, `${loc} label is still self-referential`);
+test('the shortcut map is GENERATED, and both surfaces share one renderer', () => {
+  /* Was: "no label points at its own container" — a real problem when the rows were hand-written
+     and rendered in two places, so "This sheet" named the wrong thing on Home. Labels now come
+     from the menu itself, which cannot be self-referential, and both surfaces call the same
+     function, so they cannot disagree at all. The invariant worth guarding moved. */
+  assert.doesNotMatch(app, /shortcuts\.this/, 'no self-referential label may return');
+  assert.doesNotMatch(app, /const SHORTCUTS = \[/,
+    'a hardcoded table is what drifted — it must not come back');
+
+  const renderer = /async function renderShortcuts\(wrap\) \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(renderer, 'one shared renderer must exist');
+  const calls = [...app.matchAll(/await renderShortcuts\(wrap\);/g)];
+  assert.equal(calls.length, 2, 'the ⌘/ sheet AND Home must both render through it');
+
+  /* The map must also cover keys the MENU does not know about. Without this it would be
+     confidently incomplete, which is worse than absent: a map that omits ⌘F reads as
+     "⌘F is not a shortcut here". */
+  assert.match(app, /const RENDERER_KEYS = \[/, 'renderer-owned keys must be declared');
+  for (const accel of ['CmdOrCtrl+F', 'Escape', 'CmdOrCtrl+Click']) {
+    assert.ok(app.includes(`accel: '${accel}'`), `${accel} is renderer-owned and must be listed`);
   }
-  // Home renders the very same array — that is WHY the label had to be context-free
-  const homeUse = app.indexOf('Shortcuts live on Home');
-  assert.ok(homeUse > 0 && app.indexOf('for (const [groupKey, rows] of SHORTCUTS)', homeUse) > homeUse);
+});
+
+test('every renderer-owned key in the map still has a live handler', () => {
+  /* The other half of honesty: the declared list must not outlive its implementation. ⌘F must
+     still be intercepted, Escape must still leave Zen. A map that lists a key nothing handles is
+     the same lie as a menu binding nothing publishes. */
+  assert.match(app, /e\.key\.toLowerCase\(\) !== 'f'\) return;/, '⌘F must still be handled');
+  assert.match(app, /e\.key === 'Escape' && zenOn/, 'Escape must still exit a maximized pane');
+  assert.match(app, /if \(!ev\.metaKey && !ev\.ctrlKey\) return;/, '⌘-click must still gate on the modifier');
 });
 
 test('the splitter hides with the panel — nothing to drag against', () => {

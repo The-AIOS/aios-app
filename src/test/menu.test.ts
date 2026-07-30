@@ -47,7 +47,15 @@ test('no two items claim the same accelerator', () => {
   const dupes = [...new Set(accels.filter((a, i) => accels.indexOf(a) !== i))];
   assert.deepEqual(dupes, [], `duplicate accelerators: ${dupes.join(', ')}`);
   assert.match(menu, /\{ role: 'reload', accelerator: 'CmdOrCtrl\+Alt\+R' \}/, 'reload must not keep ⌘R');
-  assert.match(menu, /accelerator: 'CmdOrCtrl\+R', click: \(\) => term\('resume'/, '⌘R belongs to the operator action');
+  /* ⌘R must be the operator's RESUME action and never `role: 'reload'` — that is the invariant,
+     and losing that race discards every open pane. The old form pinned the implementation
+     (`term('resume', …)`), which blocked resume being reimplemented at all: it now opens a native
+     selector instead of spawning Claude's picker TUI. Assert the PROPERTY — ⌘R resumes — and let
+     the mechanism change. */
+  const rLine = menu.split('\n').find((l) => l.includes("accelerator: 'CmdOrCtrl+R'")) || '';
+  assert.ok(rLine, '⌘R must be bound');
+  assert.match(rLine, /term\('resume'|intent\('batchResume'\)/, '⌘R must resume, by either mechanism');
+  assert.doesNotMatch(rLine, /reload/, '⌘R must never be reload — it would discard every open pane');
 });
 
 test('the accelerator convention holds: ⌘ opens a surface, ⌘⇧ opens a picker', () => {

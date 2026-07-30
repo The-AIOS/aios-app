@@ -105,7 +105,14 @@ test('the renderer validates a preset handed to it by the menu', () => {
 
 test('every surface that names the shortcut range or the layouts is current', () => {
   assert.match(html, /⌘1–4<\/kbd> layouts/);                       // empty state
-  assert.match(app, /\['⌘1–4', 'shortcuts\.layouts'\], \['⌘0', 'shortcuts\.terminalsBelow'\]/); // ⌘/ sheet
+  /* The ⌘/ sheet no longer LISTS these — it is generated from the installed menu, so the menu
+     bindings below are what publishes them. Assert the source of truth instead of a transcript
+     of it: a hand-kept copy is exactly what had drifted four entries behind in one day. */
+  const menuSrc = fs.readFileSync('src/main/menu.ts', 'utf8');
+  for (const n of ['1', '2', '3', '4']) {
+    assert.ok(menuSrc.includes(`accelerator: 'CmdOrCtrl+${n}'`), `⌘${n} must be bound in the menu`);
+  }
+  assert.ok(menuSrc.includes("accelerator: 'CmdOrCtrl+0'"), '⌘0 must remain the terminal dock');
   assert.doesNotMatch(app, /⌘1–2|⌘1–3/, 'a stale range in a comment becomes a stale range in the UI');
   for (const loc of ['en', 'es', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;

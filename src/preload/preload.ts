@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('glassShell', {
   /* One flag only, and a diagnostic one: AIOS_NO_WEBGL disables the GPU renderer so a
      rendering artifact can be attributed or ruled out. Deliberately not the whole env. */
   env: { AIOS_NO_WEBGL: process.env.AIOS_NO_WEBGL || '' },
+  menuShortcuts: (): Promise<Array<{ group: string; label: string; accel: string }>> => ipcRenderer.invoke('menu:shortcuts'),
+  resumableSessions: (): Promise<{ items: Array<{ id: string; name: string; proj: string; at: number }>; total: number; named: number; unnamed: number }> =>
+    ipcRenderer.invoke('sessions:resumable'),
   ptyRun: (id: number, cmd: string): Promise<boolean> => ipcRenderer.invoke('pty:run', { id, cmd }),
   /* AI-66 pt3 — the renderer tells the bus whether a send actually landed, so a request that
      cannot be delivered here is retired at once instead of waiting out a verification window. */

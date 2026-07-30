@@ -82,21 +82,112 @@ export function vaultRoot(): string | undefined {
   try { return fs.statSync(v).isDirectory() ? v : r; } catch { return r; }
 }
 
+/* WHO IS THE OPERATOR — and it must not depend on which language they write in.
+   Reported 2026-07-30 by an operator whose `about_me.md` says "Me llamo Ignacio Indaco.": the
+   panel greeted him as a brand-new vault. This function matched `my name is` and nothing else,
+   so a fully personalised Spanish vault looked identical to an untouched one — while the app
+   ships complete es / es-419 / pt-BR translations and actively invites operating in your own
+   language. It then failed SILENTLY: no error, no hint, and the operator reasonably concludes
+   their own file is malformed.
+   Resolution order, most structured first — the reporter's own preference, and correct:
+     1. frontmatter `aliases:` — declarative, already in the shipped template, and
+        LANGUAGE-AGNOSTIC, so it needs no phrase list and cannot rot as languages are added.
+     2. a quoted nickname on an identity line — an explicit "call me this" beats any parse.
+     3. the word following an identity phrase, in the languages the app itself speaks.
+   A regex list is a maintenance burden by nature; it is the FALLBACK precisely so that adding
+   a locale does not require remembering to extend it. */
+const IDENTITY_PHRASE = /(?:my name is|i am called|me llamo|mi nombre es|meu nome é|meu nome e)/i;
+
+/** First `aliases:` value — supports a block list, an inline `[a, b]` list, and a bare scalar. */
+function aliasFromFrontmatter(text: string): string {
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) return '';
+  const lines = fm[1].split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^aliases:\s*(.*)$/i);
+    if (!m) continue;
+    const inline = m[1].trim();
+    if (inline) {
+      const first = inline.replace(/^\[|\]$/g, '').split(',')[0];
+      return stripWrapping(first);
+    }
+    // block form: the following indented `- item` lines
+    for (let j = i + 1; j < lines.length; j++) {
+      const item = lines[j].match(/^\s*-\s+(.+)$/);
+      if (item) return stripWrapping(item[1]);
+      if (lines[j].trim() && !/^\s/.test(lines[j])) break;   // next top-level key
+    }
+  }
+  return '';
+}
+
+function stripWrapping(v: string): string {
+  return v.trim().replace(/^["“”'\`]+|["“”'\`]+$/g, '').trim();
+}
+
+/* DISPLAY FORM. A name reaches us from three places and only one of them is reliably cased:
+   `aliases:` carries link slugs (`chuy`), prose carries display names (`Chuy`), and a shouty
+   line can carry `CHUY`. Greeting somebody by their slug reads as a bug even when the string is
+   genuinely theirs, so the value is normalised before it is ever shown.
+   ONLY when there is no internal casing worth keeping — an all-lowercase or all-uppercase
+   string. `McDonald`, `O'Brien` and `van Gogh` already carry deliberate casing and are returned
+   untouched, because "fixing" them would be the same insult in the other direction.
+   Segments split on hyphen and apostrophe, so `jean-luc` → `Jean-Luc` and `o'brien` → `O'Brien`.
+   Locale-aware case conversion, or accented names come back wrong (`JOSÉ` → `José`). */
+function displayName(v: string): string {
+  const s = v.trim();
+  if (!s) return '';
+  const hasLower = s !== s.toLocaleUpperCase();
+  const hasUpper = s !== s.toLocaleLowerCase();
+  if (hasLower && hasUpper) return s;          // already deliberately cased — leave it alone
+  return s.toLocaleLowerCase().replace(/(^|[-'\u2019])(\p{L})/gu,
+    (_m, sep: string, ch: string) => sep + ch.toLocaleUpperCase());
+}
+
 export function operatorName(): string {
   const v = vaultRoot();
-  if (v) {
-    try {
-      const text = fs.readFileSync(path.join(v, '00 - notes', 'context', 'declared', 'about_me.md'), 'utf8');
-      const line = text.split(/\r?\n/).find((l) => /my name is/i.test(l));
-      if (line) {
-        const nick = line.match(/["“”']([^"“”']+)["“”']/);
-        if (nick) return nick[1];
-        const m = line.match(/my name is\s+([A-Za-zÀ-ÿ]+)/i);
-        if (m) return m[1];
-      }
-    } catch { /* absent is fine */ }
+  if (!v) return '';
+  let text = '';
+  try {
+    text = fs.readFileSync(path.join(v, '00 - notes', 'context', 'declared', 'about_me.md'), 'utf8');
+  } catch { return ''; }        // absent is fine — a vault with no about_me has no name yet
+
+  /* CANDIDATES, best-signal first. The order was `aliases:` first, on the reasoning that it is
+     structured and language-agnostic — sound in theory, wrong in practice, and one operator's
+     real vault proved it within the hour: his `aliases:` are `chuy` / `chuycepeda`, because in
+     Obsidian that field exists to make LINKS resolve, so lowercase slugs are the norm there. The
+     app greeted him in lowercase off his own link aliases while his prose said
+     `My name is Jesús "Chuy" Cepeda.`
+     So: an explicit quoted nickname is the strongest "call me this", the identity phrase is next,
+     and `aliases:` stays as the language-agnostic NET for a vault whose prose we cannot parse. */
+  const cands: string[] = [];
+  const line = text.split(/\r?\n/).find((l) => IDENTITY_PHRASE.test(l));
+  if (line) {
+    const nick = line.match(/["“”']([^"“”']+)["“”']/);
+    if (nick) cands.push(stripWrapping(nick[1]));
+    const m = line.match(new RegExp(IDENTITY_PHRASE.source + '\\s+([A-Za-zÀ-ÿ]+)', 'i'));
+    if (m) cands.push(m[1]);
   }
-  return '';   // unknown — callers decide how to greet (a virgin vault has no name yet)
+  const alias = aliasFromFrontmatter(text);
+  if (alias) cands.push(alias);
+
+  // First word only: a greeting wants a first name, not "Ignacio Indaco".
+  const first = cands.map((c) => c.split(/\s+/)[0]).filter(Boolean);
+  if (!first.length) return '';
+  /* Prefer something that LOOKS like a display name. A lowercase-only candidate is usually a
+     slug, and greeting someone by their slug reads as a bug even when the string is technically
+     theirs. But never force-capitalise: if every candidate is lowercase, that may be exactly how
+     the operator writes their own name, and rewriting it would be its own insult. */
+  return displayName(first.find((c) => /[A-ZÀ-Þ]/.test(c)) || first[0]);
+}
+
+/* THE GAP BETWEEN TWO READINGS OF ONE FILE. `hasIdentity()` asks "has this been written?"
+   (length + no placeholders) while `operatorName()` asks "what is the name?" — and they can
+   disagree. When they do, the app has a personalised vault it cannot read a name out of, which
+   is NOT a brand-new vault and must not be greeted like one silently. Surfacing it is the whole
+   point: the reporter spent his time diagnosing what a one-line hint would have told him. */
+export function identityNameGap(): boolean {
+  return hasIdentity() && !operatorName();
 }
 
 /** True when the vault already carries operator identity — about_me.md exists

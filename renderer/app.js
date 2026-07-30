@@ -299,11 +299,52 @@ let pOn = layoutState.pOn !== false;
    is honoured, and the absence of one starts quiet. */
 let xOn = 'xOn' in layoutState ? layoutState.xOn !== false : false;
 
+/* TERMINAL RENDERER — an operator-visible choice, GPU by default.
+   Glyph corruption in the terminal has survived two fixes aimed at the WebGL path, and xterm is
+   already at its latest (6.0.0 / addon-webgl 0.19.0), so there is no upstream fix to take. Rather
+   than patch a third time from theory, this makes the renderer switchable: it gives anyone hitting
+   corruption an immediate escape hatch, and it ISOLATES the cause — if the artifact disappears on
+   'dom' the WebGL renderer owns it, and if it persists the cause is somewhere else entirely and
+   every WebGL theory so far has been wrong. GPU stays the default because it is the better
+   experience: the DOM renderer ignores devicePixelRatio (visibly softer) and repaints a frame
+   behind. Switching applies LIVE to open terminals — an isolation test that costs a restart is one
+   nobody runs twice. */
+let termRenderer = layoutState.termRenderer === 'dom' ? 'dom' : 'webgl';
+
+function attachRenderer(p) {
+  if (!p || p.kind !== 'term' || !p.term) return;
+  const canGl = !!(window.WebglAddon && window.WebglAddon.WebglAddon) && !NO_WEBGL;
+  const wantGl = termRenderer === 'webgl' && canGl;
+  if (wantGl && !p.gl) {
+    try {
+      const gl = new window.WebglAddon.WebglAddon();
+      gl.onContextLoss(() => { try { gl.dispose(); } catch { /* already gone */ } p.gl = null; });
+      p.term.loadAddon(gl);
+      p.gl = gl;
+    } catch { p.gl = null; /* no GPU path — DOM renderer still works */ }
+  } else if (!wantGl && p.gl) {
+    // Disposing the WebGL addon is xterm's own documented way back to the DOM renderer.
+    try { p.gl.dispose(); } catch { /* already gone */ }
+    p.gl = null;
+  }
+  repaintTerm(p);
+}
+
+function setTermRenderer(v) {
+  termRenderer = v === 'dom' ? 'dom' : 'webgl';
+  saveLayout();
+  for (const q of liveTerms()) attachRenderer(q);
+}
+
 function saveLayout() {
-  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn })); } catch { /* ignore */ }
+  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom })); } catch { /* ignore */ }
 }
 
 function applyLayout() {
+  // Anything the tree missed while it was hidden becomes visible again HERE — the one place
+  // every layout/visibility change funnels through. Fire-and-forget: it no-ops when nothing
+  // is pending, which is almost always.
+  setTimeout(() => { void flushStaleDirs(); }, 0);
   const x = document.getElementById('xwrap');
   const p = document.getElementById('panel');
   const showX = hasExplorer() && xOn; // Zen hides it; otherwise the folder button decides
@@ -600,6 +641,44 @@ function renderInboxCard() {
 }
 
 /* ── panel action button — the extension's `.btn` (label · key · count) ─────── */
+/* THE GREETING MUST NOT AGE. It was computed once when the surface painted and never revisited,
+   so an app opened in the morning still said "Good morning" at 4pm — reported 2026-07-30. Two
+   call sites had their own copy of the same ternary, which is also how they would have drifted.
+   `saluteNow()` is the single definition. `stampSalute()` marks the element that carries it, and
+   a one-minute tick rewrites only that text node when the BUCKET changes — no re-render, so a
+   greeting correcting itself never disturbs anything the operator is doing. Also corrected on
+   window focus: a laptop that slept through noon may have had its timers throttled, and focus is
+   exactly the moment the stale text is about to be read. */
+const SALUTE_KEYS = [[12, 'home.morning'], [19, 'home.afternoon'], [24, 'home.evening']];
+function saluteBucket(d) {
+  const h = (d || new Date()).getHours();
+  for (const [end, key] of SALUTE_KEYS) if (h < end) return key;
+  return 'home.evening';
+}
+function saluteNow() { return t(saluteBucket()); }
+
+/** Mark an element whose text begins with the salute, so the tick can correct it later. */
+function stampSalute(node, withComma) {
+  node.dataset.salute = saluteBucket();
+  node.dataset.saluteComma = withComma ? '1' : '';
+  return node;
+}
+
+function refreshSalutes() {
+  const key = saluteBucket();
+  for (const node of document.querySelectorAll('[data-salute]')) {
+    if (node.dataset.salute === key) continue;         // same part of day — leave it alone
+    node.dataset.salute = key;
+    const text = t(key) + (node.dataset.saluteComma ? ', ' : '');
+    // The salute is the FIRST text node; the name and any punctuation are siblings we must keep.
+    const first = node.firstChild;
+    if (first && first.nodeType === Node.TEXT_NODE) first.nodeValue = text;
+    else node.insertBefore(document.createTextNode(text), first || null);
+  }
+}
+setInterval(refreshSalutes, 60 * 1000);
+window.addEventListener('focus', refreshSalutes);
+
 function pbtn(parent, { emoji, label, key, val, onClick, accent }) {
   const b = el('button', 'pbtn' + (accent ? ' accent' : ''));
   if (emoji) { const pe = el('span', 'pbemoji'); pe.innerHTML = icon(emoji, 15); b.appendChild(pe); }
@@ -623,12 +702,11 @@ function renderActionCards(m) {
   const G = document.getElementById('pGreet');
   if (G) {
     G.replaceChildren();
-    const gh = new Date().getHours();
-    const salute = gh < 12 ? t('home.morning') : gh < 19 ? t('home.afternoon') : t('home.evening');
     // A brand-new vault has no name yet (no about_me, no Identity row) — greet without
     // one rather than addressing the operator as "aios".
     const who = (m.operator || '').trim();
-    const gline = el('div', 'pgreet-line', who ? salute + ', ' : salute);
+    const salute = saluteNow();
+    const gline = stampSalute(el('div', 'pgreet-line', who ? salute + ', ' : salute), !!who);
     if (who) gline.appendChild(el('span', 'taccent', who));
     G.appendChild(gline);
   }
@@ -642,7 +720,12 @@ function renderActionCards(m) {
   const launch = el('button', 'pbtn primary'); launch.textContent = t('pulse.launch', { name: primary === 'aios' ? 'AIOS' : primary });
   launch.addEventListener('click', () => launchPrimary(primary));
   const resume = el('button', 'pbtn'); resume.textContent = t('pulse.resume');
-  resume.addEventListener('click', () => void createPane({ name: 'resume', cmd: CLAUDE + ' --resume' }));
+  /* RESUME OPENS THE SELECTOR, not Claude's TUI picker. Three reasons: our list is ordered by
+     recency and multi-select, it EXCLUDES sessions already open (the TUI happily offers to resume
+     one you are looking at), and it removes the picker TUI from the app's critical path — that
+     full-screen redraw storm is what produced the glyph corruption we chased for hours. Claude's
+     own picker stays reachable from inside the modal for anyone who wants it. */
+  resume.addEventListener('click', () => void batchResume());
   lr.append(launch, resume);
   S.appendChild(lr);
   // go-with-agents is a toolbar button with a count badge now (Glass parity) — no
@@ -860,13 +943,34 @@ function renderPulseRunning(m) {
        the positive evidence the title listener cannot give: a pane that once carried a
        confirmed session name, whose name is no longer live, is a shell now. Ctrl+C twice
        lands here on the next pulse. */
+    /* A RENAME IS NOT A DEATH. This used to ask "is my name still in the live list?" — and
+       `/rename` removes the old name from that list, so a perfectly healthy renamed session was
+       declared over: the sessions list showed the new name while the tab showed `(ended)`.
+       Reported 2026-07-30.
+       The name was never the identity. `sessionId` is, so liveness is decided from that, and a
+       registry entry whose id we hold but whose NAME has changed is a rename to follow — the
+       tab adopts it. Panes confirmed before this change carry no id; they fall back to the old
+       name check rather than being declared immortal. */
     const liveNames = new Set(m.running.map((a) => a.name));
+    const byId = new Map(m.running.filter((a) => a.id).map((a) => [a.id, a]));
     for (const [pid, pane] of panes) {
       if (pane.kind !== 'term' || !pane.confirmedName) continue;
-      if (liveNames.has(pane.confirmedName)) continue;
+      if (pane.sessionId) {
+        const entry = byId.get(pane.sessionId);
+        if (entry) {
+          if (entry.name && entry.name !== pane.confirmedName) {
+            pane.confirmedName = entry.name;     // followed a /rename
+            renamePane(pid, entry.name);
+          }
+          continue;                              // alive under this id — nothing to declare
+        }
+      } else if (liveNames.has(pane.confirmedName)) {
+        continue;                                // pre-id pane, still matching by label
+      }
       pane.isSession = false;
       const was = pane.confirmedName;
       pane.confirmedName = null;
+      pane.sessionId = null;
       renamePane(pid, t('tab.endedSession', { name: was }));
     }
   }
@@ -1914,14 +2018,9 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   // and repaints a frame behind, which is the "mega lag" where a click's result appears late.
   // WebGL is the renderer VS Code and Antigravity use. If the GPU context is lost or refused
   // we dispose the addon and fall back to DOM rather than showing a dead terminal.
-  try {
-    if (window.WebglAddon && window.WebglAddon.WebglAddon && !NO_WEBGL) {
-      const gl = new window.WebglAddon.WebglAddon();
-      gl.onContextLoss(() => { try { gl.dispose(); } catch { /* already gone */ } });
-      term.loadAddon(gl);
-      p.gl = gl;
-    }
-  } catch { /* no GPU path available — DOM renderer still works */ }
+  // ONE decision point for the renderer, shared with the live toggle — a second copy here is
+  // how a new terminal ends up on a different renderer than the setting says.
+  attachRenderer(p);
   /* GLYPH FLICKER UNDER RAPID FULL-SCREEN REDRAWS.
      Reported in the `claude --resume` picker: holding arrow-down through a long list garbles
      glyphs, it is independent of window size, and typing in the search box clears it. That
@@ -2062,10 +2161,14 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
            wrong routes someone's message into the wrong session. Only a live registry match
            earns it, and only that name may later be declared ended. */
     renamePane(id, nm);
-    const live = ((pulse.lastRunning || {}).running || []).some((a) => a.name === nm);
-    if (!live) return;
+    const hit = ((pulse.lastRunning || {}).running || []).find((a) => a.name === nm);
+    if (!hit) return;
     p.isSession = true;
     p.confirmedName = nm;
+    /* Record the STABLE identity too. A name is a label an operator may change at any moment
+       with `/rename`; the sessionId is what the session actually IS. Liveness and endings are
+       decided from this, never from the label — see the pulse handler. */
+    p.sessionId = hit.id || null;
   });
   // one source of truth for geometry pushes, so xterm's own resize event cannot re-send
   // a size pushPtyGeom already sent (or vice versa)
@@ -2313,11 +2416,242 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && zenOn && !document.querySelector('.modal-wrap')) { e.preventDefault(); setZen(false); }
 }, true);
 
+/* ── FIND IN THE OPEN FILE — ⌘F / Ctrl+F ──────────────────────────────────────
+   Works on all three document surfaces, which are structurally different:
+     · rendered markdown (.mdview) and source (.srcview) are read-only DOM
+     · edit mode is a transparent <textarea> over a highlighted <pre>
+   Highlighting uses the CSS Custom Highlight API rather than wrapping matches in <mark>.
+   Wrapping would mutate the rendered document — splitting links, breaking the git gutter's
+   line arithmetic, and defeating the editor overlay's exact glyph alignment. Highlights are a
+   presentation layer the DOM never sees, which is the only safe option over live content.
+   In edit mode the textarea ALSO gets a real selection, so typing continues where you searched
+   and the native caret lands on the match; the overlay's scroll is already synced to it.
+   Cross-file search is deliberately NOT this: it needs a results list and its own surface. */
+const FIND = { q: '', hits: [], i: -1, host: null, ta: null };
+const hlAll = window.Highlight ? new Highlight() : null;
+const hlOne = window.Highlight ? new Highlight() : null;
+if (window.CSS && CSS.highlights && hlAll) { CSS.highlights.set('aios-find', hlAll); CSS.highlights.set('aios-find-cur', hlOne); }
+
+/** The document surface of the pane the operator is looking at, or null. */
+function findHost() {
+  const p = panes.get(active.main);
+  if (!p || p.kind !== 'view' || !paneShown(p)) return null;
+  // Order matters: edit mode wins when present, because that is what has focus.
+  const ta = p.el.querySelector('.codeta');
+  if (ta) return { host: p.el.querySelector('.codehl') || p.el, ta };
+  const ro = p.el.querySelector('.mdview, .srcview');
+  return ro ? { host: ro, ta: null } : null;
+}
+
+/** Every text node under `root`, in document order — the search space. */
+function textNodes(root) {
+  const out = [];
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.nodeValue && n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  for (let n = w.nextNode(); n; n = w.nextNode()) out.push(n);
+  return out;
+}
+
+function clearFindHighlights() {
+  if (hlAll) { hlAll.clear(); hlOne.clear(); }
+}
+
+function runFind(q) {
+  FIND.q = q;
+  FIND.hits = [];
+  FIND.i = -1;
+  clearFindHighlights();
+  const h = findHost();
+  if (!h || !q) { paintFindCount(); return; }
+  FIND.host = h.host; FIND.ta = h.ta;
+  const needle = q.toLowerCase();
+  for (const node of textNodes(h.host)) {
+    const hay = (node.nodeValue || '').toLowerCase();
+    let from = 0;
+    for (;;) {
+      const at = hay.indexOf(needle, from);
+      if (at < 0) break;
+      const r = document.createRange();
+      r.setStart(node, at); r.setEnd(node, at + needle.length);
+      FIND.hits.push(r);
+      if (hlAll) hlAll.add(r);
+      from = at + needle.length;
+    }
+  }
+  if (FIND.hits.length) stepFind(0);
+  paintFindCount();
+}
+
+function stepFind(delta) {
+  if (!FIND.hits.length) return;
+  FIND.i = (FIND.i + delta + FIND.hits.length) % FIND.hits.length;
+  if (FIND.i < 0) FIND.i = 0;
+  const r = FIND.hits[FIND.i];
+  if (hlOne) { hlOne.clear(); hlOne.add(r); }
+  // Reveal it. `scrollIntoView` on a Range needs an element, so borrow the parent.
+  const el2 = r.startContainer.parentElement;
+  if (el2 && el2.scrollIntoView) el2.scrollIntoView({ block: 'center', behavior: 'auto' });
+  /* Edit mode: put a REAL selection in the textarea too, so the caret is where you searched and
+     typing continues from the match. Offsets are counted over the overlay's text, which mirrors
+     the textarea's value exactly — that is what makes the two comparable at all. */
+  if (FIND.ta) {
+    const before = rangeOffset(FIND.host, r);
+    if (before >= 0) {
+      FIND.ta.setSelectionRange(before, before + FIND.q.length);
+      /* Scroll to where the match ACTUALLY renders. Counting newlines × lineHeight was wrong
+         the moment wrapping arrived — the match's own rect is right in both modes. */
+      const mrect = r.getClientRects()[0] || r.getBoundingClientRect();
+      const hostRect = FIND.host.getBoundingClientRect();
+      const y = mrect.top - hostRect.top + FIND.host.scrollTop;
+      FIND.ta.scrollTop = Math.max(0, y - FIND.ta.clientHeight / 2);
+      FIND.ta.dispatchEvent(new Event('scroll'));   // keep the highlighted layer in step
+    }
+  }
+  paintFindCount();
+}
+
+/** Character offset of a range's start within `root`'s text — the textarea's coordinate system. */
+function rangeOffset(root, r) {
+  let n = 0;
+  for (const node of textNodes(root)) {
+    if (node === r.startContainer) return n + r.startOffset;
+    n += (node.nodeValue || '').length;
+  }
+  return -1;
+}
+
+function paintFindCount() {
+  const c = document.getElementById('findCount');
+  if (!c) return;
+  c.textContent = !FIND.q ? '' : FIND.hits.length ? `${FIND.i + 1}/${FIND.hits.length}` : t('find.none');
+  c.classList.toggle('none', !!FIND.q && !FIND.hits.length);
+}
+
+function closeFind() {
+  clearFindHighlights();
+  FIND.q = ''; FIND.hits = []; FIND.i = -1;
+  const bar = document.getElementById('findBar');
+  if (bar) bar.remove();
+}
+
+function openFind() {
+  if (!findHost()) return;                        // nothing to search — stay silent
+  let bar = document.getElementById('findBar');
+  if (!bar) {
+    bar = el('div', 'findbar'); bar.id = 'findBar';
+    const inp = document.createElement('input');
+    inp.type = 'search'; inp.className = 'findinput'; inp.id = 'findInput';
+    inp.placeholder = t('find.placeholder');
+    const count = el('span', 'findcount'); count.id = 'findCount';
+    const prev = el('button', 'findbtn', '‹'); prev.title = t('find.prev');
+    const next = el('button', 'findbtn', '›'); next.title = t('find.next');
+    const close = el('button', 'findbtn', '×'); close.title = t('find.close');
+    prev.addEventListener('click', () => stepFind(-1));
+    next.addEventListener('click', () => stepFind(1));
+    close.addEventListener('click', () => closeFind());
+    inp.addEventListener('input', () => runFind(inp.value));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+      else if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1); }
+    });
+    bar.append(inp, count, prev, next, close);
+    /* Mounted in the pane ZONE, not #work: .panezone is already `position: relative`, so the bar
+       anchors correctly without making #work a containing block (which would silently re-parent
+       every absolutely-positioned .pane's coordinate system). It also keeps the bar over the
+       document area rather than floating above the terminal below it. */
+    document.getElementById('panes').appendChild(bar);
+  }
+  const inp = document.getElementById('findInput');
+  // Pre-fill from the selection, the way every editor does — searching for what you highlighted
+  // is the overwhelmingly common intent.
+  const sel = String(window.getSelection() || '').trim();
+  if (sel && sel.length <= 120) inp.value = sel;
+  inp.focus(); inp.select();
+  if (inp.value) runFind(inp.value);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'f') return;
+  if (!findHost()) return;                        // a terminal is active — leave ⌘F alone
+  e.preventDefault();
+  openFind();
+}, true);
+
+/* ── EDITOR ZOOM — ⌘+ / ⌘− / ⌘0 ────────────────────────────────────────────────
+   Scoped to the document surfaces on purpose. Electron's own webFrame zoom would scale the
+   whole application including the terminal and every control, which is a different feature and
+   a worse one here: the request is "make what I am reading bigger".
+   `e.key` for '+' is unreliable across layouts — shift+'=' reports '+' on US but '*' or a dead
+   key elsewhere — so `e.code` ('Equal' / 'Minus' / 'Digit0') is what is matched, with the
+   character forms accepted too for keyboards where they arrive directly. Numpad included,
+   because someone will use it and its absence would read as the shortcut being broken. */
+const ED_ZOOM_MIN = 0.7, ED_ZOOM_MAX = 2.0, ED_ZOOM_STEP = 0.1;
+let edZoom = (() => {
+  const v = Number(layoutState.edZoom);
+  return Number.isFinite(v) && v >= ED_ZOOM_MIN && v <= ED_ZOOM_MAX ? v : 1;
+})();
+
+function applyEdZoom() {
+  document.documentElement.style.setProperty('--edzoom', String(edZoom));
+}
+
+function setEdZoom(v, announce) {
+  const next = Math.min(ED_ZOOM_MAX, Math.max(ED_ZOOM_MIN, Math.round(v * 100) / 100));
+  const changed = next !== edZoom;
+  edZoom = next;
+  applyEdZoom();
+  saveLayout();
+  // Say the level out loud: a zoom you cannot read back is one you cannot get out of, and at
+  // the clamp the keypress otherwise looks like nothing happened.
+  if (announce) toast(t('zoom.level', { pct: Math.round(edZoom * 100) }) + (changed ? '' : ' ·'));
+}
+applyEdZoom();
+
+/* NO RENDERER KEY HANDLER FOR ZOOM. The View menu owns ⌘+ / ⌘− / ⌘⇧0 and routes them through
+   `intent('zoom')`. A second handler here listened for the same keys, so both fired and the zoom
+   stepped twice per press — invisible as a bug because it just felt fast. One owner per
+   accelerator; the menu wins because it is also where the binding is discoverable. */
+
 /* ── syntax-highlighted editor — a code-editor-style source/edit view ──────────
    A highlighted <pre> sits behind a transparent <textarea> (caret + input), so
    editing shows colors live (the CodeJar/Prism overlay technique), via highlight.js. */
 const LANG_MAP = { md: 'markdown', markdown: 'markdown', mdx: 'markdown', js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', mts: 'typescript', json: 'json', jsonc: 'json', css: 'css', scss: 'scss', less: 'less', html: 'xml', htm: 'xml', xml: 'xml', svg: 'xml', vue: 'xml', py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', sql: 'sql', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', c: 'c', h: 'c', cpp: 'cpp', txt: '' };
 function langFor(name) { return LANG_MAP[(name.split('.').pop() || '').toLowerCase()] ?? ''; }
+/* VISUAL TOP OF A LOGICAL LINE, measured rather than calculated.
+   Everything positioned against this editor used to assume `(line - 1) * lineHeight` — one
+   visual row per logical line. That holds only while the text does NOT wrap, and it silently
+   stops holding the moment it does: markers drift further down the file the more wrapped lines
+   sit above them. Since wrapping is now on, positions are measured from the rendered text with a
+   Range, which is correct in both modes and needs no flag to stay correct.
+   Returns content-space pixels (scroll already added back), or null if the line does not exist. */
+function lineTopIn(pre, n) {
+  const text = pre.textContent || '';
+  let off = 0;
+  for (let i = 1; i < n; i++) {
+    const nl = text.indexOf('\n', off);
+    if (nl < 0) return null;                       // past the end of the document
+    off = nl + 1;
+  }
+  const w = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+  let acc = 0, node = null, local = 0;
+  for (let x = w.nextNode(); x; x = w.nextNode()) {
+    const len = (x.nodeValue || '').length;
+    if (acc + len >= off) { node = x; local = off - acc; break; }
+    acc += len;
+  }
+  if (!node) return null;
+  const r = document.createRange();
+  const max = (node.nodeValue || '').length;
+  r.setStart(node, Math.min(local, max));
+  r.setEnd(node, Math.min(local + 1, max));
+  // A collapsed or newline-only range can report a zero rect; getClientRects() is the reliable
+  // read for the first fragment of a wrapped line.
+  const rect = r.getClientRects()[0] || r.getBoundingClientRect();
+  if (!rect || (!rect.height && !rect.top)) return null;
+  return rect.top - pre.getBoundingClientRect().top + pre.scrollTop;
+}
+
 function buildCodeEditor(initial, lang, hooks, gitPath) {
   const wrap = el('div', 'codeedit');
   const pre = el('pre', 'codehl hljs');
@@ -2341,8 +2675,16 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
     gut.replaceChildren();
     for (const [from, to] of dirtyRanges) {
       const d = el('div', 'dirtymark');
-      d.style.top = (padTop + (from - 1) * lh - ta.scrollTop) + 'px';
-      d.style.height = Math.max(2, (to - from + 1) * lh) + 'px';
+      /* Measured, so a wrapped line above a change cannot push its marker off the change.
+         Falling back to the old arithmetic when a measurement is unavailable keeps a marker
+         roughly right rather than dropping it — a missing marker reads as "no change here",
+         which is the one wrong answer this feature must never give. */
+      const top = lineTopIn(pre, from);
+      const after = lineTopIn(pre, to + 1);
+      const y = top != null ? top : padTop + (from - 1) * lh;
+      const h = top != null && after != null ? after - top : (to - from + 1) * lh;
+      d.style.top = (y - ta.scrollTop) + 'px';
+      d.style.height = Math.max(2, h) + 'px';
       gut.appendChild(d);
     }
   };
@@ -2383,7 +2725,8 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
   function centerLine(line) {
     const lh = lineH();
     const padTop = parseFloat(getComputedStyle(pre).paddingTop) || 0;
-    ta.scrollTop = Math.max(0, padTop + (line - 1) * lh - ta.clientHeight / 2);
+    const lt = lineTopIn(pre, line);
+    ta.scrollTop = Math.max(0, (lt != null ? lt : padTop + (line - 1) * lh) - ta.clientHeight / 2);
     sync();
   }
   function step(dir) {
@@ -2411,7 +2754,26 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
     code.textContent = t;
   };
   const sync = () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; paintGutter(); };
-  ta.addEventListener('input', () => { hl(); hooks.onInput(ta.value); });
+  let lastSeen = ta.value;
+  const onEdited = () => { lastSeen = ta.value; hl(); hooks.onInput(ta.value); };
+  ta.addEventListener('input', onEdited);
+  /* UNDO DOES NOT RELIABLY ANNOUNCE ITSELF. Typing fired `input`, the autosave ran, and the git
+     gutter refreshed from disk — so the markers tracked typing and deletion correctly. ⌘Z did
+     not: the app installs Electron's `{ role: 'editMenu' }`, whose Undo goes through the menu's
+     accelerator, and a menu accelerator can consume the keystroke before the renderer observes
+     any event at all. Reported 2026-07-30: type and delete is noticed, undo is not, so the
+     gutter kept marking a change that no longer existed.
+     Rather than guess which event a given path emits — menu undo, redo, drag-and-drop text,
+     an IME commit, a paste from the menu — WATCH THE VALUE. It cannot be wrong about whether
+     the document changed, because it asks the document. `input` stays wired so ordinary typing
+     stays instant rather than waiting on the tick.
+     Self-cleaning: the pane is discarded on close and never disposed explicitly, so the watcher
+     stops itself once its textarea leaves the DOM. */
+  const watch = setInterval(() => {
+    if (!ta.isConnected) { clearInterval(watch); return; }
+    if (ta.value === lastSeen) return;
+    onEdited();
+  }, 250);
   ta.addEventListener('scroll', sync);
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; hl(); hooks.onInput(ta.value); }
@@ -2427,6 +2789,134 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
   return wrap;
 }
 
+/* ── BATCH RESUME ──────────────────────────────────────────────────────────────
+   The operator's own design, and it is the right one. Restore is dangerous here for a specific
+   reason: ~600 transcripts sit in the archive, and anything that resumes "recent sessions"
+   automatically can open hundreds of processes — "I don't want a mess trying to resume all
+   historic sessions" (AI-67's constraint, in his words).
+   So this is a SELECTOR, never a restore-all: a page of the 10 most recently touched resumable
+   sessions, every box UNticked, with load-more for the next page. Nothing opens until a box is
+   ticked and the confirm is pressed. The default of "nothing" is the safety property — the
+   close-all selector can default to everything because closing is recoverable, and this cannot,
+   because each tick spawns a process.
+   Live sessions never appear: they are already open, and resuming one would duplicate a pane or
+   fight the session holding it. */
+async function batchResume() {
+  let data;
+  try { data = await window.glassShell.resumableSessions(); } catch { data = null; }
+  if (!data || !data.items.length) { toast(t('resume.none')); return; }
+  /* Every NAMED resumable session — no paging, so the filter searches all of them rather than
+     one page (typing a name from last week used to match nothing, which reads as "that session
+     does not exist" instead of "it is further down"). The modal renders the first 60 and narrows
+     as you type: the opening view is "most recent", typing reaches the rest.
+     Unnamed sessions are excluded on purpose — see the note in main.ts — and the hint below says
+     how many, so their absence is stated rather than discovered. */
+  const items = data.items.map((r) => ({
+    label: r.name,
+    desc: agoLabel(r.at) + (r.proj ? ' · ' + r.proj : ''),
+    icon: 'term',
+    value: { kind: 'sess', r },
+    picked: false,          // NEVER pre-ticked — each tick spawns a process
+    hay: [r.name, r.proj, r.id].filter(Boolean).join(' '),   // an id can still be pasted in
+  }));
+  const chosen = await checkModal(t('resume.title'), items, {
+    hint: t('resume.sub3', { named: data.named, unnamed: data.unnamed }),
+    placeholder: t('resume.filter'),
+    confirmLabel: t('resume.confirm'),
+    allowEmpty: true,       // ticking nothing and confirming is a legitimate "never mind"
+    /* The escape hatch, above the filter rather than inside the list. Our names come from the same
+       store Claude reads, so parity holds today — but if that storage changes, this is the
+       difference between a degraded feature and a lost capability, and it also reaches the
+       unnamed sessions this list deliberately hides. */
+    altAction: { label: t('resume.useClaudePicker'), hint: t('resume.useClaudePickerHint') },
+  });
+  if (!chosen) return;
+  if (chosen.alt) { void createPane({ name: 'resume', cmd: CLAUDE + ' --resume' }); return; }
+  const picked = chosen.filter((c) => c.kind === 'sess').map((c) => c.r);
+  if (!picked.length) { toast(t('resume.noneSelected')); return; }
+  /* One pane per selection, each running its own `claude --resume <id>`. Sequential rather than
+     parallel: several ptys spawning at once contend for the same terminal geometry and the
+     resume TUIs race each other for the first paint. */
+  for (const r of picked) {
+    const nm = r.name || r.id.slice(0, 8);
+    const hit = byName(nm);
+    if (hit && !panes.get(hit[0]).exited) continue;      // already open — do not duplicate it
+    void createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}` });
+  }
+  toast(t('resume.started', { n: picked.length }));
+}
+
+/* ── RECENTS ───────────────────────────────────────────────────────────────────
+   Two lists, deliberately built from different sources, because only one of them has any
+   history to draw on:
+     · FILES — nothing recorded this before, so the list starts empty and fills from now on.
+       There is no retroactive history to recover, and inventing one (by mtime, say) would
+       show files the operator never opened in this app.
+     · SESSIONS — the live registry, ordered by last activity. The registry holds ONLY live
+       sessions, so this answers "jump to something I have open", not "reopen what I closed".
+       Closed sessions exist only in a 593-file transcript archive, and reaching into that
+       automatically is precisely the failure AI-67's constraint forbids — so it is reached
+       only from the batch-resume picker, where the operator ticks what they want. */
+const RECENT_FILES_MAX = 30;
+function recentFiles() {
+  try { return JSON.parse(localStorage.getItem('recentFiles') || '[]'); } catch { return []; }
+}
+function noteRecentFile(path) {
+  if (!path || String(path).startsWith('::')) return;   // synthetic tool tabs are not files
+  try {
+    const now = Date.now();
+    const rest = recentFiles().filter((r) => r && r.path !== path);
+    localStorage.setItem('recentFiles', JSON.stringify([{ path, at: now }, ...rest].slice(0, RECENT_FILES_MAX)));
+  } catch { /* storage full or disabled — recents are a convenience, never a dependency */ }
+}
+
+/** Human "2m" / "3h" / "2d" for a timestamp. */
+function agoLabel(ts) {
+  const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+  if (m < 1) return t('recent.now');
+  if (m < 60) return m + 'm';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + 'h';
+  return Math.round(h / 24) + 'd';
+}
+
+async function openRecents() {
+  const files = recentFiles();
+  const live = ((pulse.lastRunning || {}).running || [])
+    .slice()
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const items = [];
+  if (live.length) items.push({ label: t('recent.headSessions'), head: true });
+  for (const a of live) {
+    items.push({
+      label: a.name,
+      desc: t('recent.session') + ' · ' + agoLabel(a.updatedAt || Date.now()),
+      icon: 'term',
+      value: { t: 'sess', name: a.name },
+    });
+  }
+  if (files.length) items.push({ label: t('recent.headFiles'), head: true });
+  for (const r of files) {
+    const nm = String(r.path).split('/').pop();
+    items.push({
+      label: nm,
+      desc: agoLabel(r.at) + ' · ' + String(r.path).split('/').slice(-3, -1).join('/'),
+      icon: fileIconName(nm),
+      value: { t: 'file', path: r.path },
+    });
+  }
+  // An honest empty state: a brand-new install has no file history because nothing recorded it,
+  // and saying so beats an empty list that looks broken.
+  if (!items.length) { toast(t('recent.empty')); return; }
+  items.push({ label: t('recent.headMore'), head: true });
+  items.push({ label: t('recent.batchResume'), desc: t('recent.batchResumeHint'), icon: 'spawn', value: { t: 'resume' } });
+  const v = await listModal(t('recent.title'), items, t('modal.filterPlaceholder'));
+  if (!v) return;
+  if (v.t === 'file') void openViewer(v.path);
+  else if (v.t === 'sess') { const hit = byName(v.name); if (hit) setActive(hit[0]); else toast(t('recent.sessionGone')); }
+  else if (v.t === 'resume') void batchResume();
+}
+
 async function openViewer(p) {
   for (const [id, pane] of panes) {
     if (pane.kind === 'view' && pane.path === p) { setActive(id); return; }
@@ -2434,6 +2924,7 @@ async function openViewer(p) {
   const file = await window.glassShell.fsRead(p);
   if (!file) { toast(t('viewer.cannotOpen', { name: String(p).split('/').pop() })); return; }
   const name = file.path.split('/').pop();
+  noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
   const id = 'v' + (++viewSeq);
   const el = document.createElement('div');
   el.className = 'pane viewer';
@@ -3000,9 +3491,32 @@ function refreshGit() {
 /* targeted in-place re-list of ONE folder (new files surface, removed vanish — no repaint).
    Re-places EVERY row in the sorted order (moving a row keeps its expanded .xkids block
    attached) — that's what makes a live sort-flip, or an mtime bump from a save, reorder. */
+/* Directories whose refresh arrived while they were not on screen. Bounded by the number of
+   folders in the tree, and each entry is dropped the moment it is re-listed. */
+const staleDirs = new Set();
+
+/** Re-list anything that changed while it was hidden. Safe to call often — it only touches
+    directories that are BOTH stale and now visible. */
+async function flushStaleDirs() {
+  if (!staleDirs.size) return;
+  for (const dir of [...staleDirs]) {
+    const c = dirContainers.get(dir);
+    if (!c || c.offsetParent === null) continue;   // still not visible — keep it pending
+    staleDirs.delete(dir);
+    await relistFolder(dir);
+  }
+}
+
 async function relistFolder(dir) {
   const container = dirContainers.get(dir);
-  if (!container || container.offsetParent === null) return; // not rendered / collapsed
+  /* DEFER, DO NOT DROP. `offsetParent === null` covers a collapsed folder AND an explorer that
+     is simply hidden — and returning here threw the event away, so a file created while the
+     explorer was closed never appeared after opening it. That is the reported "sometimes it
+     doesn't show new files": it depended entirely on whether the tree happened to be visible at
+     the moment the file was written. Remember it instead, and flush when it becomes visible. */
+  if (!container) { staleDirs.add(dir); return; }
+  if (container.offsetParent === null) { staleDirs.add(dir); return; }
+  staleDirs.delete(dir);
   const depth = +(container.dataset.depth || 0), base = +(container.dataset.base || 14), skipName = container.dataset.skip;
   const entries = (await sortedList(dir)).filter((e) => !(skipName && e.name === skipName));
   const want = new Set(entries.map((e) => e.path));
@@ -3077,6 +3591,32 @@ async function addSection(label, opts, buildBody) {
   await buildBody(box);
 }
 
+/* A manual refresh, asked for by an operator. It is the ESCAPE HATCH, not the fix: the watcher
+   dropping hidden-container events was the fix (see relistFolder). A button that is the only
+   thing standing between a stale tree and the truth trains people to distrust the tree. */
+function mountExplorerRefresh() {
+  /* IDEMPOTENT AND RE-CALLABLE. `applyStaticI18n()` assigns `innerHTML` to every [data-i18n]
+     element, and #xhead used to BE that element — so this button was mounted at boot and then
+     silently wiped when the locale was resolved a moment later. The heading text now lives in a
+     child <span data-i18n>, so the replacement can no longer reach the button; this stays
+     re-callable as the belt to that braces, since the next innerHTML wipe someone adds will not
+     announce itself either. */
+  const head = document.getElementById('xhead');
+  if (!head || document.getElementById('xrefresh')) return;
+  head.classList.add('xhead-row');
+  const b = document.createElement('button');
+  b.id = 'xrefresh';
+  b.className = 'xrefresh';
+  b.innerHTML = icon('sync', 12);
+  b.title = t('explorer.refresh');
+  b.addEventListener('click', async () => {
+    b.classList.add('spin');
+    staleDirs.clear();               // a full rebuild supersedes every pending relist
+    try { await paintExplorer(); refreshGit(); } finally { setTimeout(() => b.classList.remove('spin'), 400); }
+  });
+  head.appendChild(b);
+}
+
 async function paintExplorer() {
   await SORT_READY; // the roamed sort prefs decide row order (resolved once, instant after boot)
   explorerEl.replaceChildren();
@@ -3137,6 +3677,7 @@ document.getElementById('dragMark').innerHTML = icon('aios', 13);
 document.getElementById('railFind').innerHTML = icon('search', 15);
 document.getElementById('railFind').addEventListener('click', () => void quickOpen());
 document.getElementById('railExplorer').innerHTML = icon('folder', 15);
+mountExplorerRefresh();
 document.getElementById('railPlugins').innerHTML = icon('box', 15);
 /* Rail tooltips — re-applied on locale change (paintRailTitles). */
 function paintRailTitles() {
@@ -3517,6 +4058,16 @@ window.glassShell.onIntent(async (m) => {
     case 'home':
       openHomeTab();
       return;
+    case 'zoom':
+      if (m.reset) setEdZoom(1, true);
+      else setEdZoom(edZoom + (Number(m.delta) || 0), true);
+      return;
+    case 'recents':
+      void openRecents();
+      return;
+    case 'batchResume':
+      void batchResume();
+      return;
     case 'layout':
       if (m.toggleSplit) split = !split;
       // remember which panel layout you came from, so Zen → back lands on IDE if that's
@@ -3585,41 +4136,13 @@ function spawnNamed(name, task) {
    ⌘⌥G chord prefix (that exists to dodge VS Code / Antigravity bindings). One rule,
    two rows: ⌘ opens a SURFACE · ⌘⇧ opens a PICKER. The old chords still work for
    muscle memory, but these are the canonical keys. */
-const SHORTCUTS = [
-  ['shortcuts.surfaces', [
-    ['⌘K', 'shortcuts.palette'], ['⌘J', 'shortcuts.ask'], ['⌘P', 'shortcuts.quickOpen'],
-    ['⌘N', 'shortcuts.session'], ['⌘T', 'shortcuts.terminal'], ['⌘R', 'shortcuts.resume'],
-    ['⌘E', 'shortcuts.explorer'], ['⌘B', 'shortcuts.panel'], ['⌘W', 'shortcuts.closeTab'],
-    ['⌘,', 'shortcuts.settings'], ['⌘1–4', 'shortcuts.layouts'], ['⌘0', 'shortcuts.terminalsBelow'],
-    // NOT "this sheet": these same rows are rendered inline on Home, where "this" points at
-    // the wrong thing. A label that names the artifact reads correctly in both places.
-    ['⌘/', 'shortcuts.sheet'],
-  ]],
-  ['shortcuts.pickers', [
-    ['⌘⇧F', 'shortcuts.frequent'], ['⌘⇧A', 'shortcuts.agent'], ['⌘⇧S', 'shortcuts.skill'],
-    ['⌘⇧C', 'shortcuts.command'], ['⌘⇧I', 'shortcuts.ingest'], ['⌘⇧E', 'shortcuts.reports'],
-    ['⌘⇧B', 'shortcuts.designer'], ['⌘⇧G', 'shortcuts.goAgents'], ['⌘⇧R', 'shortcuts.running'],
-    ['⌘⇧P', 'shortcuts.projects'], ['⌘⇧X', 'shortcuts.context'], ['⌘⇧H', 'shortcuts.home'],
-    ['⌘⇧Y', 'shortcuts.today'],
-  ]],
-];
 function openShortcutsTab() {
-  openToolTab('::shortcuts', t('shortcuts.title'), (body) => {
+  openToolTab('::shortcuts', t('shortcuts.title'), async (body) => {
     const wrap = el('div', 'tool');
     body.appendChild(wrap);
     wrap.appendChild(el('div', 'tbig', t('shortcuts.title')));
     wrap.appendChild(el('div', 'tsub', t('shortcuts.sub')));
-    for (const [groupKey, rows] of SHORTCUTS) {
-      wrap.appendChild(el('div', 'ttitle', t(groupKey)));
-      const grid = el('div', 'kgrid');
-      for (const [keys, labelKey] of rows) {
-        const r = el('div', 'krow');
-        r.appendChild(el('kbd', '', keys));
-        r.appendChild(el('span', 'klabel', t(labelKey)));
-        grid.appendChild(r);
-      }
-      wrap.appendChild(grid);
-    }
+    await renderShortcuts(wrap);
   });
 }
 
@@ -3689,6 +4212,87 @@ async function accountSwapFlow() {
   toast(r.ok ? t('account.swapped', { email: pick.email }) : t('account.swapFailed', { message: r.message }));
 }
 
+/* ── THE SHORTCUT MAP ──────────────────────────────────────────────────────────
+   Menu accelerators come from the INSTALLED MENU over IPC, so that half cannot drift. This list
+   is the other half: keys the RENDERER owns, which the menu knows nothing about. Without it the
+   map would be confidently incomplete — the worst kind, because a map that omits ⌘F reads as
+   "⌘F is not a shortcut here".
+   Kept immediately beside nothing by accident: each entry names the handler that implements it,
+   so a reader can check the claim. A test asserts every accelerator listed here still appears in
+   a live keydown handler. */
+const RENDERER_KEYS = [
+  { group: 'menu.view', label: 'shortcut.find', accel: 'CmdOrCtrl+F' },          // openFind()
+  { group: 'menu.view', label: 'shortcut.findNext', accel: 'Enter / Shift+Enter' },
+  /* NOT "leave Zen". Two different things in this app are called zen: the ⌘4 LAYOUT preset
+     (`preset === 'Zen'`, which hides the panel and explorer) and this MAXIMIZED-PANE mode
+     (`zenOn`, body.zen). Escape exits only the second. Labelled "Leave Zen", it read as the
+     layout and looked broken to anyone who pressed it from ⌘4 — reported 2026-07-30. The
+     shortcut was fine; the label was lying. The name collision itself is worth cleaning up
+     separately, since it will mislead the next reader too. */
+  { group: 'menu.view', label: 'shortcut.exitMaximized', accel: 'Escape' },      // setZen(false)
+  { group: 'menu.view', label: 'shortcut.openPath', accel: 'CmdOrCtrl+Click' },  // attachPathLinks
+];
+
+/** `CmdOrCtrl+Shift+T` → `⌘⇧T` on macOS, `Ctrl+Shift+T` elsewhere.
+    TOKENISED, not a chain of replaces. The chained version turned `CmdOrCtrl+Plus` into `⌘` — it
+    mapped `Plus` to a literal `+` and then a later step stripped `+` after a modifier glyph,
+    unable to tell a plus KEY from a plus SEPARATOR. Splitting on the separator first removes the
+    ambiguity entirely, because by then every remaining token is a key name. */
+/* Every modifier spelling Electron accepts, because the menu uses more than one. Items we
+   declare use `CmdOrCtrl`; ROLE items (Quit, and the whole Edit section) come back as
+   `CommandOrControl`, which fell through untranslated and rendered as `CommandOrControlQ`.
+   This is a mac-only app, so `CmdOrCtrl` simply means ⌘ — there is no ambiguity to preserve. */
+const ACCEL_GLYPH = { CmdOrCtrl: '⌘', CommandOrControl: '⌘', CommandOrCtrl: '⌘', Cmd: '⌘', Command: '⌘', Super: '⌘', Meta: '⌘',
+                      Shift: '⇧', Alt: '⌥', Option: '⌥', AltGr: '⌥', Ctrl: '⌃', Control: '⌃',
+                      Plus: '+', Minus: '−', Click: 'click', Escape: 'esc', Esc: 'esc',
+                      Return: '↩', Enter: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Space: '␣',
+                      Up: '↑', Down: '↓', Left: '←', Right: '→' };
+function prettyAccel(a) {
+  const raw = String(a || '');
+  const mac = navigator.platform.toLowerCase().includes('mac');
+  /* Free-form entries (`Enter / Shift+Enter`) are prose, not one chord — keep the shape and
+     translate only the words. Detected by WHITESPACE alone: an earlier version also treated `/`
+     as prose, which broke `CmdOrCtrl+/` into `⌘+/` because the slash is part of the chord, not a
+     separator between alternatives. */
+  if (/\s/.test(raw)) {
+    return raw
+      .replace(/\b(CmdOrCtrl|CommandOrControl|Command|Cmd|Shift|Alt|Option|Ctrl|Control)\b/g,
+        (w) => (mac ? ACCEL_GLYPH[w] || w : (w === 'CmdOrCtrl' ? 'Ctrl' : w)))
+      // a glyph absorbs the separator that followed the word it replaced: `⇧+Enter` → `⇧Enter`
+      .replace(/([⌘⇧⌥⌃])\+/g, '$1');
+  }
+  const parts = raw.split('+').filter((x) => x !== '');
+  if (!mac) return parts.map((x) => (/^(CmdOrCtrl|CommandOrControl|Command|Cmd)$/.test(x) ? 'Ctrl' : x)).join('+');
+  const out = parts.map((x) => ACCEL_GLYPH[x] || x);
+  // On macOS modifiers are glyphs and need no separator; a trailing word key still reads fine.
+  return out.join('');
+}
+
+/** Render the map into `wrap`, grouped by the menu it comes from. Used by BOTH surfaces — the
+    ⌘/ sheet and Home — so they can never disagree with each other or with the app. */
+async function renderShortcuts(wrap) {
+  let menuKeys = [];
+  try { menuKeys = await window.glassShell.menuShortcuts(); } catch { menuKeys = []; }
+  const rows = [
+    ...menuKeys.map((k) => ({ group: k.group, label: k.label, accel: k.accel })),
+    ...RENDERER_KEYS.map((k) => ({ group: t(k.group), label: t(k.label), accel: k.accel })),
+  ];
+  const byGroup = new Map();
+  for (const r of rows) { if (!byGroup.has(r.group)) byGroup.set(r.group, []); byGroup.get(r.group).push(r); }
+  for (const [group, list] of byGroup) {
+    wrap.appendChild(el('div', 'ttitle', group));
+    const grid = el('div', 'kgrid');
+    for (const r of list) {
+      const row = el('div', 'krow');
+      row.appendChild(el('kbd', '', prettyAccel(r.accel)));
+      row.appendChild(el('span', 'klabel', r.label));
+      grid.appendChild(row);
+    }
+    wrap.appendChild(grid);
+  }
+  if (!rows.length) wrap.appendChild(el('div', 'thint', t('shortcut.none')));
+}
+
 /* ── Home: the human front door (greeting + big actions) ──────────────────── */
 function openHomeTab() {
   openToolTab('::home', t('home.title'), async (body) => {
@@ -3696,13 +4300,12 @@ function openHomeTab() {
     wrap.className = 'tool home';
     body.appendChild(wrap);
     const cfg = await window.glassShell.shellConfig();
-    const h = new Date().getHours();
-    const saludo = h < 12 ? t('home.morning') : h < 19 ? t('home.afternoon') : t('home.evening');
     // (settings + setup live in the title bar — Home stays a clean front door)
     const big = document.createElement('div'); big.className = 'tbig';
     // no name yet (fresh vault) → just the salute, never "Good morning, operator."
     const who = (cfg.operator || '').trim();
-    big.textContent = who ? saludo + ', ' : saludo;
+    big.textContent = who ? saluteNow() + ', ' : saluteNow();
+    stampSalute(big, !!who);
     if (who) { const nm = document.createElement('span'); nm.className = 'taccent'; nm.textContent = who; big.appendChild(nm); }
     big.appendChild(document.createTextNode('.'));
     const sub = document.createElement('div'); sub.className = 'tsub';
@@ -3731,19 +4334,12 @@ function openHomeTab() {
     card('moon', t('home.closeDay'), t('home.closeDayHint'), () => void createPane(ritual('close-day', '/aios:close-day')));
     wrap.appendChild(grid);
 
-    // Shortcuts live on Home, not just behind ⌘/ — this is where a new operator looks,
-    // and the app's keys are simple enough to learn at a glance.
-    for (const [groupKey, rows] of SHORTCUTS) {
-      wrap.appendChild(el('div', 'ttitle', t(groupKey)));
-      const kg = el('div', 'kgrid');
-      for (const [keys, labelKey] of rows) {
-        const r = el('div', 'krow');
-        r.appendChild(el('kbd', '', keys));
-        r.appendChild(el('span', 'klabel', t(labelKey)));
-        kg.appendChild(r);
-      }
-      wrap.appendChild(kg);
-    }
+    /* Shortcuts live on Home, not just behind ⌘/ — this is where a new operator looks.
+       GENERATED, not listed: this block used to render a hardcoded table, and by the time it was
+       replaced it had already drifted four entries behind the real menu in a single day (⌘+, ⌘−,
+       ⌘⇧0, ⌘⇧T were all bound and undocumented). A map of shortcuts that is itself maintained by
+       hand is the same silent-collision problem one layer up. */
+    await renderShortcuts(wrap);
     // (no "all shortcuts" link — Home renders the complete set; the same sheet is
     //  still reachable from Help → Keyboard shortcuts and ⌘/)
   });
@@ -3890,6 +4486,19 @@ function openSettingsTab() {
     modeSel.value = cfg.terminalMode || 'ask';
     modeSel.addEventListener('change', async () => { await window.glassShell.setSetting('terminalMode', modeSel.value); toast(t('settings.saved')); });
     row(wrap, t('settings.terminalMode'), modeSel, t('settings.terminalModeHint'));
+
+    /* Terminal renderer. Lives in localStorage with the layout rather than shellConfig, because
+       it is a per-machine display choice (one operator's GPU misbehaving says nothing about
+       another machine) and it must apply without a round trip so a switch can be judged
+       immediately. Applies LIVE to every open terminal. */
+    const rendSel = document.createElement('select');
+    rendSel.className = 'tinput';
+    for (const [l, v] of [[t('renderer.gpu'), 'webgl'], [t('renderer.dom'), 'dom']]) {
+      const o = document.createElement('option'); o.textContent = l; o.value = v; rendSel.appendChild(o);
+    }
+    rendSel.value = termRenderer;
+    rendSel.addEventListener('change', () => { setTermRenderer(rendSel.value); toast(t('settings.saved')); });
+    row(wrap, t('settings.termRenderer'), rendSel, t('settings.termRendererHint'));
 
     const fontIn = document.createElement('input');
     fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = '18'; fontIn.style.width = '70px';
@@ -4498,7 +5107,7 @@ async function addMarketplaceFlow() {
    and any other "pick several, then act" flow, so popups read the same everywhere.
    items: [{label, desc?, icon?, value, picked?, dot?}] → resolves an array of values
    (or null on cancel). */
-function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty } = {}) {
+function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty, altAction } = {}) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
@@ -4507,6 +5116,18 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty 
       <div class="mfoot"><span class="mhint"></span><button class="vbtn primary mgo"></button></div></div>`;
     wrap.querySelector('.mtitle').textContent = title;
     wrap.querySelector('.msub').textContent = hint || '';
+    /* An ALTERNATIVE ROUTE, not an item in the list. "Use Claude's own picker instead" was a row
+       among the sessions, which put a global escape hatch inside the set of things you were
+       choosing between — it read as one more session. It belongs above the filter, next to the
+       question rather than inside the answers. */
+    if (altAction) {
+      const alt = document.createElement('button');
+      alt.className = 'malt'; alt.type = 'button';
+      alt.textContent = altAction.label;
+      if (altAction.hint) alt.title = altAction.hint;
+      alt.addEventListener('click', () => { wrap.remove(); resolve({ alt: true }); });
+      wrap.querySelector('.modal').insertBefore(alt, wrap.querySelector('#checkInput'));
+    }
     wrap.querySelector('.mhint').textContent = t('modal.checkHint');
     const go = wrap.querySelector('.mgo');
     const input = wrap.querySelector('#checkInput');
@@ -4514,15 +5135,61 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty 
     const list = wrap.querySelector('.plist');
     const state = items.map((it) => ({ ...it, on: it.picked !== false }));
     let filtered = state, sel = 0;
+    /* SCROLL TO LOAD MORE. The list rendered a fixed first 60, so with 209 named sessions the
+       remaining 149 were reachable only by typing — scrolling just stopped, with nothing saying
+       why. The data is already in memory, so this is purely a render window: grow it as the
+       operator reaches the bottom.
+       `paint()` calls replaceChildren(), which resets scrollTop — growing therefore has to
+       restore the position, or the view snaps to the top and immediately re-triggers the growth
+       it just performed. */
+    const ROWS_PAGE = 60;
+    let shown = ROWS_PAGE;
+    const grow = () => {
+      if (filtered.length <= shown) return false;
+      const keep = list.scrollTop;
+      shown += ROWS_PAGE;
+      paint();
+      list.scrollTop = keep;
+      return true;
+    };
     const done = (val) => { wrap.remove(); resolve(val); };
-    const chosen = () => state.filter((s) => s.on).map((s) => s.value);
+    const chosen = () => state.filter((s) => s.on && !s.act).map((s) => s.value);
     // allowEmpty: for a "which of these do you want?" list, zero is a real answer
     // (hide every card); for close-all it isn't, so confirm stays disabled there.
-    const paintGo = () => { const n = state.filter((s) => s.on).length; go.textContent = (confirmLabel || t('modal.confirm')) + (n ? ` (${n})` : ''); go.disabled = !n && !allowEmpty; };
+    const paintGo = () => { const n = state.filter((s) => s.on && !s.act).length; go.textContent = (confirmLabel || t('modal.confirm')) + (n ? ` (${n})` : ''); go.disabled = !n && !allowEmpty; };
+    /* The remainder must be VISIBLE, not merely reachable. A list that silently stops looks
+       complete — the operator has no way to know 149 more exist below. */
+    const paintTail = () => {
+      const rest = filtered.length - shown;
+      if (rest <= 0) return;
+      const tail = document.createElement('div');
+      tail.className = 'prow tail';
+      tail.textContent = t('modal.moreBelow', { n: rest });
+      list.appendChild(tail);
+    };
     function paint() {
       list.replaceChildren();
-      filtered.slice(0, 60).forEach((it, idx) => {
+      filtered.slice(0, shown).forEach((it, idx) => {
         const r = document.createElement('div');
+        /* NOT EVERY ROW IS A CHOICE. `act: true` marks a row that DOES something when chosen —
+           "show 10 more" is an action, and rendering it with a tick-box said "include this in
+           your selection", which is a different and misleading promise. It gets no checkbox and
+           resolves the modal immediately. Reported 2026-07-30. */
+        if (it.act) {
+          r.className = 'prow act' + (idx === sel ? ' on' : '');
+          const lb2 = document.createElement('span'); lb2.className = 'plabel'; lb2.textContent = it.label;
+          r.appendChild(lb2);
+          if (it.desc) { const d2 = document.createElement('span'); d2.className = 'pdesc'; d2.textContent = it.desc; r.appendChild(d2); }
+          r.addEventListener('click', () => done([it.value]));
+          /* GUARDED mousemove, exactly like the checkbox rows — NOT bare `mouseenter`. A newly
+             created node fires mouseenter the instant it appears under the cursor, so repainting
+             from it replaced the node, which fired mouseenter again: an endless rebuild loop, and
+             the click never completed on a stable element. That is why both action rows looked
+             inert. Reported 2026-07-30. */
+          r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+          list.appendChild(r);
+          return;
+        }
         r.className = 'prow check' + (idx === sel ? ' on' : '');
         const bx = document.createElement('span'); bx.className = 'pcheck' + (it.on ? ' ticked' : '');
         bx.innerHTML = it.on ? icon('check', 11) : '';
@@ -4535,19 +5202,34 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty 
         r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
         list.appendChild(r);
       });
+      paintTail();
       const on = list.querySelector('.prow.on');
       if (on) on.scrollIntoView({ block: 'nearest' });
     }
     input.addEventListener('input', () => {
       const q = input.value.trim().toLowerCase();
-      filtered = q ? state.filter((it) => (it.label + ' ' + (it.desc || '')).toLowerCase().includes(q)) : state;
-      sel = 0; paint();
+      filtered = q ? state.filter((it) => (it.label + ' ' + (it.desc || '') + ' ' + (it.hay || '')).toLowerCase().includes(q)) : state;
+      shown = ROWS_PAGE; sel = 0; paint();
+    });
+    list.addEventListener('scroll', () => {
+      if (list.scrollTop + list.clientHeight >= list.scrollHeight - 40) grow();
     });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, filtered.length - 1); paint(); }
+      /* Arrowing past the window GROWS it. Without this the caret stops dead at row 60 with no
+         explanation — the same invisible wall as the scroll, reached by the other input device. */
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (sel + 1 >= shown) grow(); sel = Math.min(sel + 1, filtered.length - 1); paint(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); }
-      else if (e.key === ' ') { e.preventDefault(); if (filtered[sel]) { filtered[sel].on = !filtered[sel].on; paint(); paintGo(); } }
-      else if (e.key === 'Enter') { e.preventDefault(); if (state.some((s) => s.on) || allowEmpty) done(chosen()); }
+      // Space toggles a CHOICE; an action row has nothing to toggle.
+      else if (e.key === ' ') { e.preventDefault(); const it = filtered[sel]; if (it && !it.act) { it.on = !it.on; paint(); paintGo(); } }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        /* Enter on an action row runs THAT row. Without this, keyboard users confirmed the whole
+           selection while looking straight at "Show 10 more" — the mouse and the keyboard would
+           have done two different things from the same highlighted row. */
+        const it = filtered[sel];
+        if (it && it.act) { done([it.value]); return; }
+        if (state.some((s) => s.on) || allowEmpty) done(chosen());
+      }
       else if (e.key === 'Escape') { e.preventDefault(); done(null); }
     });
     go.addEventListener('click', () => { if (state.some((s) => s.on) || allowEmpty) done(chosen()); });
@@ -4557,7 +5239,11 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty 
   });
 }
 
-/* items: [{label, desc?, icon?, value, action?}]
+/* items: [{label, desc?, icon?, value, action?, head?}]
+   `head: true` renders a non-selectable SECTION LABEL. Recent files and recent sessions are two
+   different kinds of thing — one reopens a document, the other jumps to a running process — and
+   presenting them as one flat list made the operator read a filename as a session. A divider is
+   cheaper than two separate commands and keeps one keystroke as the entry point.
    `action` puts a button at the RIGHT of that row: { icon, title, run(item) }. A row action
    beats a separate "remove one…" row that opens a second list — the thing you want to act on
    is already under the pointer, which is how Glass's picker does it too. `run` returns true
@@ -4605,12 +5291,47 @@ function listModal(title, items, placeholder) {
     const list = wrap.querySelector('.plist');
     document.body.appendChild(wrap);
     let filtered = items;
-    let sel = 0;
+    /* Same render window as checkModal — see the note there. Recents and every other picker in
+       the app share this function, so the 60-row wall was app-wide, not specific to sessions. */
+    const ROWS_PAGE = 60;
+    let shown = ROWS_PAGE;
+    const grow = () => {
+      if (filtered.length <= shown) return false;
+      const keep = list.scrollTop;
+      shown += ROWS_PAGE;
+      paint();
+      list.scrollTop = keep;
+      return true;
+    };
+    const paintTail = () => {
+      const rest = filtered.length - shown;
+      if (rest <= 0) return;
+      const tail = document.createElement('div');
+      tail.className = 'prow tail';
+      tail.textContent = t('modal.moreBelow', { n: rest });
+      list.appendChild(tail);
+    };
+    /* Section labels are structure, not choices: the caret steps over them, Enter ignores them,
+       and the opening selection lands on the first real row. Without this, arrowing onto a header
+       and pressing Return resolved the picker with `undefined`. */
+    const nextSel = (from, dir) => {
+      for (let i = from + dir; i >= 0 && i < filtered.length; i += dir) if (!filtered[i].head) return i;
+      return from;
+    };
+    let sel = Math.max(0, items.findIndex((it) => !it.head));
     const done = (val) => { wrap.remove(); resolve(val); };
     function paint() {
       list.replaceChildren();
-      filtered.slice(0, 60).forEach((it, idx) => {
+      filtered.slice(0, shown).forEach((it, idx) => {
         const r = document.createElement('div');
+        // A section label: not selectable, not filterable-away on its own, just structure.
+        if (it.head) {
+          r.className = 'prow head';
+          const h = document.createElement('span'); h.className = 'pheadlbl'; h.textContent = it.label;
+          r.appendChild(h);
+          list.appendChild(r);
+          return;
+        }
         r.className = 'prow' + (idx === sel ? ' on' : '');
         const ic = document.createElement('span'); ic.className = 'picon'; ic.innerHTML = icon(it.icon || 'file', 12);
         const lb = document.createElement('span'); lb.className = 'plabel'; lb.textContent = it.label;
@@ -4636,18 +5357,22 @@ function listModal(title, items, placeholder) {
       });
       const on = list.querySelector('.prow.on');
       if (on) on.scrollIntoView({ block: 'nearest' });
+      paintTail();
     }
     function filter() {
       const q = input.value.trim().toLowerCase();
-      filtered = q ? items.filter((it) => (it.label + ' ' + (it.desc || '')).toLowerCase().includes(q)) : items;
-      sel = 0;
+      filtered = q ? items.filter((it) => !it.head && (it.label + ' ' + (it.desc || '')).toLowerCase().includes(q)) : items;
+      shown = ROWS_PAGE; sel = Math.max(0, filtered.findIndex((it) => !it.head));
       paint();
     }
     input.addEventListener('input', filter);
+    list.addEventListener('scroll', () => {
+      if (list.scrollTop + list.clientHeight >= list.scrollHeight - 40) grow();
+    });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, filtered.length - 1); paint(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); }
-      else if (e.key === 'Enter') { e.preventDefault(); if (filtered[sel]) done(filtered[sel].value); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (sel + 1 >= shown) grow(); sel = nextSel(sel, 1); paint(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); sel = nextSel(sel, -1); paint(); }
+      else if (e.key === 'Enter') { e.preventDefault(); const hit = filtered[sel]; if (hit && !hit.head) done(hit.value); }
       else if (e.key === 'Escape') done(null);
     });
     wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
@@ -5265,6 +5990,8 @@ function relocalize(loc) {
   applyStaticI18n();
   paintRailTitles();
   paintThemeBtn();
+  const rb = document.getElementById('xrefresh');
+  if (rb) rb.title = t('explorer.refresh');   // the tooltip is the button's only label
   ctxEl = null; // rebuild the cached right-click menu with new labels on next open
   void paintExplorer();
   if (pulse.lastState) renderActionCards(pulse.lastState);
@@ -5290,6 +6017,7 @@ applyLayout();
 applyPulseOrder();
 void initLocale().then(async () => {
   applyStaticI18n();       // re-resolve static HTML now that the real locale is loaded
+  mountExplorerRefresh();  // …and re-assert the button, which an innerHTML wipe would have taken
   openHomeTab();
   pulse.send({ type: 'ready' });
   void refreshHealth();    // the Health card runs its first doctor pass at boot…

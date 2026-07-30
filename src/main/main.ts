@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
 import * as pty from 'node-pty';
@@ -215,6 +215,139 @@ function resolveIn(relOrAbs: string): string | null {
   const abs = path.isAbsolute(relOrAbs) ? relOrAbs : (v ? path.resolve(v, relOrAbs) : null);
   return abs && inAllowed(abs) ? abs : null;
 }
+/* RESUMABLE SESSIONS — the whole set, so the picker's filter can actually find things.
+   Paging this was worse than it looked: with ten rows loaded, typing the name of a session from
+   last week matched nothing, which reads as "that session does not exist" rather than "it is on
+   page four". So everything is returned and the modal filters in memory.
+   MEASURED before choosing: 593 transcripts, 16KB head each, 22ms warm / ~180ms cold. Cheap.
+   Only 209 of those 593 carry an `agent-name` row, so most historic sessions have no name to
+   recover and are labelled by project — worth knowing rather than discovering in the UI.
+   Cached by path+mtime: reopening the picker costs nothing, and a transcript that grows gets
+   re-read because its mtime moved.
+   The archive is still never READ on the app's own initiative — only when this picker is opened,
+   and nothing resumes without being ticked (AI-67's constraint). */
+const nameCache = new Map<string, string>();
+const RESUMABLE_CAP = 2000;      // a backstop, not a page: far above any real archive
+
+function sessionNameFromTranscript(file: string, mtime: number): string {
+  const key = file + ':' + mtime;
+  const hit = nameCache.get(key);
+  if (hit !== undefined) return hit;
+  let name = '';
+  let fd = -1;
+  try {
+    fd = fs.openSync(file, 'r');
+    /* THE LAST `agent-name` ROW WINS, not the first. Reading the head found the name a session
+       was BORN with, so any session later renamed showed a stale label — measured on the
+       reporting machine: 17 of 209 named sessions, e.g. `buddai` → `buddai-jul-23-2026` and
+       `keen-falcon` → `falcon`. Roughly one session in five carries more than one name row.
+       Reading the whole corpus is not an option (1.4GB across 592 files, the largest 617MB), so
+       scan BACKWARDS in chunks and stop at the first row found — which, read from the end, is the
+       most recent declaration. Measured at 377ms for the full set, cached thereafter.
+       Honest limit: a rename followed by more than ~2MB of further activity falls outside the
+       window, and that session keeps showing its original name. That is a real name for it, just
+       an older one — strictly better than the uuid, and cheap to widen if it ever matters. */
+    const size = fs.fstatSync(fd).size;
+    const CHUNK = 256 * 1024;
+    const MAX_BACK = 8;                       // 2MB of tail before giving up
+    for (let i = 0; i < MAX_BACK && !name; i++) {
+      const end = size - i * CHUNK;
+      if (end <= 0) break;
+      const start = Math.max(0, end - CHUNK);
+      const buf = Buffer.alloc(end - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      const lines = buf.toString('utf8').split('\n');
+      for (let k = lines.length - 1; k >= 0; k--) {
+        if (!lines[k].includes('"agent-name"')) continue;
+        try { const j = JSON.parse(lines[k]); if (j && typeof j.agentName === 'string') { name = j.agentName; break; } } catch { /* a chunk boundary split this line */ }
+      }
+      if (start === 0) break;
+    }
+    if (!name) {
+      // Nothing in the tail — fall back to the head, which is where a never-renamed session
+      // declares itself.
+      const b = Buffer.alloc(16 * 1024);
+      const n = fs.readSync(fd, b, 0, b.length, 0);
+      for (const line of b.subarray(0, n).toString('utf8').split('\n')) {
+        if (!line.includes('"agent-name"')) continue;
+        try { const j = JSON.parse(line); if (j && typeof j.agentName === 'string') { name = j.agentName; break; } } catch { /* partial line */ }
+      }
+    }
+  } catch { /* unreadable — list it unnamed rather than hide it */ } finally {
+    if (fd >= 0) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+  }
+  nameCache.set(key, name);
+  return name;
+}
+
+ipcMain.handle('sessions:resumable', () => {
+  const dir = path.join(os.homedir(), '.claude', 'projects');
+  let files: Array<{ file: string; at: number }> = [];
+  try {
+    for (const proj of fs.readdirSync(dir)) {
+      const pdir = path.join(dir, proj);
+      let entries: string[] = [];
+      try { entries = fs.readdirSync(pdir); } catch { continue; }
+      for (const f of entries) {
+        if (!f.endsWith('.jsonl')) continue;
+        try { files.push({ file: path.join(pdir, f), at: fs.statSync(path.join(pdir, f)).mtimeMs }); } catch { /* vanished */ }
+      }
+    }
+  } catch { return { items: [], total: 0, named: 0 }; }
+  // Already-open sessions are excluded: resuming one duplicates a pane or fights its owner.
+  const liveIds = new Set(aios.listRunningAgents().map((a: { sessionId?: string }) => a.sessionId).filter(Boolean));
+  files = files.filter((f) => !liveIds.has(path.basename(f.file, '.jsonl')));
+  files.sort((a2, b2) => b2.at - a2.at);
+  const total = files.length;
+  const all = files.slice(0, RESUMABLE_CAP).map((f) => ({
+    id: path.basename(f.file, '.jsonl'),
+    name: sessionNameFromTranscript(f.file, f.at),
+    proj: path.basename(path.dirname(f.file)).replace(/^-Users-[^-]+-/, ''),
+    at: f.at,
+  }));
+  /* NAMED SESSIONS ONLY. Of 593 transcripts here, 384 never wrote an `agent-name` row — those
+     could only ever be labelled `project · a3f9c2b1`, which identifies nothing and is 65% of the
+     list you have to scroll past to find what you meant. Resuming is an act of recognition, so
+     the list holds what can be recognised.
+     The others are NOT lost and must not be dropped in silence: the count is returned so the
+     picker can say how many are hidden, and Claude's own picker (one row in that modal) still
+     reaches every one of them. */
+  const items = all.filter((i) => i.name);
+  return { items, total, named: items.length, unnamed: all.length - items.length };
+});
+
+/* THE SHORTCUT MAP — read off the INSTALLED MENU, never a hand-written list.
+   Today alone two accelerators collided silently: zoom took ⌘0 from the terminal dock, and
+   Recents took ⌘⇧R from Running sessions. Neither announced itself — a menu accelerator simply
+   wins and the other feature stops. A map is the fix, but a HAND-COPIED map would be the same
+   class of bug one edit later: it would claim bindings the app no longer has.
+   So this walks `Menu.getApplicationMenu()` — the menu actually in force — and reports what it
+   finds. Only items with an EXPLICIT accelerator are included: role items (⌘C, ⌘V, ⌘Q) get their
+   keys from the OS and documenting them would pad the list with things every operator already
+   knows, while burying the app's own bindings. */
+ipcMain.handle('menu:shortcuts', () => {
+  const out: Array<{ group: string; label: string; accel: string }> = [];
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return out;
+  const walk = (items: Electron.MenuItem[], group: string, trail: string[]): void => {
+    for (const it of items) {
+      const label = String(it.label || '').replace(/\.\.\.$|…$/, '');
+      if (it.submenu) { walk(it.submenu.items, group || label, label ? [...trail, label] : trail); continue; }
+      /* Items WITHOUT an accelerator are separators and submenu parents. Role items (Quit, the
+         Edit section) DO report one — as `CommandOrControl+Q` etc. — so they are included and the
+         formatter must know that spelling. An earlier comment here claimed roles were excluded;
+         they never were, and believing it is what let `CommandOrControlQ` reach the screen. */
+      if (!it.accelerator) continue;
+      out.push({ group: group || '—', label: [...trail, label].filter(Boolean).join(' › '), accel: it.accelerator });
+    }
+  };
+  for (const top of menu.items) {
+    const label = String(top.label || '');
+    if (top.submenu) walk(top.submenu.items, label, []);
+  }
+  return out;
+});
+
 ipcMain.handle('fs:roots', () => {
   const v = aios.vaultRoot();
   return {
@@ -491,7 +624,7 @@ ipcMain.handle('onboarding:storePat', (_e, pat: string) => aios.storeGitHubPat(S
 // doctor: headless repair + re-run-the-same-check proof (see aios.repairCheck)
 ipcMain.handle('doctor:repair', (_e, id: string) => aios.repairCheck(String(id)));
 ipcMain.handle('doctor:health', () => aios.computeHealth());
-ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved: aios.resolvedLocale(), hasIdentity: aios.hasIdentity(), operator: aios.operatorName(), primary: aios.primaryName() }));
+ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved: aios.resolvedLocale(), hasIdentity: aios.hasIdentity(), operator: aios.operatorName(), identityNameGap: aios.identityNameGap(), primary: aios.primaryName() }));
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());
 ipcMain.handle('claude:modelOptions', () => aios.modelOptions());
@@ -711,6 +844,56 @@ app.whenReady().then(() => {
       } catch (e) { console.error('shell-smoke: viewer gate error', e); setupOk = false; }
         console.log(`shell-smoke: setup — steps=${steps}, clickable=${clickable}, repaintWired=${repaint}`);
       } catch (err) { console.error('shell-smoke: setup gate error', err); }
+      /* gate 9: JS-MOUNTED CHROME IS ACTUALLY ON SCREEN. The explorer refresh button was built
+         at boot and then silently deleted: `applyStaticI18n()` assigns `innerHTML` to every
+         [data-i18n] element, #xhead WAS that element, and it runs after the mount. The unit test
+         asserted the mounting function exists in source — true, and useless, because the button
+         was created and destroyed in the same second. I told the operator to click a control
+         that was not there.
+         Source cannot see a wipe. Ask the DOM. Everything listed here is built by JS after load,
+         which is exactly the class an innerHTML pass can silently erase. */
+      let chromeOk = false;
+      try {
+        const missing = await win.webContents.executeJavaScript(
+          `['xrefresh','railExplorer','railSettings','dragacts'].filter((id) => !document.getElementById(id)).join(',')`,
+        ).catch(() => 'ERR');
+        /* AND THE INVARIANT BEHIND IT, which is the part that can actually regress.
+           `applyStaticI18n()` assigns innerHTML to every [data-i18n] node, so ANY such node with
+           element children will have them destroyed on the next locale pass. That is the general
+           rule — not "the refresh button exists". Checked because the presence check alone was
+           proven blind: with the original defect restored it still passed, since a defensive
+           re-mount rebuilt the button afterwards. A check a known bug walks past is not a check. */
+        const clobber = await win.webContents.executeJavaScript(
+          `[...document.querySelectorAll('[data-i18n]')].filter((n) => {` +
+          `  if (!n.children.length) return false;` +
+          /* Children are only AT RISK when the translation is plain text. Several hints legitimately
+                carry their own markup (<kbd>⌘J</kbd>), and for those the innerHTML assignment puts the
+                children straight back — flagging them would be a false positive, and a gate that cries
+                wolf gets muted, which costs more than the bug it was guarding. */
+          `  try { return !/</.test(String(t(n.getAttribute('data-i18n')) || '')); } catch (e) { return true; }` +
+          `}).map((n) => n.id || n.tagName.toLowerCase() + '.' + n.className).join(',')`,
+        ).catch(() => 'ERR');
+        chromeOk = missing === '' && clobber === '';
+        if (missing !== '') console.error(`shell-smoke: CHROME MISSING — built by JS then absent from the DOM: ${missing}`);
+        if (clobber !== '') console.error(`shell-smoke: I18N WILL CLOBBER CHILDREN — these carry data-i18n AND element children, so the next locale pass deletes them: ${clobber}`);
+        if (chromeOk) console.log('shell-smoke: chrome — every JS-mounted control present, no i18n node can clobber children');
+      } catch (e) { console.error('shell-smoke: chrome gate error', e); }
+      /* gate 10: THE SHORTCUT MAP MUST NOT LEAK RAW TOKENS. `CommandOrControlQ` reached the
+         screen because the unit sweep read accelerator strings out of menu.ts SOURCE — and role
+         items (Quit, the whole Edit section) have no accelerator in source. They only exist on the
+         INSTALLED menu at runtime, which is precisely where the untranslated spelling came from.
+         So the check has to run against the live menu and through the real formatter. A sweep that
+         cannot see half its inputs is the kind of green that hides a bug. */
+      let mapOk = false;
+      try {
+        const leaks = await win.webContents.executeJavaScript(
+          `window.glassShell.menuShortcuts().then((ks) => ks.map((k) => prettyAccel(k.accel))` +
+          `.filter((v) => /CmdOrCtrl|CommandOrControl|Command|\\bPlus\\b|\\bShift\\b|\\bAlt\\b|\\bControl\\b/.test(v)).join(','))`,
+        ).catch(() => 'ERR');
+        mapOk = leaks === '';
+        if (!mapOk) console.error(`shell-smoke: SHORTCUT MAP LEAKED RAW TOKENS — ${leaks}`);
+        else console.log('shell-smoke: shortcuts — every accelerator on the live menu formats cleanly');
+      } catch (e) { console.error('shell-smoke: shortcut gate error', e); }
       const ptyOk = buf.includes('GLASS_SHELL_PTY_OK');
       /* A renderer that threw is broken whether or not the thing it broke is something a gate
          happens to look at. Three uncaught errors reached a human tester tonight with every
@@ -721,10 +904,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

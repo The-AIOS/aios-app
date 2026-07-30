@@ -174,6 +174,14 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 #xwrap { width: 230px; flex: 0 0 auto; overflow-y: auto; padding-bottom: 30px;
          background: color-mix(in srgb, var(--bg) 55%, var(--surface)); }
 #xhead { color: var(--subtle); font-size: 10px; font-weight: 600; letter-spacing: .16em; padding: 12px 14px 8px; }
+/* The heading becomes a row so the refresh button can sit at its right edge. Only when the
+   button is present, so a heading without one keeps its original box exactly. */
+#xhead.xhead-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.xrefresh { background: transparent; border: 0; color: var(--subtle); cursor: pointer; padding: 2px; margin: -2px 0;
+            border-radius: 5px; display: inline-flex; align-items: center; opacity: .6; }
+.xrefresh:hover { opacity: 1; background: var(--surface); color: var(--ink); }
+.xrefresh.spin svg { animation: xspin .6s linear; }
+@keyframes xspin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .xrow { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; color: var(--subtle); font-size: 12.5px;
         cursor: pointer; border-radius: 6px; margin: 0 6px; transition: background .12s, color .12s; }
 .xrow:hover { background: var(--surface); color: var(--ink); }
@@ -263,14 +271,21 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .vbody { flex: 1; overflow-y: auto; min-height: 0; user-select: text; }
 .vbody.fill { overflow: hidden; display: flex; }
 .vbody.fill .htmlview { flex: 1; height: auto; }
-.srcview { color: var(--ink); font-family: var(--mono); font-size: 12px; line-height: 1.6; padding: 16px 18px; margin: 0; white-space: pre-wrap; word-break: break-word; }
+.srcview { color: var(--ink); font-family: var(--mono); font-size: calc(12px * var(--edzoom)); line-height: 1.6; padding: 16px 18px; margin: 0; white-space: pre-wrap; word-break: break-word; }
 .srcedit { width: 100%; height: 100%; box-sizing: border-box; background: transparent; color: var(--ink); border: 0; outline: none;
            resize: none; font-family: var(--mono); font-size: 12.5px; line-height: 1.65; padding: 18px 20px; caret-color: var(--accent); }
 .imgview { max-width: 100%; padding: 16px; }
 .htmlview { width: 100%; height: 100%; border: 0; background: #fff; }
 
 /* markdown — the reading surface */
-.mdview { max-width: 740px; margin: 0 auto; padding: 28px 32px 80px; color: var(--ink); font-size: 14.5px; line-height: 1.7; }
+/* EDITOR ZOOM — one multiplier, three surfaces. `--edzoom` scales only the DOCUMENT surfaces
+   (rendered markdown, source view, edit overlay); chrome, tabs and the terminal keep their own
+   sizes, because "zoom the thing I am reading" is the request, not "zoom the application".
+   .codehl and .codeta MUST stay in one rule: they are an overlay pair — a transparent textarea
+   sitting exactly on top of a highlighted <pre> — so if their font metrics ever diverge the
+   caret drifts away from the glyphs it is supposed to sit in. Same declaration, always. */
+:root { --edzoom: 1; }
+.mdview { max-width: calc(740px * var(--edzoom)); margin: 0 auto; padding: 28px 32px 80px; color: var(--ink); font-size: calc(14.5px * var(--edzoom)); line-height: 1.7; }
 .mdview h1, .mdview h2, .mdview h3, .mdview h4 { line-height: 1.3; color: var(--ink); }
 .mdview h1 { font-size: 1.65em; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
 .mdview h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .22em; }
@@ -882,9 +897,21 @@ body.compact .plitem { padding: 4px 6px; }
 /* ═══ syntax-highlighted source editor (highlight.js overlay) ═══ */
 .codeedit { position: relative; width: 100%; height: 100%; overflow: hidden; }
 .codehl, .codeta { position: absolute; inset: 0; margin: 0; padding: 18px 20px; box-sizing: border-box;
-                   font-family: var(--mono); font-size: 12.5px; line-height: 1.65; tab-size: 2; white-space: pre; overflow: auto; border: 0; }
+                   font-family: var(--mono); font-size: calc(12.5px * var(--edzoom)); line-height: 1.65; tab-size: 2;
+                   /* WRAP, and wrap IDENTICALLY. Long lines used to run off to the right and the
+                      editor became a horizontal scroll hunt — reported 2026-07-30. The two layers
+                      are a transparent <textarea> over a highlighted <pre>, so every property that
+                      influences line breaking has to be declared once, here, for both: differing
+                      wrap points would put the caret on a different visual row than the glyph it
+                      belongs to, which is far worse than the overflow it replaced. */
+                   white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+                   overflow-x: hidden; overflow-y: auto; border: 0; }
 .codehl { z-index: 0; pointer-events: none; color: var(--ink); background: transparent; }
-.codehl code { font: inherit; white-space: pre; background: none; padding: 0; }
+/* highlight.js wraps the content in <code>, and a `white-space: pre` here would override the
+   wrapping declared on the layer above — the <pre> would wrap, the <code> inside it would not,
+   and the textarea would wrap against a non-wrapping highlight layer. `inherit` keeps the two
+   layers governed by ONE declaration, which is the only way they stay glyph-aligned. */
+.codehl code { font: inherit; white-space: inherit; overflow-wrap: inherit; word-break: inherit; background: none; padding: 0; }
 .codeta { z-index: 1; background: transparent; color: transparent; -webkit-text-fill-color: transparent;
           caret-color: var(--accent); resize: none; outline: none; }
 .codeta::selection { background: rgba(255,93,77,.28); }
@@ -1112,3 +1139,35 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 .chgbtn { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 5px;
           background: transparent; color: var(--subtle); font-size: 12px; line-height: 1; cursor: pointer; }
 .chgbtn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ═══ find in file (⌘F) ═══ */
+/* Floating over the work area, top-right — it must not reflow the document, or every match
+   position shifts the moment the bar appears. */
+.findbar { position: absolute; top: 8px; right: 18px; z-index: 40; display: flex; align-items: center; gap: 4px;
+           background: var(--surface); border: 1px solid var(--line-strong); border-radius: 9px;
+           padding: 5px 6px; box-shadow: var(--depth); }
+.findinput { background: var(--bg); border: 1px solid var(--line); color: var(--ink); border-radius: 6px;
+             padding: 4px 9px; font-size: 12px; width: 190px; outline: none; }
+.findinput:focus { border-color: var(--accent); }
+.findcount { color: var(--subtle); font-size: 11px; font-family: var(--mono); min-width: 44px; text-align: center; }
+.findcount.none { color: var(--accent); }
+.findbtn { background: transparent; border: 0; color: var(--subtle); cursor: pointer; font-size: 15px;
+           line-height: 1; padding: 2px 6px; border-radius: 5px; }
+.findbtn:hover { background: var(--surface-2); color: var(--ink); }
+/* The highlights themselves. `::highlight()` paints without touching the DOM, which is what makes
+   this safe over rendered markdown and over the editor's glyph-aligned overlay. */
+::highlight(aios-find) { background: rgba(255, 214, 0, .30); }
+::highlight(aios-find-cur) { background: rgba(255, 93, 77, .55); color: #fff; }
+
+/* An ACTION row inside a checklist — no tick-box, and visibly a verb rather than an option. */
+.prow.act { color: var(--accent); font-weight: 600; }
+.prow.act .pdesc { color: var(--subtle); font-weight: 400; }
+/* Section label inside a picker — structure, never a target. */
+.prow.head { cursor: default; padding-top: 10px; padding-bottom: 3px; background: none; }
+.prow.head .pheadlbl { color: var(--subtle); font-size: 9.5px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
+/* "N more below" — the remainder stated rather than left as a list that just stops. */
+.prow.tail { cursor: default; justify-content: center; color: var(--subtle); font-size: 10.5px; padding: 8px 0 6px; background: none; }
+/* An alternative route offered above a picker's filter — a way OUT of the list, not an item in it. */
+.malt { align-self: flex-start; background: transparent; border: 1px solid var(--line); color: var(--subtle);
+        border-radius: 7px; padding: 4px 10px; font-size: 11px; cursor: pointer; margin: 8px 0 2px; }
+.malt:hover { border-color: var(--accent); color: var(--ink); }

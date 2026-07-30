@@ -72,7 +72,17 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
       submenu: [
         { label: t('menu.newSession'), accelerator: 'CmdOrCtrl+N', click: () => intent('spawnWorker') },
         { label: t('menu.launchPrimary'), click: () => intent('launchPrimary') },
-        { label: t('menu.resumeSession'), accelerator: 'CmdOrCtrl+R', click: () => term('resume', 'claude --resume') },
+        /* ⌘R now opens the selector rather than spawning Claude's picker TUI — same reasoning as
+           the panel button (recency order, multi-select, live sessions excluded, and the TUI's
+           full-screen redraws off the critical path). The TUI remains one row inside the modal. */
+        { label: t('menu.resumeSession'), accelerator: 'CmdOrCtrl+R', click: () => intent('batchResume') },
+        /* File › Open Recent is where macOS has trained everyone to look, so it lives here rather
+           than under View. Beside Resume deliberately: both answer "take me back to something I
+           had" — this one for files and open panes, that one for closed sessions.
+           ⌘⇧T, mnemonically "reopen Tab", the Chrome gesture this was asked for by name. (⌘⇧R was
+           the first choice and is already Running sessions; the duplicate-accelerator test caught
+           it immediately.) */
+        { label: t('menu.openRecent'), accelerator: 'CmdOrCtrl+Shift+T', click: () => intent('recents') },
         { type: 'separator' },
         { label: t('menu.newTerminal'), accelerator: 'CmdOrCtrl+T', click: () => intent('terminal', { name: 'terminal' }) },
         { type: 'separator' },
@@ -145,6 +155,19 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
             { label: t('layout.facing'), accelerator: 'CmdOrCtrl+2', click: () => intent('layout', { preset: 'Facing' }) },
             { label: t('layout.ide'), accelerator: 'CmdOrCtrl+3', click: () => intent('layout', { preset: 'IDE' }) },
             { label: t('layout.zen'), accelerator: 'CmdOrCtrl+4', click: () => intent('layout', { preset: 'Zen' }) },
+          ],
+        },
+        { type: 'separator' },
+        /* Editor zoom. Reset is ⌘⇧0, NOT ⌘0: this app's documented convention gives ⌘0–4 to the
+           layout family (terminal dock + four presets), and menu.test.ts asserts it. Adding zoom
+           on ⌘0 silently stole the dock toggle for a day — the operator adapted to the
+           regression without noticing it was one, which is how a convention erodes. */
+        {
+          label: t('menu.zoom'),
+          submenu: [
+            { label: t('zoom.in'), accelerator: 'CmdOrCtrl+Plus', click: () => intent('zoom', { delta: 0.1 }) },
+            { label: t('zoom.out'), accelerator: 'CmdOrCtrl+-', click: () => intent('zoom', { delta: -0.1 }) },
+            { label: t('zoom.reset'), accelerator: 'CmdOrCtrl+Shift+0', click: () => intent('zoom', { reset: true }) },
           ],
         },
         { type: 'separator' },
