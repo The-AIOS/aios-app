@@ -127,7 +127,7 @@ test('a named spawn IS the identity — the session becomes the agent', () => {
   // a session adopt a bundled agent on turn one. Running a slash command in the primary
   // session tells it ABOUT the agent instead, and cannot be closed independently.
   assert.match(app, /function spawnNamed\(name, task\)/);
-  assert.match(app, /CLAUDE \+ ' --name ' \+ handle/);
+  assert.match(app, /claudeLaunchCmd\(handle, task\)/, 'built by the one renderer chokepoint, so --name and --remote-control travel together');
   assert.match(app, /const hit = byName\(handle\);/, 'reveal an open one rather than duplicating');
   assert.match(app, /case 'spawnNamed':/);
   // the title-bar compass uses the same path as the menu
@@ -469,7 +469,7 @@ test('a ritual launches as a named SESSION, never an anonymous terminal', () => 
      ~/.claude/sessions. The operator gets an unnamed terminal they cannot resume and cannot find in
      Running — reported on the update pill as "a session that is not recognised as a session".
      The pane always had a name for its tab; it just never reached Claude. */
-  assert.match(app, /const ritual = \(name, slash\) => \(\{ name, cmd: CLAUDE \+ ' --name ' \+ name \+ ' ' \+ shq\(slash\) \}\)/,
+  assert.match(app, /const ritual = \(name, slash\) => \(\{ name, cmd: claudeLaunchCmd\(name, slash\) \}\)/,
     'one builder emits the tab name and the session name from the same string');
   // no ritual may be launched the old way — a bare slash command with no --name
   const orphans = [...app.matchAll(/cmd: CLAUDE \+ " '\/[a-z:-]+'"/g)].map((m) => m[0]);
@@ -478,7 +478,9 @@ test('a ritual launches as a named SESSION, never an anonymous terminal', () => 
     assert.ok(app.includes(`ritual('${r}'`), `${r} must go through the builder`);
   }
   const panel = fs.readFileSync('src/main/panelHost.ts', 'utf8');
-  assert.match(panel, /--name update '\/aios:update'/, 'the update pill launches a named session');
+  // Built by spawnCmd() now rather than spelled inline, so assert the CALL, not the string:
+  // the launch has to carry --remote-control too, and a literal is the wrong thing to pin.
+  assert.match(panel, /spawnCmd\('update', '\/aios:update'\)/, 'the update pill launches a named session via the builder');
 });
 
 test('no stray keyword was left dangling by an edit', () => {

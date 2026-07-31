@@ -95,16 +95,18 @@ test('shq: POSIX single-quote escaping (embedded quotes safe)', () => {
 });
 
 test('buildSpawnCmd: bare · task · model · tier · model-beats-tier · task-file', () => {
-  assert.equal(buildSpawnCmd('claude', 'heron', {}), 'claude --name heron');
-  assert.equal(buildSpawnCmd('claude', 'heron', { task: 'do it' }), "claude --name heron 'do it'");
-  assert.equal(buildSpawnCmd('claude', 'heron', { model: 'claude-opus-4-8', task: 'x' }), "claude --model claude-opus-4-8 --name heron 'x'");
-  assert.equal(buildSpawnCmd('claude', 'heron', { tier: 'mechanical' }), 'claude --model claude-sonnet-5 --name heron');
+  // These pin the command the app ACTUALLY runs, --remote-control included, rather than a
+  // configuration nobody uses — so a change to the default shape has to come through here.
+  assert.equal(buildSpawnCmd('claude', 'heron', {}), 'claude --remote-control --name heron');
+  assert.equal(buildSpawnCmd('claude', 'heron', { task: 'do it' }), "claude --remote-control --name heron 'do it'");
+  assert.equal(buildSpawnCmd('claude', 'heron', { model: 'claude-opus-4-8', task: 'x' }), "claude --model claude-opus-4-8 --remote-control --name heron 'x'");
+  assert.equal(buildSpawnCmd('claude', 'heron', { tier: 'mechanical' }), 'claude --model claude-sonnet-5 --remote-control --name heron');
   // explicit model beats tier
-  assert.equal(buildSpawnCmd('claude', 'heron', { model: 'claude-opus-4-8', tier: 'mechanical' }), 'claude --model claude-opus-4-8 --name heron');
+  assert.equal(buildSpawnCmd('claude', 'heron', { model: 'claude-opus-4-8', tier: 'mechanical' }), 'claude --model claude-opus-4-8 --remote-control --name heron');
   // task-file replaces the inline task with a read-instruction
   assert.equal(
     buildSpawnCmd('claude', 'heron', { task: 'huge...', taskFile: '/tmp/aios-spawn-task-heron.md' }),
-    `claude --name heron ${shq(taskFileInstruction('/tmp/aios-spawn-task-heron.md'))}`,
+    `claude --remote-control --name heron ${shq(taskFileInstruction('/tmp/aios-spawn-task-heron.md'))}`,
   );
   // a custom claudeCmd is honored (Settings override)
   assert.ok(buildSpawnCmd('claude-fast', 'heron', {}).startsWith('claude-fast '));
@@ -128,4 +130,25 @@ test('INVARIANT: verbs reuse existing renderer intents (no bespoke renderer code
   for (const intent of ['terminal', 'closeByName', 'sendByName', 'focusByName']) {
     assert.match(src, new RegExp(`'${intent}'`), `bus must emit the existing '${intent}' intent`);
   }
+});
+
+/* Remote Control reaches the command line, not just the settings file (2026-07-31).
+   `remoteControlAtStartup` is honoured inconsistently across hosts — there are open upstream
+   reports of it being read and ignored — so a toggle that only writes that key can be ON and
+   have no effect. Passing --remote-control on the launch itself is the mechanism with a track
+   record: it is what the `spawn` wrapper has always done, and wrapper-launched sessions were
+   the only ones that ever appeared on the operator's phone. */
+test('buildSpawnCmd passes --remote-control by default, before --name', () => {
+  const cmd = buildSpawnCmd('claude', 'ali');
+  assert.match(cmd, /--remote-control/, 'a launch must publish the session by default');
+  assert.ok(
+    cmd.indexOf('--remote-control') < cmd.indexOf('--name'),
+    '--remote-control takes an OPTIONAL positional name of its own, so ordering is load-bearing; this is the order the spawn wrapper ships',
+  );
+});
+
+test('buildSpawnCmd omits --remote-control when the operator has turned it off', () => {
+  const cmd = buildSpawnCmd('claude', 'ali', { remoteControl: false });
+  assert.doesNotMatch(cmd, /--remote-control/, 'opting out must actually opt out');
+  assert.match(cmd, /--name ali/, 'and the session must still be named');
 });

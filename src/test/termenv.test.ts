@@ -54,3 +54,30 @@ test('INVARIANT: paste is never hand-rolled — one write, bracketed', () => {
   assert.doesNotMatch(app, /k === 'v'\s*\)\s*\{[^}]*ptyWrite/, 'Cmd+V must not write the clipboard itself');
   assert.match(app, /k === 'c'/, "Cmd+C must stay — xterm has no native copy for a terminal selection");
 });
+
+/* Every launch site is BUILT, never concatenated (2026-07-31).
+   --remote-control went missing from the app for the same structural reason --name once did:
+   six places each spelled their own `claude …` string, so a flag added to one reached none of
+   the others. The main process routes through buildSpawnCmd; the renderer cannot import it
+   (app.js is a plain <script>, no bundler), so it has claudeLaunchCmd as its half of the same
+   chokepoint. These assertions exist so the next flag has one place to be added. */
+test('INVARIANT: the renderer builds every Claude launch in one place', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /function claudeLaunchCmd\(name, task\)/, 'the renderer chokepoint must exist');
+  assert.doesNotMatch(
+    app, /CLAUDE \+ ' --name '/,
+    'no pane may concatenate its own launch command — that duplication is what lost --remote-control',
+  );
+  assert.match(app, /if \(REMOTE\) parts\.push\('--remote-control'\)/, 'the renderer must pass the flag when Remote Control is on');
+});
+
+test('INVARIANT: the main process builds its launches too, and sources the flag from Claude config', () => {
+  const panel = fs.readFileSync('src/main/panelHost.ts', 'utf8');
+  assert.match(panel, /buildSpawnCmd\(/, 'panelHost must build, not concatenate');
+  assert.doesNotMatch(panel, /claudeCmd\} --name/, 'no template-literal launch commands');
+  // One toggle, not two: Settings already exposes Claude's own remoteControlAtStartup, so the
+  // flag must follow THAT value rather than introduce a second competing switch.
+  assert.match(panel, /aios\.claudeConfig\(\)\.remoteControl/, 'the flag must follow the existing Remote control toggle');
+  const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(bus, /remoteControl: aios\.claudeConfig\(\)\.remoteControl/, 'the bus spawn must follow it as well');
+});

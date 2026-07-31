@@ -119,15 +119,25 @@ export function taskFileInstruction(file: string): string {
  * Build the `claude --name …` command the app runs in a pane. `taskFile`, when
  * given, replaces the inline task with a read-the-file instruction (see
  * needsTaskFile). model beats tier; a bare spawn is just `claude --name <n>`.
+ *
+ * `remoteControl` (default true) adds --remote-control, which is what publishes the session
+ * to the operator's own Anthropic account so claude.ai and the mobile app can attach to it.
+ * The `spawn` wrapper passes it unconditionally; omitting it here is what made app-launched
+ * sessions the only ones invisible from a phone. Pass false to opt out.
  */
 export function buildSpawnCmd(
   claudeCmd: string,
   name: string,
-  opts: { task?: string; model?: string; tier?: 'mechanical' | 'judgment'; taskFile?: string } = {},
+  opts: { task?: string; model?: string; tier?: 'mechanical' | 'judgment'; taskFile?: string; remoteControl?: boolean } = {},
 ): string {
   const model = opts.model ?? (opts.tier ? tierToModel(opts.tier) : undefined);
   const parts = [claudeCmd || 'claude'];
   if (model) parts.push('--model', model);
+  // Emitted BEFORE --name, which is the exact order the `spawn` wrapper has shipped for months
+  // (`claude … --remote-control --name <n> <bootstrap>`). Worth pinning rather than leaving to
+  // taste: --remote-control takes an OPTIONAL positional name of its own, so the ordering is
+  // load-bearing and this is the arrangement with a track record.
+  if (opts.remoteControl !== false) parts.push('--remote-control');
   parts.push('--name', name);
   const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.task;
   if (prompt && prompt.trim()) parts.push(shq(prompt));

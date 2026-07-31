@@ -134,6 +134,11 @@ function applyTheme(mode) {
 let SHOWWK = true; // calendar week numbers (Glass parity; Settings toggle repaints live)
 let KILLBEHAVIOR = 'ask'; // Glass parity: how the trash button behaves — ask | kill | capture (Settings changes it live)
 let OPENNOTESIN = 'rendered'; // Glass "Open files in": a note opens rendered (default) or as raw source
+// Mirrors Settings > Claude > Remote control (Claude's own `remoteControlAtStartup`). Held here
+// so a launch can PASS the flag rather than trust the setting to be honoured — see
+// claudeLaunchCmd. Starts false and is corrected below; false is also Claude's real default.
+let REMOTE = false;
+void window.glassShell.claudeConfig().then((c) => { REMOTE = c.remoteControl === true; }).catch(() => { /* keep false */ });
 void window.glassShell.shellConfig().then((c) => {
   CLAUDE = c.claudeCmd || 'claude';
   KILLBEHAVIOR = c.killBehavior || 'ask';
@@ -4095,6 +4100,17 @@ function shq(s) { return `'${s.replace(/'/g, `'\\''`)}'`; }
 // The first prompt handed to a session launched with no explicit task — it triggers
 // the Session Start Ritual (CLAUDE.md), exactly like the `spawn` wrapper's bootstrap.
 const RITUAL_BOOTSTRAP = 'Start session';
+/* Every Claude session this renderer launches is BUILT here. Three call sites used to
+   concatenate their own `--name` string, so a flag added to one reached none of the others —
+   which is exactly how --remote-control went missing while --name was present everywhere.
+   The main process has the same shape in buildSpawnCmd; the renderer cannot import it (no
+   bundler — app.js is a plain <script>), so this is the renderer's half of that chokepoint. */
+function claudeLaunchCmd(name, task) {
+  const parts = [CLAUDE];
+  if (REMOTE) parts.push('--remote-control');
+  parts.push('--name', name, shq(task || RITUAL_BOOTSTRAP));
+  return parts.join(' ');
+}
 
 /* Spawn a session whose NAME carries its identity. Everything that wants an agent to BE
    something (rather than to be asked about it) goes through here: --name sets
@@ -4108,7 +4124,7 @@ const RITUAL_BOOTSTRAP = 'Start session';
    shoots a session that is not recognised as a session".
    The pane already had a name for its tab; it just never reached Claude. One builder now emits
    both from the same string, so they cannot drift. */
-const ritual = (name, slash) => ({ name, cmd: CLAUDE + ' --name ' + name + ' ' + shq(slash) });
+const ritual = (name, slash) => ({ name, cmd: claudeLaunchCmd(name, slash) });
 
 function spawnNamed(name, task) {
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -4124,7 +4140,7 @@ function spawnNamed(name, task) {
      I tried watching the terminal for the composer instead and abandoned it: a regex against
      another product's UI, which read scrollback as current state and which I could not simulate
      faithfully enough to trust. Removing the screen is deterministic; guessing at it is not. */
-  void createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  void createPane({ name: handle, cmd: claudeLaunchCmd(handle, task) });
 }
 
 
@@ -4669,7 +4685,11 @@ function openSettingsTab() {
       t.addEventListener('change', async () => { await window.glassShell.claudeSet(key, t.checked); toast(window.i18n.t('settings.saved')); });
       return t;
     };
-    row(wrap, t('settings.remoteControl'), mkCToggle('remoteControl', cc.remoteControl), t('settings.remoteControlHint'));
+    // Also update the in-memory flag: claudeLaunchCmd reads REMOTE, and without this the
+    // toggle would only take effect after a restart — the kind of gap that reads as "it didn't work".
+    const rcT = mkCToggle('remoteControl', cc.remoteControl);
+    rcT.addEventListener('change', () => { REMOTE = rcT.checked; });
+    row(wrap, t('settings.remoteControl'), rcT, t('settings.remoteControlHint'));
     row(wrap, t('settings.claudeInChrome'), mkCToggle('claudeInChrome', cc.claudeInChrome), t('settings.claudeInChromeHint'));
     row(wrap, t('settings.copyOnSelect'), mkCToggle('copyOnSelect', cc.copyOnSelect), t('settings.copyOnSelectHint'));
     row(wrap, t('settings.notify'), mkCToggle('agentPushNotif', cc.agentPushNotif), t('settings.notifyHint'));
@@ -4762,6 +4782,7 @@ function openSettingsTab() {
     cmd.className = 'tinput'; cmd.value = cfg.claudeCmd;
     cmd.addEventListener('change', async () => { await window.glassShell.setSetting('claudeCmd', cmd.value.trim() || 'claude'); CLAUDE = cmd.value.trim() || 'claude'; toast(t('settings.savedNewSessions')); });
     row(wrapAdv, t('settings.claudeCmd'), cmd, t('settings.claudeCmdHint'));
+
   });
 }
 
@@ -5500,7 +5521,7 @@ async function openPalette() {
   const v = await listModal(t('palette.title'), items, t('palette.placeholder'));
   if (!v) return;
   if (v.t === 'pane') void createPane({ name: v.name, cmd: v.cmd });
-  else if (v.t === 'ask') { const i = await askWithChips(); if (i) { const slug = ('ask-' + i.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 28).replace(/-+$/, ''); const p2 = 'Find the right AIOS action for this intent and run it: "' + i + '". Pick the best match, say which in one line, then execute.'; const h2 = await window.glassShell.taskHandoff(p2, slug).catch(() => p2); void createPane({ name: slug, cmd: CLAUDE + ' --name ' + slug + ' ' + shq(h2) }); } }
+  else if (v.t === 'ask') { const i = await askWithChips(); if (i) { const slug = ('ask-' + i.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 28).replace(/-+$/, ''); const p2 = 'Find the right AIOS action for this intent and run it: "' + i + '". Pick the best match, say which in one line, then execute.'; const h2 = await window.glassShell.taskHandoff(p2, slug).catch(() => p2); void createPane({ name: slug, cmd: claudeLaunchCmd(slug, h2) }); } }
   else if (v.t === 'settings') openSettingsTab();
   else if (v.t === 'setup') openSetupTab();
   else if (v.t === 'plugins') openPluginsTab();
@@ -5528,7 +5549,7 @@ async function spawnWorkerFlow() {
   // A bootstrap prompt is what makes the SESSION RITUAL run on turn one (identity →
   // agent match → context load). The spawn wrapper always passes one; a bare
   // `claude --name X` would sit idle and skip the ritual. No task → "Start session".
-  void createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  void createPane({ name: handle, cmd: claudeLaunchCmd(handle, task) });
 }
 
 /* Create a custom agent / skill / plugin — scaffolds into the right custom/ dir. */
@@ -5702,7 +5723,7 @@ function openDesignerTab() {
 function launchPrimary(primary) {
   const hit = byName(primary);
   if (hit && !panes.get(hit[0]).exited) { setActive(hit[0]); return; }
-  void createPane({ name: primary, cmd: CLAUDE + ' --name ' + primary + ' ' + shq(RITUAL_BOOTSTRAP) });
+  void createPane({ name: primary, cmd: claudeLaunchCmd(primary) });
 }
 
 /* Rituals + nudges run in the PRIMARY session (Glass parity) — reuse it when it
@@ -5715,7 +5736,7 @@ async function runInPrimary(slash) {
     submitToPty(hit[0], slash);
     setActive(hit[0]);
   } else {
-    void createPane({ name: primary, cmd: CLAUDE + ' --name ' + primary + ' ' + shq(slash) });
+    void createPane({ name: primary, cmd: claudeLaunchCmd(primary, slash) });
   }
 }
 
@@ -5734,10 +5755,10 @@ async function runWhere(slash, name) {
   ];
   const choice = await listModal(t('run.where'), choices, t('run.wherePlaceholder'));
   if (!choice) return;
-  if (choice === '__new') { void createPane({ name: name || 'run', cmd: CLAUDE + ' --name ' + (name || 'run') + ' ' + shq(slash) }); return; }
+  if (choice === '__new') { void createPane({ name: name || 'run', cmd: claudeLaunchCmd(name || 'run', slash) }); return; }
   const hit = byName(choice);
   if (hit && !panes.get(hit[0]).exited) { submitToPty(hit[0], slash); setActive(hit[0]); }
-  else void createPane({ name: name || choice, cmd: CLAUDE + ' --name ' + (name || choice) + ' ' + shq(slash) });
+  else void createPane({ name: name || choice, cmd: claudeLaunchCmd(name || choice, slash) });
 }
 
 function runFrequent(t) {

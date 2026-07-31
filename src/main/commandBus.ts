@@ -360,6 +360,7 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
       // one instead of sitting idle (mirrors the `spawn` wrapper).
       const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
         task: req.task || 'Start session', model: req.model, tier: req.tier, taskFile,
+        remoteControl: aios.claudeConfig().remoteControl,
       });
       emit(win(), 'terminal', { name: req.name, cmd });
       log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.model ? ` [model ${req.model}]` : req.tier ? ` [tier ${req.tier}]` : ''}${taskFile ? ' (task via file)' : ''}`);

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BrowserWindow, WebContents } from 'electron';
 import * as aios from './aios';
+import { buildSpawnCmd } from '../core/commandBus';
 
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
@@ -252,12 +253,21 @@ export class PanelHost {
   /** `run('aios.x')` command ids → shell actions. Pickers come with the palette stride. */
   private routeCommand(command: string, args: unknown[]): void {
     const term = (name: string, cmd: string) => this.intent('terminal', { name, cmd });
+    // One place the panel's session launches are BUILT, so a flag added to buildSpawnCmd
+    // reaches them without each case having to remember it.
+    const spawnCmd = (name: string, task?: string): string => {
+      return buildSpawnCmd(aios.shellSettings().claudeCmd, name, {
+        task, remoteControl: aios.claudeConfig().remoteControl,
+      });
+    };
     switch (command) {
       case 'aios.openConfigMenu': this.intent('settings'); return;
       /* --name, so this is a SESSION. Without it termEnv() cannot set CLAUDE_AGENT_NAME, the
          identity ritual never runs, and it never registers in ~/.claude/sessions — the operator
-         gets an unnamed terminal they cannot resume and cannot find in Running. */
-      case 'aios.updateFramework': term('update', `${aios.shellSettings().claudeCmd} --name update '/aios:update'`); return;
+         gets an unnamed terminal they cannot resume and cannot find in Running.
+         Built by buildSpawnCmd rather than by hand: --name was not the only flag a launch site
+         could forget, and every site that spelled its own command forgot --remote-control. */
+      case 'aios.updateFramework': term('update', spawnCmd('update', '/aios:update')); return;
       case 'aios.frequentMenu': this.intent('pickFrequent'); return;
       case 'aios.spawnAgent': this.intent('pickAgent'); return;
       case 'aios.skillsPicker': this.intent('pickSkill'); return;
@@ -286,7 +296,7 @@ export class PanelHost {
       case 'aios.toggleHome': this.intent('layout', { togglePanel: true }); return;
       case 'aios.dailyPicker': this.intent('pickDaily'); return;
       case 'aios.openWalkthrough': this.intent('setup'); return;
-      case 'aios.launchPrimary': { const p = aios.primaryName(); term(p, `${aios.shellSettings().claudeCmd} --name ${p}`); return; }
+      case 'aios.launchPrimary': { const p = aios.primaryName(); term(p, spawnCmd(p)); return; }
       case 'aios.resume': term('resume', 'claude --resume'); return;
       case 'aios.askAios': this.intent('ask'); return;
       case 'aios.revealAgent': this.intent('focusByName', { name: String(args[0] ?? '') }); return;

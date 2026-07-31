@@ -48,7 +48,11 @@ test('dot paths read and write nested keys, and create what is missing', () => {
 });
 
 test('absent means the fallback — Claude only writes a key once you change it', () => {
-  assert.equal(readValue('remoteControl', {}, {}), true, 'remote control defaults ON');
+  // Remote Control is OFF until `remoteControlAtStartup` is written. This assertion used to say
+  // ON, and that single wrong belief is what made the failure invisible: the Settings row read
+  // "Remote control ✓" while every session the app launched was unreachable from the operator's
+  // phone. A fallback is a CLAIM ABOUT CLAUDE, so a wrong one is not a cosmetic default.
+  assert.equal(readValue('remoteControl', {}, {}), false, 'remote control defaults OFF until the key is written');
   assert.equal(readValue('reduceMotion', {}, {}), false);
   assert.equal(readValue('outputStyle', {}, {}), 'default');
   assert.equal(readValue('mode', {}, {}), 'default');

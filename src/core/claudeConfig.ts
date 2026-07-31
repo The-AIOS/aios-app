@@ -34,7 +34,10 @@ export const CLAUDE_KEYS: Record<string, ClaudeKeySpec> = {
   // ── confirmed present in ~/.claude/settings.json on a real machine ──
   model: { path: 'model', store: 'settings', kind: 'enum', fallback: '' },
   mode: { path: 'permissions.defaultMode', store: 'settings', kind: 'enum', fallback: 'default' },
-  remoteControl: { path: 'remoteControlAtStartup', store: 'settings', kind: 'bool', fallback: true },
+  /* fallback FALSE. Claude does not enable Remote Control unless the key is set, so a `true`
+     fallback made the toggle read ON while every app-launched session was in fact unreachable
+     from the operator's phone — a setting that lies in the safe-looking direction. */
+  remoteControl: { path: 'remoteControlAtStartup', store: 'settings', kind: 'bool', fallback: false },
   switchModelsOnFlag: { path: 'switchModelsOnFlag', store: 'settings', kind: 'bool', fallback: false },
   // ── in the settings-key table, unset until changed ──
   outputStyle: { path: 'outputStyle', store: 'settings', kind: 'enum', fallback: 'default' },
