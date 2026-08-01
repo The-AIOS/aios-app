@@ -1171,3 +1171,14 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 .malt { align-self: flex-start; background: transparent; border: 1px solid var(--line); color: var(--subtle);
         border-radius: 7px; padding: 4px 10px; font-size: 11px; cursor: pointer; margin: 8px 0 2px; }
 .malt:hover { border-color: var(--accent); color: var(--ink); }
+/* A value INHERITED from Claude's default rather than chosen by the operator. NOT dimmed — opacity
+   on a ticked box read as "disabled" to a real operator, who saw a working setting and thought it
+   was greyed out. A chip after the control carries the meaning instead. */
+.ttoggle.inherited { box-shadow: 0 0 0 2px var(--surface-2); }
+.ttoggle.inherited::after { content: 'default'; position: absolute; left: 100%; margin-left: 8px;
+  font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--subtle);
+  white-space: nowrap; pointer-events: none; }
+/* Resolved from the vault's LOCAL store — applies to sessions launched there, not machine-wide. */
+.ttoggle.scoped::after { content: 'this vault'; position: absolute; left: 100%; margin-left: 8px;
+  font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent);
+  white-space: nowrap; pointer-events: none; }

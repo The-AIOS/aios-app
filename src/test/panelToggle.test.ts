@@ -105,3 +105,66 @@ test('per-card coral glyphs stay — they earn their place independently of the 
   assert.match(css, /\.ptcon \{/);
   assert.doesNotMatch(css, /\.ptitle::before/, 'the shared dot stays retired');
 });
+
+/* Settings is a MIRROR of Claude's config, so it repaints on external change — and a repaint must
+   not move the operator. Two bugs, both shipped within an hour of each other on 2026-07-31:
+   the panel fought its own writes, and the scroll restore ran before the content existed. */
+
+test('a rebuild restores scroll AFTER the async builder finishes', () => {
+  /* The builder awaits shellConfig / vaultRoot / claudeSetKeys, so a synchronous
+     `body.scrollTop = keep` ran on an empty container: nothing to scroll, assignment discarded,
+     content then arrived at 0. The scroll still jumped while the fix looked present. */
+  const fn = /paneObj\.rebuild = \(\) => \{[\s\S]*?\n    \};/.exec(app);
+  assert.ok(fn, 'the rebuild closure must be findable');
+  assert.match(fn[0], /await build\(body, head\);\s*\n\s*body\.scrollTop = keep;/,
+    'the restore must wait for the builder — a sync restore over an async build does nothing');
+});
+
+test('rebuilds are SERIALIZED, or the stale one wins', () => {
+  /* The bug that survived four fixes, because every link reported success. An atomic file write
+     fires more than one watch event, `build` is async, and rebuilds were not serialized — so #2
+     called replaceChildren() while #1 was still awaiting its config read, and #1 then appended its
+     OLDER rows last. Watcher hit ✓ event received ✓ "rebuilt" ✓ — and the panel showed the value
+     from before the change. Concurrency, not correctness: each rebuild was right on its own. */
+  const fn2 = /paneObj\.rebuild = \(\) => \{[\s\S]*?\n    \};/.exec(app);
+  assert.ok(fn2, 'the rebuild closure must be findable');
+  assert.match(fn2[0], /chain = chain\.then\(async \(\) => \{/,
+    'each rebuild must wait for the previous one — the last to run is then the last to read');
+  assert.match(fn2[0], /\.catch\(\(\) => \{/, 'and one failure must not poison every later rebuild');
+  // reopening must not race a repaint already in flight either
+  assert.match(app, /if \(pane\.rebuild\) void pane\.rebuild\(\);/,
+    'the reopen path must reuse the same serialized rebuild');
+});
+
+test("the panel does not rebuild in response to its OWN writes", () => {
+  /* Writing a toggle trips the config watcher, which rebuilt the panel — destroying the control
+     under the operator's finger. It read as "this setting is not wired" when it had saved
+     perfectly. */
+  assert.match(app, /suppressCfgRebuild = Date\.now\(\);/, 'a write must mark itself');
+  assert.match(app, /if \(Date\.now\(\) - suppressCfgRebuild < 1500\) return;/,
+    'and the watcher must skip the rebuild it caused');
+});
+
+test('an absent key shows its EFFECTIVE value, and only an unknown default shows a dash', () => {
+  /* Refined once in the field. First version drew a dash for every absent key — but `/config`
+     represents "on" for a default-TRUE key by DELETING it, so absent is a common state, not an
+     unknown one, and a dash hid a value we do know. Claude's defaults are readable in its own
+     source, so an absent key renders its effective value, dimmed as inherited. A dash is now
+     reserved for the one key whose default Claude does not state. */
+  /* Settled by the operator after seeing both renderings: an UNSET key always shows a dash, with
+     a `default` chip and a tooltip naming which default applies. Showing the effective value read
+     as "you chose this"; the dash says "you have not". */
+  assert.match(app, /if \(!set\) \{\s*\n\s*t\.indeterminate = true;/,
+    'unset is always a dash, never a rendered value');
+  assert.doesNotMatch(app, /t\.checked = dflt;/,
+    'the default must not be rendered as if the operator had chosen it');
+  assert.match(app, /dflt === null \? 'settings\.unsetHint'/,
+    'and the tooltip still names the default, so the dash hides nothing');
+  assert.match(app, /mkCToggle\('remoteControl', cc\.remoteControl, setKeys\.remoteControl !== false, false, stores\.remoteControl\)/,
+    "every toggle must know: is it set · what Claude's default is · WHICH STORE it came from");
+  // a vault-local value applies only to sessions launched there and must not look global
+  assert.match(app, /if \(store === 'local'\) \{ t\.classList\.add\('scoped'\)/,
+    'a locally-scoped value must say so');
+  // choosing a value must clear the inherited styling — it is the operator's now
+  assert.match(app, /t\.classList\.remove\('inherited'\)/);
+});

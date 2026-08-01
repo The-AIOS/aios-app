@@ -3666,6 +3666,21 @@ window.glassShell.onFsEvent((m) => { for (const d of (m.dirs || [])) void relist
    is not stale — it is empty, next to a vault full of files. Rebuild it rather than waiting for a
    file event inside roots we were never watching. */
 window.glassShell.onRootsChanged(() => { void paintExplorer(); refreshGit(); });
+/* Claude's own config changed — from an inline `/config`, another session, or a hand edit. Repaint
+   an OPEN Settings tab so the mirror is current without the operator reopening it. Only repaints
+   what is on screen: a hidden tab rebuilds when it is shown, which is the same deferral the
+   explorer uses. */
+let suppressCfgRebuild = 0;
+if (window.glassShell.onClaudeConfigChanged) {
+  window.glassShell.onClaudeConfigChanged(() => {
+    // Our own write, moments ago — the panel already shows the new value. Rebuilding here is what
+    // made a working toggle look broken.
+    if (Date.now() - suppressCfgRebuild < 1500) return;
+    for (const p of panes.values()) {
+      if (p.path === '::settings' && p.rebuild && paneShown(p)) { void p.rebuild(); break; }
+    }
+  });
+}
 setInterval(() => { if (!document.hidden) window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); }, 4000);
 
 /* ── rail: toggles + layout menu ──────────────────────────────────────────── */
@@ -4065,6 +4080,20 @@ window.glassShell.onIntent(async (m) => {
     case 'recents':
       void openRecents();
       return;
+    case 'checkUpdates':
+      /* Say something either way. A check that reports nothing is indistinguishable from a broken
+         button, which is the whole reason this menu item exists. */
+      void (async () => {
+        toast(t('update.checking'));
+        const r = await window.glassShell.updaterCheckNow().catch(() => null);
+        /* Say WHICH failure. A dev build has no update channel at all, and reporting that as a
+           connection problem sends the operator to check their wifi for a structural limitation. */
+        if (r && r.dev) { toast(t('update.devBuild', { version: r.current })); return; }
+        if (!r || !r.ok) { toast(t('update.checkFailed')); return; }
+        if (r.version && r.version !== r.current) toast(t('update.found', { version: r.version }));
+        else toast(t('update.upToDate', { version: r.current }));
+      })();
+      return;
     case 'batchResume':
       void batchResume();
       return;
@@ -4346,9 +4375,28 @@ function openHomeTab() {
 }
 
 /* ── tool tabs: Settings + Setup (synthetic viewer panes) ─────────────────── */
-function openToolTab(key, titleText, build) {
+/* `rebuild: true` re-runs `build` every time the tab is re-opened or re-shown.
+   Settings needs it: it MIRRORS Claude's own config, and `build` ran exactly once per pane — so a
+   value changed by `/config`, by another session, or by hand was invisible until the tab was
+   closed and re-created. A mirror that only updates when you rebuild it is a photograph. */
+function openToolTab(key, titleText, build, opts) {
   for (const [id, pane] of panes) {
-    if (pane.kind === 'view' && pane.path === key) { setActive(id); return; }
+    if (pane.kind === 'view' && pane.path === key) {
+      if (opts && opts.rebuild) {
+        const body = pane.el.querySelector('.vbody');
+        // AWAIT the builder before restoring scroll — see the note on paneObj.rebuild below.
+        // Reuse the pane's own serialized rebuild when it has one, so a reopen cannot race a
+        // watcher-driven repaint that is already in flight.
+        if (pane.rebuild) void pane.rebuild();
+        else if (body) {
+          const keep = body.scrollTop;
+          body.replaceChildren();
+          void Promise.resolve(build(body, pane.el.querySelector('.vhead'))).then(() => { body.scrollTop = keep; });
+        }
+      }
+      setActive(id);
+      return;
+    }
   }
   const id = 'v' + (++viewSeq);
   const el = document.createElement('div');
@@ -4362,6 +4410,30 @@ function openToolTab(key, titleText, build) {
   el.append(head, body);
   const tab = makeTab(id, titleText, 'layout');
   const paneObj = { kind: 'view', name: titleText, el, tab, path: key };
+  /* Preserve the scroll position across a rebuild — and AWAIT the builder first.
+     The builder is async (Settings awaits shellConfig, vaultRoot, claudeSetKeys), so restoring
+     synchronously set scrollTop on an EMPTY container: there was nothing to scroll yet, the
+     assignment did nothing, and the real content then arrived at 0. The scroll still jumped, and
+     the restore looked implemented. A synchronous fix over an asynchronous build. */
+  if (opts && opts.rebuild) {
+    /* SERIALIZED. `build` is async, and an atomic file write fires more than one watch event, so
+       two rebuilds used to overlap: #2 called replaceChildren() while #1 was still awaiting its
+       config read, then #1 appended its OLDER rows last and the panel settled on the stale value.
+       Every link in the chain logged success — watcher hit, event received, "rebuilt" — because
+       each rebuild did run. The defect was that they ran AT THE SAME TIME.
+       Chaining means the next rebuild starts after the previous finishes, so the last one to run
+       is also the last to read, and the final DOM is the freshest. */
+    let chain = Promise.resolve();
+    paneObj.rebuild = () => {
+      chain = chain.then(async () => {
+        const keep = body.scrollTop;
+        body.replaceChildren();
+        await build(body, head);
+        body.scrollTop = keep;
+      }).catch(() => { /* a failed rebuild must not poison every later one */ });
+      return chain;
+    };
+  }
   panes.set(id, paneObj);
   homePane(id, paneObj, { fresh: true });
   build(body, head);
@@ -4385,6 +4457,11 @@ function openSettingsTab() {
     body.appendChild(wrap);
     const cfg = await window.glassShell.shellConfig();
     const vr = await window.glassShell.vaultRoot();
+    // Which Claude keys exist on disk — so an absent one renders as UNSET rather than as a guess.
+    const setKeys = await window.glassShell.claudeSetKeys().catch(() => ({}));
+    // WHERE each value comes from — 'local' means "set for this vault", which behaves differently
+    // from a global value and must not look identical to one.
+    const stores = await window.glassShell.claudeStores().catch(() => ({}));
 
     // Setup's home is here, not permanent title-bar chrome: it's a "run the install
     // checks + repairs" surface you reach when something's wrong or on first run —
@@ -4664,19 +4741,73 @@ function openSettingsTab() {
     const styles = await window.glassShell.outputStyles().catch(() => ['default']);
     if (cc.outputStyle && !styles.includes(cc.outputStyle)) styles.unshift(cc.outputStyle);
     row(wrap, t('settings.outputStyle'), mkSelect(styles, cc.outputStyle, 'outputStyle'), t('settings.outputStyleHint'));
-    const mkCToggle = (key, val) => {
+    /* A toggle WRITES Claude's config, which trips the config watcher, which rebuilds this panel —
+       destroying the control under the operator's finger and resetting the scroll. It reads as
+       "the setting isn't wired" when in fact it saved perfectly. So a write of ours suppresses the
+       next watcher rebuild: we already know the new value, and we just rendered it. */
+    const mkCToggle = (key, val, set = true, dflt = null, store = '') => {
       const t = document.createElement('input'); t.type = 'checkbox'; t.className = 'ttoggle'; t.checked = val;
-      t.addEventListener('change', async () => { await window.glassShell.claudeSet(key, t.checked); toast(window.i18n.t('settings.saved')); });
+      /* UNSET, and what to show for it — refined 2026-07-31 after a real confusion.
+         `/config` represents "on" for a default-TRUE key by DELETING it, so absent is a normal,
+         common state and not an unknown one. Drawing a dash there hid a value we do in fact know:
+         Claude's defaults are readable in its own source (`?? !0` / `?? !1`) and are pinned in
+         CLAUDE_KEYS. So an absent key with a KNOWN default renders its EFFECTIVE value, marked as
+         inherited rather than chosen. Only a key whose default we could NOT verify stays a dash —
+         there, "unknown" is the honest answer. */
+      /* A value that comes from the vault's LOCAL store applies only to sessions launched there.
+         Saying so is the difference between "this toggle is broken" and "this is scoped" — the
+         confusion that uncovered the missing stores in the first place. */
+      if (store === 'local') { t.classList.add('scoped'); t.title = window.i18n.t('settings.localHint'); }
+      /* NOT SET → a dash, always. This flipped twice and the operator settled it after seeing both:
+         first every unset key showed a dash, which confused him when a default-ON setting looked
+         blank; so it briefly rendered the effective value instead, which then read as "you chose
+         this". The dash plus a `default` chip is the version that says the true thing — *you have
+         not set this; Claude's default applies* — and the tooltip names which default that is, so
+         nothing is hidden by the dash. `dflt` no longer drives the display, only the wording. */
+      if (!set) {
+        t.indeterminate = true;
+        t.classList.add('inherited');
+        t.title = window.i18n.t(dflt === null ? 'settings.unsetHint'
+          : dflt ? 'settings.defaultOnHint' : 'settings.defaultOffHint');
+      }
+      t.addEventListener('change', async () => {
+        suppressCfgRebuild = Date.now();
+        t.indeterminate = false;         // choosing a value makes it set, by definition
+        t.classList.remove('inherited');
+        await window.glassShell.claudeSet(key, t.checked);
+        toast(window.i18n.t('settings.saved'));
+      });
       return t;
     };
-    row(wrap, t('settings.remoteControl'), mkCToggle('remoteControl', cc.remoteControl), t('settings.remoteControlHint'));
-    row(wrap, t('settings.claudeInChrome'), mkCToggle('claudeInChrome', cc.claudeInChrome), t('settings.claudeInChromeHint'));
-    row(wrap, t('settings.copyOnSelect'), mkCToggle('copyOnSelect', cc.copyOnSelect), t('settings.copyOnSelectHint'));
-    row(wrap, t('settings.notify'), mkCToggle('agentPushNotif', cc.agentPushNotif), t('settings.notifyHint'));
-    row(wrap, t('settings.awaySummary'), mkCToggle('awaySummary', cc.awaySummary), t('settings.awaySummaryHint'));
-    row(wrap, t('settings.autoCompact'), mkCToggle('autoCompact', cc.autoCompact), t('settings.autoCompactHint'));
-    row(wrap, t('settings.reduceMotion'), mkCToggle('reduceMotion', cc.reduceMotion), t('settings.reduceMotionHint'));
-    row(wrap, t('settings.switchModels'), mkCToggle('switchModelsOnFlag', cc.switchModelsOnFlag), t('settings.switchModelsHint'));
+    row(wrap, t('settings.remoteControl'), mkCToggle('remoteControl', cc.remoteControl, setKeys.remoteControl !== false, false, stores.remoteControl), t('settings.remoteControlHint'));
+    row(wrap, t('settings.claudeInChrome'), mkCToggle('claudeInChrome', cc.claudeInChrome, setKeys.claudeInChrome !== false, false, stores.claudeInChrome), t('settings.claudeInChromeHint'));
+    row(wrap, t('settings.copyOnSelect'), mkCToggle('copyOnSelect', cc.copyOnSelect, setKeys.copyOnSelect !== false, true, stores.copyOnSelect), t('settings.copyOnSelectHint'));
+    /* THE TWO PUSH TOGGLES ARE NOT SURFACED. "Push when actions required" and "Push when Claude
+       decides" are Claude's own names, and even with those exact words the operator could not tell
+       which did what — tested on a real person, twice. A setting nobody can predict the effect of
+       is worse than no setting: it invites a change whose consequence is unknown. They remain in
+       CLAUDE_KEYS as documentation of the mapping, and are no longer seeded — writing a key we do
+       not show would be an invisible mutation of someone's config.
+       `/config` owns them, where they sit next to the notification-channel picker that gives them
+       context we cannot reproduce in one row each. */
+    row(wrap, t('settings.awaySummary'), mkCToggle('awaySummary', cc.awaySummary, setKeys.awaySummary !== false, true, stores.awaySummary), t('settings.awaySummaryHint'));
+    // `null` default: autoCompactEnabled is the one key whose absent-behaviour Claude's source does
+    // not state, so an absent value stays a dash — "unknown" is the honest answer there.
+    row(wrap, t('settings.autoCompact'), mkCToggle('autoCompact', cc.autoCompact, setKeys.autoCompact !== false, null, stores.autoCompact), t('settings.autoCompactHint'));
+    row(wrap, t('settings.reduceMotion'), mkCToggle('reduceMotion', cc.reduceMotion, setKeys.reduceMotion !== false, false, stores.reduceMotion), t('settings.reduceMotionHint'));
+    /* HISTORY, kept because the reason it was once removed is the reason the App now reads four stores.
+       `/config` writes `prefersReducedMotion` into the PROJECT-LOCAL store
+       (`<project>/.claude/settings.local.json`), not the global one. Claude resolves settings
+       user → project → local, with local winning (visible in its own launch args:
+       `--setting-sources=user,project,local`). Measured 2026-07-31: toggling it in `/config`
+       changed the local file and left the global key untouched, which is exactly why this row
+       never responded.
+       The App has NO single project context — it is a window over a vault, several repos and many
+       sessions — so it cannot know which local store an operator means, and a global write would
+       be silently overridden by a local one. That is a lying toggle by construction, so the row is
+       gone rather than approximated. Reinstating it needs precedence-aware read AND write against
+       a chosen project, which is a real feature, not a fix. */
+    row(wrap, t('settings.switchModels'), mkCToggle('switchModelsOnFlag', cc.switchModelsOnFlag, setKeys.switchModelsOnFlag !== false, true, stores.switchModelsOnFlag), t('settings.switchModelsHint'));
     /* Claude's own configuration FLOWS — /goal, /fewer-permission-prompts, /schedule each
        open a session that walks you through one. They are actions rather than toggles, but
        they configure Claude, so they belong with Claude's settings; Advanced is for this
@@ -4762,7 +4893,7 @@ function openSettingsTab() {
     cmd.className = 'tinput'; cmd.value = cfg.claudeCmd;
     cmd.addEventListener('change', async () => { await window.glassShell.setSetting('claudeCmd', cmd.value.trim() || 'claude'); CLAUDE = cmd.value.trim() || 'claude'; toast(t('settings.savedNewSessions')); });
     row(wrapAdv, t('settings.claudeCmd'), cmd, t('settings.claudeCmdHint'));
-  });
+  }, { rebuild: true });
 }
 
 /* ── the Onboarding flow: sequenced zero-terminal onboarding stepper ────────────────

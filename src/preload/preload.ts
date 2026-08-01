@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('glassShell', {
   /* One flag only, and a diagnostic one: AIOS_NO_WEBGL disables the GPU renderer so a
      rendering artifact can be attributed or ruled out. Deliberately not the whole env. */
   env: { AIOS_NO_WEBGL: process.env.AIOS_NO_WEBGL || '' },
+  claudeStores: (): Promise<Record<string, string>> => ipcRenderer.invoke('claude:stores'),
+  claudeSetKeys: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('claude:setKeys'),
+  updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
+  onClaudeConfigChanged: (cb: (c: unknown) => void) => ipcRenderer.on('shell:claudeConfigChanged', (_e, c) => cb(c)),
   menuShortcuts: (): Promise<Array<{ group: string; label: string; accel: string }>> => ipcRenderer.invoke('menu:shortcuts'),
   resumableSessions: (): Promise<{ items: Array<{ id: string; name: string; proj: string; at: number }>; total: number; named: number; unnamed: number }> =>
     ipcRenderer.invoke('sessions:resumable'),
@@ -69,8 +73,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   designerBrief: (req: { kind: string; fields: { name: string; description: string; keywords?: string; tier?: string; body: string }; mode: string; templatePath?: string; targetPath?: string }): Promise<string> => ipcRenderer.invoke('designer:brief', req),
   shellConfig: (): Promise<{ claudeCmd: string; showHints: boolean; showNudges: boolean }> => ipcRenderer.invoke('shell:config'),
   setSetting: (key: string, value: unknown): Promise<{ claudeCmd: string; showHints: boolean; showNudges: boolean }> => ipcRenderer.invoke('shell:setSetting', key, value),
-  claudeConfig: (): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; agentPushNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:config'),
-  claudeSet: (key: string, value: unknown): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; agentPushNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:set', key, value),
+  claudeConfig: (): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:config'),
+  claudeSet: (key: string, value: unknown): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:set', key, value),
   outputStyles: (): Promise<string[]> => ipcRenderer.invoke('claude:outputStyles'),
   modelOptions: (): Promise<{ label: string; value: string }[]> => ipcRenderer.invoke('claude:modelOptions'),
   phase1Script: (): Promise<string> => ipcRenderer.invoke('aios:phase1'),

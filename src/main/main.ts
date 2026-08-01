@@ -186,6 +186,48 @@ function inAllowed(abs: string): boolean {
   return allowedRoots().some((r) => abs === r || abs.startsWith(r + path.sep));
 }
 
+/* ── Claude config live watch ──────────────────────────────────────────────────
+   Settings MIRRORS Claude's own config, so it has to notice when Claude's config changes without
+   us. Run `/config` inline in a session with the Settings tab open and the panel was showing
+   whatever was true when it was built — a mirror that only refreshes when you rebuild it is a
+   photograph. Watching both stores closes that: the renderer repaints an open Settings tab from
+   the file that just changed.
+   READ-ONLY, deliberately. ~/.claude.json is large and live sessions write it, so a
+   read-modify-write races them (see writeClaudeUserJson) — watching does not. */
+const claudeWatchers: fs.FSWatcher[] = [];
+let claudeCfgTimer: ReturnType<typeof setTimeout> | undefined;
+function setupClaudeConfigWatch(win: BrowserWindow): void {
+  for (const w of claudeWatchers.splice(0)) { try { w.close(); } catch { /* ignore */ } }
+  /* ALL FOUR stores, not the two user ones. The read chain and the write routing both learned
+     about the project/local stores; this watcher did not, so `/config` writing
+     `<vault>/.claude/settings.local.json` fired nothing and the panel sat stale — the one setting
+     that still "conflicted" after the rest were fixed. Three mechanisms had to learn the same
+     fact, and the third was easy to forget precisely because the first two were already right. */
+  const framework = aios.frameworkRoot();
+  const watched = [
+    path.join(os.homedir(), '.claude', 'settings.json'),
+    path.join(os.homedir(), '.claude.json'),
+    ...(framework ? [path.join(framework, '.claude', 'settings.json'), path.join(framework, '.claude', 'settings.local.json')] : []),
+  ];
+  for (const f of watched) {
+    try {
+      /* Watch the DIRECTORY, not the file. An editor (and Claude itself) writes atomically —
+         write a temp file, then rename over the target — which destroys the inode a file watch is
+         bound to, so a file watcher fires once and then goes deaf. Filtering by basename on a
+         directory watch survives replacement. */
+      const dir = path.dirname(f);
+      const base = path.basename(f);
+      claudeWatchers.push(fs.watch(dir, (_evt, filename) => {
+        if (String(filename || '') !== base) return;
+        if (claudeCfgTimer) clearTimeout(claudeCfgTimer);
+        claudeCfgTimer = setTimeout(() => {
+          if (!win.webContents.isDestroyed()) win.webContents.send('shell:claudeConfigChanged', aios.claudeConfig());
+        }, 200);
+      }));
+    } catch { /* absent store — nothing to watch yet */ }
+  }
+}
+
 // ── explorer live watch: recursive watchers on each root → debounced fsEvent ──
 // (lets the renderer surface new files in place + refresh git markers, no repaint)
 const explorerWatchers: fs.FSWatcher[] = [];
@@ -666,6 +708,8 @@ ipcMain.handle('shell:setAutoUpdates', (_e, on: boolean) => { aios.setAutoUpdate
 ipcMain.handle('claude:permissionModes', () => aios.permissionModes());
 ipcMain.handle('shell:frameworkPath', () => aios.frameworkPathSetting());
 ipcMain.handle('shell:setFrameworkPath', (_e, v: string) => { aios.setFrameworkPath(String(v ?? '')); return aios.frameworkPathSetting(); });
+ipcMain.handle('claude:setKeys', () => aios.claudeConfigSetKeys());
+ipcMain.handle('claude:stores', () => aios.claudeConfigStores());
 ipcMain.handle('claude:set', (_e, key: 'model' | 'mode' | 'remoteControl' | 'autoUpdates', value: unknown) => {
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
@@ -691,6 +735,16 @@ app.whenReady().then(() => {
   host = new PanelHost(win.webContents);
   host.start();
   if (!SMOKE && !SHOT) setupExplorerWatch(win);
+  /* Seed Claude's config once, so the Settings mirror has real values to reflect instead of
+     assertions nobody read. Idempotent by marker, skipped in smoke/shot so a gate never writes
+     into the machine it is testing on. */
+  if (!SMOKE && !SHOT && !EVAL) {
+    try {
+      const r = aios.seedClaudeDefaults();
+      if (!r.already && r.seeded.length) console.log(`[claude-config] seeded on first install: ${r.seeded.join(', ')}`);
+    } catch (e) { console.log('[claude-config] seeding skipped:', String(e)); }
+  }
+  if (!SMOKE && !SHOT) setupClaudeConfigWatch(win);
   // Spawn-inbox command bus: watch ~/.aios/spawn-inbox/ and fulfil agent-dropped
   // spawn/kill/send requests natively (Glass 0.4.2/0.4.3 parity). Interactive
   // window only — never during smoke/shot/eval.

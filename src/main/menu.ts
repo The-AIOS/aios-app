@@ -84,6 +84,11 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
            it immediately.) */
         { label: t('menu.openRecent'), accelerator: 'CmdOrCtrl+Shift+T', click: () => intent('recents') },
         { type: 'separator' },
+        /* An operator must be able to ASK. The 6h interval cannot be predicted (it runs on a clock
+           that does not track sleep), so without this the only honest answer to "is there an
+           update?" was "quit and reopen". No accelerator: it is a rare, deliberate action. */
+        { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') },
+        { type: 'separator' },
         { label: t('menu.newTerminal'), accelerator: 'CmdOrCtrl+T', click: () => intent('terminal', { name: 'terminal' }) },
         { type: 'separator' },
         { label: t('menu.openFile'), accelerator: 'CmdOrCtrl+P', click: () => intent('quickOpen') },

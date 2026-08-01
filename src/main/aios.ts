@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import {
-  CLAUDE_KEYS, BUILTIN_OUTPUT_STYLES, readStore, readValue, coerce, setAt,
+  CLAUDE_KEYS, BUILTIN_OUTPUT_STYLES, readStore, writeStore, readValue, coerce, setAt, isSet, seedableKeys,
 } from '../core/claudeConfig';
 import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
@@ -1549,6 +1549,37 @@ export const MODE_OPTIONS = ['default', 'auto', 'acceptEdits', 'plan', 'bypassPe
 function readJson(p: string): Record<string, unknown> {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; }
 }
+/* The framework root's own Claude stores. `<root>/.claude/settings.json` is COMMITTED, so it is
+   read and never written — a personal preference does not belong in a shared repo.
+   `<root>/.claude/settings.local.json` is machine-local, and it is what `/config` writes and what
+   every session launched from the vault reads FIRST. */
+function claudeProjectSettingsPath(): string | null {
+  const r = frameworkRoot();
+  return r ? path.join(r, '.claude', 'settings.json') : null;
+}
+function claudeLocalSettingsPath(): string | null {
+  const r = frameworkRoot();
+  return r ? path.join(r, '.claude', 'settings.local.json') : null;
+}
+
+/** All four stores, in one read, so every consumer resolves the same chain. */
+function claudeStores(): [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>] {
+  const pp = claudeProjectSettingsPath();
+  const lp = claudeLocalSettingsPath();
+  return [readJson(claudeSettingsPath()), readJson(claudeJsonPath()), pp ? readJson(pp) : {}, lp ? readJson(lp) : {}];
+}
+
+function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void): void {
+  const p = claudeLocalSettingsPath();
+  if (!p) return;
+  const j = readJson(p);
+  mutate(j);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
+  fs.renameSync(tmp, p);
+}
+
 function writeClaudeSettings(mutate: (j: Record<string, unknown>) => void): void {
   const p = claudeSettingsPath();
   const j = readJson(p);
@@ -1635,7 +1666,7 @@ export interface ClaudeConfig {
   // Claude-owned toggles surfaced in Settings (see src/core/claudeConfig.ts for the stores)
   outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean;
   claudeInChrome: boolean; copyOnSelect: boolean;
-  agentPushNotif: boolean; awaySummary: boolean; autoCompact: boolean;
+  agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean;
 }
 
 export function claudeConfig(): ClaudeConfig {
@@ -1651,8 +1682,16 @@ export function claudeConfig(): ClaudeConfig {
     } catch { /* default */ }
   }
   const user = cj as unknown as Record<string, unknown>;
-  const str = (id: string): string => String(readValue(id, st, user));
-  const bool = (id: string): boolean => readValue(id, st, user) === true;
+  /* ALL FOUR STORES. These helpers read two, which was invisible for every key that lives in only
+     one place — and wrong for the single key that lives in two. `prefersReducedMotion` exists in
+     BOTH the global store and the vault's local one, so reading the wrong file was the only case
+     where the wrong file gave a different answer. Everything else agreed by accident.
+     The symptom was surgical: one row that would not follow `/config`, while `readStore` reported
+     'local' correctly right beside it — the resolver and the reader disagreeing inside one
+     module. */
+  const [, , pj, lc] = claudeStores();
+  const str = (id: string): string => String(readValue(id, st, user, pj, lc));
+  const bool = (id: string): boolean => readValue(id, st, user, pj, lc) === true;
   return {
     account: cj?.oauthAccount?.emailAddress || '',
     // every one of these reads through the registry, so the row and the file agree
@@ -1665,6 +1704,7 @@ export function claudeConfig(): ClaudeConfig {
     claudeInChrome: bool('claudeInChrome'),
     copyOnSelect: bool('copyOnSelect'),
     agentPushNotif: bool('agentPushNotif'),
+    inputNeededNotif: bool('inputNeededNotif'),
     awaySummary: bool('awaySummary'),
     autoCompact: bool('autoCompact'),
     autoUpdates,
@@ -1673,16 +1713,79 @@ export function claudeConfig(): ClaudeConfig {
 
 export type ClaudeConfigKey = keyof typeof CLAUDE_KEYS;
 
+/**
+ * SEED CLAUDE'S CONFIG ONCE, at first install. Never on update.
+ *
+ * The App's Settings panel is a MIRROR of Claude's own config — it reads Claude's files and writes
+ * them back. That model only tells the truth when the keys exist: Claude writes a key only once
+ * you change it, so a fresh machine has almost none of them, and anything the UI displayed for an
+ * absent key was an assertion nobody had verified. That is how the Remote Control toggle showed a
+ * tick over a `false` config for every operator who never touched it (2026-07-31).
+ *
+ * So the App states its opinion ONCE, in writing, and from then on only mirrors. After seeding
+ * there is no "absent" case left to guess about for any key we seed.
+ *
+ * NOT ON UPDATE, and the marker is what guarantees it: re-seeding every launch would silently
+ * undo the operator's own choices — turning Remote Control off would come back on at the next
+ * start, which is worse than the bug this fixes. The marker lives in OUR settings, never in
+ * Claude's: Claude's files belong to Claude, and a flag of ours in there would be a foreign key
+ * in someone else's schema.
+ */
+export function seedClaudeDefaults(): { seeded: string[]; already: boolean } {
+  /* The marker is read RAW from .glass/shell.json rather than through shellSettings(), which
+     normalises to a typed shape and would drop a key it does not declare. */
+  const r = frameworkRoot();
+  let raw: Record<string, unknown> = {};
+  if (r) { try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); } catch { raw = {}; } }
+  if (raw.claudeDefaultsSeeded) return { seeded: [], already: true };
+  const [settings, user, project, local] = claudeStores();
+  const seeded: string[] = [];
+  for (const id of seedableKeys()) {
+    // Only keys with NOTHING on disk. An existing value is the operator's (or Claude's) and is
+    // never overwritten — seeding fills gaps, it does not impose.
+    if (isSet(id, settings, user, project, local)) continue;
+    try { setClaudeConfig(id as ClaudeConfigKey, CLAUDE_KEYS[id].seed); seeded.push(id); } catch { /* skip */ }
+  }
+  setShellSetting('claudeDefaultsSeeded', true);
+  return { seeded, already: false };
+}
+
+/** Which Claude keys are actually PRESENT on disk. The UI needs this to tell "the operator chose
+ *  this" from "nobody has chosen" — a distinction that vanished when a seeded key was later RESET
+ *  by `/config`, putting the App back to displaying a value it had never read. */
+export function claudeConfigSetKeys(): Record<string, boolean> {
+  const [settings, user, project, local] = claudeStores();
+  const out: Record<string, boolean> = {};
+  for (const id of Object.keys(CLAUDE_KEYS)) out[id] = isSet(id, settings, user, project, local);
+  return out;
+}
+
+/** Which store each value is resolved FROM. The operator needs this: a value set for this vault
+ *  behaves differently from a global one, and without saying so a global change that gets
+ *  overridden locally looks like a broken toggle — which is exactly how this was discovered. */
+export function claudeConfigStores(): Record<string, string> {
+  const [settings, user, project, local] = claudeStores();
+  const out: Record<string, string> = {};
+  for (const id of Object.keys(CLAUDE_KEYS)) {
+    out[id] = isSet(id, settings, user, project, local) ? readStore(id, settings, user, project, local) : '';
+  }
+  return out;
+}
+
 export function setClaudeConfig(key: ClaudeConfigKey, value: unknown): void {
   const spec = CLAUDE_KEYS[key as string];
   if (spec) {
     // Write to whichever store already holds the key, so an inferred store self-corrects
     // once Claude has written the value itself.
-    const store = readStore(key as string, readJson(claudeSettingsPath()), readJson(claudeJsonPath()));
+    /* Write where the value ACTUALLY lives, across all four stores — otherwise a change can be
+       silently overridden by a higher-precedence store and the toggle appears to do nothing. */
+    const [st, uj, pj, lc] = claudeStores();
+    const store = writeStore(key as string, st, uj, pj, lc);
     const v = coerce(key as string, value);
     const mutate = (j: Record<string, unknown>) => setAt(j, spec.path, v);
-    if (store === 'settings') writeClaudeSettings(mutate);
-    else writeClaudeUserJson(mutate);
+    if (store === 'local') writeClaudeLocalSettings(mutate);
+    else if (store === 'user') writeClaudeUserJson(mutate);
+    else writeClaudeSettings(mutate);
     return;
   }
   // 'autoUpdates' is NOT Claude's — see setAutoUpdates below.
