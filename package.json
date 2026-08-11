@@ -16,6 +16,7 @@
     "sync-core": "node scripts/sync-core.mjs",
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",
     "dist": "npm run compile && electron-builder --mac dmg && npm run verify:package",
+    "dist:linux": "npm run compile && electron-builder --linux && npm run verify:package",
     "verify:package": "node scripts/verify-package.mjs",
     "start:isolated": "npm run compile && electron . --user-data-dir=.dev-userdata"
   },
@@ -89,6 +90,44 @@
     },
     "dmg": {
       "title": "AIOS"
+    },
+    "linux": {
+      "category": "Development",
+      "icon": "build/icon.png",
+      "synopsis": "The one-for-all AIOS interface — Glass, not engine.",
+      "maintainer": "The AIOS <noreply@the-aios.com>",
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "aios"
+        }
+      },
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "AIOS-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0"
+      ]
     },
     "copyright": "Copyright © 2026 The-AIOS"
   },
