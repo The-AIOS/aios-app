@@ -37,8 +37,14 @@ function createWindow(): BrowserWindow {
     show: !SMOKE,
     backgroundColor: '#0b0b0d',
     title: 'AIOS',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 14 },
+    // Frameless-with-inset-controls is a macOS affordance: 'hiddenInset' insets the traffic
+    // lights into the content, and trafficLightPosition moves them. Neither concept exists
+    // off macOS — Windows/Linux draw their own caption buttons, so 'hiddenInset' degrades to
+    // a window with NO controls at all (unclosable without the menu) and trafficLightPosition
+    // is dead config. Keep the native frame there; the design only ever assumed mac chrome.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 14 } }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -124,8 +130,26 @@ function spillLongCommand(cmd: string): string {
   }
 }
 
+/* $SHELL is normally set, so this is the fallback path — but the fallback has to be a shell
+   that actually EXISTS, or node-pty exits code 1 and the terminal is born "[session ended]"
+   (the same failure the cwd comment below describes, one argument over). A hardcoded
+   /bin/zsh is right on macOS, where zsh is the system default and always present, and wrong
+   on Linux, where zsh is an optional package most machines never install. Probe, don't
+   assume: first candidate that exists wins, /bin/sh is POSIX-guaranteed and ends the chain. */
+function defaultShell(): string {
+  if (process.env.SHELL) return process.env.SHELL;
+  if (os.platform() === 'win32') return 'powershell.exe';
+  const candidates = os.platform() === 'darwin'
+    ? ['/bin/zsh', '/bin/bash', '/bin/sh']
+    : ['/bin/bash', '/usr/bin/bash', '/bin/zsh', '/bin/sh'];
+  for (const c of candidates) {
+    try { if (fs.statSync(c).isFile()) return c; } catch { /* try next */ }
+  }
+  return '/bin/sh';
+}
+
 ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }) => {
-  const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh');
+  const shell = defaultShell();
   /* The working directory must EXIST, or node-pty exits immediately with code 1 and every
      terminal is born "[session ended]". The old fallback was ~/aios unconditionally, so on
      any machine without the framework — every newcomer — no terminal could ever open,
@@ -811,7 +835,7 @@ app.whenReady().then(() => {
     // gate FLAKY — probes that hadn't finished read as failures).
     let loaded = false;
     win.webContents.on('did-finish-load', () => { loaded = true; });
-    const p = pty.spawn(process.env.SHELL || '/bin/zsh', ['-c', 'echo GLASS_SHELL_PTY_OK'], { name: 'xterm', cols: 80, rows: 24, cwd: os.homedir(), env: process.env as Record<string, string> });
+    const p = pty.spawn(defaultShell(), ['-c', 'echo GLASS_SHELL_PTY_OK'], { name: 'xterm', cols: 80, rows: 24, cwd: os.homedir(), env: process.env as Record<string, string> });
     let buf = '';
     p.onData((d) => { buf += d; });
 
@@ -874,13 +898,36 @@ app.whenReady().then(() => {
          and EVERY file opened blank — markdown, TypeScript, all of it. Unit tests read source,
          smoke opened only the Setup tab, and the one screen nobody exercised was the one that
          broke. This opens a real file and counts what rendered. */
+      /* The probe file has to be one the app will actually OPEN. openViewer is confined to
+         allowedRoots() — the framework root plus the operator's workspace folders — and this
+         gate used to hand it the app's own package.json. That path is inside the repo in dev and
+         inside app.asar once packaged, and NEITHER is an allowed root for anyone whose vault is
+         not this checkout. So the gate reported "a file opened but rendered nothing" on every
+         machine except one whose workspace happened to include the repo: the viewer was fine and
+         the gate was pointing outside the fence. Pick a file from the framework root instead —
+         reachable by construction — and if there is no framework root, say the gate did not run
+         rather than let an unmeasured pass look like a measured one. */
+      const probe = (() => {
+        const root = aios.frameworkRoot();
+        if (!root) return '';
+        for (const c of ['README.md', 'CLAUDE.md', 'CHEATSHEET.md', 'SETUP.md']) {
+          const p = path.join(root, c);
+          try { if (fs.statSync(p).isFile()) return p; } catch { /* next */ }
+        }
+        return '';
+      })();
       try {
-        const viewerOk = await win.webContents.executeJavaScript(
-          `(async () => { await openViewer('${path.join(__dirname, '..', '..', 'package.json').replace(/\\/g, '/')}');
-             await new Promise(r => setTimeout(r, 800));
-             return document.querySelectorAll('.pane .codeedit, .pane .mdview, .pane pre').length; })()`,
-        ).catch(() => 0);
-        console.log(`shell-smoke: viewer — panes rendered=${viewerOk}`);
+        let viewerOk: number | null = null;   // null = the gate did not run, which is NOT a pass
+        if (!probe) {
+          console.log('shell-smoke: viewer — SKIPPED (no framework root on this machine; gate did not run)');
+        } else {
+          viewerOk = Number(await win.webContents.executeJavaScript(
+            `(async () => { await openViewer('${probe.replace(/\\/g, '/')}');
+               await new Promise(r => setTimeout(r, 800));
+               return document.querySelectorAll('.pane .codeedit, .pane .mdview, .pane pre').length; })()`,
+          ).catch(() => 0));
+          console.log(`shell-smoke: viewer — panes rendered=${viewerOk} (${path.basename(probe)})`);
+        }
         /* Lazy code paths need their own check. The terminal link provider only runs on HOVER,
            so a missing declaration inside it throws nothing during a smoke run and the
            uncaught-error gate stays silent — that is exactly how `linkCache is not defined`
@@ -894,7 +941,7 @@ app.whenReady().then(() => {
           setupOk = false;
           console.error('shell-smoke: LAZY PATH BROKEN — a symbol the terminal link provider needs is not declared; it would throw on first hover');
         }
-        if (Number(viewerOk) < 1) { setupOk = false; console.error('shell-smoke: VIEWER FAILED — a file opened but rendered nothing'); }
+        if (viewerOk !== null && viewerOk < 1) { setupOk = false; console.error(`shell-smoke: VIEWER FAILED — ${path.basename(probe)} opened but rendered nothing`); }
       } catch (e) { console.error('shell-smoke: viewer gate error', e); setupOk = false; }
         console.log(`shell-smoke: setup — steps=${steps}, clickable=${clickable}, repaintWired=${repaint}`);
       } catch (err) { console.error('shell-smoke: setup gate error', err); }
@@ -938,11 +985,22 @@ app.whenReady().then(() => {
          INSTALLED menu at runtime, which is precisely where the untranslated spelling came from.
          So the check has to run against the live menu and through the real formatter. A sweep that
          cannot see half its inputs is the kind of green that hides a bug. */
+      /* The LEAK SET is platform-specific, and conflating the two is its own bug. On macOS a
+         formatted accelerator is pure glyphs, so ANY surviving word — Shift, Alt, Control, Plus
+         — is a leak. Off macOS `Ctrl+Shift+T` is the CORRECT rendering: Windows and Linux write
+         modifiers as words. Running the mac set everywhere flags all 20 correct bindings and
+         reports a passing formatter as broken — a gate that fails on the platform it does not
+         model teaches you to ignore it. What IS still a leak off macOS: Electron's internal
+         spellings (`CmdOrCtrl`, `CommandOrControl`) and key NAMES that should have become
+         symbols (`Plus`, `Minus`) — "Ctrl+Plus" names a key no keyboard has. */
       let mapOk = false;
+      const leakRe = process.platform === 'darwin'
+        ? String.raw`/CmdOrCtrl|CommandOrControl|Command|\bPlus\b|\bShift\b|\bAlt\b|\bControl\b/`
+        : String.raw`/CmdOrCtrl|CommandOrControl|\bCommand\b|\bPlus\b|\bMinus\b|\bReturn\b|\bEscape\b/`;
       try {
         const leaks = await win.webContents.executeJavaScript(
           `window.glassShell.menuShortcuts().then((ks) => ks.map((k) => prettyAccel(k.accel))` +
-          `.filter((v) => /CmdOrCtrl|CommandOrControl|Command|\\bPlus\\b|\\bShift\\b|\\bAlt\\b|\\bControl\\b/.test(v)).join(','))`,
+          `.filter((v) => ${leakRe}.test(v)).join(','))`,
         ).catch(() => 'ERR');
         mapOk = leaks === '';
         if (!mapOk) console.error(`shell-smoke: SHORTCUT MAP LEAKED RAW TOKENS — ${leaks}`);
