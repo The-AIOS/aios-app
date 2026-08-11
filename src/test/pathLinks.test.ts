@@ -491,12 +491,21 @@ test('the remainder is stated, and a new filter starts a new window', () => {
    and were caught by eye within minutes, both from the same cause: chaining string replaces over
    a value whose separators and whose CONTENT use the same character. */
 
-test('accelerator formatting: the plus KEY survives, and the slash is not prose', () => {
+/* The formatter needs BOTH tables: ACCEL_GLYPH for macOS, ACCEL_WORD for everywhere else.
+   Extracting only the one the mac path uses is how this harness first failed the non-mac
+   branch with a ReferenceError instead of an assertion. */
+const ACCEL_SRC = () => {
   const G = /const ACCEL_GLYPH = \{[\s\S]*?\};/.exec(app);
+  const W = /const ACCEL_WORD = \{[\s\S]*?\};/.exec(app);
   const F = /function prettyAccel\(a\) \{[\s\S]*?\n\}/.exec(app);
-  assert.ok(G && F, 'the formatter must be findable');
+  assert.ok(G && W && F, 'the formatter and both accelerator tables must be findable');
+  return G![0] + '\n' + W![0] + '\n' + F![0];
+};
+
+test('accelerator formatting: the plus KEY survives, and the slash is not prose', () => {
+  const src = ACCEL_SRC();
   const make = (platform: string) =>
-    new Function('navigator', G![0] + '\n' + F![0] + '\nreturn prettyAccel;')({ platform }) as (a: string) => string;
+    new Function('navigator', src + '\nreturn prettyAccel;')({ platform }) as (a: string) => string;
   const mac = make('MacIntel');
   const win = make('Win32');
 
@@ -514,14 +523,23 @@ test('accelerator formatting: the plus KEY survives, and the slash is not prose'
   assert.equal(mac('Enter / Shift+Enter'), 'Enter / ⇧Enter');
   // and non-mac stays spelled out rather than showing mac glyphs
   assert.equal(win('CmdOrCtrl+Shift+0'), 'Ctrl+Shift+0');
+  /* The non-mac branch used to pass every non-modifier through untouched, so the zoom binding
+     reached the shortcuts sheet as a literal "Ctrl+Plus". Modifiers stay words off macOS —
+     that IS the platform's convention — but the KEY still has to become the symbol it is. */
+  assert.equal(win('CmdOrCtrl+Plus'), 'Ctrl++', 'the plus KEY must render as a plus, not the word');
+  assert.equal(win('CmdOrCtrl+Minus'), 'Ctrl+−');
+  assert.equal(win('Command+Shift+R'), 'Ctrl+Shift+R', 'every Cmd spelling maps to Ctrl off macOS');
+  assert.equal(win('CmdOrCtrl+/'), 'Ctrl+/');
 });
 
 test('every accelerator the menu declares renders without leaking a raw token', () => {
   /* The sweep that found both bugs, kept as a test: a formatter is only as good as its worst
      input, and the inputs are enumerable. */
-  const G = /const ACCEL_GLYPH = \{[\s\S]*?\};/.exec(app)![0];
-  const F = /function prettyAccel\(a\) \{[\s\S]*?\n\}/.exec(app)![0];
-  const mac = new Function('navigator', G + '\n' + F + '\nreturn prettyAccel;')({ platform: 'MacIntel' }) as (a: string) => string;
+  const src = ACCEL_SRC();
+  const make = (platform: string) =>
+    new Function('navigator', src + '\nreturn prettyAccel;')({ platform }) as (a: string) => string;
+  const mac = make('MacIntel');
+  const win = make('Win32');
   const menu = fs.readFileSync('src/main/menu.ts', 'utf8');
   const accels = [...new Set([...menu.matchAll(/accelerator: '([^']+)'/g)].map((m) => m[1]))];
   assert.ok(accels.length > 20, 'sanity: the menu declares accelerators');
@@ -529,5 +547,13 @@ test('every accelerator the menu declares renders without leaking a raw token', 
     const out = mac(a);
     assert.doesNotMatch(out, /CmdOrCtrl|\bPlus\b|\bShift\b|\bAlt\b/, `${a} leaked a raw token as "${out}"`);
     assert.ok(out.length <= 6, `${a} rendered suspiciously long as "${out}"`);
+  }
+  /* Non-mac has its OWN leak set — the words ARE the rendering there, so only Electron's
+     internal spellings and untranslated key names count. Sweeping only the mac branch is how a
+     literal "Ctrl+Plus" shipped past a green suite: half the inputs were never formatted. */
+  for (const a of accels) {
+    const out = win(a);
+    assert.doesNotMatch(out, /CmdOrCtrl|CommandOrControl|\bCommand\b|\bPlus\b|\bMinus\b|\bReturn\b|\bEscape\b/,
+      `${a} leaked a raw token off macOS as "${out}"`);
   }
 });
