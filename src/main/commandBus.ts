@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -8,7 +8,7 @@ import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
-  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, type SendTarget,
+  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 
@@ -72,7 +72,26 @@ const MAX_DELIVERY_ATTEMPTS = TIMINGS.MAX_DELIVERY_ATTEMPTS;   // contract
  */
 const PARSE_GRACE_MS = 2_000;
 
+/**
+ * The inbox is machine-global by design — that is exactly what lets any surface serve any
+ * request. It is also why this subsystem had no way to be EXERCISED: a second fulfiller pointed
+ * at the real directory races the installed App for live traffic, which is how a real brief died
+ * on 2026-07-27 (AI-67). So the only safe way to test the bus was not to test it, and the
+ * 2026-08-12 double-delivery bug was consequently found by a session complaining rather than by
+ * a check. Test infrastructure for the bus is the gap the bug exposed.
+ *
+ * AIOS_BUS_DIR redirects the watch to a throwaway directory so a dev build can be driven end to
+ * end without touching real requests.
+ *
+ * DEV-ONLY ON PURPOSE. A packaged App ignores it entirely. An env var that can silently divert
+ * the shipped App away from the real inbox would make every dropped request invisible — the
+ * operator would see requests never served, with nothing pointing at the cause. A test seam
+ * must not be reachable in production.
+ */
 function inboxDir(): string {
+  const override = (process.env.AIOS_BUS_DIR || '').trim();
+  if (override && !app.isPackaged) return path.resolve(override);
+  if (override) log(`ignoring AIOS_BUS_DIR in a packaged build — the real inbox is not overridable`);
   return path.join(os.homedir(), '.aios', 'spawn-inbox');
 }
 
@@ -241,6 +260,14 @@ async function runSend(
   }
   const needle = safeNeedle(deliverText);
   let attempts = 0;   // how many times we have actually TYPED into the target
+  /* Captured ONCE, before the first type, and reused by every attempt in this runSend.
+     It used to be recomputed at the top of each iteration, which made a LATE delivery invisible:
+     attempt 1 lands after the verify window closes, attempt 2 re-reads the baseline and absorbs
+     attempt 1's own turn into it, so `now - baseline` is 0 forever and the loop re-types a message
+     that already arrived. A baseline that moves cannot detect the thing it is a baseline for.
+     This is the other half of the 2026-08-12 four-deliveries bug, and the half that made it
+     unrecoverable: even after the text had landed, no later poll could ever prove it. */
+  let baseline: number | undefined;
   for (;;) {
     const target = targetByName(req.name);
     const decision = decideSend(target, Date.now() - claimedAt, MAX_HOLD_MS);
@@ -252,7 +279,8 @@ async function runSend(
     }
     // idle → deliver, then prove it in the target's own transcript
     const sessionId = target ? target.sessionId : '';
-    const before = countUserTurnsContaining(readTranscript(sessionId), needle);
+    if (baseline === undefined) baseline = countUserTurnsContaining(readTranscript(sessionId), needle);
+    const before = baseline;
     /* THE CAP HAS TO SIT HERE, before the send — not only in the after-a-miss decision.
        A 'wait' verdict does `continue`, which re-enters this branch, so a cap enforced only
        downstream changed a log line and nothing else: the loop would still re-type the message
@@ -310,15 +338,21 @@ async function runSend(
        this wrong in the same way independently, which is exactly what a hand-copied policy
        produces. Retiring is now reachable only two ways — a dead target, or a genuinely spent
        hold budget. "No sibling left to try" is not one of them. */
+    /* Re-read the target: its status matters as much as its existence now. A session that went
+       busy while we were verifying has not had the chance to surface the turn, and treating that
+       as a failed delivery is what produced four deliveries of one request. */
+    const after = targetByName(req.name);
     const miss = decideAfterVerifyMiss({
-      targetAlive: !!targetByName(req.name),
+      targetAlive: !!after,
+      targetBusy: !!after && !isDeliverable(after.status),
       heldMs: Date.now() - claimedAt,
-      releases: req.releases ?? 0,
       attempts,
     });
     log(`send → '${req.name}' not verified — ${miss.do}: ${miss.reason}`);
-    if (miss.do === 'release') { if (releaseForSibling(heldPath, req, miss.reason)) return; }
-    if (miss.do === 'retry' || miss.do === 'release') continue;
+    /* No `release` branch: decideAfterVerifyMiss can no longer return one, because reaching it
+       means the text WAS typed and handing it to a sibling means typing it twice. Release lives
+       only on the !sendResult.ok path above, where nothing was typed. */
+    if (miss.do === 'retry') continue;
     if (miss.do === 'wait') {
       /* Out of sends, not out of hope: watch for a late arrival and never type again. A turn
          that lands after the window closed must not be sent twice. */

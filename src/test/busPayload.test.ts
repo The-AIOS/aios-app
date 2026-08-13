@@ -103,10 +103,15 @@ test('INVARIANT: neither surface delivers a send without the length gate', () =>
 test('INVARIANT: the surface delegates the miss decision, never re-derives it', () => {
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(bus, /decideAfterVerifyMiss\(/, 'the surface must call the shared decision');
-  // All four outcomes must be handled — dropping one silently reintroduces a conflation.
-  for (const arm of ['release', 'retry', 'wait']) {
+  // Every outcome the decision can RETURN must be handled — dropping one silently reintroduces a
+  // conflation. 'release' is deliberately absent from both the type and this list since
+  // 2026-08-12: reaching the miss decision means the message was typed, so releasing it asks a
+  // second surface to type it again. Handling it here would imply it is still reachable.
+  for (const arm of ['retry', 'wait']) {
     assert.match(bus, new RegExp(`miss\\.do === '${arm}'`), `the '${arm}' outcome must be handled`);
   }
+  assert.doesNotMatch(bus, /miss\.do === 'release'/,
+    'a typed message must never be handed to a sibling — release belongs to the !sendResult.ok path');
   // And retirement must be the FALL-THROUGH, i.e. only what the decision did not claim.
   assert.match(bus, /markUndelivered\(heldPath, req, `sent to '\$\{req\.name\}' — \$\{miss\.reason\}`\)/,
     'retiring must use the shared decision\'s reason, not a locally invented one');
@@ -117,4 +122,36 @@ test('INVARIANT: contract values are never re-declared in the surface', () => {
   for (const k of ['MAX_HOLD_MS', 'MAX_RELEASES', 'RETIRE_TTL_MS', 'HOLD_STALE_MS', 'MAX_DELIVERY_ATTEMPTS']) {
     assert.match(bus, new RegExp(`const ${k} = TIMINGS\\.`), `${k} must come from the contract`);
   }
+});
+
+test('INVARIANT: the inbox override is dev-only and cannot divert a packaged build', () => {
+  /* AIOS_BUS_DIR exists so the bus can be exercised end to end without a second fulfiller
+     racing the installed App for live traffic — the absence of that seam is why the 2026-08-12
+     double-delivery bug was found by a session complaining instead of by a test.
+     But a test seam reachable in production is worse than no seam: a stray env var would make the
+     shipped App watch an empty directory, and every dropped request would go unserved with
+     nothing pointing at the cause. So the guard is asserted here, because it is the kind of
+     condition someone simplifies away while refactoring. */
+  const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(bus, /AIOS_BUS_DIR/, 'the override must exist — the bus needs to be testable');
+  assert.match(bus, /if \(override && !app\.isPackaged\) return path\.resolve\(override\)/,
+    'the override must be gated on !app.isPackaged — a packaged build may never be diverted');
+  // And the real path must remain the unconditional fall-through.
+  assert.match(bus, /return path\.join\(os\.homedir\(\), '\.aios', 'spawn-inbox'\);/,
+    'the machine-global inbox must stay the default with no condition attached');
+});
+
+test('INVARIANT: the verification baseline is captured ONCE, not per attempt', () => {
+  /* 2026-08-12, the half that made the bug unrecoverable. `before` was computed at the top of the
+     delivery loop, so on a re-attempt it absorbed the PREVIOUS attempt's own user turn. After that
+     no poll could ever show an increase — the message had demonstrably arrived and the loop kept
+     re-typing it, because the baseline had moved to include it.
+     A baseline that is re-read cannot detect the event it exists to detect. Asserted at the source
+     because the failure is invisible in any single-attempt test. */
+  const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(bus, /let baseline: number \| undefined;/, 'the baseline must be declared OUTSIDE the delivery loop');
+  assert.match(bus, /if \(baseline === undefined\) baseline = countUserTurnsContaining\(/,
+    'it must be captured only on the first pass');
+  assert.doesNotMatch(bus, /const before = countUserTurnsContaining\(/,
+    're-reading the baseline per attempt is the bug — derive `before` from the captured baseline');
 });

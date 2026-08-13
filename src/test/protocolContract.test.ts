@@ -59,44 +59,85 @@ test('a verify miss on a LIVE target inside the hold budget never retires', () =
   // The bug: "no sibling left" was read as "undeliverable" and a brief died in 20 seconds
   // with 29m40s of MAX_HOLD_MS unspent. Nothing below may return 'retire' while the target
   // is alive and the clock has not run out.
-  for (const releases of [0, 1, 2, 3]) {
+  for (const targetBusy of [false, true]) {
     for (const attempts of [0, 1, 2, 3, 9]) {
-      const d = decideAfterVerifyMiss({ targetAlive: true, heldMs: 20_000, releases, attempts });
-      assert.notEqual(d.do, 'retire', `alive + 20s in must never retire (releases=${releases} attempts=${attempts})`);
+      const d = decideAfterVerifyMiss({ targetAlive: true, targetBusy, heldMs: 20_000, attempts });
+      assert.notEqual(d.do, 'retire', `alive + 20s in must never retire (busy=${targetBusy} attempts=${attempts})`);
     }
   }
 });
 
-test('sibling handoffs come first, and are bounded', () => {
-  assert.equal(decideAfterVerifyMiss({ targetAlive: true, heldMs: 0, releases: 0, attempts: 0 }).do, 'release');
-  assert.equal(decideAfterVerifyMiss({ targetAlive: true, heldMs: 0, releases: 1, attempts: 0 }).do, 'release');
-  // spent: must fall through to retrying, NOT to retiring
-  assert.equal(decideAfterVerifyMiss({ targetAlive: true, heldMs: 0, releases: TIMINGS.MAX_RELEASES, attempts: 0 }).do, 'retry');
+test('a BUSY target is never re-sent to — it has not had the chance to write the turn', () => {
+  /* 2026-08-12: one `/aios:close-session --auto` was delivered FOUR times to a session that was
+     busy throughout, ~2 minutes apart, with no operator typing it. The text landed every time; a
+     busy session simply does not write an incoming message to its transcript until its current
+     turn ends. Meanwhile two IDLE targets in the same minutes verified and consumed on the first
+     try — that contrast is the whole diagnosis.
+     So: while the target is mid-turn, the ONLY correct action is to wait. Not retry, not release. */
+  for (const attempts of [0, 1, 2, 3, 99]) {
+    const d = decideAfterVerifyMiss({ targetAlive: true, targetBusy: true, heldMs: 60_000, attempts });
+    assert.equal(d.do, 'wait', `busy target must wait, never re-type (attempts=${attempts})`);
+    assert.match(d.reason, /busy during verification/);
+  }
+});
+
+test('a verify miss can NEVER hand the request to a sibling — we already typed it', () => {
+  /* `release` used to be the FIRST branch here, and it is now unreachable by construction.
+     Reaching this function means the surface typed the message successfully (a surface that could
+     not type it returns !ok and releases on THAT path — the case release was built for). Handing an
+     already-typed request to a sibling asks a second surface to type it again: double delivery,
+     which this protocol calls explicitly worse than latency.
+     And with one fulfiller running there is no sibling, so the release came back to the same App,
+     which re-typed it and burned a release — twice, to MAX_RELEASES, one step from retiring work
+     that had already completed as a FALSE dead letter. */
+  for (const targetBusy of [false, true]) {
+    for (const attempts of [0, 1, 2, 3, 99]) {
+      for (const heldMs of [0, 60_000, TIMINGS.MAX_HOLD_MS - 1]) {
+        const d = decideAfterVerifyMiss({ targetAlive: true, targetBusy, heldMs, attempts });
+        assert.notEqual(d.do, 'release',
+          `a typed message must never be handed to a sibling (busy=${targetBusy} attempts=${attempts} held=${heldMs})`);
+      }
+    }
+  }
 });
 
 test('sends are capped, patience is not', () => {
-  const spent = { targetAlive: true, heldMs: 60_000, releases: TIMINGS.MAX_RELEASES };
-  assert.equal(decideAfterVerifyMiss({ ...spent, attempts: TIMINGS.MAX_DELIVERY_ATTEMPTS - 1 }).do, 'retry');
+  const idle = { targetAlive: true, targetBusy: false, heldMs: 60_000 };
+  assert.equal(decideAfterVerifyMiss({ ...idle, attempts: TIMINGS.MAX_DELIVERY_ATTEMPTS - 1 }).do, 'retry');
   // out of sends but still inside the hold: WAIT. Retrying forever would re-type the message
   // every verify window for 30 minutes — double delivery, which is worse than the delay.
-  assert.equal(decideAfterVerifyMiss({ ...spent, attempts: TIMINGS.MAX_DELIVERY_ATTEMPTS }).do, 'wait');
-  assert.equal(decideAfterVerifyMiss({ ...spent, attempts: 99 }).do, 'wait');
+  assert.equal(decideAfterVerifyMiss({ ...idle, attempts: TIMINGS.MAX_DELIVERY_ATTEMPTS }).do, 'wait');
+  assert.equal(decideAfterVerifyMiss({ ...idle, attempts: 99 }).do, 'wait');
+});
+
+test('REGRESSION — canonical\'s captured request must not produce another delivery', () => {
+  /* The live request file, read from ~/.aios/spawn-inbox/aios-canonical.json.holding at 20:42:
+       { action: 'send', name: 'aios-canonical', prompt: '/aios:close-session --auto',
+         releases: 2, _claim: { surface: 'app', pid: 37390, at: 1786588841767 } }
+     `releases: 2` is MAX_RELEASES, the claimer was ALIVE (an early report said dead — that came
+     from a sandboxed `ps` returning empty, which is a different bug entirely), and the target was
+     busy. This exact state must yield WAIT. The old code yielded 'release' → re-claim → re-type. */
+  const captured = { targetAlive: true, targetBusy: true, heldMs: 212_000, attempts: 1 };
+  const d = decideAfterVerifyMiss(captured);
+  assert.equal(d.do, 'wait', `the captured state must wait, got '${d.do}': ${d.reason}`);
+  // and once it goes idle without the turn appearing, retrying is legitimate — bounded
+  assert.equal(decideAfterVerifyMiss({ ...captured, targetBusy: false }).do, 'retry');
 });
 
 test('only a dead target or a spent hold budget retires a request', () => {
-  const dead = decideAfterVerifyMiss({ targetAlive: false, heldMs: 0, releases: 0, attempts: 0 });
+  const dead = decideAfterVerifyMiss({ targetAlive: false, targetBusy: false, heldMs: 0, attempts: 0 });
   assert.equal(dead.do, 'retire');
   assert.match(dead.reason, /no longer a live session/);
-  const timedOut = decideAfterVerifyMiss({ targetAlive: true, heldMs: TIMINGS.MAX_HOLD_MS, releases: 9, attempts: 9 });
+  const timedOut = decideAfterVerifyMiss({ targetAlive: true, targetBusy: false, heldMs: TIMINGS.MAX_HOLD_MS, attempts: 9 });
   assert.equal(timedOut.do, 'retire');
   assert.match(timedOut.reason, /held for \d+ min/);
   // one millisecond short of the budget is still not a failure
-  assert.notEqual(decideAfterVerifyMiss({ targetAlive: true, heldMs: TIMINGS.MAX_HOLD_MS - 1, releases: 9, attempts: 9 }).do, 'retire');
+  assert.notEqual(decideAfterVerifyMiss({ targetAlive: true, targetBusy: false, heldMs: TIMINGS.MAX_HOLD_MS - 1, attempts: 9 }).do, 'retire');
 });
 
 test('a dead target beats every other consideration', () => {
   // Ordering matters: no amount of remaining budget makes a vanished session deliverable.
-  assert.equal(decideAfterVerifyMiss({ targetAlive: false, heldMs: 0, releases: 0, attempts: 0 }).do, 'retire');
+  assert.equal(decideAfterVerifyMiss({ targetAlive: false, targetBusy: false, heldMs: 0, attempts: 0 }).do, 'retire');
 });
 
 test('the delivery cap gates the SEND, not just the log line', () => {
