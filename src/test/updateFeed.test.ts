@@ -34,11 +34,30 @@ test('the zip covers every arch the dmg does, or those users silently never upda
     'an arch that ships a dmg but no zip installs fine and then never updates — the worst combination');
 });
 
-test('the release workflow asserts the manifest is usable, not just present', () => {
+test('the release workflow validates the feed BEFORE publishing and AFTER attaching', () => {
+  /* These two assertions used to pin the inline greps that implemented the check
+     (`latest-mac.yml missing`, `grep -q '\.zip' dist/latest-mac.yml`, `grep -m1 '^path:'`).
+     They were right about the requirement and wrong to name the mechanism: the rules moved into
+     src/core/releaseAssets.ts so a Linux/Windows job could reuse them, and a test pinned to the
+     old spelling fails a refactor that strengthens exactly what it was protecting.
+
+     So assert the GUARANTEE instead — both halves must run, because they catch different
+     failures and neither substitutes for the other:
+       --local   what the BUILD produced   → v0.7.0 (no zip was ever built)
+       remote    what was ATTACHED         → v0.7.1 (a correct zip was built, never uploaded)
+     The rules themselves are proven in releaseAssets.test.ts, with both releases reproduced. */
   const wf = fs.readFileSync('.github/workflows/release.yml', 'utf8');
-  assert.match(wf, /latest-mac\.yml missing/, 'presence check stays');
-  assert.match(wf, /grep -q '\\\.zip' dist\/latest-mac\.yml/,
-    'and the feed must be asserted to reference a zip — presence alone shipped a dead updater');
+  const calls = [...wf.matchAll(/node scripts\/assert-release-assets\.mjs[^\n]*/g)].map((m) => m[0]);
+  assert.equal(calls.length, 2,
+    `the release path must validate the feed twice (pre-publish + post-publish). Found ${calls.length}`);
+  assert.ok(calls.some((c) => c.includes('--local')),
+    'one call must run --local, before anything is published — a release never created beats one deleted');
+  assert.ok(calls.some((c) => !c.includes('--local')),
+    'one call must run against the published Release — only that can see an upload that dropped a file');
+  for (const c of calls) {
+    assert.match(c, /--platform \w+/, `each call must name its platform explicitly: ${c}`);
+    assert.match(c, /--tag "\$RELEASE_TAG"/, `each call must pass the tag being released: ${c}`);
+  }
 });
 
 test('electron-updater still requires a zip — pinned to the installed dependency', () => {
@@ -59,6 +78,7 @@ test('the release workflow uploads the zip it advertises', () => {
   const wf = fs.readFileSync('.github/workflows/release.yml', 'utf8');
   const uploads = [...wf.matchAll(/dist\/\*\.dmg dist\/\*\.dmg\.blockmap dist\/\*\.zip dist\/latest-mac\.yml/g)];
   assert.equal(uploads.length, 2, 'both the create and the fallback upload must include the zip');
-  assert.match(wf, /grep -m1 '\^path:' dist\/latest-mac\.yml/,
-    'and the post-publish check must read the file the MANIFEST names, not a hardcoded extension');
+  /* The post-publish half — "read the file the MANIFEST names, not a hardcoded extension" — is
+     now asserted by the test above and implemented in src/core/releaseAssets.ts, where it is
+     proven against the real v0.7.1 asset list rather than against a grep's spelling. */
 });
