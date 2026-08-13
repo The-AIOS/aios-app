@@ -385,7 +385,15 @@ export function sessionMemoryMB(pids: number[]): Record<number, number> {
   const out: Record<number, number> = {};
   if (!pids.length) return out;
   try {
-    const txt = execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 });
+    /* Windows has no `ps`. Win32_Process carries the same three fields (pid, ppid, RSS in
+       bytes), printed in the same `pid ppid kb` shape — so the tree walk below is shared and
+       only the harvest differs. Without this the whole call threw ENOENT into the catch and
+       every session showed no memory at all. */
+    const txt = process.platform === 'win32'
+      ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
+      { encoding: 'utf8', timeout: 8000 })
+      : execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 });
     const rss = new Map<number, number>();
     const kids = new Map<number, number[]>();
     for (const line of txt.split('\n')) {
@@ -808,6 +816,22 @@ export function swapAccount(email: string): Promise<{ ok: boolean; message: stri
   const known = anthropicAccounts().some((a) => a.email === email);
   if (!known) return Promise.resolve({ ok: false, message: 'not a USER.md account' }); // never pass arbitrary input to the shell
   const script = path.join(r, 'hooks', 'claude-identity', 'claude-identity.sh');
+  if (process.platform === 'win32') {
+    /* There is no bash on Windows, and shelling the .sh anyway fails in a way that READS LIKE
+       the swap ran — the worst outcome for a step whose whole job is swapping credentials.
+       So: run the PowerShell sibling if the framework ships one, otherwise say plainly that
+       this is not supported yet.
+       TODO(windows): needs hooks/claude-identity/claude-identity.ps1 in the framework (the
+       Windows analogue of the Keychain + ~/.claude.json swap, via Credential Manager). */
+    const ps = script.replace(/\.sh$/i, '.ps1');
+    if (!fs.existsSync(ps)) return Promise.resolve({ ok: false, message: 'account switch is not supported on Windows yet' });
+    return new Promise((res) => {
+      execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps, 'switch', email], { timeout: 20000 }, (err, _out, stderr) => {
+        if (err) return res({ ok: false, message: String(stderr || err.message).slice(0, 160) });
+        res({ ok: true, message: email });
+      });
+    });
+  }
   return new Promise((res) => {
     execFile('bash', [script, 'switch', email], { timeout: 20000 }, (err, _out, stderr) => {
       if (err) return res({ ok: false, message: String(stderr || err.message).slice(0, 160) });
@@ -1189,10 +1213,75 @@ async function zshOut(snippet: string, flags = '-lc'): Promise<string | null> {
   return joined || null;
 }
 
+// ── the Windows probe lane ──────────────────────────────────────────────────
+//
+// Every probe above speaks POSIX to a zsh that does not exist on Windows. The
+// mirror is PowerShell: `psOnce` is zshOnce's counterpart (no profile — a fast,
+// predictable probe), `psProfileOnce` is the interactive-zsh counterpart for the
+// one thing that genuinely lives in the operator's profile (the spawn wrapper).
+
+/** Run a snippet through PowerShell — the Windows counterpart of zshOnce. */
+function psOnce(snippet: string): Promise<string | null> {
+  return new Promise((res) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { timeout: 8000 },
+      (err, out) => res(err ? null : String(out).trim() || null));
+  });
+}
+
+/**
+ * Same, but WITH the operator's PowerShell profile loaded — the Windows analogue of needing an
+ * interactive zsh on POSIX, and for the same reason: the `spawn` wrapper is a function defined
+ * in `$PROFILE`, so a profile-less probe cannot see a wrapper that is genuinely installed.
+ * ExecutionPolicy is bypassed for the probe only: an unsigned profile is the normal case, and a
+ * blocked profile would otherwise read as "wrapper missing".
+ */
+function psProfileOnce(snippet: string): Promise<string | null> {
+  return new Promise((res) => {
+    execFile('powershell.exe', ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', snippet], { timeout: 8000 },
+      (err, out) => res(err ? null : String(out).trim() || null));
+  });
+}
+
+/** Where a PowerShell profile can live — both hosts, and a OneDrive-redirected Documents. */
+function psProfileFiles(): string[] {
+  const home = os.homedir();
+  const out: string[] = [];
+  for (const docs of [process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'Documents') : path.join(home, 'Documents'), path.join(home, 'OneDrive', 'Documents')]) {
+    for (const host of ['WindowsPowerShell', 'PowerShell']) {
+      out.push(path.join(docs, host, 'Microsoft.PowerShell_profile.ps1'));
+      out.push(path.join(docs, host, 'profile.ps1'));
+    }
+  }
+  return out;
+}
+
+/**
+ * "Is this command runnable, and what is its version?" — resolved the way the OPERATOR'S OWN
+ * shell would. POSIX keeps the login+interactive zsh probe verbatim; Windows asks PowerShell,
+ * falling back to the resolved location when the tool prints no version (a tool that answers
+ * nothing is still installed, and reporting it missing sends someone to reinstall what they have).
+ */
+async function cmdCheck(cmd: string): Promise<string | null> {
+  if (process.platform === 'win32') {
+    return psOnce(`$c = Get-Command ${cmd} -ErrorAction SilentlyContinue; `
+      + `if ($c) { $v = ''; try { $v = (& ${cmd} --version 2>$null | Select-Object -First 1) } catch { }; if (-not $v) { $v = $c.Source }; $v }`);
+  }
+  return zshOut(`command -v ${cmd} && ${cmd} --version 2>/dev/null | head -1`);
+}
+
+/** How a PowerShell repair script is invoked, verbatim — shown to the operator, and run as-is. */
+const psRunHint = (script: string): string => `powershell -NoProfile -ExecutionPolicy Bypass -File ${shq(script)}`;
+
 /** Run a repair script headless (bash, generous timeout, output discarded). */
 function runScript(script: string, cwd?: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('bash', [script], { timeout: 120000, cwd }, (err) => (err ? reject(err) : resolve()));
+    /* Windows has no bash, so a `.ps1` goes through PowerShell with the policy bypassed — the
+       framework's own installers are unsigned, and the default policy would refuse them. `.sh`
+       keeps the POSIX path exactly; on win32 a `.sh` never reaches here (see repairScript). */
+    const isPs = process.platform === 'win32' && /\.ps1$/i.test(script);
+    const bin = isPs ? 'powershell.exe' : 'bash';
+    const args = isPs ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] : [script];
+    execFile(bin, args, { timeout: 120000, cwd }, (err) => (err ? reject(err) : resolve()));
   });
 }
 
@@ -1200,11 +1289,52 @@ function whichCheck(id: string, cmd: string, severity: 'fail' | 'warn', missingK
   return {
     id, severity,
     run: async (): Promise<CheckResult> => {
-      const d = await zshOut(`command -v ${cmd} && ${cmd} --version 2>/dev/null | head -1`);
+      const d = await cmdCheck(cmd);
       return d
         ? { id, label: t('setupCheck.' + id), status: 'pass', message: d.split('\n').pop() || '', canRepair: false }
         : { id, label: t('setupCheck.' + id), status: severity, message: t(missingKey), repairCmd, repairHint: repairCmd, canRepair: false };
     },
+  };
+}
+
+/**
+ * The gh check, Windows lane — same four verdicts as the POSIX one (authed / stored-token /
+ * installed-but-not-authed / absent), reached with tools that exist here.
+ *
+ * It inherits the POSIX rule that a probe must NEVER be able to interrupt the operator: this
+ * runs on a 5-second poll while Setup is open, so no `git credential fill` (Git Credential
+ * Manager can raise a browser/consent window). `cmdkey /list:` reads Credential Manager without
+ * prompting, and ~/.git-credentials covers the plain `store` helper — the two places a PAT can
+ * actually be on Windows.
+ * TODO(windows): 'ghWinNotInstalled' / 'ghWinNoWinget' have no i18n key yet (locales are outside
+ * this change's scope), and a missing key renders as the key itself.
+ */
+async function ghCheckWin(): Promise<CheckResult> {
+  const probe = 'if (Get-Command gh -ErrorAction SilentlyContinue) { '
+    + 'gh auth status *> $null; if ($?) { "AUTHED" } '
+    + 'elseif ((cmdkey /list:git:https://github.com 2>$null | Out-String) -match "github") { "PATOK" } '
+    + 'elseif ((Test-Path "$HOME\\.git-credentials") -and (Select-String -Quiet -Path "$HOME\\.git-credentials" -Pattern "github.com")) { "PATOK" } '
+    + 'else { "NOAUTH" } } '
+    + 'elseif ((cmdkey /list:git:https://github.com 2>$null | Out-String) -match "github") { "PATOK" } '
+    + 'else { "NOGH" }';
+  const out = await psOnce(probe);
+  const loginCmd = 'gh auth login --web --git-protocol https';
+  if (out?.includes('AUTHED')) return { id: 'gh', label: t('setupCheck.gh'), status: 'pass', message: t('setupCheck.ghOk'), canRepair: false };
+  if (out?.includes('PATOK')) return { id: 'gh', label: t('setupCheck.gh'), status: 'pass', message: t('setupCheck.ghPat'), canRepair: false };
+  if (out?.includes('NOAUTH')) return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: t('setupCheck.ghNoAuth'), repairCmd: loginCmd, repairHint: loginCmd, canRepair: false };
+  /* gh genuinely absent. winget is Windows' own package manager and needs no admin rights for
+     a user-scope install — the counterpart of the POSIX branch's rule that a command we offer
+     must actually be able to succeed. Without winget there IS no command this app can honestly
+     run, so it names the download page instead of printing something that will fail. */
+  const hasWinget = !!(await psOnce('if (Get-Command winget -ErrorAction SilentlyContinue) { "YES" }'))?.includes('YES');
+  if (hasWinget) {
+    const install = `winget install --id GitHub.cli -e --source winget; ${loginCmd}`;
+    return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: 'not installed — winget install GitHub.cli', repairCmd: install, repairHint: install, canRepair: false };
+  }
+  return {
+    id: 'gh', label: t('setupCheck.gh'), status: 'warn',
+    message: "GitHub CLI isn't installed, and this machine has no winget to install it with — get it from cli.github.com.",
+    repairHint: 'https://cli.github.com/', canRepair: false,
   };
 }
 
@@ -1216,13 +1346,28 @@ function doctorChecks(): DoctorCheck[] {
     const p = path.join(root, rel);
     return fs.existsSync(p) ? p : undefined;
   };
+  /* A headless repair on Windows may ONLY be offered when the framework ships a PowerShell
+     sibling next to the `.sh` (install-wrappers.ps1 beside install-wrappers.sh). Running the
+     `.sh` through bash instead is the failure mode this guards: it errors in a way that reads
+     like the repair ran, and the row goes on being amber with no explanation. No sibling → no
+     repair button, and the message says why. */
+  const repairScript = (rel: string): string | undefined =>
+    (process.platform === 'win32' ? scriptIf(rel.replace(/\.sh$/i, '.ps1')) : scriptIf(rel));
+  /* TODO(windows): these strings have no i18n key yet (src/i18n/locales/*.json is outside this
+     change's scope), and t() renders a missing key as the key itself — which is worse than
+     English on a Spanish machine. */
+  const winNoRepair = (rel: string): string => `not set up — Windows support for this repair needs ${rel} in the framework (not shipped yet)`;
   return [
     // ── the plumbing (fail = nothing runs) ──
     // git's repair is the native Xcode CLT dialog (macOS); Claude Code's is the
     // NATIVE installer — it needs neither node nor npm, which is why node is
     // demoted to warn-only (nothing in the base flow requires it anymore).
+    /* Windows gets a repairCmd of its own because the RENDERER falls back to
+       `xcode-select --install` when this is undefined (setup's Advanced lane) — a macOS command
+       offered on Windows is exactly the impossible instruction the gh check learned not to give. */
     whichCheck('git', 'git', 'fail', 'setupCheck.gitMissing',
-      process.platform === 'darwin' ? 'xcode-select --install' : undefined),
+      process.platform === 'darwin' ? 'xcode-select --install'
+        : process.platform === 'win32' ? 'winget install --id Git.Git -e --source winget' : undefined),
     whichCheck('node', 'node', 'warn', 'setupCheck.nodeMissing'),
     /* Three states, not two. Observed on a real newcomer machine: the official installer
        SUCCEEDS, puts the binary at ~/.local/bin/claude, and then asks the operator to add
@@ -1234,7 +1379,9 @@ function doctorChecks(): DoctorCheck[] {
       run: async (): Promise<CheckResult> => {
         const loc = claudeLocation();
         if (loc.where === 'path') {
-          const v = await zshOut(`${claudeCmd} --version 2>/dev/null | head -1`);
+          const v = process.platform === 'win32'
+            ? await cmdCheck(claudeCmd)
+            : await zshOut(`${claudeCmd} --version 2>/dev/null | head -1`);
           return { id: 'claude', label: t('setupCheck.claude'), status: 'pass', message: v || loc.bin, canRepair: false };
         }
         if (loc.where === 'disk') {
@@ -1256,11 +1403,17 @@ function doctorChecks(): DoctorCheck[] {
         }
         /* Install AND put it on PATH in one action. The official installer deliberately does
            not touch PATH, so leaving them as two steps meant the operator finished the step
-           the app asked for and was told Claude was still missing. */
+           the app asked for and was told Claude was still missing.
+           Windows gets Anthropic's own documented PowerShell one-liner rather than
+           `npm install -g @anthropic-ai/claude-code`, for the same reason the POSIX branch
+           prefers the native installer: it needs neither node nor npm — which is precisely why
+           the node check is only a warning — and the setup pane it runs in IS a PowerShell. */
         return {
           id: 'claude', label: t('setupCheck.claude'), status: 'fail',
           message: t('setupCheck.claudeMissing'),
-          repairCmd: `curl -fsSL https://claude.ai/install.sh | bash\n${pathFixSnippet()}`,
+          repairCmd: process.platform === 'win32'
+            ? `irm https://claude.ai/install.ps1 | iex\n${pathFixSnippet()}`
+            : `curl -fsSL https://claude.ai/install.sh | bash\n${pathFixSnippet()}`,
           repairHint: t('setupCheck.claudeInstallHint'), canRepair: false,
         };
       },
@@ -1327,11 +1480,16 @@ function doctorChecks(): DoctorCheck[] {
         let n = 0;
         try { n = fs.readdirSync(path.join(claudeDir(), 'skills')).filter((f) => !f.startsWith('.')).length; } catch { n = 0; }
         if (n > 0) return { id: 'skills', label: t('setupCheck.skills'), status: 'pass', message: t('setupCheck.skillsOk', { n }), canRepair: false };
-        const script = scriptIf(path.join('skills', 'setup.sh'));
-        return { id: 'skills', label: t('setupCheck.skills'), status: 'warn', message: t('setupCheck.skillsMissing'), repairHint: script && `bash ${shq(script)}`, canRepair: !!script };
+        const script = repairScript(path.join('skills', 'setup.sh'));
+        return {
+          id: 'skills', label: t('setupCheck.skills'), status: 'warn',
+          message: !script && process.platform === 'win32' ? winNoRepair('skills/setup.ps1') : t('setupCheck.skillsMissing'),
+          repairHint: script && (/\.ps1$/i.test(script) ? psRunHint(script) : `bash ${shq(script)}`),
+          canRepair: !!script,
+        };
       },
       repair: async () => {
-        const script = scriptIf(path.join('skills', 'setup.sh'));
+        const script = repairScript(path.join('skills', 'setup.sh'));
         if (script) await runScript(script, root);
       },
     },
@@ -1352,16 +1510,30 @@ function doctorChecks(): DoctorCheck[] {
       run: async (): Promise<CheckResult> => {
         // `type spawn` needs an INTERACTIVE zsh (the wrapper lives in ~/.zshrc);
         // fall back to reading the rc file when -ic is blocked (no tty).
-        let ok = !!(await zshOut('type spawn >/dev/null 2>&1 && echo HAVESPAWN', '-ic'))?.includes('HAVESPAWN');
-        if (!ok) {
+        /* On Windows the same wrapper is a PowerShell FUNCTION in the operator's $PROFILE, so
+           the probe has to load that profile (psProfileOnce) and the fallback reads the profile
+           files instead of ~/.zshrc — same two-step shape, different shell. */
+        let ok = process.platform === 'win32'
+          ? !!(await psProfileOnce('if (Get-Command spawn -ErrorAction SilentlyContinue) { "HAVESPAWN" }'))?.includes('HAVESPAWN')
+          : !!(await zshOut('type spawn >/dev/null 2>&1 && echo HAVESPAWN', '-ic'))?.includes('HAVESPAWN');
+        if (!ok && process.platform === 'win32') {
+          ok = psProfileFiles().some((f) => {
+            try { return /(^|\n)\s*function\s+spawn\b/i.test(fs.readFileSync(f, 'utf8')); } catch { return false; }
+          });
+        } else if (!ok) {
           try { ok = /(^|\n)\s*(function\s+spawn\b|spawn\s*\(\))/.test(fs.readFileSync(path.join(os.homedir(), '.zshrc'), 'utf8')); } catch { /* absent */ }
         }
         if (ok) return { id: 'spawn', label: t('setupCheck.spawn'), status: 'pass', message: t('setupCheck.spawnOk'), canRepair: false };
-        const script = scriptIf(path.join('hooks', 'claude-identity', 'install-wrappers.sh'));
-        return { id: 'spawn', label: t('setupCheck.spawn'), status: 'warn', message: t('setupCheck.spawnMissing'), repairHint: script && `bash ${shq(script)}`, canRepair: !!script };
+        const script = repairScript(path.join('hooks', 'claude-identity', 'install-wrappers.sh'));
+        return {
+          id: 'spawn', label: t('setupCheck.spawn'), status: 'warn',
+          message: !script && process.platform === 'win32' ? winNoRepair('hooks/claude-identity/install-wrappers.ps1') : t('setupCheck.spawnMissing'),
+          repairHint: script && (/\.ps1$/i.test(script) ? psRunHint(script) : `bash ${shq(script)}`),
+          canRepair: !!script,
+        };
       },
       repair: async () => {
-        const script = scriptIf(path.join('hooks', 'claude-identity', 'install-wrappers.sh'));
+        const script = repairScript(path.join('hooks', 'claude-identity', 'install-wrappers.sh'));
         if (script) await runScript(script, root);
       },
     },
@@ -1406,6 +1578,7 @@ function doctorChecks(): DoctorCheck[] {
     {
       id: 'gh', severity: 'warn',
       run: async (): Promise<CheckResult> => {
+        if (process.platform === 'win32') return ghCheckWin();
         // Two honest ways to be connected: `gh auth status` (the device/web
         // flow), or a stored HTTPS credential for github.com in git's own
         // credential helper (the PAT lane). The probe never prompts:
@@ -1517,7 +1690,12 @@ export function storeGitHubPat(pat: string): boolean {
     try { helper = execFileSync('git', ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
     if (!helper) {
       // no helper anywhere → give git one (Keychain on macOS, plain store elsewhere)
-      execFileSync('git', ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : 'store'], { encoding: 'utf8', timeout: 4000 });
+      /* Windows has an OS credential vault too, and Git for Windows ships the helper for it, so
+         `manager` (Git Credential Manager) is the honest equivalent of osxkeychain. `store`
+         would write the PAT to ~/.git-credentials in PLAIN TEXT — acceptable as a last resort on
+         a Linux box with no vault, never the default on a machine that has one. */
+      const fallback = process.platform === 'win32' ? 'manager' : 'store';
+      execFileSync('git', ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
     }
     execFileSync('git', ['credential', 'approve'], {
       input: `protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}\n\n`,
@@ -1900,6 +2078,46 @@ export interface Readiness {
  */
 export function bannerScript(ok: string, okSub: string, fail: string, failSub: string): string {
   const bar = '='.repeat(58);
+  if (process.platform === 'win32') {
+    /* No shebang and no 0o700: Windows has neither, and a `#!` line would be executed as a
+       comment at best. The verdict argument arrives as a STRING, and the caller may hand us
+       PowerShell's `$?` (True/False) rather than an exit code — both spellings of success are
+       accepted, because a banner that calls a successful run "failed" is worse than no banner.
+       Unlike POSIX this returns a full INVOCATION rather than a path: there is no `bash` to
+       prefix it with, and a bare `.ps1` path is not universally runnable under the default
+       execution policy.
+       TODO(windows): renderer/app.js:withDoneBanner still wraps this POSIX-only
+       (`{ cmd ; }; <banner> $?`, which in PowerShell defines a script block and runs nothing) —
+       it needs a win32 branch of the shape `<cmd>; <banner> $LASTEXITCODE`. Out of scope here
+       (renderer/ is not this change's to touch). */
+    const psBody = `# Written by AIOS. Prints the verdict of the step that just ran; $Code is its exit code.
+param([string]$Code = '1')
+$bar = ${JSON.stringify(bar)}
+if ($Code -eq '0' -or $Code -eq 'True') {
+  Write-Host ""; Write-Host $bar -ForegroundColor Green; Write-Host ""
+  Write-Host ("   " + ${JSON.stringify(ok)}) -ForegroundColor Green; Write-Host ""
+  Write-Host ("   " + ${JSON.stringify(okSub)}) -ForegroundColor Green
+  Write-Host $bar -ForegroundColor Green; Write-Host ""
+} else {
+  Write-Host ""; Write-Host $bar -ForegroundColor Yellow; Write-Host ""
+  Write-Host ("   " + ${JSON.stringify(fail)}) -ForegroundColor Yellow; Write-Host ""
+  Write-Host ("   " + ${JSON.stringify(failSub)}) -ForegroundColor Yellow
+  Write-Host $bar -ForegroundColor Yellow; Write-Host ""
+}
+`;
+    try {
+      const out = path.join(os.tmpdir(), 'aios-setup', 'done.ps1');
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      /* A BOM, and it is load-bearing. These four strings are LOCALIZED, so they carry em
+         dashes and accents the moment the operator is on Spanish or Portuguese — and Windows
+         PowerShell 5.1 decodes a BOM-less file as the ANSI codepage, where an em dash's third
+         UTF-8 byte (0x94) becomes CP1252's RIGHT DOUBLE QUOTATION MARK, which PowerShell honours
+         as a string DELIMITER. Without the BOM a Spanish banner does not merely look wrong, it
+         fails to parse, and the operator's step ends in a red wall instead of a verdict. */
+      fs.writeFileSync(out, String.fromCharCode(0xFEFF) + psBody, 'utf8');
+      return psRunHint(out);
+    } catch { return ''; }
+  }
   const body = `#!/bin/bash
 # Written by AIOS. Prints the verdict of the step that just ran; \$1 is its exit code.
 if [ "\${1:-1}" -eq 0 ]; then
@@ -1916,6 +2134,15 @@ fi
   } catch { return ''; }
 }
 
+/**
+ * What the caller receives. POSIX hands out the PATH — the renderer prefixes `bash` itself.
+ * Windows has no bash to prefix, so it hands out a ready-to-run PowerShell invocation.
+ * TODO(windows): renderer/app.js's phase-1 button still builds `bash ${xQuote(script)}`; it
+ * needs a win32 branch that runs this string as-is. Out of scope here (renderer/ is not this
+ * change's to touch), so the Windows button stays wired only once that lands.
+ */
+const phase1Invocation = (p: string): string => (process.platform === 'win32' ? psRunHint(p) : p);
+
 export function phase1Script(): string {
   /* app.asar is an ARCHIVE, not a directory. Node's fs is shimmed to read inside it, so
      statSync said the script was there and the path looked perfectly good — but the moment it
@@ -1925,12 +2152,14 @@ export function phase1Script(): string {
      it works (that is the shim); executing it does not. Copying costs a few kilobytes and is
      independent of electron-builder's asarUnpack config, which would otherwise have to stay in
      sync with this path forever. */
-  const dev = path.join(__dirname, '..', '..', 'scripts', 'setup', 'phase1-prerequisites.sh');
-  const packaged = path.join(process.resourcesPath || '', 'app.asar', 'scripts', 'setup', 'phase1-prerequisites.sh');
+  // Windows runs the PowerShell provisioner; everything else keeps the bash one.
+  const file = process.platform === 'win32' ? 'phase1-prerequisites.ps1' : 'phase1-prerequisites.sh';
+  const dev = path.join(__dirname, '..', '..', 'scripts', 'setup', file);
+  const packaged = path.join(process.resourcesPath || '', 'app.asar', 'scripts', 'setup', file);
   const unpacked = packaged.replace('app.asar', 'app.asar.unpacked');
   for (const p of [dev, unpacked]) {
     // a REAL path on disk — usable directly
-    try { if (fs.statSync(p).isFile() && !p.includes('app.asar' + path.sep)) return p; } catch { /* next */ }
+    try { if (fs.statSync(p).isFile() && !p.includes('app.asar' + path.sep)) return phase1Invocation(p); } catch { /* next */ }
   }
   try {
     const body = fs.readFileSync(packaged, 'utf8');       // works: fs is shimmed for asar
@@ -1938,16 +2167,19 @@ export function phase1Script(): string {
        the doctor suite can import it outside an Electron process, and the compiler caught the
        import the moment I reached for it. A transient, idempotent script is exactly what a temp
        dir is for. */
-    const out = path.join(os.tmpdir(), 'aios-setup', 'phase1-prerequisites.sh');
+    const out = path.join(os.tmpdir(), 'aios-setup', file);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, body, { mode: 0o700 });
-    return out;
+    return phase1Invocation(out);
   } catch { return ''; }
 }
 
 /** The shell the operator actually uses — and the one pty:spawn launches, so probes agree
  *  with what a real terminal will do. */
 function operatorShell(): string {
+  // Windows has no $SHELL, and %ComSpec% is cmd.exe — which none of the probes above speak.
+  // PowerShell is both what this app's panes launch and what every Windows branch here assumes.
+  if (process.platform === 'win32') return 'powershell.exe';
   const sh = process.env.SHELL;
   return sh && fs.existsSync(sh) ? sh : '/bin/zsh';
 }
@@ -1961,6 +2193,34 @@ function operatorShell(): string {
  * at a terminal wondering whether to click the button again.
  */
 function pathFixSnippet(): string {
+  if (process.platform === 'win32') {
+    /* The Windows remedy, same contract as the POSIX one: find where claude actually is, make a
+       NEW terminal able to reach it, then PROVE it — a remedy that succeeds silently leaves the
+       operator wondering whether to press the button again.
+       "A new terminal" is the USER-scoped environment block in the registry, not this process's
+       inherited copy, so the write goes through [Environment]::SetEnvironmentVariable(…,'User').
+       Idempotent by membership, not by substring: an operator who runs it twice must not end up
+       with a duplicated PATH entry (the same trap the POSIX branch's grep fell into).
+       Each line is a COMPLETE statement — this is typed into a live pane, and a block split
+       across lines would leave PowerShell sitting at a continuation prompt.
+       ASCII ONLY, deliberately. Windows PowerShell 5.1 decodes input as the ANSI codepage, and
+       an em dash's third UTF-8 byte (0x94) lands on CP1252's RIGHT DOUBLE QUOTATION MARK — which
+       PowerShell accepts as a string DELIMITER. So one prose em dash silently ends a string
+       early and the rest of the remedy fails to parse. Measured, not theorised. A file can carry
+       a BOM to say otherwise (see bannerScript); text typed into a live pane cannot. */
+    return [
+      `$dirs = @("$HOME\\.local\\bin", "$env:APPDATA\\npm", "$HOME\\.claude\\local")`,
+      `$dir = $dirs | Where-Object { (Test-Path (Join-Path $_ "claude.exe")) -or (Test-Path (Join-Path $_ "claude.cmd")) -or (Test-Path (Join-Path $_ "claude")) } | Select-Object -First 1`,
+      `$u = [Environment]::GetEnvironmentVariable("Path","User"); if (-not $u) { $u = "" }`,
+      `if (-not $dir) { Write-Host "Could not find claude on this machine - install it first, then run this again." }`
+      + ` elseif (($u -split ";") -contains $dir) { Write-Host "$dir is already on your PATH" }`
+      + ` else { [Environment]::SetEnvironmentVariable("Path", (($u.TrimEnd(";") + ";" + $dir).Trim(";")), "User"); Write-Host "Added $dir to your PATH" }`,
+      // this pane only — the persisted write above is what a NEW terminal will read
+      `if ($dir) { $env:Path = "$env:Path;$dir" }`,
+      `if (Get-Command claude -ErrorAction SilentlyContinue) { Write-Host ""; Write-Host ("A new terminal can now run claude: " + (claude --version 2>$null | Select-Object -First 1)); Write-Host "Go back to Setup - this check will pass." }`
+      + ` else { Write-Host ""; Write-Host "A new terminal still cannot run claude - the AIOS App's Setup will keep offering this fix." }`,
+    ].join('\n');
+  }
   /* Same correction as phase 1's claude_path_fix, for the same reason: this used to skip when
      `grep '.local/bin'` matched ANYTHING in the rc. On an operator with 485 lines of accumulated
      config it matched something unrelated, reported "PATH line already present", wrote nothing,
@@ -1990,6 +2250,71 @@ function pathFixSnippet(): string {
 }
 
 /**
+ * The PERSISTED PATH — Machine + User, as a NEW terminal would assemble it.
+ *
+ * This is the Windows shape of the POSIX lesson that a check must never out-claim the terminal
+ * beside it. `process.env.Path` is the copy this app inherited at launch; an installer that ran
+ * afterwards (or our own PATH remedy) writes the registry, and the running app never sees it —
+ * so Setup would go on reporting "not on PATH" for a fix that had genuinely worked. .NET expands
+ * the REG_EXPAND_SZ entries for us, so `%USERPROFILE%\…` arrives resolved. Short TTL because it
+ * is read on the readiness poll and it costs a PowerShell launch.
+ */
+const winPersistedPath = ttlMemo((): string[] => {
+  try {
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"],
+    { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const dirs = out.split(';').map((s) => s.trim().replace(/^"|"$/g, '')).filter(Boolean);
+    if (dirs.length) return dirs;
+  } catch { /* fall back to this process's copy — stale, but better than nothing */ }
+  return (process.env.Path || process.env.PATH || '').split(';').map((s) => s.trim()).filter(Boolean);
+}, 10000);
+
+/** Everywhere claude lands on Windows: the native installer, npm's global prefix, the local dir. */
+function winClaudeCandidates(): string[] {
+  const home = os.homedir();
+  const appdata = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+  const localApp = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+  const names = ['claude.exe', 'claude.cmd', 'claude.bat', 'claude'];
+  return [
+    ...names.map((n) => path.join(home, '.local', 'bin', n)),          // the native install.ps1
+    ...names.map((n) => path.join(home, '.claude', 'local', n)),       // claude's own local dir
+    path.join(appdata, 'npm', 'claude.cmd'),                            // npm -g (the usual case)
+    path.join(appdata, 'npm', 'claude.exe'),
+    path.join(localApp, 'Programs', 'claude', 'claude.exe'),
+  ];
+}
+
+/**
+ * claudeLocation, Windows lane. Same three states with the same meanings — the difference is
+ * only in what "on PATH" is made of: a PATHEXT-style name sweep over the persisted PATH rather
+ * than a shell probe, because there is no rc file to source and no interactive-vs-login split.
+ * A binary on disk whose directory IS in the persisted PATH counts as reachable, for exactly the
+ * POSIX reason: a NEW TERMINAL WILL RUN IT, which is the only thing "on PATH" promises.
+ */
+function claudeLocationWin(cmd: string): { where: 'path' | 'disk' | 'none'; bin: string } {
+  const dirs = winPersistedPath();
+  /* PATHEXT order, executables FIRST and the extensionless file LAST. npm installs `claude`,
+     `claude.cmd` and `claude.ps1` side by side in the same directory, and the extensionless one
+     is a bash shim Windows cannot run — reporting it as the location is a path the operator
+     cannot execute and we cannot hand to a pane. `cmd` typed at a prompt resolves to the .cmd,
+     so that is what "where claude is" has to mean. */
+  const exts = ['.exe', '.cmd', '.bat', '.ps1', ''];
+  for (const d of dirs) {
+    for (const e of exts) {
+      const p = path.join(d, cmd + e);
+      try { if (fs.statSync(p).isFile()) return { where: 'path', bin: p }; } catch { /* next */ }
+    }
+  }
+  const onPath = new Set(dirs.map((d) => d.replace(/[\\/]+$/, '').toLowerCase()));
+  for (const p of winClaudeCandidates()) {
+    try { if (!fs.statSync(p).isFile()) continue; } catch { continue; }
+    return onPath.has(path.dirname(p).toLowerCase()) ? { where: 'path', bin: p } : { where: 'disk', bin: p };
+  }
+  return { where: 'none', bin: '' };
+}
+
+/**
  * Where Claude Code actually is. Observed on a real newcomer machine: the official installer
  * SUCCEEDS, puts the binary at ~/.local/bin/claude, and then prints a shell one-liner for the
  * operator to paste because it does not add ~/.local/bin to PATH itself.
@@ -1999,6 +2324,7 @@ function pathFixSnippet(): string {
  */
 export function claudeLocation(): { where: 'path' | 'disk' | 'none'; bin: string; rcBroken?: string } {
   const cmd = shellSettings().claudeCmd;
+  if (process.platform === 'win32') return claudeLocationWin(cmd);
   let rcBroken = '';
   try {
     /* Probe the way a REAL TERMINAL resolves commands, which is not the same as a login shell.
@@ -2558,8 +2884,10 @@ function computeGitStatusForRoots(roots: string[]): GitSnapshot {
   // A file under an ignored path segment (e.g. `_archive/…`) contributes no
   // status and no dirty propagation — so ignored folders never raise a
   // pending-commit bubble on themselves or their ancestors.
+  // Separator-agnostic: Windows paths arrive with backslashes, so splitting on '/' alone left
+  // the whole relative path as ONE segment and no ignore rule could ever match it.
   const underIgnored = (abs: string, root: string): boolean =>
-    abs.slice(root.length).replace(/^\/+/, '').split('/').some((seg) => ignored.some((re) => re.test(seg)));
+    abs.slice(root.length).replace(/^[\\/]+/, '').split(/[\\/]/).some((seg) => ignored.some((re) => re.test(seg)));
   for (const root of roots) {
     covered.push(root);
     for (const r of reposUnder(root)) {
