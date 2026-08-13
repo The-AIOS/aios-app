@@ -379,20 +379,32 @@ function isAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (e) { return !!e && (e as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
+/**
+ * The Windows stand-in for `ps`. Win32_Process carries the same three fields (pid, ppid, RSS in
+ * bytes), printed in the same `pid ppid kb` shape, so the tree walk below is shared and only the
+ * harvest differs — without it the whole call threw ENOENT and every session showed no memory.
+ *
+ * Memoized, and that part is not cosmetic: this is execFileSync, which BLOCKS the main thread,
+ * and the panel re-reads memory on every poll. A full CIM enumeration costs hundreds of
+ * milliseconds, so an unmemoized call meant the UI stuttering once per poll forever. The TTL is
+ * shorter than the poll, so the reading stays live while repeat calls within one tick are free.
+ */
+const winProcTable = ttlMemo((): string => {
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
+    { encoding: 'utf8', timeout: 8000 });
+  } catch { return ''; }
+}, 4000);
+
 /** Process-tree RSS (MB) for each given pid — one `ps` scan, summed over each
  *  session's descendants (the Glass "… ready 1h · 1.6 GB" token). Best-effort. */
 export function sessionMemoryMB(pids: number[]): Record<number, number> {
   const out: Record<number, number> = {};
   if (!pids.length) return out;
   try {
-    /* Windows has no `ps`. Win32_Process carries the same three fields (pid, ppid, RSS in
-       bytes), printed in the same `pid ppid kb` shape — so the tree walk below is shared and
-       only the harvest differs. Without this the whole call threw ENOENT into the catch and
-       every session showed no memory at all. */
     const txt = process.platform === 'win32'
-      ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
-      { encoding: 'utf8', timeout: 8000 })
+      ? winProcTable()
       : execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 });
     const rss = new Map<number, number>();
     const kids = new Map<number, number[]>();
@@ -1187,6 +1199,24 @@ function shq(p: string): string {
   return `'${String(p).replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * The same job for PowerShell, which is NOT the same idiom — and reaching for shq here produces
+ * a string that looks quoted and is not.
+ *
+ * PowerShell's escape character is the BACKTICK, not the backslash, so shq's POSIX `'\''` dance
+ * emits a literal backslash and leaves the quote unbalanced: an operator named O'Brien, with a
+ * framework under C:\Users\O'Brien\aios, gets an invocation that cannot parse. In PowerShell a
+ * single quote is escaped by DOUBLING it, and inside single quotes nothing else expands at all —
+ * which is the second thing this has to guarantee. Double quotes would leave `$` live, and these
+ * strings include LOCALIZED text: a translation containing a `$` would be silently rewritten as
+ * a variable (usually to empty) before the operator ever saw it.
+ *
+ * Single-quoted and doubled is the only form that is inert in both dimensions.
+ */
+function psq(s: string): string {
+  return `'${String(s).replace(/'/g, "''")}'`;
+}
+
 function zshOnce(snippet: string, flags: string): Promise<string | null> {
   return new Promise((res) => {
     execFile('/bin/zsh', [flags, snippet], { timeout: 8000 }, (err, out) => res(err ? null : String(out).trim()));
@@ -1269,8 +1299,9 @@ async function cmdCheck(cmd: string): Promise<string | null> {
   return zshOut(`command -v ${cmd} && ${cmd} --version 2>/dev/null | head -1`);
 }
 
-/** How a PowerShell repair script is invoked, verbatim — shown to the operator, and run as-is. */
-const psRunHint = (script: string): string => `powershell -NoProfile -ExecutionPolicy Bypass -File ${shq(script)}`;
+/** How a PowerShell repair script is invoked, verbatim — shown to the operator, and run as-is.
+ *  psq, not shq: this string is handed to PowerShell, where the POSIX quote idiom is malformed. */
+const psRunHint = (script: string): string => `powershell -NoProfile -ExecutionPolicy Bypass -File ${psq(script)}`;
 
 /** Run a repair script headless (bash, generous timeout, output discarded). */
 function runScript(script: string, cwd?: string): Promise<void> {
@@ -2080,28 +2111,42 @@ export function bannerScript(ok: string, okSub: string, fail: string, failSub: s
   const bar = '='.repeat(58);
   if (process.platform === 'win32') {
     /* No shebang and no 0o700: Windows has neither, and a `#!` line would be executed as a
-       comment at best. The verdict argument arrives as a STRING, and the caller may hand us
-       PowerShell's `$?` (True/False) rather than an exit code — both spellings of success are
-       accepted, because a banner that calls a successful run "failed" is worse than no banner.
-       Unlike POSIX this returns a full INVOCATION rather than a path: there is no `bash` to
-       prefix it with, and a bare `.ps1` path is not universally runnable under the default
-       execution policy.
-       TODO(windows): renderer/app.js:withDoneBanner still wraps this POSIX-only
-       (`{ cmd ; }; <banner> $?`, which in PowerShell defines a script block and runs nothing) —
-       it needs a win32 branch of the shape `<cmd>; <banner> $LASTEXITCODE`. Out of scope here
-       (renderer/ is not this change's to touch). */
-    const psBody = `# Written by AIOS. Prints the verdict of the step that just ran; $Code is its exit code.
-param([string]$Code = '1')
-$bar = ${JSON.stringify(bar)}
-if ($Code -eq '0' -or $Code -eq 'True') {
+       comment at best. Unlike POSIX this returns a full INVOCATION rather than a path: there is
+       no `bash` to prefix it with, and a bare `.ps1` path is not universally runnable under the
+       default execution policy.
+
+       THE ARGUMENT CONTRACT, and it differs from POSIX by dialect, not by accident. The renderer
+       emits `<cmd> ; <this invocation> $?` on win32 (sequential `;`, no `{ }` grouping — a brace
+       group in PowerShell defines a script block and runs nothing). PowerShell's `$?` is a
+       BOOLEAN, not an exit code, so the first positional argument arrives as the string 'True'
+       or 'False' — never '0'. Success is therefore 'True' and everything else is failure, which
+       also makes a missing or malformed argument fail safe rather than announcing a false
+       victory. Boolean.ToString() is culture-invariant, so 'True' holds on a Spanish machine
+       too, and PowerShell's `-eq` on strings is case-insensitive, so 'true' passes as well.
+       POSIX's done.sh keeps reading `$1` as the numeric exit code, unchanged.
+       The renderer half of this contract is owned elsewhere (renderer/app.js:withDoneBanner);
+       this side owns the script body and its argument parsing. */
+    /* psq, never JSON.stringify. These four strings are LOCALIZED and therefore adversarial in
+       two separate ways, both of which a JSON double-quoted literal gets wrong: a translation
+       containing `$` would be variable-expanded by PowerShell (silently, usually to nothing),
+       and JSON's `\"` escaping is meaningless here — PowerShell escapes with a backtick, so an
+       embedded quote would close the string early and the banner would fail to parse. Single
+       quotes with the quote doubled are inert against both. */
+    const psBody = `# Written by AIOS. Prints the verdict of the step that just ran.
+# $Ok is PowerShell's $? for that step: 'True' when it succeeded, 'False' otherwise.
+# Declared as a param so it binds the FIRST POSITIONAL ARGUMENT; do not read $args here,
+# which a param block leaves empty. Defaults to 'False' so a missing verdict fails safe.
+param([string]$Ok = 'False')
+$bar = ${psq(bar)}
+if ($Ok -eq 'True') {
   Write-Host ""; Write-Host $bar -ForegroundColor Green; Write-Host ""
-  Write-Host ("   " + ${JSON.stringify(ok)}) -ForegroundColor Green; Write-Host ""
-  Write-Host ("   " + ${JSON.stringify(okSub)}) -ForegroundColor Green
+  Write-Host ('   ' + ${psq(ok)}) -ForegroundColor Green; Write-Host ""
+  Write-Host ('   ' + ${psq(okSub)}) -ForegroundColor Green
   Write-Host $bar -ForegroundColor Green; Write-Host ""
 } else {
   Write-Host ""; Write-Host $bar -ForegroundColor Yellow; Write-Host ""
-  Write-Host ("   " + ${JSON.stringify(fail)}) -ForegroundColor Yellow; Write-Host ""
-  Write-Host ("   " + ${JSON.stringify(failSub)}) -ForegroundColor Yellow
+  Write-Host ('   ' + ${psq(fail)}) -ForegroundColor Yellow; Write-Host ""
+  Write-Host ('   ' + ${psq(failSub)}) -ForegroundColor Yellow
   Write-Host $bar -ForegroundColor Yellow; Write-Host ""
 }
 `;
@@ -2208,9 +2253,16 @@ function pathFixSnippet(): string {
        PowerShell accepts as a string DELIMITER. So one prose em dash silently ends a string
        early and the rest of the remedy fails to parse. Measured, not theorised. A file can carry
        a BOM to say otherwise (see bannerScript); text typed into a live pane cannot. */
+    /* The directory list and the launcher names come from winClaudeDirs/WIN_CLAUDE_NAMES — the
+       SAME source the doctor's disk probe reads. When these were written out by hand they drifted
+       (the probe knew %LOCALAPPDATA%\Programs\claude, the remedy did not), and the operator got a
+       check saying "installed but off your PATH" whose fix answered "could not find claude".
+       Emitted as psq literals so a path containing an apostrophe survives. */
+    const dirList = winClaudeDirs().map(psq).join(', ');
+    const nameTest = WIN_CLAUDE_NAMES.map((n) => `(Test-Path (Join-Path $_ ${psq(n)}))`).join(' -or ');
     return [
-      `$dirs = @("$HOME\\.local\\bin", "$env:APPDATA\\npm", "$HOME\\.claude\\local")`,
-      `$dir = $dirs | Where-Object { (Test-Path (Join-Path $_ "claude.exe")) -or (Test-Path (Join-Path $_ "claude.cmd")) -or (Test-Path (Join-Path $_ "claude")) } | Select-Object -First 1`,
+      `$dirs = @(${dirList})`,
+      `$dir = $dirs | Where-Object { ${nameTest} } | Select-Object -First 1`,
       `$u = [Environment]::GetEnvironmentVariable("Path","User"); if (-not $u) { $u = "" }`,
       `if (-not $dir) { Write-Host "Could not find claude on this machine - install it first, then run this again." }`
       + ` elseif (($u -split ";") -contains $dir) { Write-Host "$dir is already on your PATH" }`
@@ -2270,19 +2322,40 @@ const winPersistedPath = ttlMemo((): string[] => {
   return (process.env.Path || process.env.PATH || '').split(';').map((s) => s.trim()).filter(Boolean);
 }, 10000);
 
-/** Everywhere claude lands on Windows: the native installer, npm's global prefix, the local dir. */
-function winClaudeCandidates(): string[] {
+/**
+ * Every directory a Windows claude install lands in — ONE list, because two lists drift.
+ *
+ * They did: the disk probe knew about %LOCALAPPDATA%\Programs\claude and the PATH remedy did
+ * not, so a claude installed there produced "installed but not on your PATH" from the check and
+ * "could not find claude on this machine" from the fix offered to repair it. A dead loop with no
+ * way forward, which is the exact shape of failure the POSIX branches were hardened against.
+ * Both callers derive from here now, so the disagreement cannot come back.
+ */
+function winClaudeDirs(): string[] {
   const home = os.homedir();
   const appdata = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
   const localApp = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
-  const names = ['claude.exe', 'claude.cmd', 'claude.bat', 'claude'];
   return [
-    ...names.map((n) => path.join(home, '.local', 'bin', n)),          // the native install.ps1
-    ...names.map((n) => path.join(home, '.claude', 'local', n)),       // claude's own local dir
-    path.join(appdata, 'npm', 'claude.cmd'),                            // npm -g (the usual case)
-    path.join(appdata, 'npm', 'claude.exe'),
-    path.join(localApp, 'Programs', 'claude', 'claude.exe'),
+    path.join(home, '.local', 'bin'),                 // the native install.ps1
+    path.join(home, '.claude', 'local'),              // claude's own local dir
+    path.join(appdata, 'npm'),                        // npm -g (the usual case)
+    path.join(localApp, 'Programs', 'claude'),        // per-user program install
   ];
+}
+
+/**
+ * The launcher names Windows can actually EXECUTE, in PATHEXT order.
+ *
+ * Extensionless `claude` is deliberately absent. npm drops `claude`, `claude.cmd` and
+ * `claude.ps1` side by side, and the bare one is a POSIX shim for Git Bash that powershell.exe
+ * cannot run — so accepting it reported a green "Claude Code: installed" for a machine where
+ * every pane this app opens would answer "not recognized". A location we cannot hand to a pane
+ * is not a location.
+ */
+const WIN_CLAUDE_NAMES = ['claude.exe', 'claude.cmd', 'claude.bat', 'claude.ps1'];
+
+function winClaudeCandidates(): string[] {
+  return winClaudeDirs().flatMap((d) => WIN_CLAUDE_NAMES.map((n) => path.join(d, n)));
 }
 
 /**
@@ -2294,12 +2367,12 @@ function winClaudeCandidates(): string[] {
  */
 function claudeLocationWin(cmd: string): { where: 'path' | 'disk' | 'none'; bin: string } {
   const dirs = winPersistedPath();
-  /* PATHEXT order, executables FIRST and the extensionless file LAST. npm installs `claude`,
-     `claude.cmd` and `claude.ps1` side by side in the same directory, and the extensionless one
-     is a bash shim Windows cannot run — reporting it as the location is a path the operator
-     cannot execute and we cannot hand to a pane. `cmd` typed at a prompt resolves to the .cmd,
-     so that is what "where claude is" has to mean. */
-  const exts = ['.exe', '.cmd', '.bat', '.ps1', ''];
+  /* PATHEXT order, and EXECUTABLE EXTENSIONS ONLY — no extensionless fallback. npm installs
+     `claude`, `claude.cmd` and `claude.ps1` side by side, and the bare one is a bash shim that
+     powershell.exe cannot execute; accepting it turned a machine where no pane can run claude
+     into a green PASS. `claude` typed at a prompt resolves through PATHEXT to the .cmd, so that
+     is what "where claude is" has to mean. */
+  const exts = ['.exe', '.cmd', '.bat', '.ps1'];
   for (const d of dirs) {
     for (const e of exts) {
       const p = path.join(d, cmd + e);

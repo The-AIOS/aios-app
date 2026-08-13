@@ -25,7 +25,30 @@ function Ok   { param($m) Write-Host "  [ok]   $m" -ForegroundColor Green }
 function Skip { param($m) Write-Host "  [--]   $m" -ForegroundColor DarkGray }
 function Warn { param($m) Write-Host "  [!]    $m" -ForegroundColor Yellow }
 
-function Have { param($n) return [bool](Get-Command $n -ErrorAction SilentlyContinue) }
+# "Is this tool really here?" - and on Windows Get-Command alone cannot answer that.
+#
+# %LOCALAPPDATA%\Microsoft\WindowsApps holds App Execution Alias STUBS that exist on a clean
+# machine even when the tool does not. `python` is the notorious one: the stub's only job is to
+# open the Microsoft Store, but Get-Command reports it as a command, so a bare check declared
+# python installed, skipped the winget install, and left the operator with a launcher that
+# cannot run anything - a green Phase 1 on a machine with no Python.
+#
+# The guard tests BEHAVIOUR, not the folder: winget itself legitimately lives in WindowsApps, so
+# blacklisting the path would break the package manager this whole script depends on. A real
+# tool answers --version with something version-shaped; the stub prints its "not found" notice.
+# Only tools resolving inside WindowsApps pay for the probe, so the common case stays free.
+function Have {
+  param([string]$n)
+  $c = Get-Command $n -ErrorAction SilentlyContinue
+  if (-not $c) { return $false }
+  if (-not $env:LOCALAPPDATA) { return $true }
+  $aliasDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'
+  $src = [string]$c.Source
+  if (-not $src -or -not $src.StartsWith($aliasDir, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+  $out = ''
+  try { $out = (& $n --version 2>$null | Out-String) } catch { }
+  return [bool]($out -match '\d+\.\d+')
+}
 
 Say "AIOS setup - Phase 1 of 2: the tools a Claude session needs"
 Write-Host "  Phase 2 is the AIOS itself, and a Claude session does that part with you."

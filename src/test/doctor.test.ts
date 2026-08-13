@@ -186,6 +186,30 @@ test('the phase 1 script is handed out as a REAL path, never one inside app.asar
   assert.ok(fs.statSync(p).isFile());
 });
 
+test('win32 done.ps1 reads PowerShell\'s $? — "True" is the ONLY success', { skip: process.platform !== 'win32' }, () => {
+  /* A CONTRACT ACROSS TWO OWNERS, which is exactly the kind that breaks silently. The renderer
+     emits `<cmd> ; <banner invocation> $?` on win32, and PowerShell's `$?` is a BOOLEAN — the
+     first positional argument arrives as 'True'/'False', never as an exit code. So '0' is not
+     success here, and the failure that matters is the false green: a step that failed announcing
+     that everything worked. Asserted by RUNNING the generated script, because the way this would
+     actually regress is argument binding (someone reading $args, which a param block leaves
+     empty) — which no amount of reading the source would reveal. */
+  const invocation = aios.bannerScript('IT WORKED', 'ok sub', 'IT FAILED', 'fail sub');
+  const script = /-File '(.+)'$/.exec(invocation)?.[1] ?? '';
+  assert.ok(fs.statSync(script).isFile(), `banner script not written: ${invocation}`);
+  const run = (arg: string): string => require('child_process')
+    .execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, arg], { encoding: 'utf8', timeout: 20000 });
+
+  assert.match(run('True'), /IT WORKED/, "PowerShell's $? spelling of success");
+  assert.doesNotMatch(run('True'), /IT FAILED/);
+  assert.match(run('False'), /IT FAILED/, 'and its spelling of failure');
+  /* Everything that is not 'True' is a failure — including the POSIX spelling of success. A
+     banner that reads '0' as a win, on a channel that never sends '0', would only ever fire on
+     a malformed argument, and a false green is the one verdict worse than none. */
+  assert.match(run('0'), /IT FAILED/, "'0' is the POSIX contract, not this one");
+  assert.match(run(''), /IT FAILED/, 'a missing verdict fails safe');
+});
+
 test('every path in a command is shell-quoted', () => {
   /* Found by auditing for siblings of the app.asar bug — same family: a string that reads as
      correct until a real shell touches it. `bash ${script}` works on every path on the machine
@@ -206,8 +230,16 @@ test('every path in a command is shell-quoted', () => {
   assert.equal((src.match(/bash \$\{shq\(script\)\}/g) || []).length, 2);
   /* The Windows launcher is the same audit in another dialect: `-File C:\Users\Jane Doe\aios\…`
      breaks exactly where `bash /Users/Jane Doe/aios/…` breaks, and a framework under a OneDrive
-     or "My Documents" path is the common case there rather than the exotic one. */
-  assert.match(src, /-File \$\{shq\(script\)\}/, 'the PowerShell launcher quotes its path too');
+     or "My Documents" path is the common case there rather than the exotic one.
+     It must quote with psq, NOT shq — reaching for the POSIX helper here produces a string that
+     looks quoted and is not: PowerShell escapes with a backtick, so shq's `'\''` idiom emits a
+     stray backslash and leaves the quote unbalanced (C:\Users\O'Brien\aios is enough to break
+     it). PowerShell doubles the quote instead. */
+  assert.match(src, /-File \$\{psq\(script\)\}/, 'the PowerShell launcher quotes its path too');
+  assert.match(src, /function psq\(s: string\): string/);
+  const psq = (s: string): string => `'${String(s).replace(/'/g, "''")}'`;
+  assert.equal(psq("C:\\Users\\O'Brien\\aios\\x.ps1"), "'C:\\Users\\O''Brien\\aios\\x.ps1'");
+  assert.doesNotMatch(src, /\$\{shq\((?:ok|okSub|fail|failSub|bar)\)\}/, 'PowerShell strings never use the POSIX quoter');
   // the helper itself must survive a quote in the path
   const shq = (p: string): string => `'${String(p).replace(/'/g, `'\\''`)}'`;
   assert.equal(shq("/tmp/it's here/x.sh"), `'/tmp/it'\\''s here/x.sh'`);

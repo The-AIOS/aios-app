@@ -130,7 +130,10 @@ function spillLongCommand(cmd: string): string {
       // inherits that session's environment. No exec bit / shebang on Windows; escape an embedded
       // quote by doubling it (PowerShell single-quote rule).
       const file = path.join(dir, `step-${Date.now()}-${nextId}.ps1`);
-      fs.writeFileSync(file, `${cmd}\r\n`);
+      // UTF-8 BOM: Windows PowerShell 5.1 decodes a BOM-less file as the ANSI codepage, so a
+      // command with accents/em-dashes (a Spanish/Portuguese operator's, pervasively) mis-parses.
+      // The BOM makes PS read it as UTF-8. Same guard bannerScript uses for its generated .ps1.
+      fs.writeFileSync(file, '﻿' + `${cmd}\r\n`);
       return `& '${file.replace(/'/g, "''")}'`;
     }
     const file = path.join(dir, `step-${Date.now()}-${nextId}.sh`);
