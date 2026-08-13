@@ -274,23 +274,55 @@ export function shouldReleaseForSibling(releases: number, maxReleases: number = 
      wait     out of sends but NOT out of time — keep watching for a late arrival,
               and never type again. Bounded sends, unbounded patience: double delivery
               is worse than latency, so exhausting the retries must not end the wait. */
-export type MissAction = 'retire' | 'release' | 'retry' | 'wait';
+/* No 'release'. It was removed on 2026-08-12 rather than left unreachable: a type that says a
+   decision CAN hand an already-typed message to a sibling invites a caller to handle that case,
+   and handling it is the double-delivery bug. Release still exists in the protocol — it just
+   belongs to the "could not type it here" path, which never reaches this decision. */
+export type MissAction = 'retire' | 'retry' | 'wait';
 
 export function decideAfterVerifyMiss(s: {
   targetAlive: boolean;
+  /**
+   * The target is mid-turn. It has not had the OPPORTUNITY to write the turn yet, so a missing
+   * transcript entry says nothing about whether the text arrived.
+   */
+  targetBusy: boolean;
   heldMs: number;
-  releases: number;
   attempts: number;
 }): { do: MissAction; reason: string } {
   if (!s.targetAlive) return { do: 'retire', reason: 'the target is no longer a live session' };
   if (s.heldMs >= TIMINGS.MAX_HOLD_MS) {
     return { do: 'retire', reason: `held for ${Math.round(s.heldMs / 60000)} min without the message ever appearing in the target transcript` };
   }
-  if (shouldReleaseForSibling(s.releases)) {
-    return { do: 'release', reason: 'not verified here; another window may own that terminal' };
+  /* THE 2026-08-12 BUG, half one — a busy target at VERIFY time proves nothing.
+     `decideSend` refuses to type into a non-deliverable session, so a send only happens while the
+     status is deliverable. The target can then go busy during the verification window, and a
+     session that is mid-turn has not written the incoming turn to its transcript yet. So an empty
+     transcript here distinguishes nothing, and acting on it re-types a message that may already
+     have arrived.
+     MEASURED, not inferred: one `/aios:close-session --auto` reached a busy session FOUR times
+     (~2 min apart, no operator typing), while two IDLE targets in the same minutes verified and
+     consumed on the first try. That contrast is the evidence; the precise fate of mid-turn text is
+     NOT something this was able to establish — note rule 1 in this file's header, which says such
+     text is dropped rather than queued. Waiting is the correct action under either reading: if it
+     queued, the turn appears and we consume; if it was dropped, the target goes idle and the
+     bounded retry below re-sends it once. What is never correct is concluding failure — or handing
+     it to a sibling — while the target has had no chance to answer. */
+  if (s.targetBusy) {
+    return { do: 'wait', reason: 'target went busy during verification — an empty transcript proves nothing yet' };
   }
+  /* THE 2026-08-12 BUG, half two — `release` used to be FIRST here, and it is now gone entirely.
+     Reaching this function means we already TYPED the message successfully (a surface that could
+     not type it returns !ok and releases on that path, which is the case release was built for —
+     see the AI-67 comment in commandBus.runSend). Handing an already-typed request to a sibling
+     asks a second surface to type it AGAIN: double delivery, the one outcome this protocol calls
+     explicitly worse than latency. And with a single fulfiller running there is no sibling at all,
+     so the request came straight back to the same App, which re-typed it and burned a release —
+     twice, to MAX_RELEASES, one step from retiring work that had already been done as a FALSE dead
+     letter. `releases` is therefore no longer read here: after a successful type, the sibling
+     budget is irrelevant to what we do next. */
   if (s.attempts < TIMINGS.MAX_DELIVERY_ATTEMPTS) {
-    return { do: 'retry', reason: `no sibling left to try; re-delivering (attempt ${s.attempts + 1}/${TIMINGS.MAX_DELIVERY_ATTEMPTS})` };
+    return { do: 'retry', reason: `not verified and the target is idle; re-delivering (attempt ${s.attempts + 1}/${TIMINGS.MAX_DELIVERY_ATTEMPTS})` };
   }
   return { do: 'wait', reason: 'out of send attempts but still inside the hold budget — watching for a late arrival' };
 }

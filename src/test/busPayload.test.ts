@@ -103,10 +103,15 @@ test('INVARIANT: neither surface delivers a send without the length gate', () =>
 test('INVARIANT: the surface delegates the miss decision, never re-derives it', () => {
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(bus, /decideAfterVerifyMiss\(/, 'the surface must call the shared decision');
-  // All four outcomes must be handled — dropping one silently reintroduces a conflation.
-  for (const arm of ['release', 'retry', 'wait']) {
+  // Every outcome the decision can RETURN must be handled — dropping one silently reintroduces a
+  // conflation. 'release' is deliberately absent from both the type and this list since
+  // 2026-08-12: reaching the miss decision means the message was typed, so releasing it asks a
+  // second surface to type it again. Handling it here would imply it is still reachable.
+  for (const arm of ['retry', 'wait']) {
     assert.match(bus, new RegExp(`miss\\.do === '${arm}'`), `the '${arm}' outcome must be handled`);
   }
+  assert.doesNotMatch(bus, /miss\.do === 'release'/,
+    'a typed message must never be handed to a sibling — release belongs to the !sendResult.ok path');
   // And retirement must be the FALL-THROUGH, i.e. only what the decision did not claim.
   assert.match(bus, /markUndelivered\(heldPath, req, `sent to '\$\{req\.name\}' — \$\{miss\.reason\}`\)/,
     'retiring must use the shared decision\'s reason, not a locally invented one');

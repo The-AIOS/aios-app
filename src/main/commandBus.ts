@@ -8,7 +8,7 @@ import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
-  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, type SendTarget,
+  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 
@@ -310,15 +310,21 @@ async function runSend(
        this wrong in the same way independently, which is exactly what a hand-copied policy
        produces. Retiring is now reachable only two ways — a dead target, or a genuinely spent
        hold budget. "No sibling left to try" is not one of them. */
+    /* Re-read the target: its status matters as much as its existence now. A session that went
+       busy while we were verifying has not had the chance to surface the turn, and treating that
+       as a failed delivery is what produced four deliveries of one request. */
+    const after = targetByName(req.name);
     const miss = decideAfterVerifyMiss({
-      targetAlive: !!targetByName(req.name),
+      targetAlive: !!after,
+      targetBusy: !!after && !isDeliverable(after.status),
       heldMs: Date.now() - claimedAt,
-      releases: req.releases ?? 0,
       attempts,
     });
     log(`send → '${req.name}' not verified — ${miss.do}: ${miss.reason}`);
-    if (miss.do === 'release') { if (releaseForSibling(heldPath, req, miss.reason)) return; }
-    if (miss.do === 'retry' || miss.do === 'release') continue;
+    /* No `release` branch: decideAfterVerifyMiss can no longer return one, because reaching it
+       means the text WAS typed and handing it to a sibling means typing it twice. Release lives
+       only on the !sendResult.ok path above, where nothing was typed. */
+    if (miss.do === 'retry') continue;
     if (miss.do === 'wait') {
       /* Out of sends, not out of hope: watch for a late arrival and never type again. A turn
          that lands after the window closed must not be sent twice. */
