@@ -236,13 +236,15 @@ function allowedRoots(): string[] {
   return out;
 }
 function inAllowed(abs: string): boolean {
-  /* Windows filesystems are case-insensitive and realpathSync can canonicalize drive-letter and
-     segment casing differently than the user-typed workspace path, so a case-sensitive containment
-     test rejects a legitimately-allowed file (fs:read/write/list/openViewer/"open terminal here"
-     all fail with "not allowed" on valid Windows paths). Compare case-insensitively on win32 only. */
-  const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
+  /* Windows needs TWO normalizations the POSIX path never did, or a legitimately-allowed file is
+     rejected and fs:read/write/list/openViewer/"open terminal here" fail with "not allowed":
+     (1) SEPARATOR — callers pass both `C:\a` (native) and `C:/a` (e.g. the renderer, which works
+     in forward slashes), while the roots are backslash; compare with a single separator.
+     (2) CASE — the FS is case-insensitive and realpathSync can canonicalize drive-letter/segment
+     casing differently than the typed path. Both only on win32; POSIX comparison is unchanged. */
+  const norm = (p: string): string => (process.platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p);
   const a = norm(abs);
-  return allowedRoots().some((r) => { const rr = norm(r); return a === rr || a.startsWith(rr + path.sep); });
+  return allowedRoots().some((r) => { const rr = norm(r); return a === rr || a.startsWith(rr + '/'); });
 }
 
 /* ── Claude config live watch ──────────────────────────────────────────────────
