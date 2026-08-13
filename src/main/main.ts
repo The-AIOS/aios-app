@@ -21,6 +21,11 @@ import * as fs from 'fs';
  * then exits 0/1 — the in-app smoke gate, here from day one.
  */
 const SMOKE = process.argv.includes('--smoke');
+/* A gate that CAN skip will eventually skip silently, and nobody notices the day it stops running
+   for a real reason. The two framework-reading gates skip when there is no framework root — right
+   on a developer's laptop, wrong in CI, where a fixture is provided precisely so they run. Strict
+   mode turns "did not run" into a failure, and CI sets it alongside GLASS_FRAMEWORK_PATH. */
+const SMOKE_STRICT = process.env.AIOS_SMOKE_STRICT === '1';
 /* Any uncaught renderer error fails a smoke run — see the verdict block. */
 const rendererErrors: string[] = [];
 const SHOT = process.argv.find((a) => a.startsWith('--shot')); // --shot[=/path.png] : render + screenshot + exit (dev/QA)
@@ -858,8 +863,8 @@ app.whenReady().then(() => {
       try {
         const root = aios.frameworkRoot();
         if (!root) {
-          stateOk = true;   // not a pass on the requirement — a pass on "there was nothing to measure"
-          console.log('shell-smoke: state — SKIPPED (no framework root on this machine; discovery gate did not run)');
+          stateOk = !SMOKE_STRICT;   // not a pass on the requirement — a pass on "nothing to measure"
+          console.log(`shell-smoke: state — ${SMOKE_STRICT ? 'FAILED: strict mode, but there is no framework root to discover — the fixture did not take effect (check GLASS_FRAMEWORK_PATH)' : 'SKIPPED (no framework root on this machine; discovery gate did not run)'}`);
         } else {
           const agents = aios.discoverAgents().length;
           const op = aios.operatorName();
@@ -938,7 +943,8 @@ app.whenReady().then(() => {
       try {
         let viewerOk: number | null = null;   // null = the gate did not run, which is NOT a pass
         if (!probe) {
-          console.log('shell-smoke: viewer — SKIPPED (no framework root on this machine; gate did not run)');
+          if (SMOKE_STRICT) { setupOk = false; console.error('shell-smoke: VIEWER FAILED — strict mode, but no probe file was reachable; the fixture did not take effect (check GLASS_FRAMEWORK_PATH)'); }
+          else console.log('shell-smoke: viewer — SKIPPED (no framework root on this machine; gate did not run)');
         } else {
           viewerOk = Number(await win.webContents.executeJavaScript(
             `(async () => { await openViewer('${probe.replace(/\\/g, '/')}');

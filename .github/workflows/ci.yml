@@ -40,7 +40,25 @@ jobs:
       - run: npm ci
       - run: npx electron-rebuild -f -w node-pty
       - run: npm run compile
+
+      # Two smoke gates read the operator's framework — one discovers agents/commands/skills, one
+      # opens a file and counts what rendered. A bare runner has neither, so they used to fail on
+      # ABSENT FIXTURES rather than on the build, which is why smoke was kept out of the release
+      # lane. They now skip when there is no framework root, which is honest but leaves a worse
+      # hole: a gate that CAN skip will eventually skip silently.
+      #
+      # So provide a root, then forbid skipping. AIOS_SMOKE_STRICT=1 turns "did not run" into a
+      # failure — if the fixture ever stops taking effect, CI says so instead of quietly measuring
+      # nothing. The fixture is synthetic by construction and grants NO workspace folder, so the
+      # viewer gate has to reach its probe through the framework root alone (granting one would
+      # mask the very bug that made that gate pass on one machine and fail everywhere else).
+      - name: Minimal framework fixture, so the gates run instead of skipping
+        run: node scripts/make-vault-fixture.mjs --out "$RUNNER_TEMP/aios-fixture"
+
       - run: npm run smoke
+        env:
+          GLASS_FRAMEWORK_PATH: ${{ runner.temp }}/aios-fixture
+          AIOS_SMOKE_STRICT: '1'
 
   linux-dist:
     # Why this exists: a contributor's "it builds and the gates pass on Linux Mint" is a claim,
