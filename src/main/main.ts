@@ -841,12 +841,31 @@ app.whenReady().then(() => {
 
     const gates = async (): Promise<boolean> => {
       await new Promise((r) => setTimeout(r, 3000)); // window + iframe settle
+      /* This gate measures FRAMEWORK DISCOVERY — can the app find the operator's agents,
+         commands and skills. It therefore requires a framework to discover, and on a bare CI
+         runner there is none: it reported `operator=, agents=0` and failed the whole smoke run
+         for the absence of a fixture rather than for anything about the build.
+         That is not a hypothetical. `smoke` is gated to pull_request, and every green run on
+         main was a push — so this job had never actually executed in CI. Its first real run
+         failed here, exactly as release.yml's comment predicted when smoke was pulled out of
+         the release lane. A gate that fails for reasons unrelated to what it guards gets
+         disabled within a week, which costs more than it ever protected.
+         So: no framework root → the gate DID NOT RUN, and says so. Unmeasured must never read
+         as measured (that direction is the whole point), but it must not read as broken either.
+         The real fix is a minimal vault fixture in CI so this always runs; until then, honest
+         about which of the two it is. Same treatment the viewer gate got, for the same reason. */
       let stateOk = false;
       try {
-        const agents = aios.discoverAgents().length;
-        const op = aios.operatorName();
-        stateOk = agents > 0;   // a name is optional (virgin vault); discovery is the real signal
-        console.log(`shell-smoke: state — operator=${op}, agents=${agents}, commands=${aios.discoverCommands().length}, skills=${aios.discoverSkills().length}`);
+        const root = aios.frameworkRoot();
+        if (!root) {
+          stateOk = true;   // not a pass on the requirement — a pass on "there was nothing to measure"
+          console.log('shell-smoke: state — SKIPPED (no framework root on this machine; discovery gate did not run)');
+        } else {
+          const agents = aios.discoverAgents().length;
+          const op = aios.operatorName();
+          stateOk = agents > 0;   // a name is optional (virgin vault); discovery is the real signal
+          console.log(`shell-smoke: state — operator=${op}, agents=${agents}, commands=${aios.discoverCommands().length}, skills=${aios.discoverSkills().length}`);
+        }
       } catch (err) { console.error('shell-smoke: state FAIL', err); }
       const rendererOk = await win.webContents.executeJavaScript('window.__workbenchOk === true').catch(() => false);
       let panelOk = false;
