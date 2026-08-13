@@ -4276,6 +4276,16 @@ const ACCEL_GLYPH = { CmdOrCtrl: '⌘', CommandOrControl: '⌘', CommandOrCtrl: 
                       Plus: '+', Minus: '−', Click: 'click', Escape: 'esc', Esc: 'esc',
                       Return: '↩', Enter: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Space: '␣',
                       Up: '↑', Down: '↓', Left: '←', Right: '→' };
+/* Off macOS the MODIFIERS stay words — "Ctrl+Shift+T" is how Windows and Linux write a chord,
+   and glyph-ing them would be the wrong platform's convention. The KEY, though, still needs
+   translating: Electron spells the zoom-in binding `CmdOrCtrl+Plus`, and the non-mac branch used
+   to pass every non-modifier through untouched, so the shortcuts sheet showed a literal
+   "Ctrl+Plus" — a key no keyboard has. Same class for Minus/Return/Escape. This is the non-mac
+   half of ACCEL_GLYPH: modifiers to their platform word, keys to the symbol they actually are. */
+const ACCEL_WORD = { CmdOrCtrl: 'Ctrl', CommandOrControl: 'Ctrl', CommandOrCtrl: 'Ctrl', Cmd: 'Ctrl', Command: 'Ctrl',
+                     Super: 'Super', Meta: 'Meta', Option: 'Alt', AltGr: 'AltGr', Control: 'Ctrl',
+                     Plus: '+', Minus: '−', Escape: 'Esc', Esc: 'Esc', Return: 'Enter',
+                     Up: '↑', Down: '↓', Left: '←', Right: '→' };
 function prettyAccel(a) {
   const raw = String(a || '');
   const mac = navigator.platform.toLowerCase().includes('mac');
@@ -4286,12 +4296,12 @@ function prettyAccel(a) {
   if (/\s/.test(raw)) {
     return raw
       .replace(/\b(CmdOrCtrl|CommandOrControl|Command|Cmd|Shift|Alt|Option|Ctrl|Control)\b/g,
-        (w) => (mac ? ACCEL_GLYPH[w] || w : (w === 'CmdOrCtrl' ? 'Ctrl' : w)))
+        (w) => (mac ? ACCEL_GLYPH[w] || w : ACCEL_WORD[w] || w))
       // a glyph absorbs the separator that followed the word it replaced: `⇧+Enter` → `⇧Enter`
       .replace(/([⌘⇧⌥⌃])\+/g, '$1');
   }
   const parts = raw.split('+').filter((x) => x !== '');
-  if (!mac) return parts.map((x) => (/^(CmdOrCtrl|CommandOrControl|Command|Cmd)$/.test(x) ? 'Ctrl' : x)).join('+');
+  if (!mac) return parts.map((x) => ACCEL_WORD[x] || x).join('+');
   const out = parts.map((x) => ACCEL_GLYPH[x] || x);
   // On macOS modifiers are glyphs and need no separator; a trailing word key still reads fine.
   return out.join('');
