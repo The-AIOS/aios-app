@@ -1,0 +1,146 @@
+name: Release (Linux)
+
+# Builds AppImage + deb on a real x64 Linux runner and ATTACHES them to an existing Release.
+#
+# Deliberately upload-only. It must never be the job that CREATES a release, and the reason is
+# specific: electron-updater's GitHub provider resolves its feed from the NEWEST release, then
+# fetches that release's platform manifest. A release that exists without `latest-mac.yml` — even
+# for the fifteen minutes Apple notarization takes — makes every mac client's updater 404. So the
+# mac job owns creation; this one only adds to what already exists.
+#
+# Two triggers:
+#   workflow_dispatch  attach Linux artifacts to a tag that is already published (today's case)
+#   push: tags v*      future releases pick up Linux automatically, after mac has published
+#
+# WHY `ref` IS A SEPARATE INPUT, AND WHEN IT MATTERS:
+# Normally you build the tag you are attaching to, and `ref` should be left blank. But the first
+# Linux release cannot do that — tag v0.8.1 predates Linux support entirely, so checking it out
+# produces a tree with no linux target and the build fails. Attaching Linux to v0.8.1 therefore
+# means building a LATER commit and labelling it 0.8.1, which is a real divergence: two artifacts
+# under one version, differing in content. That is defensible here (the Linux support is additive
+# and mac behaviour is unchanged) but it is not something to do by accident, so it is an explicit
+# input that gets echoed into the log rather than an implicit default.
+# From the next version bump onward, leave `ref` empty and this reduces to the normal case.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published tag to attach Linux artifacts to, e.g. v0.8.1'
+        required: true
+      ref:
+        description: 'Commit/branch to BUILD (blank = build the tag itself, which is the normal case)'
+        required: false
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # upload assets to an existing Release
+
+concurrency:
+  group: release-linux-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: Build · verify · attach (Linux x64)
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      BUILD_REF: ${{ github.event.inputs.ref }}
+    steps:
+      - name: Announce what is being built, and against what
+        run: |
+          echo "attaching to tag : $RELEASE_TAG"
+          echo "building ref     : ${BUILD_REF:-$RELEASE_TAG (the tag itself)}"
+          if [ -n "$BUILD_REF" ]; then
+            echo "::warning::Building $BUILD_REF but labelling the artifacts for $RELEASE_TAG — deliberate divergence, see this workflow's header"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.event.inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      # electron-builder shells out to these for the .deb target.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fakeroot dpkg
+
+      - run: npm ci
+
+      # NOT optional. node-pty publishes no Linux prebuild (upstream ships darwin-* and win32-*
+      # only), so the Linux .node exists ONLY because this compiles it. Package without it and
+      # electron-builder produces a tree where the app boots, paints, the menu works, and every
+      # terminal is dead on arrival. verify-package checks the shipped .node by magic number
+      # precisely because this step is skippable and its absence is otherwise invisible.
+      - run: npx electron-rebuild -f -w node-pty
+      - run: npm run compile
+
+      # Same discipline as the mac lane: the one place a release is cut is the one place
+      # everything must pass. v0.7.0 was published while CI was red.
+      - run: node --test out/test/*.test.js
+
+      # Electron needs a display for verify-package's live launch check.
+      - name: Build AppImage + deb, verify the packaged tree
+        run: xvfb-run --auto-servernum npm run dist:linux
+
+      - name: Is the feed this build produced usable?
+        run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform linux --local
+
+      # On a tag push, mac is still notarizing when this starts, so the release may not exist for
+      # a while. Wait rather than fail — but bounded, and never create it (see the header).
+      - name: Wait for the Release to exist (mac owns creation)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 60); do
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              echo "release $RELEASE_TAG exists"; exit 0
+            fi
+            echo "waiting for $RELEASE_TAG to be published… ($i/60)"; sleep 30
+          done
+          echo "::error::$RELEASE_TAG was never published — refusing to create it, because a release without latest-mac.yml breaks every mac client's updater"
+          exit 1
+
+      # The property the operator actually cares about: attaching Linux must not disturb the mac
+      # feed. --clobber only replaces files it is given, but "should not" is not "did not", so
+      # measure it: checksum the mac manifest before and after and require them identical.
+      - name: Fingerprint the mac feed before touching the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" --pattern 'latest-mac.yml' --dir before --clobber 2>/dev/null \
+            || { echo "::error::$RELEASE_TAG has no latest-mac.yml — this is not a release mac clients can update from; stopping"; exit 1; }
+          sha256sum before/latest-mac.yml | awk '{print $1}' > before/mac.sha
+          echo "latest-mac.yml sha256: $(cat before/mac.sha)"
+
+      - name: Attach the Linux artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist/*.AppImage dist/*.deb dist/latest-linux.yml
+          gh release upload "$RELEASE_TAG" \
+            dist/*.AppImage dist/*.deb dist/latest-linux.yml --clobber
+
+      - name: Confirm the Linux feed is usable on the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform linux
+
+      - name: Confirm the mac feed was not disturbed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" --pattern 'latest-mac.yml' --dir after --clobber
+          BEFORE=$(cat before/mac.sha)
+          AFTER=$(sha256sum after/latest-mac.yml | awk '{print $1}')
+          echo "before: $BEFORE"
+          echo "after : $AFTER"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "::error::latest-mac.yml CHANGED — mac clients would see an update they were not meant to get"
+            exit 1
+          fi
+          echo "✓ the mac feed is byte-identical; no mac client sees anything from this run"

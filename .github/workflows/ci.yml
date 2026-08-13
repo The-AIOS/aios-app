@@ -42,6 +42,78 @@ jobs:
       - run: npm run compile
       - run: npm run smoke
 
+  linux-dist:
+    # Why this exists: a contributor's "it builds and the gates pass on Linux Mint" is a claim,
+    # and the repo's own doctrine is that a check you ran beats a claim you were handed. This is
+    # that check — and it runs on x64, which is the arch we would actually ship, unlike any
+    # Apple-silicon machine a maintainer might test on locally.
+    #
+    # Free on a public repo, so the only cost is wall-clock; gated to PRs + manual like the
+    # macOS smoke, since that is exactly when the answer matters.
+    name: Linux build + packaged verify (x64)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      # electron-builder shells out to these for the .deb target. dpkg is present on the runner;
+      # fakeroot is not always, and its absence fails late with a confusing message.
+      - name: Packaging tools for the deb target
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fakeroot dpkg
+
+      - run: npm ci
+
+      # NOT optional, and the single most important line in this job. node-pty publishes no
+      # Linux prebuild (upstream ships darwin-* and win32-* only), so the Linux .node exists
+      # ONLY because this step compiles it. Skip it and electron-builder happily packages a tree
+      # whose native module is missing or the wrong ABI: the app boots, the window paints, the
+      # menu works, and every terminal is dead on arrival.
+      - run: npx electron-rebuild -f -w node-pty
+      - run: npm run compile
+
+      # Unit suite on Linux too. Most of it is platform-agnostic, but the accelerator formatter
+      # now has a non-mac branch, and that branch shipped a literal "Ctrl+Plus" precisely because
+      # nothing ever exercised it off macOS.
+      - run: node --test out/test/*.test.js
+
+      # Build both artifacts, then verify the SHIPPED tree — including a magic-number check that
+      # node-pty's .node is genuinely ELF, and a launch of the packaged binary. Electron needs a
+      # display for that launch, hence xvfb; without it the live check fails for a reason that
+      # has nothing to do with the build.
+      - name: Build AppImage + deb, verify the packaged tree
+        run: xvfb-run --auto-servernum npm run dist:linux
+
+      # Step 1's payoff: the same validator that guards macOS releases, pointed at what the
+      # Linux build produced. The question it answers is not hypothetical — electron-builder
+      # decides which artifact `latest-linux.yml` names, and if it ever names the .deb, Linux
+      # users would install fine and then never update, silently, because electron-updater has
+      # no deb updater at all.
+      #
+      # The tag here is derived from package.json, so the tag↔version assertion is trivially
+      # satisfied — that one only has teeth at release time. What has teeth here: the manifest
+      # parses, its target is a format AppImageUpdater accepts, and every file it enumerates
+      # actually exists.
+      - name: Is the Linux update feed usable?
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          node scripts/assert-release-assets.mjs --tag "$TAG" --platform linux --local
+
+      - name: Keep the artifacts for inspection (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest-linux.yml
+          if-no-files-found: warn
+          retention-days: 7
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest

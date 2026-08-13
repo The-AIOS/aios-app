@@ -114,21 +114,19 @@ jobs:
       - name: Verify signing (codesign · hardened runtime · Gatekeeper)
         run: node scripts/verify-signing.mjs
 
-      # electron-updater's feed = latest-mac.yml on the newest Release. If the
-      # build didn't emit it, publishing a release with no update feed is worse
-      # than failing — assert it exists before we create anything.
-      - name: Assert update manifest exists
+      # electron-updater's feed = latest-mac.yml on the newest Release, so a release published
+      # without a usable one is worse than a failed build.
+      #
+      # Pre-publish half of the feed gate. A broken release that is never created beats one that
+      # has to be deleted — v0.7.1 was deleted and re-cut. Runs the identical rules against what
+      # the BUILD produced; the post-publish step then re-runs them against what was ATTACHED,
+      # because only that one can see an upload that silently dropped a file.
+      - name: Assert the update feed the build produced is usable
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          ls -la dist/*.yml dist/*.dmg
-          test -f dist/latest-mac.yml || { echo '::error::dist/latest-mac.yml missing — updater feed would be broken'; exit 1; }
-          # Existing-but-unusable is the failure this missed. electron-updater's MacUpdater
-          # calls findFile(files, "zip", ["pkg", "dmg"]) — it requires a ZIP and explicitly
-          # EXCLUDES the dmg. v0.7.0 shipped a manifest listing only the .dmg, so the feed
-          # parsed, "update available" fired, and the download died with
-          # ERR_UPDATER_ZIP_FILE_NOT_FOUND — invisible, because the in-app pill only appears
-          # once a download completes. Assert the manifest is USABLE, not merely present.
-          grep -q '\.zip' dist/latest-mac.yml || { echo '::error::latest-mac.yml lists no .zip — MacUpdater cannot update from a dmg'; exit 1; }
-          test -f dist/*.zip || { echo '::error::no .zip built — add it to build.mac.target'; exit 1; }
+          ls -la dist/*.yml dist/*.dmg dist/*.zip
+          node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform darwin --local
 
       # Publish only after verify + manifest assertion. One versioned Release
       # carries the .dmg(s) + blockmaps + latest-mac.yml; electron-updater polls
@@ -146,24 +144,21 @@ jobs:
           || gh release upload "$TAG" \
             dist/*.dmg dist/*.dmg.blockmap dist/*.zip dist/latest-mac.yml --clobber
 
-      # Buzz #4: never advertise a broken update. Private-repo-safe presence check
-      # (a true HTTP reachability probe on browser_download_url becomes possible
-      # once the repo is public — see RELEASING.md).
-      - name: Confirm assets landed on the Release
+      # Buzz #4: never advertise a broken update.
+      #
+      # This was an inline grep for latest-mac.yml, `\.dmg$`, and the manifest's own `path:`.
+      # It is what caught v0.7.1's phantom zip, and every rule in it survives — but it was
+      # macOS-shaped, so a second platform could not reuse it (on Linux it fails a CORRECT
+      # release: no latest-mac.yml, no .dmg), and it could not express the rule v0.7.0 actually
+      # broke — that the file the manifest names must be a format THIS platform's updater will
+      # accept. Run against the real v0.7.0 release, presence/attachment/installer all pass and
+      # only the FORMAT check fails, which is precisely how v0.7.0 shipped.
+      #
+      # The judgement now lives in src/core/releaseAssets.ts with v0.7.0 and v0.7.1 reproduced
+      # as failing tests, and each platform's updater class + accepted formats declared in one
+      # table. A Linux or Windows release job calls the same script with no changes.
+      - name: Confirm the update feed on the Release is usable
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          TAG="$RELEASE_TAG"
-          ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name')
-          echo "$ASSETS"
-          echo "$ASSETS" | grep -q 'latest-mac.yml' || { echo '::error::manifest not on release'; exit 1; }
-          echo "$ASSETS" | grep -qE '\.dmg$'        || { echo '::error::no .dmg on release'; exit 1; }
-          # The manifest names the file the updater downloads. Asserting the manifest exists,
-          # or that SOME installer is attached, both passed on v0.7.1 while latest-mac.yml
-          # pointed at an AIOS-arm64.zip that was never uploaded — a 404 for every updating
-          # client. Assert the named file is actually ON the release.
-          WANT=$(grep -m1 '^path:' dist/latest-mac.yml | awk '{print $2}')
-          echo "manifest points at: $WANT"
-          echo "$ASSETS" | grep -qx "$WANT" || { echo "::error::latest-mac.yml points at $WANT but it is not attached to the release"; exit 1; }
-          echo "✓ release $TAG carries the manifest + installer(s)"
+        run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform darwin
