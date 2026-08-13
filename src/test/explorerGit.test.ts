@@ -98,7 +98,7 @@ test('"open terminal here" actually reaches the pty as a cwd', () => {
   // Asserts the INTENT (cwd reaches the pty), not the literal argument list — the list grew
   // a `name` for AI-64 and a shape-exact regex made an unrelated test fail.
   assert.match(app, /ptySpawn\(\{[^}]*\bcwd\b[^}]*\}\)/);
-  assert.match(app, /void createPane\(\{ name: dir\.split\('\/'\)\.pop\(\) \|\| 'terminal', cwd: dir \}\)/);
+  assert.match(app, /void createPane\(\{ name: xBase\(dir\) \|\| 'terminal', cwd: dir \}\)/);
 });
 
 test('a dragged row carries its own is-directory flag, so no drop needs to ask again', () => {

@@ -12,7 +12,7 @@
     "watch": "tsc -watch -p ./",
     "start": "npm run compile && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "test": "npm run compile && node --test out/test/*.test.js",
+    "test": "npm run compile && node --test out/test",
     "smoke": "npm run compile && electron . --smoke",
     "sync-core": "node scripts/sync-core.mjs",
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",

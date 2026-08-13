@@ -1,0 +1,139 @@
+name: Release (Windows)
+
+# Builds the nsis installer on a real x64 Windows runner and ATTACHES it to an existing Release.
+#
+# Deliberately upload-only, for the same reason as the Linux lane: electron-updater's GitHub
+# provider resolves its feed from the NEWEST release, then fetches that release's platform manifest.
+# A release that exists without `latest-mac.yml` — even briefly — makes every mac client's updater
+# 404. So the mac job owns CREATION; this one only adds to what already exists.
+#
+# The Windows manifest is the UNQUALIFIED `latest.yml` (electron-builder's convention for the
+# Windows/NsisUpdater feed), disjoint from `latest-mac.yml` and `latest-linux.yml` — so this lane
+# never touches the other platforms' feeds, and its own concurrency group keeps it from serializing
+# against them.
+#
+# node-pty is N-API and ships a win32 prebuild, so there is NO electron-rebuild step and no Visual
+# Studio dependency — dist:win uses the prebuild as-is, and verify-package asserts the PE .node plus
+# the ConPTY helper set (the win32 analog of the Linux ELF check).
+#
+# `ref` is a separate input for the same reason the Linux lane documents: a tag that predates
+# Windows support cannot be checked out and built, so the first Windows release builds a later
+# commit and labels it for the published tag — a deliberate, logged divergence.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published tag to attach the Windows installer to, e.g. v0.8.2'
+        required: true
+      ref:
+        description: 'Commit/branch to BUILD (blank = build the tag itself, which is the normal case)'
+        required: false
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # upload assets to an existing Release
+
+concurrency:
+  group: release-windows-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build · verify · attach (Windows x64)
+    runs-on: windows-latest
+    # windows-latest defaults `run:` to PowerShell; the step bodies use bash ($(...), sha256sum,
+    # seq, gh). Git Bash ships on the runner, so pin bash for the whole job.
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      BUILD_REF: ${{ github.event.inputs.ref }}
+    steps:
+      - name: Announce what is being built, and against what
+        run: |
+          echo "attaching to tag : $RELEASE_TAG"
+          echo "building ref     : ${BUILD_REF:-$RELEASE_TAG (the tag itself)}"
+          if [ -n "$BUILD_REF" ]; then
+            echo "::warning::Building $BUILD_REF but labelling the artifacts for $RELEASE_TAG — deliberate divergence, see this workflow's header"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref || github.event.inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run compile
+
+      # Same discipline as every release lane: the one place a release is cut is the one place
+      # everything must pass. A directory arg, not a glob — runs identically under bash/cmd/pwsh.
+      - run: node --test out/test
+
+      # Build the nsis installer and verify the SHIPPED tree (PE .node + ConPTY helpers + a launch
+      # of the packaged AIOS.exe --smoke). No xvfb — Windows runners have a desktop session.
+      - name: Build nsis installer, verify the packaged tree
+        run: npm run dist:win
+
+      - name: Is the feed this build produced usable?
+        run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform win32 --local
+
+      # On a tag push, mac is still notarizing when this starts, so the release may not exist yet.
+      # Wait rather than fail — bounded, and never create it (see the header).
+      - name: Wait for the Release to exist (mac owns creation)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 60); do
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              echo "release $RELEASE_TAG exists"; exit 0
+            fi
+            echo "waiting for $RELEASE_TAG to be published… ($i/60)"; sleep 30
+          done
+          echo "::error::$RELEASE_TAG was never published — refusing to create it, because a release without latest-mac.yml breaks every mac client's updater"
+          exit 1
+
+      # Attaching Windows must not disturb the mac feed. --clobber only replaces the files it is
+      # given (disjoint from mac's), but "should not" is not "did not" — so measure it.
+      - name: Fingerprint the mac feed before touching the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" --pattern 'latest-mac.yml' --dir before --clobber 2>/dev/null \
+            || { echo "::error::$RELEASE_TAG has no latest-mac.yml — this is not a release mac clients can update from; stopping"; exit 1; }
+          sha256sum before/latest-mac.yml | awk '{print $1}' > before/mac.sha
+          echo "latest-mac.yml sha256: $(cat before/mac.sha)"
+
+      - name: Attach the Windows artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist/*.exe dist/*.exe.blockmap dist/latest.yml
+          gh release upload "$RELEASE_TAG" \
+            dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber
+
+      - name: Confirm the Windows feed is usable on the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform win32
+
+      - name: Confirm the mac feed was not disturbed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" --pattern 'latest-mac.yml' --dir after --clobber
+          BEFORE=$(cat before/mac.sha)
+          AFTER=$(sha256sum after/latest-mac.yml | awk '{print $1}')
+          echo "before: $BEFORE"
+          echo "after : $AFTER"
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "::error::latest-mac.yml CHANGED — mac clients would see an update they were not meant to get"
+            exit 1
+          fi
+          echo "✓ the mac feed is byte-identical; no mac client sees anything from this run"

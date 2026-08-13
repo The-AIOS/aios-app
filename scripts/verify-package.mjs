@@ -232,6 +232,103 @@ function checkLiveLinux(tree) {
   });
 }
 
+/* ── Windows ───────────────────────────────────────────────────────────────────────────────
+   Same contract, third artifact. No Info.plist, no ELF, no chrome-sandbox — a win*-unpacked tree
+   with AIOS.exe at the root plus resources/. The failure this platform actually has is the mirror
+   of Linux's: node-pty is the only native module, and a build that skipped the rebuild/prebuild
+   step packages a tree whose .node files are the wrong shape — the app boots, the window paints,
+   and EVERY terminal is dead on arrival. node-pty DOES publish a win32 prebuild (unlike Linux), and
+   on Windows the pty backend also needs its ConPTY/winpty helper binaries present, so the static
+   check asserts a PE .node AND the helper set. */
+const isPE = (f) => {
+  // Probe only the 2-byte 'MZ' DOS signature — the 4-byte '4d5a9000' constant assumes DOS-stub
+  // bytes that a valid PE does not guarantee, so it would false-negative a genuine binary.
+  try { const fd = fs.openSync(f, 'r'); const b = Buffer.alloc(2); fs.readSync(fd, b, 0, 2, 0); fs.closeSync(fd); return b[0] === 0x4d && b[1] === 0x5a; } catch { return false; }
+};
+
+function windowsTrees() {
+  const dist = 'dist';
+  if (!fs.existsSync(dist)) return [];
+  return fs.readdirSync(dist)
+    .filter((d) => /^win.*-unpacked$/.test(d))
+    .map((d) => path.join(dist, d))
+    .filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } });
+}
+
+function windowsExe(tree) {
+  // electron-builder names it <productName>.exe (AIOS.exe). Resolve from the artifact and match by
+  // the PE signature — do NOT reuse linuxExe (it rejects any name containing '.' and requires ELF,
+  // both of which exclude AIOS.exe). Prefer AIOS.exe; skip the (un)installer/elevate helpers.
+  const skip = /uninst|squirrel|elevate/i;
+  const exes = fs.readdirSync(tree).filter((f) => f.toLowerCase().endsWith('.exe') && !skip.test(f));
+  const pick = exes.find((f) => f === 'AIOS.exe') || exes.find((f) => isPE(path.join(tree, f)));
+  return pick ? path.join(tree, pick) : '';
+}
+
+function checkStaticWindows(tree) {
+  const label = path.basename(tree);
+  const bin = windowsExe(tree);
+  if (!bin) return fail(`${label}: no PE executable (AIOS.exe) at the tree root`);
+  if (!isPE(bin)) return fail(`${label}: ${path.basename(bin)} is not a PE binary`);
+
+  const asar = path.join(tree, 'resources', 'app.asar');
+  if (!fs.existsSync(asar)) return fail(`${label}: no resources/app.asar`);
+
+  const ptyRoot = path.join(tree, 'resources/app.asar.unpacked/node_modules/node-pty');
+  if (!fs.existsSync(ptyRoot)) return fail(`${label}: node-pty was not unpacked from the asar`);
+  const nodes = [];
+  const helpers = new Set();
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (e.name.endsWith('.node')) nodes.push(p);
+      if (/^(winpty-agent\.exe|winpty\.dll|conpty\.node|OpenConsole\.exe)$/i.test(e.name)) helpers.add(e.name);
+    }
+  };
+  walk(ptyRoot);
+  if (!nodes.length) return fail(`${label}: node-pty shipped with no .node binary at all`);
+  const pe = nodes.filter(isPE);
+  if (!pe.length) {
+    const kinds = [...new Set(nodes.map(magicOf))].join(', ');
+    return fail(`${label}: node-pty ships ${nodes.length} .node file(s) but NONE is a PE binary (found: ${kinds}). `
+      + `Every terminal in this build would fail to open.`);
+  }
+  // The ConPTY/winpty helper set must be unpacked too, or terminals die at runtime the way a
+  // wrong-ABI .node kills them — the win32 analog of the Linux ELF check catching a bad module.
+  if (!helpers.size) return fail(`${label}: node-pty unpacked but no ConPTY/winpty helper (winpty-agent.exe / winpty.dll / conpty.node) — terminals would fail at runtime`);
+
+  ok(`${label}: ${path.basename(bin)} is PE, app.asar present, node-pty has ${pe.length} PE .node + helpers [${[...helpers].join(', ')}]`);
+  return true;
+}
+
+function checkLiveWindows(tree) {
+  const label = path.basename(tree);
+  const bin = windowsExe(tree);
+  if (!bin) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    // No sandbox dance — that is a Linux-only concern; Windows has a desktop session.
+    const p = spawn(bin, ['--smoke'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' } });
+    let out = '';
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => { out += d; });
+    const timer = setTimeout(() => { p.kill('SIGKILL'); }, 90_000);
+    p.on('exit', (code, signal) => {
+      clearTimeout(timer);
+      const fatal = /FATAL/.test(out);
+      if (fatal) {
+        fail(`${label}: the packaged app ABORTED at startup:\n    ${out.split('\n').filter(Boolean).slice(-3).join('\n    ')}`);
+      } else if (code !== 0) {
+        fail(`${label}: packaged --smoke exited ${code}${signal ? ` (${signal})` : ''}:\n    ${out.split('\n').filter(Boolean).slice(-6).join('\n    ')}`);
+      } else {
+        ok(`${label}: packaged --smoke passed — the shipped artifact launches`);
+      }
+      resolve(!fatal && code === 0);
+    });
+    p.on('error', (e) => { clearTimeout(timer); fail(`${label}: could not execute — ${e.message}`); resolve(false); });
+  });
+}
+
 /* Dispatch on the host, and REFUSE to no-op silently on anything else. A verifier that prints
    nothing and exits 0 on an unrecognised platform is indistinguishable from one that checked
    everything and found it clean — the build would then ship on the strength of a gate that
@@ -252,6 +349,14 @@ if (process.platform === 'darwin') {
   }
   for (const t of trees) checkStaticLinux(t);
   for (const t of trees) await checkLiveLinux(t);
+} else if (process.platform === 'win32') {
+  const trees = windowsTrees();
+  if (!trees.length) {
+    console.error('verify-package: ✗ no win*-unpacked tree found under dist/ — run the build first');
+    process.exit(1);
+  }
+  for (const t of trees) checkStaticWindows(t);
+  for (const t of trees) await checkLiveWindows(t);
 } else {
   console.error(`verify-package: ✗ no verifier for platform "${process.platform}" — refusing to report a pass it did not measure`);
   process.exit(1);

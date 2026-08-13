@@ -132,6 +132,62 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  windows-dist:
+    # The mirror of linux-dist for Windows — a contributor's "it builds and runs on Windows" is a
+    # claim; this is the check, on x64, the arch we ship. node-pty is N-API with a win32 prebuild,
+    # so there is NO electron-rebuild step and no Visual Studio dependency: dist:win passes
+    # --config.npmRebuild=false and the shipped prebuild is used as-is (verify-package asserts the
+    # PE .node + the ConPTY helper set, the win32 analog of the Linux ELF check).
+    #
+    # Free on a public repo, gated to PRs + manual like the other dist jobs.
+    name: Windows build + packaged verify (x64)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    # windows-latest defaults `run:` to PowerShell, but the step bodies below use bash syntax
+    # ($(...), node -p in a subshell), so pin bash for the whole job. Git Bash ships on the runner.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run compile
+
+      # Unit suite on Windows too: the path.sep, shell-resolution and PowerShell-quoting branches
+      # only exist on this platform, and a branch nothing exercises ships broken (the "Ctrl+Plus"
+      # lesson, one platform over). A directory arg, not a glob — Node's runner discovers *.test.js
+      # under it identically whether npm invoked it through cmd.exe, pwsh, or bash.
+      - run: node --test out/test
+
+      # Build the nsis installer, then verify the SHIPPED tree — a PE .node, the ConPTY/winpty
+      # helper set, and a launch of the packaged AIOS.exe --smoke. No xvfb: Windows runners have a
+      # desktop session, and there is no chrome-sandbox to configure.
+      - run: npm run dist:win
+
+      # The same feed validator the other platforms use, pointed at the Windows artifacts.
+      # electron-updater's NsisUpdater reads the unqualified latest.yml + the installer .exe; if a
+      # future edit dropped either, Windows clients would 404 on every update, silently.
+      - name: Is the Windows update feed usable?
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          node scripts/assert-release-assets.mjs --tag "$TAG" --platform win32 --local
+
+      - name: Keep the artifacts for inspection (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: warn
+          retention-days: 7
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
