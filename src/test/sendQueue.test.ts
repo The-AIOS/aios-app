@@ -228,9 +228,17 @@ test('a verdict needs an INCREASE over the baseline, and shouts at 2', () => {
 });
 
 test('the main side reads the transcript but delegates the RULE to core', () => {
+  /* The assertion used to pin `const before = countUserTurnsContaining(...)` verbatim. That line
+     moved on 2026-08-12: the baseline is now captured ONCE outside the delivery loop, because
+     re-reading it per attempt absorbed the previous attempt's own turn and made a landed message
+     undetectable forever. The intent here is unchanged and is what is asserted — main does the IO,
+     core owns the counting rule and the verdict. Where the baseline is captured is asserted in
+     busPayload.test.ts, next to the reason. */
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(src, /const before = countUserTurnsContaining\(readTranscript\(sessionId\), needle\);/);
-  assert.match(src, /const verdict = verifyVerdict\(before, now\);/);
+  assert.match(src, /countUserTurnsContaining\(readTranscript\(sessionId\), needle\)/,
+    'main reads the transcript and hands it to the core counter');
+  assert.match(src, /const verdict = verifyVerdict\(before, now\);/,
+    'the verdict rule stays in core — main must not re-derive it');
   assert.match(src, /if \(verdict === 'pending'\) continue;/);
   assert.match(src, /DUPLICATE DELIVERY/, 'a duplicate must be shouted, not smoothed');
 });

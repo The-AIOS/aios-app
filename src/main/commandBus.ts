@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -72,7 +72,26 @@ const MAX_DELIVERY_ATTEMPTS = TIMINGS.MAX_DELIVERY_ATTEMPTS;   // contract
  */
 const PARSE_GRACE_MS = 2_000;
 
+/**
+ * The inbox is machine-global by design — that is exactly what lets any surface serve any
+ * request. It is also why this subsystem had no way to be EXERCISED: a second fulfiller pointed
+ * at the real directory races the installed App for live traffic, which is how a real brief died
+ * on 2026-07-27 (AI-67). So the only safe way to test the bus was not to test it, and the
+ * 2026-08-12 double-delivery bug was consequently found by a session complaining rather than by
+ * a check. Test infrastructure for the bus is the gap the bug exposed.
+ *
+ * AIOS_BUS_DIR redirects the watch to a throwaway directory so a dev build can be driven end to
+ * end without touching real requests.
+ *
+ * DEV-ONLY ON PURPOSE. A packaged App ignores it entirely. An env var that can silently divert
+ * the shipped App away from the real inbox would make every dropped request invisible — the
+ * operator would see requests never served, with nothing pointing at the cause. A test seam
+ * must not be reachable in production.
+ */
 function inboxDir(): string {
+  const override = (process.env.AIOS_BUS_DIR || '').trim();
+  if (override && !app.isPackaged) return path.resolve(override);
+  if (override) log(`ignoring AIOS_BUS_DIR in a packaged build — the real inbox is not overridable`);
   return path.join(os.homedir(), '.aios', 'spawn-inbox');
 }
 
@@ -241,6 +260,14 @@ async function runSend(
   }
   const needle = safeNeedle(deliverText);
   let attempts = 0;   // how many times we have actually TYPED into the target
+  /* Captured ONCE, before the first type, and reused by every attempt in this runSend.
+     It used to be recomputed at the top of each iteration, which made a LATE delivery invisible:
+     attempt 1 lands after the verify window closes, attempt 2 re-reads the baseline and absorbs
+     attempt 1's own turn into it, so `now - baseline` is 0 forever and the loop re-types a message
+     that already arrived. A baseline that moves cannot detect the thing it is a baseline for.
+     This is the other half of the 2026-08-12 four-deliveries bug, and the half that made it
+     unrecoverable: even after the text had landed, no later poll could ever prove it. */
+  let baseline: number | undefined;
   for (;;) {
     const target = targetByName(req.name);
     const decision = decideSend(target, Date.now() - claimedAt, MAX_HOLD_MS);
@@ -252,7 +279,8 @@ async function runSend(
     }
     // idle → deliver, then prove it in the target's own transcript
     const sessionId = target ? target.sessionId : '';
-    const before = countUserTurnsContaining(readTranscript(sessionId), needle);
+    if (baseline === undefined) baseline = countUserTurnsContaining(readTranscript(sessionId), needle);
+    const before = baseline;
     /* THE CAP HAS TO SIT HERE, before the send — not only in the after-a-miss decision.
        A 'wait' verdict does `continue`, which re-enters this branch, so a cap enforced only
        downstream changed a log line and nothing else: the loop would still re-type the message
