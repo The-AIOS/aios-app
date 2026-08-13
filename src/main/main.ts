@@ -124,6 +124,15 @@ function spillLongCommand(cmd: string): string {
       const p = path.join(dir, f);
       try { if (Date.now() - fs.statSync(p).mtimeMs > DAY) fs.unlinkSync(p); } catch { /* ignore */ }
     }
+    if (os.platform() === 'win32') {
+      // The pane's shell is PowerShell (defaultShell), so the spilled command IS PowerShell.
+      // Write a .ps1 and invoke it with the call operator `& '<path>'` in the SAME pane, so it
+      // inherits that session's environment. No exec bit / shebang on Windows; escape an embedded
+      // quote by doubling it (PowerShell single-quote rule).
+      const file = path.join(dir, `step-${Date.now()}-${nextId}.ps1`);
+      fs.writeFileSync(file, `${cmd}\r\n`);
+      return `& '${file.replace(/'/g, "''")}'`;
+    }
     const file = path.join(dir, `step-${Date.now()}-${nextId}.sh`);
     // bash, not sh: the generated chains use `{ … }` grouping and are written for it. A child
     // bash inherits the login shell's already-exported PATH, so `claude` still resolves.
@@ -142,8 +151,14 @@ function spillLongCommand(cmd: string): string {
    on Linux, where zsh is an optional package most machines never install. Probe, don't
    assume: first candidate that exists wins, /bin/sh is POSIX-guaranteed and ends the chain. */
 function defaultShell(): string {
-  if (process.env.SHELL) return process.env.SHELL;
+  /* Windows FIRST, before trusting $SHELL. On Windows $SHELL is normally unset — but when the
+     app is launched from Git Bash / MSYS / Cygwin it is a POSIX path like /usr/bin/bash that
+     node-pty's ConPTY backend CANNOT spawn as a Windows executable, so the terminal would be
+     born "[session ended]". powershell.exe is guaranteed present and is the shell the app's own
+     command quoting (renderer shq/xQuote, core commandBus.shq) targets, so keep it authoritative
+     here — do not honour a POSIX $SHELL on win32. */
   if (os.platform() === 'win32') return 'powershell.exe';
+  if (process.env.SHELL) return process.env.SHELL;
   const candidates = os.platform() === 'darwin'
     ? ['/bin/zsh', '/bin/bash', '/bin/sh']
     : ['/bin/bash', '/usr/bin/bash', '/bin/zsh', '/bin/sh'];
@@ -151,6 +166,15 @@ function defaultShell(): string {
     try { if (fs.statSync(c).isFile()) return c; } catch { /* try next */ }
   }
   return '/bin/sh';
+}
+/* The interactive-shell argv, per platform. POSIX shells take `-l` (login shell, so the pane
+   inherits ~/.zprofile|.bash_profile PATH). Windows PowerShell has NO -l/-login parameter and
+   node-pty exits code 1 on an unknown arg — the exact "[session ended]" failure the shell fix
+   above prevents, one argument over — so pass -NoLogo (drop the banner) there; cmd.exe (COMSPEC)
+   takes no such flag. */
+function loginArgs(shell: string): string[] {
+  if (os.platform() === 'win32') return /powershell|pwsh/i.test(shell) ? ['-NoLogo'] : [];
+  return ['-l'];
 }
 
 ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }) => {
@@ -168,7 +192,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   };
   const requested = opts.cwd && inAllowed(opts.cwd) ? opts.cwd : undefined;
   const cwd = [requested, aios.frameworkRoot(), os.homedir()].find(usable) as string;
-  const p = pty.spawn(shell, ['-l'], {
+  const p = pty.spawn(shell, loginArgs(shell), {
     name: 'xterm-256color',
     cols: opts.cols, rows: opts.rows,
     cwd,
@@ -212,7 +236,13 @@ function allowedRoots(): string[] {
   return out;
 }
 function inAllowed(abs: string): boolean {
-  return allowedRoots().some((r) => abs === r || abs.startsWith(r + path.sep));
+  /* Windows filesystems are case-insensitive and realpathSync can canonicalize drive-letter and
+     segment casing differently than the user-typed workspace path, so a case-sensitive containment
+     test rejects a legitimately-allowed file (fs:read/write/list/openViewer/"open terminal here"
+     all fail with "not allowed" on valid Windows paths). Compare case-insensitively on win32 only. */
+  const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const a = norm(abs);
+  return allowedRoots().some((r) => { const rr = norm(r); return a === rr || a.startsWith(rr + path.sep); });
 }
 
 /* ── Claude config live watch ──────────────────────────────────────────────────
@@ -264,7 +294,10 @@ let fsEventTimer: ReturnType<typeof setTimeout> | undefined;
 const fsEventDirs = new Set<string>();
 function setupExplorerWatch(win: BrowserWindow): void {
   for (const w of explorerWatchers.splice(0)) { try { w.close(); } catch { /* ignore */ } }
-  const SKIP = /(^|\/)(\.git|node_modules|out|dist|\.venv|__pycache__)(\/|$)/;
+  // Separator-agnostic: Windows recursive fs.watch delivers filenames with backslashes, so a
+  // forward-slash-only class never filters .git/node_modules/dist/out churn and floods the
+  // renderer with shell:fsEvent messages. `[\\/]` matches both.
+  const SKIP = /(^|[\\/])(\.git|node_modules|out|dist|\.venv|__pycache__)([\\/]|$)/;
   for (const root of allowedRoots()) {
     try {
       explorerWatchers.push(fs.watch(root, { recursive: true }, (_evt, filename) => {
@@ -823,7 +856,7 @@ app.whenReady().then(() => {
     return;
   }
   if (SHOT) {
-    const out = SHOT.includes('=') ? SHOT.split('=')[1] : '/tmp/aios-shot.png';
+    const out = SHOT.includes('=') ? SHOT.split('=')[1] : path.join(os.tmpdir(), 'aios-shot.png');
     win.webContents.once('did-finish-load', () => {
       setTimeout(() => {
         void win.webContents.capturePage().then((img) => {
@@ -840,7 +873,14 @@ app.whenReady().then(() => {
     // gate FLAKY — probes that hadn't finished read as failures).
     let loaded = false;
     win.webContents.on('did-finish-load', () => { loaded = true; });
-    const p = pty.spawn(defaultShell(), ['-c', 'echo GLASS_SHELL_PTY_OK'], { name: 'xterm', cols: 80, rows: 24, cwd: os.homedir(), env: process.env as Record<string, string> });
+    const probeShell = defaultShell();
+    // powershell.exe accepts `-c` (abbrev. of -Command) and `echo` (alias Write-Output), but be
+    // explicit per platform: -NoProfile keeps it fast, -Command is the correct token, and cmd.exe
+    // (if ever COMSPEC-resolved) would need /c not -c.
+    const probeArgs = os.platform() === 'win32'
+      ? ['-NoProfile', '-Command', 'echo GLASS_SHELL_PTY_OK']
+      : ['-c', 'echo GLASS_SHELL_PTY_OK'];
+    const p = pty.spawn(probeShell, probeArgs, { name: 'xterm', cols: 80, rows: 24, cwd: os.homedir(), env: process.env as Record<string, string> });
     let buf = '';
     p.onData((d) => { buf += d; });
 

@@ -18,6 +18,7 @@
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",
     "dist": "npm run compile && electron-builder --mac dmg --publish never && npm run verify:package",
     "dist:linux": "npm run compile && electron-builder --linux --publish never && npm run verify:package",
+    "dist:win": "npm run compile && electron-builder --win --publish never && npm run verify:package",
     "verify:package": "node scripts/verify-package.mjs",
     "start:isolated": "npm run compile && electron . --user-data-dir=.dev-userdata"
   },
@@ -129,6 +130,23 @@
         "xdg-utils",
         "libatspi2.0-0"
       ]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "AIOS-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "AIOS-${arch}.${ext}"
     },
     "copyright": "Copyright © 2026 The-AIOS"
   },

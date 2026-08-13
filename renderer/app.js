@@ -8,6 +8,26 @@
  * vault files.
  */
 
+/* Host platform (exposed by preload). The pane's shell is PowerShell on Windows, so command
+   quoting (shq/xQuote) and Windows-path handling (drive letters, backslashes, file:// URLs)
+   branch on this. A plain boolean, resolved once. */
+const IS_WIN = !!(window.glassShell && window.glassShell.platform === 'win32');
+
+/* Separator-agnostic path helpers. On Windows the paths main hands us are backslash-separated
+   (path.join output), so the renderer's forward-slash-only basename/dirname (`split('/').pop()`,
+   `lastIndexOf('/')`) silently return the whole string or ''. These accept BOTH separators. */
+const xSepIdx = (p) => Math.max(String(p).lastIndexOf('/'), String(p).lastIndexOf('\\'));
+const xBase = (p) => { const s = String(p); const i = xSepIdx(s); return i >= 0 ? s.slice(i + 1) : s; };
+/* Absolute filesystem path → a well-formed file:// URL. On Windows C:\a\b.png must become
+   file:///C:/a/b.png (forward slashes, a leading slash before the drive); on POSIX /a/b.png →
+   file:///a/b.png. Each segment is percent-encoded (spaces, #, …) except a drive letter, whose
+   colon must survive. */
+function fileUrl(p) {
+  let s = String(p).replace(/\\/g, '/');
+  if (!s.startsWith('/')) s = '/' + s;                 // Windows drive path → /C:/...
+  return 'file://' + s.split('/').map((seg) => /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg)).join('/');
+}
+
 /* ── inline icon set (lucide-style strokes, static strings) ───────────────── */
 const ICONS = {
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
@@ -1395,8 +1415,12 @@ function updateEmpty() {
    That covers the cases that actually occur — `git status` quotes paths containing spaces, and
    this vault is full of them ("00 - notes/...") — without turning every sentence into a
    candidate link. Unquoted paths keep the conservative rule. */
-const PATH_QUOTED_RE = /["'`]([^"'`\n]{2,200}?\.[A-Za-z]{1,8}(?::\d+)?)["'`]|["'`]([^"'`\n]{2,200}?\/[^"'`\n]{1,200}?)["'`]/g;
-const PATH_RE = /(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\d+)?|\b[A-Za-z0-9._@+-]+\.[A-Za-z]{1,8}(?::\d+)?/g;
+const PATH_QUOTED_RE = /["'`]([^"'`\n]{2,200}?\.[A-Za-z]{1,8}(?::\d+)?)["'`]|["'`]([^"'`\n]{2,200}?\/[^"'`\n]{1,200}?)["'`]|["'`]([^"'`\n]{2,200}?\\[^"'`\n]{1,200}?)["'`]/g;
+/* Third alternative (Windows): a drive-letter root `C:\` or `C:/` followed by \- or /-separated
+   segments — what PowerShell/dir/most Windows CLIs print. `\b` before the drive letter keeps it
+   from matching the `p:/` inside `http://…`. Existence-checked like every candidate, so a
+   spurious match simply resolves to nothing; on POSIX it just never fires. */
+const PATH_RE = /\b[A-Za-z]:[\\/](?:[^\s\\/:*?"<>|]+[\\/]?)+(?::\d+)?|(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\d+)?|\b[A-Za-z0-9._@+-]+\.[A-Za-z]{1,8}(?::\d+)?/g;
 
 /** Candidates on one line. Quoted matches first (their quotes delimit any spaces), then bare
     tokens — and each bare token also gets EXTENDED across the spaces that follow it.
@@ -1410,7 +1434,7 @@ const PATH_RE = /(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\
 function pathCandidates(text) {
   const out = [];
   for (const m of text.matchAll(PATH_QUOTED_RE)) {
-    const val = m[1] ?? m[2];
+    const val = m[1] ?? m[2] ?? m[3];
     if (!val) continue;
     out.push({ value: val, index: m.index + 1, length: val.length, alts: [] });
   }
@@ -2897,7 +2921,7 @@ async function openRecents() {
   }
   if (files.length) items.push({ label: t('recent.headFiles'), head: true });
   for (const r of files) {
-    const nm = String(r.path).split('/').pop();
+    const nm = xBase(r.path);
     items.push({
       label: nm,
       desc: agoLabel(r.at) + ' · ' + String(r.path).split('/').slice(-3, -1).join('/'),
@@ -2922,8 +2946,8 @@ async function openViewer(p) {
     if (pane.kind === 'view' && pane.path === p) { setActive(id); return; }
   }
   const file = await window.glassShell.fsRead(p);
-  if (!file) { toast(t('viewer.cannotOpen', { name: String(p).split('/').pop() })); return; }
-  const name = file.path.split('/').pop();
+  if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
+  const name = xBase(file.path);
   noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
   const id = 'v' + (++viewSeq);
   const el = document.createElement('div');
@@ -3027,7 +3051,7 @@ async function openViewer(p) {
     if (IMG_EXT.test(name)) {
       const img = document.createElement('img');
       img.className = 'imgview';
-      img.src = 'file://' + file.path;
+      img.src = fileUrl(file.path);
       body.appendChild(img);
       return;
     }
@@ -3035,7 +3059,7 @@ async function openViewer(p) {
       // Chromium's built-in PDF viewer (no sandbox attr — it blocks the plugin)
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
-      fr.src = 'file://' + file.path;
+      fr.src = fileUrl(file.path);
       body.appendChild(fr);
       return;
     }
@@ -3044,7 +3068,7 @@ async function openViewer(p) {
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
       fr.setAttribute('sandbox', 'allow-scripts');
-      fr.src = 'file://' + file.path;
+      fr.src = fileUrl(file.path);
       body.appendChild(fr);
       return;
     }
@@ -3073,10 +3097,10 @@ async function openViewer(p) {
     }
     const md = document.createElement('div');
     md.innerHTML = marked.parse(src); // operator's own vault content
-    const dir = file.path.slice(0, file.path.lastIndexOf('/'));
+    const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
-      if (s && !/^(https?|file|data):/.test(s)) img.src = 'file://' + dir + '/' + s;
+      if (s && !/^(https?|file|data):/.test(s)) img.src = fileUrl(dir + '/' + s);
     }
     // live task checkboxes — click toggles [ ]/[x] in the FILE (Obsidian-style)
     const boxes = md.querySelectorAll('input[type="checkbox"]');
@@ -3154,7 +3178,13 @@ const dirContainers = new Map(); // absDir → the element holding its child row
 const ensureExpand = new Map();  // path | 'sect:LABEL' → an expand-only fn (for auto-reveal)
 const xFindRow = (p) => { for (const r of explorerEl.querySelectorAll('.xrow[data-path]')) if (r.dataset.path === p) return r; return null; };
 const xSelect = (row) => { for (const r of explorerEl.querySelectorAll('.xrow.sel')) r.classList.remove('sel'); row.classList.add('sel'); };
-const xQuote = (p) => /[^A-Za-z0-9._/\-]/.test(p) ? "'" + p.replace(/'/g, "'\\''") + "'" : p;
+const xQuote = (p) => {
+  const s = String(p);
+  // Windows: the pane is PowerShell (double the quote to escape); allow \ and : unquoted so a
+  // bare drive path (C:\Users\x) is typed clean, and quote only when other specials appear.
+  if (IS_WIN) return /[^A-Za-z0-9._/\\:-]/.test(s) ? "'" + s.replace(/'/g, "''") + "'" : s;
+  return /[^A-Za-z0-9._/\-]/.test(s) ? "'" + s.replace(/'/g, "'\\''") + "'" : s;
+};
 
 /* Every setup script the app runs ends with a framed verdict IN THE TERMINAL. A non-technical
    operator watching a wall of pip output has no way to know whether it finished, whether the red
@@ -3181,11 +3211,11 @@ async function withDoneBanner(cmd) {
   // no helper (write failed) → run the command plainly rather than not at all
   return b ? `{ ${cmd} ; }; ${xQuote(b)} $?` : cmd;
 }
-const xDirOf = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
+const xDirOf = (p) => { const s = String(p); const i = xSepIdx(s); return i > 0 ? s.slice(0, i) : (IS_WIN ? s : '/'); };
 
 function openTerminalHere(p, isDir) {
   const dir = isDir ? p : xDirOf(p);
-  void createPane({ name: dir.split('/').pop() || 'terminal', cwd: dir });
+  void createPane({ name: xBase(dir) || 'terminal', cwd: dir });
 }
 function sendPathToTerminal(p) {
   const id = active.term != null ? active.term : (active.main != null && panes.get(active.main)?.kind === 'term' ? active.main : null);
@@ -3204,7 +3234,7 @@ function attachDrag(row, p, isDir) {
   row.addEventListener('dragstart', (ev) => {
     if (!ev.dataTransfer) return;
     ev.dataTransfer.setData('text/plain', p);
-    ev.dataTransfer.setData('text/uri-list', 'file://' + encodeURI(p));
+    ev.dataTransfer.setData('text/uri-list', fileUrl(p));
     ev.dataTransfer.setData('application/x-aios-path', p);   // our own, unambiguous
     // the row already KNOWS whether it is a folder — carrying it beats asking the main
     // process again on drop, and it cannot disagree with what the operator dragged
@@ -3901,7 +3931,7 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
     // An OS drop can be a folder too — that becomes a workspace folder, which is how an
     // outside project comes in.
     const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
-    if (addedDir) { toast(t('drop.folderAdded', { name: addedDir.split('/').pop() })); void paintExplorer(); continue; }
+    if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
     /* A file the reader refuses is simply outside every allowed root — which is most things
        dragged from Finder. Rather than dead-ending on "cannot open", bring its folder into
        scope: the same widening the Add-folder dialog performs, except the drop IS the
@@ -3910,7 +3940,7 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
     if (!readable) {
       const parent = xDirOf(dropped);
       const widened = await window.glassShell.addFolderPath(parent).catch(() => null);
-      if (widened) { toast(t('drop.folderAdded', { name: parent.split('/').pop() })); void paintExplorer(); }
+      if (widened) { toast(t('drop.folderAdded', { name: xBase(parent) })); void paintExplorer(); }
     }
     void openViewer(dropped);
   }
@@ -3925,7 +3955,7 @@ attachDropZone(document.getElementById('tpanes'), (paths, isDir) => {
   }
   // no terminal to receive it: opening one AT that folder is the useful reading
   const dir = isDir ? paths[0] : xDirOf(paths[0]);
-  void createPane({ name: dir.split('/').pop() || 'terminal', cwd: dir });
+  void createPane({ name: xBase(dir) || 'terminal', cwd: dir });
 });
 
 /* ── splitters (drag to resize) ───────────────────────────────────────────── */
@@ -4118,7 +4148,14 @@ window.glassShell.onIntent(async (m) => {
   }
 });
 
-function shq(s) { return `'${s.replace(/'/g, `'\\''`)}'`; }
+/* Quote a whole argument for the pane's shell. On Windows that shell is PowerShell, whose
+   single-quoted strings escape an embedded quote by DOUBLING it (''), not the POSIX '\'' idiom —
+   getting this wrong corrupts the FIRST prompt of every launched session, and apostrophes are
+   pervasive in EN/ES natural-language prompts. POSIX shells keep the '\'' form. */
+function shq(s) {
+  const str = String(s);
+  return IS_WIN ? `'${str.replace(/'/g, "''")}'` : `'${str.replace(/'/g, `'\\''`)}'`;
+}
 
 
 // The first prompt handed to a session launched with no explicit task — it triggers

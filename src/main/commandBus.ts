@@ -386,7 +386,12 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
       log(`'${req.name}' already running — revealed`);
     } else {
       let taskFile: string | undefined;
-      if (needsTaskFile(req.task)) {
+      /* On Windows the pane's shell is PowerShell, but buildSpawnCmd (shared pure core, POSIX
+         quoting) can only quote the inline prompt the POSIX way — which mangles an apostrophe in
+         PowerShell and corrupts the worker's first prompt. So route EVERY task through a temp file
+         on win32: the command becomes `claude --name X 'Read <file>…'` (no apostrophes to mangle)
+         and the worker reads the task verbatim. On POSIX, only long/multiline tasks spill, as before. */
+      if (needsTaskFile(req.task) || (process.platform === 'win32' && req.task)) {
         taskFile = path.join(os.tmpdir(), `aios-spawn-task-${req.name}.md`);
         try { fs.writeFileSync(taskFile, req.task as string); } catch { taskFile = undefined; }
       }

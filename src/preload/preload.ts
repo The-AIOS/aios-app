@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('glassShell', {
   /* One flag only, and a diagnostic one: AIOS_NO_WEBGL disables the GPU renderer so a
      rendering artifact can be attributed or ruled out. Deliberately not the whole env. */
   env: { AIOS_NO_WEBGL: process.env.AIOS_NO_WEBGL || '' },
+  /* The host platform, so the renderer can quote pane commands for the RIGHT shell (PowerShell
+     on win32 doubles a single-quote, POSIX shells escape it) and render/compare Windows paths.
+     A plain string ('win32' | 'darwin' | 'linux'); the renderer has no other way to know. */
+  platform: process.platform,
   claudeStores: (): Promise<Record<string, string>> => ipcRenderer.invoke('claude:stores'),
   claudeSetKeys: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('claude:setKeys'),
   updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
