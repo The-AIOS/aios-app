@@ -15,8 +15,8 @@
     "smoke": "npm run compile && electron . --smoke",
     "sync-core": "node scripts/sync-core.mjs",
     "check:tokens": "node scripts/check-forbidden-tokens.mjs",
-    "dist": "npm run compile && electron-builder --mac dmg && npm run verify:package",
-    "dist:linux": "npm run compile && electron-builder --linux && npm run verify:package",
+    "dist": "npm run compile && electron-builder --mac dmg --publish never && npm run verify:package",
+    "dist:linux": "npm run compile && electron-builder --linux --publish never && npm run verify:package",
     "verify:package": "node scripts/verify-package.mjs",
     "start:isolated": "npm run compile && electron . --user-data-dir=.dev-userdata"
   },

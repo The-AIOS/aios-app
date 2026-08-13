@@ -60,6 +60,25 @@ test('the release workflow validates the feed BEFORE publishing and AFTER attach
   }
 });
 
+test('no build script may publish — publishing is a separate step, after verify', () => {
+  /* electron-builder publishes BY ITSELF on a CI build that is not a pull request, and then
+     fails demanding GH_TOKEN. The mac release lane always passed `--publish never` and gated
+     publishing behind verify; the scripts did not, so `dist:linux` died at the build step the
+     first time it ran on a workflow_dispatch.
+     The PR gate could not have caught this: electron-builder detects a pull request and skips
+     publishing, so on a PR the missing flag is invisible. That is the interesting part — a check
+     whose environment differs from the one it guards in exactly the way that matters.
+     The order also matters beyond the token: a build that uploads its own artifacts has
+     published BEFORE verify:package runs, which is how v0.7.0 reached users. */
+  const scripts = JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts as Record<string, string>;
+  for (const [name, cmd] of Object.entries(scripts)) {
+    if (!cmd.includes('electron-builder')) continue;
+    assert.match(cmd, /--publish never/,
+      `script "${name}" runs electron-builder without --publish never; on a non-PR CI build it will `
+      + `try to publish itself, and it would upload before verify:package could reject the build`);
+  }
+});
+
 test('electron-updater still requires a zip — pinned to the installed dependency', () => {
   /* If a future electron-updater learns to update from a dmg, this fails and the rule above
      can be revisited deliberately, rather than being carried forever as folklore. */
