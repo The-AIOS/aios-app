@@ -439,11 +439,23 @@ test('the command an operator sees is the command, not a wall of escape codes', 
      deciding whether to trust this. Measured: 1,100 characters became 118, same behaviour.
      It also keeps every command well clear of MAX_CANON, where the tail is dropped silently. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /return b \? `\{ \$\{cmd\} ; \}; \$\{xQuote\(b\)\} \$\?` : cmd;/,
-    'the visible command is the real command plus a short tail');
+  /* Windows split this into two branches (PowerShell treats the POSIX `{ cmd ; };` form as a
+     scriptblock LITERAL that never executes — which made every setup button a silent no-op), so the
+     single-ternary spelling this used to pin is gone. What must hold is unchanged and is asserted
+     directly: BOTH branches emit the real command plus a SHORT tail, and neither inlines a banner. */
+  const fn = /async function withDoneBanner\(cmd\) \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(fn, 'withDoneBanner must be findable');
+  const body = fn![0];
+  assert.match(body, /if \(IS_WIN\) return `\$\{cmd\} ; \$\{b\} \$\?`;/, 'win32 runs the two sequentially');
+  assert.match(body, /return `\{ \$\{cmd\} ; \}; \$\{xQuote\(b\)\} \$\?`;/, 'POSIX keeps the brace group');
+  assert.match(body, /if \(!b\) return cmd;/, 'no helper → run the command plainly rather than not at all');
+  // The property the whole test exists for: the tail is short. 1,100 chars became 118; any
+  // template here that grew past a line would be the inlined-banner regression coming back.
+  for (const t of body.match(/`[^`]*`/g) ?? []) {
+    assert.ok(t.length < 60, `an emitted command template grew to ${t.length} chars: ${t.slice(0, 70)}`);
+  }
   assert.doesNotMatch(app, /printf '\\\\n\\\\033\[32m/, 'no inlined ANSI banner in the renderer');
   // and if the helper cannot be written, the command must still run
-  assert.match(app, /\/\/ no helper \(write failed\) → run the command plainly rather than not at all/);
   const aios = fs.readFileSync('src/main/aios.ts', 'utf8');
   assert.match(aios, /export function bannerScript\(/);
   assert.match(aios, /mode: 0o700/);
