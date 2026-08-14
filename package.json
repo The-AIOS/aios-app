@@ -1,7 +1,7 @@
 {
   "name": "aios-app",
   "productName": "AIOS",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "desktopName": "aios.desktop",
   "description": "AIOS App — the one-for-all AIOS desktop application. Glass, not engine.",
   "license": "GPL-2.0-or-later",
