@@ -141,7 +141,18 @@ test('delivery is verified by counting USER TURNS, not substring hits', () => {
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   // the RULE now lives in core (pure, unit-tested above); main only does the IO
   assert.match(src, /function readTranscript/);
-  assert.match(src, /countUserTurnsContaining\(readTranscript\(sessionId\), needle\)/);
+  /* Pin the INVARIANT, not the call text. This assertion has now broken twice by pinning a line
+     that legitimately moved (the baseline hoist on 08-12, the `sinceMs` bound on 08-14), which is
+     how a guard trains people to update it without reading it. What must hold: main hands the
+     transcript to the core counter, and every such call BOUNDS it by the claim. */
+  const counterCalls = src.match(/countUserTurnsContaining\(readTranscript\(sessionId\)[^)]*\)/g) ?? [];
+  assert.ok(counterCalls.length >= 3, `main must delegate counting to core (found ${counterCalls.length} calls)`);
+  for (const call of counterCalls) {
+    assert.match(call, /, needle, claimedAt\)$/,
+      `every count must be bounded by the CLAIM, not unbounded and not by a per-attempt clock — got: ${call}`);
+  }
+  assert.doesNotMatch(src, /countUserTurnsContaining\(readTranscript\(sessionId\), needle, emittedAt\)/,
+    'emittedAt moves on every retry; a moving bound resets the count mid-flight — the moving-baseline bug again');
   assert.doesNotMatch(src, /countInTranscript/, 'the substring counter is retired');
   assert.match(src, /\.claude', 'projects'/);
 });
@@ -235,8 +246,8 @@ test('the main side reads the transcript but delegates the RULE to core', () => 
      core owns the counting rule and the verdict. Where the baseline is captured is asserted in
      busPayload.test.ts, next to the reason. */
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(src, /countUserTurnsContaining\(readTranscript\(sessionId\), needle\)/,
-    'main reads the transcript and hands it to the core counter');
+  assert.match(src, /countUserTurnsContaining\(readTranscript\(sessionId\), needle, claimedAt\)/,
+    'main reads the transcript and hands it to the core counter, bounded by the claim');
   assert.match(src, /const verdict = verifyVerdict\(before, now\);/,
     'the verdict rule stays in core — main must not re-derive it');
   assert.match(src, /if \(verdict === 'pending'\) continue;/);
@@ -249,4 +260,84 @@ test('HOLD_STALE_MS > MAX_HOLD_MS — a hold must not become adoptable before it
   // not scraped from source text.
   assert.ok(TIMINGS.HOLD_STALE_MS > TIMINGS.MAX_HOLD_MS,
     'a fulfiller must give up before its own claim becomes adoptable');
+});
+
+/* ── The slash-command needle, and the false VERIFIED it produced ────────────
+   Shape verified against real transcripts on 2026-08-14 (twelve files, 11,152 user records):
+   a slash command is recorded as a user turn whose text is the `<command-name>` wrapper, and
+   every record carries a parseable ISO `timestamp`. Content below is synthetic — real transcript
+   text is the operator's private session data and does not belong in a repo — but the SHAPE is
+   what was measured, which is the part the assertions depend on. */
+const cmdTurn = (cmd: string, iso: string): string => JSON.stringify({
+  type: 'user',
+  timestamp: iso,
+  message: { role: 'user', content: `<command-name>${cmd}</command-name>\n<command-message>${cmd.slice(1)}</command-message>` },
+});
+
+test('a ZERO baseline must not turn transcript HISTORY into a verified delivery', () => {
+  /* THE BUG, reproduced. Both surfaces fail SOFT when the transcript cannot be read: Glass does
+     `catch { baseline = 0 }` and the App's readTranscript returns '' (which counts 0). So a
+     transient read miss at baseline time sets the baseline to zero — and then a PRE-EXISTING
+     invocation of the same slash command reads as a fresh arrival.
+
+     The consequence is the worst one in the protocol: the bus concludes its send landed, DELETES
+     the request, and nobody is told. A silently lost message, not a duplicated one.
+
+     It needs the needle to be non-unique, which for a slash command it always is:
+     safeNeedle('/config') === '/config', because the command is shorter than the 24-character
+     run the matcher looks for. Measured: 7 of 10 slash-command sends had a needle also present in
+     other user records, invocations forty minutes and five hours apart. */
+  const claimedAt = Date.parse('2026-08-14T18:00:00.000Z');
+  const history = cmdTurn('/config', '2026-08-14T17:00:00.000Z');   // an hour BEFORE we claimed
+  const needle = safeNeedle('/config');
+  assert.equal(needle, '/config', 'a slash command IS its own needle — this is why the bound matters');
+
+  const baselineFailed = 0;                                          // the fail-soft path
+  const unbounded = countUserTurnsContaining(history, needle);
+  assert.equal(unbounded, 1);
+  assert.equal(verifyVerdict(baselineFailed, unbounded), 'verified',
+    'this is the bug: history read as a delivery that never happened');
+
+  const bounded = countUserTurnsContaining(history, needle, claimedAt);
+  assert.equal(bounded, 0, 'a record older than our claim can never be our delivery');
+  assert.equal(verifyVerdict(baselineFailed, bounded), 'pending',
+    'fixed: the send stays unverified, so it retries or dead-letters LOUDLY instead of vanishing');
+});
+
+test('a real delivery still verifies, and a real double still shouts', () => {
+  const claimedAt = Date.parse('2026-08-14T18:00:00.000Z');
+  const needle = safeNeedle('/config');
+  const one = cmdTurn('/config', '2026-08-14T18:00:05.000Z');
+  assert.equal(countUserTurnsContaining(one, needle, claimedAt), 1);
+  assert.equal(verifyVerdict(0, countUserTurnsContaining(one, needle, claimedAt)), 'verified');
+  const two = `${one}\n${cmdTurn('/config', '2026-08-14T18:00:07.000Z')}`;
+  assert.equal(verifyVerdict(0, countUserTurnsContaining(two, needle, claimedAt)), 'duplicate',
+    'the bound must not silence a genuine double delivery');
+  // exactly at the claim instant counts — the claim is inclusive
+  assert.equal(countUserTurnsContaining(cmdTurn('/config', '2026-08-14T18:00:00.000Z'), needle, claimedAt), 1);
+});
+
+test('FAIL CLOSED: a record we cannot place in time is not counted as ours', () => {
+  /* The asymmetry is deliberate and matches DELIVERABLE_STATUSES: counting an unplaceable record
+     risks a silent loss, while not counting it risks a retry and at worst a LOUD .undelivered.
+     Measured 11,152/11,152 records with a parseable timestamp, so this is a guard against a
+     future format change, not a common path. */
+  const claimedAt = Date.parse('2026-08-14T18:00:00.000Z');
+  const noTs = JSON.stringify({ type: 'user', message: { role: 'user', content: '<command-name>/config</command-name>' } });
+  const badTs = JSON.stringify({ type: 'user', timestamp: 'not-a-date', message: { role: 'user', content: '<command-name>/config</command-name>' } });
+  assert.equal(countUserTurnsContaining(noTs, '/config', claimedAt), 0, 'missing timestamp → not ours');
+  assert.equal(countUserTurnsContaining(badTs, '/config', claimedAt), 0, 'unparseable timestamp → not ours');
+  // and with no bound requested, behaviour is unchanged — the parameter is additive
+  assert.equal(countUserTurnsContaining(noTs, '/config'), 1, 'unbounded counting is untouched');
+});
+
+test('KNOWN LIMIT: an invocation inside our own hold window is still indistinguishable', () => {
+  /* Asserted so it is a TESTED limitation rather than a surprise during the next incident. The
+     needle cannot be made unique without altering the text we type, and a slash command with a
+     marker appended is no longer that slash command. What the bound buys is the size of the
+     window: from the transcript's entire history down to our own hold. */
+  const claimedAt = Date.parse('2026-08-14T18:00:00.000Z');
+  const someoneElse = cmdTurn('/config', '2026-08-14T18:00:03.000Z');
+  assert.equal(countUserTurnsContaining(someoneElse, '/config', claimedAt), 1,
+    'still counted — documented, bounded to the hold window, and the reason release was removed');
 });
