@@ -1795,7 +1795,18 @@ function ensureActive(z) {
    The text names the ACTION, not the state. "Update available" reports a fact and leaves the
    reader to work out their move; "Restart to update" IS the move, and it is honest about the
    cost — which matters here because a restart currently closes every terminal. */
-function showUpdatePill(version) {
+/* AI-83 — THE PILL SHOWS THE DOWNLOAD, NOT ONLY ITS END.
+   It used to appear only on `update-downloaded`. The payload is 108–131 MB depending on
+   platform, so between "an update exists" and "the pill appears" there was a multi-minute
+   window in which the app KNEW and showed nothing — during which a quit-and-reopen reads as
+   "the updater is broken". Measured twice on the same operator, two releases running; the
+   second time he stopped waiting and used File › Check for Updates instead, which is the tell
+   that a papercut has become the interface.
+   `state` is 'downloading' | 'ready'. Downloading is deliberately NOT actionable: install
+   mid-download would fail, so the button is disabled rather than offering something that
+   cannot work. The click handler is attached once at creation and re-checks state, because a
+   disabled attribute alone is a style, not a guarantee. */
+function showUpdatePill(version, state = 'ready', pct = null) {
   const acts = document.getElementById('dragacts');
   if (!acts) return;
   let pill = document.getElementById('updPill');
@@ -1805,6 +1816,7 @@ function showUpdatePill(version) {
     pill.className = 'updpill';
     acts.appendChild(pill);   // last child = rightmost in the title bar
     pill.addEventListener('click', async () => {
+      if (pill.dataset.state !== 'ready') return;   // still downloading — nothing to install yet
       const v = pill.dataset.version || '';
       // Confirm, because this closes live terminals. Once session-restore lands the cost
       // drops and this prompt can soften — until then it must not be a surprise.
@@ -1813,8 +1825,22 @@ function showUpdatePill(version) {
     });
   }
   pill.dataset.version = version || '';
-  pill.textContent = t('update.pill');
-  pill.title = t('update.tip', { version: version || '' });
+  pill.dataset.state = state;
+  const downloading = state === 'downloading';
+  pill.classList.toggle('downloading', downloading);
+  pill.disabled = downloading;
+  if (downloading) {
+    /* A percentage only appears once electron-updater reports one. Rendering "0%" before the
+       first progress event would claim precision we do not have, and a download that stalls at
+       a fabricated 0 is worse than one that simply says it is running. */
+    pill.textContent = Number.isFinite(pct)
+      ? t('update.pillDownloadingPct', { pct: String(Math.round(pct)) })
+      : t('update.pillDownloading');
+    pill.title = t('update.tipDownloading', { version: version || '' });
+  } else {
+    pill.textContent = t('update.pill');
+    pill.title = t('update.tip', { version: version || '' });
+  }
   pill.hidden = false;
 }
 
@@ -1825,14 +1851,24 @@ function hideUpdatePill() {
 
 if (window.glassShell.onUpdater) {
   window.glassShell.onUpdater(({ channel, payload }) => {
-    if (channel === 'ready') showUpdatePill((payload || {}).version);
+    /* AI-83: 'available' and 'progress' now REACH the UI. They used to be log-only, which left
+       the whole download invisible. 'checking' stays silent on purpose — a poll that finds
+       nothing is not news, and surfacing it would make the chrome flicker on every focus. */
+    if (channel === 'ready') showUpdatePill((payload || {}).version, 'ready');
+    else if (channel === 'available') showUpdatePill((payload || {}).version, 'downloading');
+    else if (channel === 'progress') {
+      /* Progress can arrive without a version in the payload, and it must not blank the one
+         'available' already gave us — the tooltip names the version being fetched. */
+      const cur = document.getElementById('updPill');
+      const v = (payload || {}).version || (cur && cur.dataset.version) || '';
+      showUpdatePill(v, 'downloading', (payload || {}).percent);
+    }
     else if (channel === 'none' || channel === 'error') hideUpdatePill();
-    /* 'checking' | 'available' | 'progress' stay silent in the UI — but NOT in the log. An
-       update that is offered and then fails to download used to leave no trace anywhere: the
-       pill only appears once a download COMPLETES, so v0.7.0's dead feed looked exactly like
-       "no update available". One line per transition is what turns the next silent failure
-       into a five-second diagnosis. */
-    else console.log('[updater]', channel, JSON.stringify(payload || {}));
+    /* Still logged, every transition. An update offered and then failed to download used to
+       leave no trace anywhere, so v0.7.0's dead feed looked exactly like "no update
+       available". One line per transition is what turns the next silent failure into a
+       five-second diagnosis. */
+    if (channel !== 'ready') console.log('[updater]', channel, JSON.stringify(payload || {}));
     if (channel === 'error') console.warn('[updater] update failed:', (payload || {}).message);
   });
 }

@@ -36,7 +36,36 @@ import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } f
  * so both surfaces provably agree; if they ever diverge, a diff should say so.
  */
 
-const log = (msg: string): void => console.log(`[command-bus] ${msg}`);
+/* A DURABLE trail, because `console.log` alone left none.
+ *
+ * The bus is the most concurrency-sensitive code in the App, and its entire decision history
+ * went to a console nobody can read in a packaged build. When one request was delivered four
+ * times on 2026-08-12, the diagnosis took hours of forensic reconstruction from transcripts and
+ * a request file caught mid-flight — every one of those decisions had been logged, to nowhere.
+ *
+ * ONE FILE, SHARED BY EVERY SURFACE, and that is the point rather than an accident: the failures
+ * this trail exists for are multi-writer races (two fulfillers, claim/release/re-claim), so a
+ * per-process log would split exactly the evidence that needs interleaving. Each line therefore
+ * carries the surface and pid, which is what makes "who did what, in what order" answerable.
+ *
+ * Never throws. A logging failure must not take the bus down — losing the trail is bad, losing
+ * delivery is worse. */
+const BUS_LOG_MAX = 512 * 1024;   // ~5k lines; a trail nobody can open is not a trail
+const busLogPath = (): string => path.join(os.homedir(), '.aios', 'logs', 'command-bus.log');
+function busLogAppend(msg: string): void {
+  try {
+    const f = busLogPath();
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.appendFileSync(f, `${new Date().toISOString()} [${MY_SURFACE}:${process.pid}] ${msg}\n`);
+    /* Cap by keeping the TAIL. The newest half is the half that explains what just happened, and
+       a trail that grows without bound eventually stops being opened at all. */
+    if (fs.statSync(f).size > BUS_LOG_MAX) {
+      const keep = fs.readFileSync(f, 'utf8').slice(-Math.floor(BUS_LOG_MAX / 2));
+      fs.writeFileSync(f, keep.slice(keep.indexOf('\n') + 1));   // drop the half-line at the cut
+    }
+  } catch { /* a trail is a nice-to-have; delivery is not */ }
+}
+const log = (msg: string): void => { console.log(`[command-bus] ${msg}`); busLogAppend(msg); };
 
 /*
  * These timings are CONTRACT, not tuning — they must match the Glass extension's, because
