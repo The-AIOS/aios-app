@@ -8,7 +8,7 @@ import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
-  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, type SendTarget,
+  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, maxAttemptsFor, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 
@@ -315,7 +315,7 @@ async function runSend(
        downstream changed a log line and nothing else: the loop would still re-type the message
        every cycle for the full hold. Caught by tracing the control flow rather than trusting
        the counter, which is the same lesson as everything else in this ticket. */
-    if (attempts >= TIMINGS.MAX_DELIVERY_ATTEMPTS) {
+    if (attempts >= maxAttemptsFor(deliverText)) {
       const late = countUserTurnsContaining(readTranscript(sessionId), needle, claimedAt);
       if (verifyVerdict(before, late) !== 'pending') {
         try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
@@ -376,6 +376,7 @@ async function runSend(
       targetBusy: !!after && !isDeliverable(after.status),
       heldMs: Date.now() - claimedAt,
       attempts,
+      maxAttempts: maxAttemptsFor(deliverText),
     });
     log(`send → '${req.name}' not verified — ${miss.do}: ${miss.reason}`);
     /* No `release` branch: decideAfterVerifyMiss can no longer return one, because reaching it

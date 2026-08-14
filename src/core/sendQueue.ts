@@ -309,6 +309,40 @@ export function shouldReleaseForSibling(releases: number, maxReleases: number = 
   return releases < maxReleases;
 }
 
+/**
+ * How many times may this text be TYPED?
+ *
+ * Retry exists for one reason: the text may not have landed. The bracketed-paste bug was real —
+ * `sendText` reported success while nothing submitted — so a second attempt genuinely recovers
+ * a dropped message.
+ *
+ * But retry only pays when a miss is EVIDENCE of a failed send. For a slash command it is not.
+ * Measured live on 2026-08-14: `/help` was delivered, the operator watched the help menu appear,
+ * and the transcript recorded 37 records, 3 user records, ZERO containing the needle — the CLI
+ * handles it client-side and writes nothing. So verification failed for a delivery that had
+ * plainly succeeded, `attempts` climbed, and the command was typed THREE times (the cap held,
+ * which is the only reason it stopped). Attempts 2 and 3 were equally unverifiable: pure cost,
+ * no information.
+ *
+ * Note the class is not uniform — `/config` DOES write a `<command-name>` record, `/help` does
+ * not — and nothing outside the CLI can tell which. So the rule is per-shape, not per-command:
+ * a slash command is typed ONCE and then WAITED on for the full hold budget. Waiting still
+ * catches `/config` verifying late; re-typing catches neither, and shows the operator a duplicate.
+ *
+ * This is the protocol's own stated preference applied literally: double delivery is worse than
+ * latency.
+ *
+ * DELIBERATE EDGE CASE: a plain-text prompt beginning with '/' (a file path, say) is classified
+ * as a command and gets one attempt instead of three. If such a message were genuinely dropped it
+ * dead-letters LOUDLY instead of retrying — the safe direction. A path-vs-command heuristic would
+ * be wrong in subtler ways than this is.
+ */
+export const isSlashCommand = (text: string): boolean => /^\s*\/[^\s/]/.test(text);
+
+export function maxAttemptsFor(text: string): number {
+  return isSlashCommand(text) ? 1 : TIMINGS.MAX_DELIVERY_ATTEMPTS;
+}
+
 /* ── After a delivery that did not verify: FOUR states, not two ───────────────
    This was imperative and duplicated, and both copies got it wrong the same way: they
    collapsed "no sibling left to try" into "undeliverable" and retired the request. A brief
@@ -340,7 +374,13 @@ export function decideAfterVerifyMiss(s: {
   targetBusy: boolean;
   heldMs: number;
   attempts: number;
+  /** Per-text send cap. Omitted = the protocol default; 1 for a slash command (see
+   *  maxAttemptsFor). Passed in rather than read here so this verdict and the caller's own
+   *  send gate can never disagree about how many attempts remain — they did, and the log then
+   *  announced 'retry' while the gate silently refused to send. */
+  maxAttempts?: number;
 }): { do: MissAction; reason: string } {
+  const cap = s.maxAttempts ?? TIMINGS.MAX_DELIVERY_ATTEMPTS;
   if (!s.targetAlive) return { do: 'retire', reason: 'the target is no longer a live session' };
   if (s.heldMs >= TIMINGS.MAX_HOLD_MS) {
     return { do: 'retire', reason: `held for ${Math.round(s.heldMs / 60000)} min without the message ever appearing in the target transcript` };
@@ -372,10 +412,13 @@ export function decideAfterVerifyMiss(s: {
      twice, to MAX_RELEASES, one step from retiring work that had already been done as a FALSE dead
      letter. `releases` is therefore no longer read here: after a successful type, the sibling
      budget is irrelevant to what we do next. */
-  if (s.attempts < TIMINGS.MAX_DELIVERY_ATTEMPTS) {
-    return { do: 'retry', reason: `not verified and the target is idle; re-delivering (attempt ${s.attempts + 1}/${TIMINGS.MAX_DELIVERY_ATTEMPTS})` };
+  if (s.attempts < cap) {
+    /* Wording unified across surfaces 2026-08-14: Glass's said "no sibling left to try", which
+       stopped being true when the release branch was removed — a reason string that describes a
+       path that no longer exists is worse than no reason at all. */
+    return { do: 'retry', reason: `not verified and the target is idle; re-delivering (attempt ${s.attempts + 1}/${cap})` };
   }
-  return { do: 'wait', reason: 'out of send attempts but still inside the hold budget — watching for a late arrival' };
+  return { do: 'wait', reason: `out of send attempts (${cap}) but still inside the hold budget — watching for a late arrival, never typing again` };
 }
 
 

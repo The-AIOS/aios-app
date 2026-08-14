@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { TIMINGS, decideAfterVerifyMiss, type MissAction } from '../core/sendQueue';
+import { TIMINGS, decideAfterVerifyMiss, maxAttemptsFor, type MissAction } from '../core/sendQueue';
 
 /* THE CROSS-REPO DIFF-GUARD.
  *
@@ -145,11 +145,17 @@ test('the delivery cap gates the SEND, not just the log line', () => {
      branch. A cap enforced only in the after-a-miss decision therefore capped NOTHING — the
      loop would keep re-typing the message for the whole hold budget. The guard must sit
      before the send itself. */
+  /* Pinned to the INVARIANT — the ORDER of the gate and the counter — not to the expression
+     inside it. This assertion broke when the cap became per-text (maxAttemptsFor), which is the
+     third time today a source-scrape guard failed on a line that legitimately moved. A guard that
+     goes red for correct changes teaches people to update it without reading it. */
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(src, /attempts >= TIMINGS\.MAX_DELIVERY_ATTEMPTS/, 'the cap must be checked BEFORE delivering');
-  const gate = src.indexOf('attempts >= TIMINGS.MAX_DELIVERY_ATTEMPTS');
+  const gate = src.search(/attempts >= (maxAttemptsFor\(|TIMINGS\.MAX_DELIVERY_ATTEMPTS)/);
+  assert.ok(gate > 0, 'the cap must be checked BEFORE delivering, whatever the cap expression is');
   const bump = src.indexOf('attempts++', gate);
-  assert.ok(gate > 0 && bump > gate, 'the guard must precede the attempt counter, or it runs too late');
+  assert.ok(bump > gate, 'the guard must precede the attempt counter, or it runs too late');
+  /* And the cap must be PER-TEXT, or a slash command is typed three times (measured 2026-08-14). */
+  assert.match(src, /maxAttemptsFor\(/, 'the send gate must use the per-text cap');
 });
 
 /* ── THE BEHAVIOURAL CONTRACT — the guard the TIMINGS hash cannot provide ─────
@@ -166,7 +172,7 @@ test('the delivery cap gates the SEND, not just the log line', () => {
    WHEN THIS FAILS: you changed the decision. That is allowed — it is a PROTOCOL change. Make the
    identical edit in the sibling repo, recompute, update BEHAVIOUR_SHA in BOTH, and say so in the
    inbox README, in one push. */
-const DECISION_VECTORS: ReadonlyArray<{ why: string; alive: boolean; busy: boolean; heldMin: number; attempts: number; want: MissAction }> = [
+const DECISION_VECTORS: ReadonlyArray<{ why: string; alive: boolean; busy: boolean; heldMin: number; attempts: number; cap?: number; want: MissAction }> = [
   { why: 'dead target, everything else fresh',      alive: false, busy: false, heldMin: 0,  attempts: 0, want: 'retire' },
   { why: 'dead target beats a busy reading',         alive: false, busy: true,  heldMin: 0,  attempts: 0, want: 'retire' },
   { why: 'hold budget spent',                       alive: true,  busy: false, heldMin: 30, attempts: 0, want: 'retire' },
@@ -176,8 +182,14 @@ const DECISION_VECTORS: ReadonlyArray<{ why: string; alive: boolean; busy: boole
   { why: 'idle, last send available',                alive: true,  busy: false, heldMin: 1,  attempts: 2, want: 'retry'  },
   { why: 'sends capped, time left: watch, never type', alive: true, busy: false, heldMin: 1, attempts: 3, want: 'wait'   },
   { why: 'the 2026-08-12 captured state',            alive: true,  busy: true,  heldMin: 3,  attempts: 1, want: 'wait'   },
+  // A slash command is typed ONCE (cap 1) and then only watched — measured 2026-08-14, /help was
+  // delivered three times because it writes no transcript record, so a miss was read as a failed
+  // send. Waiting still catches a command that verifies late; re-typing catches neither.
+  { why: 'slash command, first miss: never re-type', alive: true,  busy: false, heldMin: 1,  attempts: 1, cap: 1, want: 'wait'   },
+  { why: 'slash command, cap not yet reached',       alive: true,  busy: false, heldMin: 1,  attempts: 0, cap: 1, want: 'retry'  },
+  { why: 'a dead target still beats the cap',        alive: false, busy: false, heldMin: 1,  attempts: 0, cap: 1, want: 'retire' },
 ];
-const BEHAVIOUR_SHA = '35bda63c10642fca';
+const BEHAVIOUR_SHA = 'e39f627771a97d53';
 
 test('PROTOCOL: the decision table is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/test/protocolContract.test.ts', 'utf8');
@@ -192,7 +204,40 @@ test('PROTOCOL: every vector produces the agreed action on this surface', () => 
   for (const v of DECISION_VECTORS) {
     const got = decideAfterVerifyMiss({
       targetAlive: v.alive, targetBusy: v.busy, heldMs: v.heldMin * 60_000, attempts: v.attempts,
+      maxAttempts: v.cap,
     });
     assert.equal(got.do, v.want, `${v.why}: expected '${v.want}', got '${got.do}' (${got.reason})`);
   }
+});
+
+test('a slash command is typed ONCE — the /help triple-delivery, as a unit test', () => {
+  /* Measured live 2026-08-14 in an Extension Development Host: `/help` was delivered, the operator
+     watched the help menu appear, and the transcript held 37 records / 3 user records / ZERO
+     containing the needle — the CLI handles it client-side and writes nothing. Verification
+     therefore failed for a delivery that had plainly succeeded, and the command was typed THREE
+     times before MAX_DELIVERY_ATTEMPTS stopped it.
+     Retry only pays when a miss is EVIDENCE of a failed send. For a slash command it is not, so
+     attempts 2 and 3 were pure cost — a visible duplicate for the operator, no information for us. */
+  assert.equal(maxAttemptsFor('/help'), 1, 'a slash command gets one attempt');
+  assert.equal(maxAttemptsFor('/aios:today'), 1);
+  assert.equal(maxAttemptsFor('  /config'), 1, 'leading whitespace does not change the shape');
+  assert.equal(maxAttemptsFor('respond with: bus ok'), TIMINGS.MAX_DELIVERY_ATTEMPTS, 'plain text keeps the protocol default');
+  assert.equal(maxAttemptsFor('hello /help'), TIMINGS.MAX_DELIVERY_ATTEMPTS, 'a command mid-sentence is not a command');
+
+  // and the decision agrees with the gate, which is the whole reason the cap is passed in
+  const miss = { targetAlive: true, targetBusy: false, heldMs: 60_000 };
+  assert.equal(decideAfterVerifyMiss({ ...miss, attempts: 1, maxAttempts: maxAttemptsFor('/help') }).do, 'wait',
+    'after one attempt a slash command must WAIT, never re-type');
+  assert.equal(decideAfterVerifyMiss({ ...miss, attempts: 1, maxAttempts: maxAttemptsFor('plain text') }).do, 'retry',
+    'plain text still retries — it produces a verifiable turn, so a miss IS evidence');
+  // it still waits out the hold budget rather than giving up: /config DOES write a record and may
+  // verify late, while /help never will. Waiting covers both; re-typing covers neither.
+  assert.notEqual(decideAfterVerifyMiss({ ...miss, attempts: 1, maxAttempts: 1 }).do, 'retire');
+});
+
+test('DELIBERATE EDGE CASE: a path-shaped prompt is treated as a command', () => {
+  /* Documented rather than out-smarted. Consequence: if such a message were genuinely dropped it
+     dead-letters LOUDLY instead of retrying — the safe direction. A path-vs-command heuristic
+     would be wrong in subtler ways than this is. */
+  assert.equal(maxAttemptsFor('/Users/someone/notes/file.md please read this'), 1);
 });
