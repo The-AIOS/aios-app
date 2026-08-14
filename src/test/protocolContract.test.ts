@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { TIMINGS, decideAfterVerifyMiss, maxAttemptsFor, type MissAction } from '../core/sendQueue';
+import { TIMINGS, decideAfterVerifyMiss, maxAttemptsFor, claimVerdict, triedBy, withTried, fulfillerId,
+  surfaceForAncestry, parsePresence, type MissAction } from '../core/sendQueue';
 
 /* THE CROSS-REPO DIFF-GUARD.
  *
@@ -240,4 +241,135 @@ test('DELIBERATE EDGE CASE: a path-shaped prompt is treated as a command', () =>
      dead-letters LOUDLY instead of retrying — the safe direction. A path-vs-command heuristic
      would be wrong in subtler ways than this is. */
   assert.equal(maxAttemptsFor('/Users/someone/notes/file.md please read this'), 1);
+});
+
+test('REGRESSION — a surface never re-claims its own release (the 19:43 self-loop)', () => {
+  /* Captured live 2026-08-14 from ~/.aios/logs/command-bus.log, three lines 100ms apart:
+       19:43:05.242 [app:6322] released relay-test.json for a sibling (no pane by that name…); release 1/2
+       19:43:05.342 [app:6322] released relay-test.json for a sibling (no pane by that name…); release 2/2
+       19:43:05.444 [app:6322] DEAD LETTER — a message to 'bus-test' was never delivered
+     The App claimed a send for a session hosted in the IDE, correctly found no pane, handed it to
+     "a sibling" — and re-claimed its own release twice, spending MAX_RELEASES before Glass's
+     watcher ever fired. The message never reached the only surface that could deliver it.
+     The bias is structural: a release writes back into the directory the releaser is already
+     watching with a hot watcher, while a sibling waits on an OS notification. */
+  const fresh = 0, stale = TIMINGS.RETIRE_TTL_MS;
+
+  // before the fix: an unaddressed request is always claimable, so the releaser takes it back
+  assert.equal(claimVerdict(undefined, 'app', fresh, TIMINGS.RETIRE_TTL_MS, [], 'app:1'), 'claim');
+
+  // after: the surface that already tried must not claim again
+  assert.equal(claimVerdict(undefined, 'app', fresh, TIMINGS.RETIRE_TTL_MS, ['app:1'], 'app:1'), 'skip',
+    'the releaser must not re-claim its own release');
+  // …while the sibling still can, which is the whole point of releasing
+  assert.equal(claimVerdict(undefined, 'glass', fresh, TIMINGS.RETIRE_TTL_MS, ['app:1'], 'glass:2'), 'claim',
+    'the sibling the release was FOR must still be able to take it');
+});
+
+test('NOTHING ROTS — a handed-back request nobody takes dead-letters instead of sitting forever', () => {
+  /* `_tried` would otherwise trade a false dead letter for a SILENT one: with no sibling running,
+     the releaser skips its own file and nothing else ever fires. So the same grace an absent
+     addressee gets applies here, and then the request is retired honestly. */
+  assert.equal(claimVerdict(undefined, 'app', TIMINGS.RETIRE_TTL_MS, TIMINGS.RETIRE_TTL_MS, ['app:1'], 'app:1'), 'retire');
+  assert.equal(claimVerdict(undefined, 'app', TIMINGS.RETIRE_TTL_MS - 1, TIMINGS.RETIRE_TTL_MS, ['app:1'], 'app:1'), 'skip',
+    'one millisecond short of the grace is still a sibling’s chance');
+});
+
+test('addressing still wins over tried — an addressed request is never touched by the other surface', () => {
+  // Ordering matters: `surface` is an instruction, `_tried` is history. The instruction comes first.
+  assert.equal(claimVerdict('glass', 'app', 0, TIMINGS.RETIRE_TTL_MS, []), 'skip');
+  assert.equal(claimVerdict('glass', 'app', 0, TIMINGS.RETIRE_TTL_MS, ['glass:2'], 'app:1'), 'skip',
+    'even if glass already tried, app must not take a glass-addressed request while it is fresh');
+  assert.equal(claimVerdict('glass', 'glass', 0, TIMINGS.RETIRE_TTL_MS, []), 'claim',
+    'and the addressee itself still claims');
+});
+
+test('triedBy / withTried: tolerant of junk, idempotent, order-preserving, non-mutating', () => {
+  assert.deepEqual(triedBy(undefined), []);
+  assert.deepEqual(triedBy({}), []);
+  assert.deepEqual(triedBy({ _tried: 'app:1' }), [], 'a string is not a list — do not guess');
+  assert.deepEqual(triedBy({ _tried: ['app:1', 7, null, 'glass:2'] }), ['app:1', 'glass:2'], 'junk dropped');
+  assert.equal(fulfillerId('app', 1234), 'app:1234', 'the id is the pair `_claim` already records');
+  assert.deepEqual(withTried({}, 'app:1')._tried, ['app:1']);
+  assert.deepEqual(withTried({ _tried: ['app:1'] }, 'app:1')._tried, ['app:1'], 'idempotent');
+  assert.deepEqual(withTried({ _tried: ['app:1'] }, 'glass:2')._tried, ['app:1', 'glass:2'], 'order preserved');
+  const orig: Record<string, unknown> = { _tried: ['app:1'] };
+  withTried(orig, 'glass:2');
+  assert.deepEqual(orig._tried, ['app:1'], 'returns a copy — the release path re-reads the file');
+});
+
+test('MULTI-WINDOW — a second window of the SAME surface is still a valid sibling', () => {
+  /* The reason `_tried` is keyed by instance and not by surface name. This file's own release doc
+     says "another window may own that terminal", and MAX_RELEASES is documented as "sibling-window
+     handoffs" — so two App windows are two candidate fulfillers of one surface. Keying by surface
+     would have blocked the exact handoff the bound exists for.
+     Caught 2026-08-14 when a leftover dev instance raced a fresh one and both were 'app'. */
+  const tried = ['app:1000'];
+  assert.equal(claimVerdict(undefined, 'app', 0, TIMINGS.RETIRE_TTL_MS, tried, 'app:1000'), 'skip',
+    'the instance that released must abstain');
+  assert.equal(claimVerdict(undefined, 'app', 0, TIMINGS.RETIRE_TTL_MS, tried, 'app:2000'), 'claim',
+    'a DIFFERENT window of the same surface is a legitimate sibling');
+  assert.equal(claimVerdict(undefined, 'glass', 0, TIMINGS.RETIRE_TTL_MS, tried, 'glass:3000'), 'claim',
+    'and the other surface, as before');
+  // no id supplied (a caller that does not know its own identity) → never blocked
+  assert.equal(claimVerdict(undefined, 'app', 0, TIMINGS.RETIRE_TTL_MS, tried), 'claim');
+});
+
+test('REGRESSION — adoptHolds must never adopt a hold this process is already working', () => {
+  /* Measured 2026-08-14 in a dev App: one request produced TWO delivery loops in one process.
+     The startup drain claims every pending `.json` into `.holding` stamped with our own pid, and
+     adoptHolds runs immediately after — so `stamp.pid !== process.pid` (which forced
+     holderAlive=false for our own stamp) made it adopt what the drain had just claimed.
+     I had inspected this clause the same morning and concluded it was safe because adoptHolds
+     "runs once at startup". It does — right after the drain that creates exactly such a hold.
+     Guarded statically: the ordering lives in initCommandBus and cannot be exercised here. */
+  const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(src, /if \(stamp && stamp\.pid === process\.pid\) \{/,
+    'a self-stamped hold must be skipped outright, not fed to canAdoptHold');
+  assert.doesNotMatch(src, /stamp\.pid !== process\.pid && alive\(/,
+    'the clause that inverted our own liveness must not come back');
+  // and the drain still has to run before adoptHolds — that order is what makes the guard needed
+  const drain = src.indexOf("if (f.endsWith('.json')) consume(getWin,");
+  const adopt = src.indexOf('adoptHolds(getWin, dir)', drain);
+  assert.ok(drain > 0 && adopt > drain, 'the drain precedes adoptHolds — the guard exists for that');
+});
+
+test('surfaceForAncestry: nearest ancestor wins, and NEITHER is a supported answer', () => {
+  /* The requester-side half of surface awareness: a session that wants a worker in the surface it
+     already lives in derives that from its own process ancestry, compared against the pids the
+     surfaces announce. Pids, not process names — Glass runs inside whatever IDE the operator uses
+     (Antigravity, VS Code, Cursor, Windsurf), so a name list breaks the day they switch. */
+  const present = [{ surface: 'app', pid: 100 }, { surface: 'glass', pid: 200 }];
+  assert.equal(surfaceForAncestry([9, 8, 100, 1], present), 'app');
+  assert.equal(surfaceForAncestry([9, 200, 1], present), 'glass');
+  // NEAREST wins: a dev host running inside the App resolves to the inner surface
+  assert.equal(surfaceForAncestry([9, 200, 100, 1], present), 'glass', 'nearest ancestor, not outermost');
+  /* undefined is NOT an error — a `spawn`-wrapper session in a plain Terminal window belongs to
+     neither surface, and those must stay reachable. Callers treat it as "let them race". */
+  assert.equal(surfaceForAncestry([9, 8, 1], present), undefined);
+  assert.equal(surfaceForAncestry([], present), undefined);
+  assert.equal(surfaceForAncestry([100], []), undefined, 'nothing announced → nothing derivable');
+});
+
+test('parsePresence rejects junk rather than inventing a surface', () => {
+  /* A malformed or absent presence record must read as "not running". Guessing would route a spawn
+     into a surface that is not there, which fails later and further from the cause. */
+  assert.deepEqual(parsePresence({ surface: 'app', pid: 42 }), { surface: 'app', pid: 42 });
+  assert.equal(parsePresence(undefined), undefined);
+  assert.equal(parsePresence({}), undefined);
+  assert.equal(parsePresence({ surface: 'app' }), undefined, 'no pid');
+  assert.equal(parsePresence({ surface: 'nope', pid: 42 }), undefined, 'not a known surface');
+  assert.equal(parsePresence({ surface: 'app', pid: 'x' }), undefined, 'pid must be a number');
+  assert.equal(parsePresence({ surface: 'app', pid: Infinity }), undefined, 'and finite');
+});
+
+test('the presence file lives OUTSIDE the inbox — the watchers claim *.json', () => {
+  /* A presence record written into the inbox would be picked up as a request and "fulfilled".
+     Asserted because the mistake is invisible until something tries to spawn a session named after
+     a surface. */
+  const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  const m = /['"`]\.aios['"`],\s*['"`]surfaces['"`]/.exec(src);
+  assert.ok(m, 'presence must be written under ~/.aios/surfaces');
+  assert.doesNotMatch(src, /spawn-inbox['"`]\),\s*`\$\{[a-zA-Z_]*[Ss]urface\}\.json`/,
+    'never inside the inbox directory');
 });

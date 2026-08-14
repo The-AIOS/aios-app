@@ -8,7 +8,8 @@ import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
-  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, maxAttemptsFor, type SendTarget,
+  shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, maxAttemptsFor,
+  triedBy, withTried, fulfillerId, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 
@@ -145,6 +146,30 @@ function ensureReadme(dir: string, appVersion: string): void {
   }
 }
 
+/**
+ * Announce this surface so a REQUESTER can derive where it is running.
+ *
+ * `~/.aios/surfaces/app.json`, outside the inbox on purpose — the watchers claim `*.json`, so a
+ * presence file in there would be read as a request. An agent that wants to spawn a worker in the
+ * surface it already lives in walks its own process ancestry and compares against these pids; no
+ * process-name matching, so it keeps working whichever IDE hosts Glass.
+ *
+ * Written every startup and never cleaned up on exit — a crash would skip the cleanup anyway, so
+ * readers must check the pid is alive rather than trust the file's existence. Stale-but-present is
+ * the normal state, and treating it as authoritative would be the bug.
+ */
+function announcePresence(appVersion: string): void {
+  try {
+    const dir = path.join(os.homedir(), '.aios', 'surfaces');
+    fs.mkdirSync(dir, { recursive: true });
+    const body = { surface: MY_SURFACE, pid: process.pid, at: Date.now(), version: appVersion };
+    fs.writeFileSync(path.join(dir, `${MY_SURFACE}.json`), JSON.stringify(body, null, 2) + '\n');
+    log(`announced presence: ${MY_SURFACE} pid ${process.pid}`);
+  } catch (e) {
+    log(`presence not announced (${e instanceof Error ? e.message : String(e)})`);   // non-fatal
+  }
+}
+
 function emit(win: BrowserWindow | undefined, kind: string, payload: Record<string, unknown>): void {
   if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
     win.webContents.send('shell:intent', { ...payload, kind })   // kind LAST: the routing key can never be shadowed by a payload field;
@@ -249,12 +274,19 @@ function releaseForSibling(heldPath: string, req: BusRequest, reason: string): b
   const releases = (req.releases ?? 0) + 1;
   const back = heldPath.slice(0, -HOLD_SUFFIX.length);
   try {
-    const body = JSON.parse(fs.readFileSync(heldPath, 'utf8')) as Record<string, unknown>;
+    const body0 = JSON.parse(fs.readFileSync(heldPath, 'utf8')) as Record<string, unknown>;
+    const body = withTried(body0, fulfillerId(MY_SURFACE, process.pid));   // so I never re-claim my own release
     delete body._claim;                     // an unclaimed file is what a sibling can take
     body.releases = releases;
     fs.writeFileSync(back, JSON.stringify(body, null, 2) + '\n');
     fs.unlinkSync(heldPath);
-    log(`released ${path.basename(back)} for a sibling (${reason}); release ${releases}/${MAX_RELEASES}`);
+    log(`released ${path.basename(back)} for a sibling (${reason}); release ${releases}/${MAX_RELEASES}; tried=[${triedBy(body).join(',')}]`);
+    /* NOTHING ROTS. My own watcher will now skip this file (I am in `_tried`), and if no sibling
+       is running there is nobody left to fire. So the releaser — already awake — owns the honest
+       ending: re-check after the same grace an absent addressee gets, and dead-letter if the file
+       is still sitting there unclaimed. Without this, `_tried` would trade a false dead letter
+       for a silent one, which is a worse bargain. */
+    setTimeout(() => recheck(back), RETIRE_TTL_MS).unref?.();
     return true;
   } catch { return false; }
 }
@@ -458,10 +490,19 @@ function claim(fsPath: string): { heldPath: string; req: BusRequest; at: number 
     markUndelivered(fsPath, null, 'unparseable request (bad JSON, or no usable name)');
     return undefined;
   }
-  const verdict = claimVerdict(req.surface, MY_SURFACE, ageMs, RETIRE_TTL_MS);
-  if (verdict === 'skip') return undefined;   // addressed elsewhere: do not touch it at all
+  let bodyForTried: Record<string, unknown> = {};
+  try { bodyForTried = JSON.parse(raw) as Record<string, unknown>; } catch { /* parseRequest already vouched */ }
+  const tried = triedBy(bodyForTried);
+  const myId = fulfillerId(MY_SURFACE, process.pid);
+  const verdict = claimVerdict(req.surface, MY_SURFACE, ageMs, RETIRE_TTL_MS, tried, myId);
+  if (verdict === 'skip') return undefined;   // addressed elsewhere, or already tried here
   if (verdict === 'retire') {
-    markUndelivered(fsPath, req, `addressed to '${req.surface}' but unclaimed for ${Math.round(ageMs / 60000)} min`);
+    /* Two ways to reach this: addressed to an absent surface, or handed back by me and left
+       untaken. The second is the one worth naming precisely — a sibling had its chance. */
+    const why = tried.includes(myId)
+      ? `handed back for a sibling ${Math.round(ageMs / 60000)} min ago and no other surface took it`
+      : `addressed to '${req.surface}' but unclaimed for ${Math.round(ageMs / 60000)} min`;
+    markUndelivered(fsPath, req, why);
     return undefined;
   }
   const heldPath = holdPathFor(fsPath);
@@ -495,7 +536,25 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { continue; }
     const stamp = parseClaim(body._claim);
-    const holderAlive = !!stamp && stamp.pid !== process.pid && alive(stamp.pid);
+    /* A hold stamped with MY OWN pid is mine and IN FLIGHT — never adopt it.
+     *
+     * This ran `stamp.pid !== process.pid`, which forced holderAlive=false for our own stamp and
+     * therefore adopted it. The reasoning was that adoptHolds runs once at startup, so a
+     * self-stamped hold could only be a predecessor whose pid we recycled. That reasoning was
+     * wrong, and measured wrong on 2026-08-14: the startup DRAIN runs immediately before this and
+     * claims every pending request, so this loop then finds a `.holding` stamped with our own pid
+     * microseconds old and starts a SECOND runSend on it. Two delivery loops, one process, one
+     * request — observed as duplicated `attempt 2/3` lines and two output files from one send.
+     *
+     * The trade is deliberate: we lose the pid-recycle case, where a crashed predecessor's pid
+     * happens to equal ours. That costs a 45-minute wait (HOLD_STALE_MS still rescues the orphan)
+     * against a DOUBLE DELIVERY, which this protocol calls its worst outcome. Glass never had the
+     * clause and was right not to. */
+    if (stamp && stamp.pid === process.pid) {
+      log(`leaving ${f} — already in flight in this process (pid ${stamp.pid})`);
+      continue;
+    }
+    const holderAlive = !!stamp && alive(stamp.pid);
     if (!canAdoptHold(stamp, Date.now(), HOLD_STALE_MS, holderAlive)) {
       log(`leaving ${f} — held by a live ${stamp?.surface} (pid ${stamp?.pid})`);
       continue;
@@ -560,6 +619,7 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   const dir = inboxDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* non-fatal */ }
   ensureReadme(dir, appVersion);
+  announcePresence(appVersion);
   // On boot and every 5 min: a dead letter must not be able to sit unseen.
   surfaceDeadLetters(getWin);
   setInterval(() => surfaceDeadLetters(getWin), 5 * 60 * 1000);

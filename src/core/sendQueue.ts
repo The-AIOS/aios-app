@@ -272,9 +272,64 @@ export function claimVerdict(
   mySurface: Surface,
   ageMs: number,
   ttlMs: number,
+  /** Fulfiller ids that already tried and handed this back — see triedBy. */
+  tried: readonly string[] = [],
+  /** This fulfiller's id (`surface:pid`). Omit and the tried-check is skipped. */
+  myId = '',
 ): 'claim' | 'skip' | 'retire' {
-  if (!isSurface(requestedSurface) || requestedSurface === mySurface) return 'claim';
-  return ageMs >= ttlMs ? 'retire' : 'skip';
+  if (isSurface(requestedSurface) && requestedSurface !== mySurface) {
+    return ageMs >= ttlMs ? 'retire' : 'skip';   // addressed elsewhere: never touch it
+  }
+  /* I have already tried this one and handed it back. Re-claiming is not a retry — it is the
+     self-loop that spent the whole release budget without the request ever reaching a sibling.
+     Give a sibling the same grace an absent addressee gets, then be honest rather than rot.
+     `myId` identifies this INSTANCE, so a second window of the same surface is still a valid
+     sibling — see triedBy. Omitted (tests, or a caller that has no id) means "never tried". */
+  if (myId && tried.includes(myId)) {
+    return ageMs >= ttlMs ? 'retire' : 'skip';
+  }
+  return 'claim';
+}
+/**
+ * Which surfaces have already TRIED this request and handed it back?
+ *
+ * `_tried` exists because "release it for a sibling" was a self-loop. Measured live 2026-08-14:
+ * the App claimed a send for a session hosted in the IDE, found no pane for it (correct — that
+ * session lives in Glass's window), released it "for a sibling", and then RE-CLAIMED ITS OWN
+ * RELEASE. Twice, 100ms apart, burning MAX_RELEASES before Glass's watcher ever fired, and the
+ * message dead-lettered without ever reaching the surface that could deliver it.
+ *
+ * The bias is structural, not bad luck: a release writes the file back into the very directory
+ * the releaser is already watching, with a hot fs watcher, while a sibling has to be notified by
+ * the OS. `MAX_RELEASES` bounds the number of bounces but not the number of SURFACES, so the
+ * whole budget can be spent talking to yourself.
+ *
+ * So a release now records who tried, and a fulfiller refuses to re-claim what IT already tried.
+ * The bound stops counting bounces and starts counting distinct attempts, which is what it was
+ * always trying to mean.
+ *
+ * KEYED BY INSTANCE (`surface:pid`), NOT BY SURFACE — and that distinction is load-bearing. The
+ * release mechanism was built for sibling WINDOWS as much as sibling surfaces: this file's own
+ * `release` doc says "another window may own that terminal", and MAX_RELEASES is described as
+ * "sibling-window handoffs". Two App windows are two candidate fulfillers of one surface, so
+ * blocking by surface name would break the multi-window handoff that MAX_RELEASES exists for —
+ * caught 2026-08-14 when a leftover dev instance raced a fresh one and both were 'app'. The id is
+ * the same shape `_claim` already records, so the file stays self-describing.
+ */
+export function triedBy(body: unknown): readonly string[] {
+  const t = (body as { _tried?: unknown })?._tried;
+  return Array.isArray(t) ? t.filter((x): x is string => typeof x === 'string') : [];
+}
+
+/** The identity of THIS fulfiller instance — the same pair `_claim` records. */
+export function fulfillerId(surface: Surface, pid: number): string {
+  return `${surface}:${pid}`;
+}
+
+/** Append my instance id to `_tried`, idempotently, without mutating the caller's body. */
+export function withTried(body: Record<string, unknown>, myId: string): Record<string, unknown> {
+  const prev = triedBy(body);
+  return { ...body, _tried: prev.includes(myId) ? prev : [...prev, myId] };
 }
 
 /**
@@ -341,6 +396,53 @@ export const isSlashCommand = (text: string): boolean => /^\s*\/[^\s/]/.test(tex
 
 export function maxAttemptsFor(text: string): number {
   return isSlashCommand(text) ? 1 : TIMINGS.MAX_DELIVERY_ATTEMPTS;
+}
+
+/* ── SURFACE PRESENCE — how a requester knows where it is running ─────────────
+ * A session that wants to spawn a worker almost always wants it in the SAME place it lives: an
+ * agent in the IDE wants an IDE terminal, one in the App wants an App pane. That intent is real
+ * information and the bus used to throw it away — an unaddressed spawn goes to whichever surface
+ * wins the race, so "spawn me a sibling" could open a window in the other product entirely.
+ *
+ * The requester CAN know: walk its own process ancestry and see which surface it sits under. What
+ * it cannot do is identify the surfaces by process NAME — the App is ours and recognisable, but
+ * Glass runs inside whatever IDE the operator uses (Antigravity today, VS Code, Cursor, Windsurf),
+ * so a name list is wrong the moment they switch editors.
+ *
+ * So each surface announces itself instead: on startup it writes its own root pid to
+ * `~/.aios/surfaces/<surface>.json`. Deriving your surface is then a pid comparison against your
+ * own ancestry — no names, nothing to keep in sync with anyone's editor choice.
+ *
+ * Deliberately NOT in the inbox directory: the watchers claim `*.json`, so a presence file there
+ * would be picked up as a request.
+ */
+export type SurfacePresence = { surface: string; pid: number };
+
+/** Read a presence record defensively — an absent or malformed file means "not running". */
+export function parsePresence(raw: unknown): SurfacePresence | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as { surface?: unknown; pid?: unknown };
+  if (!isSurface(r.surface) || typeof r.pid !== 'number' || !Number.isFinite(r.pid)) return undefined;
+  return { surface: r.surface, pid: r.pid };
+}
+
+/**
+ * Which surface hosts a process, given its ancestry (nearest ancestor first) and who is present?
+ *
+ * Returns undefined for a session under NEITHER surface — a `spawn`-wrapper session in a plain
+ * Terminal window, say. That is a real and supported case, so callers must treat undefined as
+ * "unaddressed, let them race" rather than as an error. Nearest ancestor wins, so a dev host
+ * running inside the App would resolve to the innermost surface rather than the outer one.
+ */
+export function surfaceForAncestry(
+  ancestry: readonly number[],
+  present: readonly SurfacePresence[],
+): string | undefined {
+  for (const pid of ancestry) {
+    const hit = present.find((p) => p.pid === pid);
+    if (hit) return hit.surface;
+  }
+  return undefined;
 }
 
 /* ── After a delivery that did not verify: FOUR states, not two ───────────────
