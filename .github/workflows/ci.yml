@@ -23,7 +23,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts # skip electron download for unit-only
       - run: npm run compile
-      - run: node --test out/test/*.test.js
+      - run: node --test "out/test/*.test.js"
 
   smoke:
     # macOS minutes bill 10× on private repos — full smoke runs on PRs + manual,
@@ -96,7 +96,7 @@ jobs:
       # Unit suite on Linux too. Most of it is platform-agnostic, but the accelerator formatter
       # now has a non-mac branch, and that branch shipped a literal "Ctrl+Plus" precisely because
       # nothing ever exercised it off macOS.
-      - run: node --test out/test/*.test.js
+      - run: node --test "out/test/*.test.js"
 
       # Build both artifacts, then verify the SHIPPED tree — including a magic-number check that
       # node-pty's .node is genuinely ELF, and a launch of the packaged binary. Electron needs a
@@ -161,7 +161,7 @@ jobs:
       # only exist on this platform, and a branch nothing exercises ships broken (the "Ctrl+Plus"
       # lesson, one platform over). A directory arg, not a glob — Node's runner discovers *.test.js
       # under it identically whether npm invoked it through cmd.exe, pwsh, or bash.
-      - run: node --test out/test
+      - run: node --test "out/test/*.test.js"
 
       # Build the nsis installer, then verify the SHIPPED tree — a PE .node, the ConPTY/winpty
       # helper set, and a launch of the packaged AIOS.exe --smoke. No xvfb: Windows runners have a

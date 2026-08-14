@@ -74,7 +74,7 @@ jobs:
 
       # Same discipline as every release lane: the one place a release is cut is the one place
       # everything must pass. A directory arg, not a glob — runs identically under bash/cmd/pwsh.
-      - run: node --test out/test
+      - run: node --test "out/test/*.test.js"
 
       # Build the nsis installer and verify the SHIPPED tree (PE .node + ConPTY helpers + a launch
       # of the packaged AIOS.exe --smoke). No xvfb — Windows runners have a desktop session.

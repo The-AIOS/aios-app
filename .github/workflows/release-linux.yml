@@ -81,7 +81,7 @@ jobs:
 
       # Same discipline as the mac lane: the one place a release is cut is the one place
       # everything must pass. v0.7.0 was published while CI was red.
-      - run: node --test out/test/*.test.js
+      - run: node --test "out/test/*.test.js"
 
       # Electron needs a display for verify-package's live launch check.
       - name: Build AppImage + deb, verify the packaged tree
