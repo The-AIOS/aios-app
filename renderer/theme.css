@@ -1098,6 +1098,22 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 }
 #dragacts .updpill:hover { filter: brightness(1.06); transform: translateY(-1px); background: var(--accent); color: #fff; }
 #dragacts .updpill[hidden] { display: none; }
+/* AI-83 — the DOWNLOADING state. Same pill, visibly not-yet-actionable: muted rather than
+   coral, and no hover lift, because a control that looks pressable while it is not is worse
+   than one that says nothing. It reads as progress, not as an invitation. `disabled` carries
+   the behaviour (see showUpdatePill); this only carries the appearance, and the :hover
+   override has to be repeated because the rule above is more specific than a bare class.
+   --surface-2 / --subtle are the theme's own muted pair, so this flips with light/dark like
+   everything else instead of pinning a grey that only works in one theme. */
+#dragacts .updpill.downloading,
+#dragacts .updpill.downloading:hover {
+  background: var(--surface-2);
+  color: var(--subtle);
+  cursor: default;
+  filter: none;
+  transform: none;
+  font-weight: 600;            /* one notch down from the call-to-action weight */
+}
 
 /* ── tab drag-reorder feedback ──
    A coral edge on the side the tab will land, and the dragged tab dimmed. Deliberately an

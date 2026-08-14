@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import {
   INLINE_LIMIT, PAYLOAD_TTL_MS, byteLength, needsPointer, pointerText,
   isStalePayload, assertDeliverable,
@@ -179,4 +181,68 @@ test('INVARIANT: every test invocation uses the one portable spelling', () => {
         `${f}: every test invocation must be ${want} — found: ${line.trim()}`);
     }
   }
+});
+
+test('the bus keeps a DURABLE trail — one shared file, attributable, capped, and unable to throw', () => {
+  /* `log()` was `console.log` and nothing else, so in a packaged build the most
+     concurrency-sensitive subsystem in the App kept no record at all. When one request was
+     delivered four times on 2026-08-12, every decision behind it HAD been logged — to nowhere —
+     and the diagnosis took hours of reconstruction from transcripts plus a request file caught
+     mid-flight.
+
+     Executed against the COMPILED output rather than the source, because the compiled form is
+     what actually runs, and the cap has real logic worth exercising (keep the tail, drop the
+     half-line at the cut). Only `os.homedir` is faked, so the test writes into a temp dir. */
+  const js = fs.readFileSync('out/main/commandBus.js', 'utf8');
+  const max = /const BUS_LOG_MAX = [^;]+;/.exec(js);
+  const pathFn = /const busLogPath = \(\) => [^;]+;/.exec(js);
+  const appendFn = /function busLogAppend\(msg\) \{[\s\S]*?\n\}/.exec(js);
+  assert.ok(max && pathFn && appendFn, 'the trail helpers must be findable in the compiled output');
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'buslog-'));
+  const append = new Function('fs', 'path', 'os', 'sendQueue_1', `
+    ${max![0]} ${pathFn![0]} ${appendFn![0]}
+    return { busLogAppend, busLogPath };`)(
+    fs, path, { ...os, homedir: () => home }, { MY_SURFACE: 'app' },
+  ) as { busLogAppend: (m: string) => void; busLogPath: () => string };
+
+  // 1. it writes, and the line is ATTRIBUTABLE — the races this exists for are multi-writer,
+  //    so "who did what, in what order" has to be answerable from the file alone.
+  append.busLogAppend('claimed aios-canonical.json');
+  const line = fs.readFileSync(append.busLogPath(), 'utf8').trim();
+  assert.match(line, /^\d{4}-\d{2}-\d{2}T[\d:.]+Z /, 'every line is timestamped');
+  assert.match(line, /\[app:\d+\]/, 'and carries surface + pid');
+  assert.match(line, /claimed aios-canonical\.json$/);
+
+  // 2. ONE shared path, not one per process — a per-process log would split exactly the
+  //    evidence that needs interleaving.
+  assert.doesNotMatch(path.basename(append.busLogPath()), /\d/, 'no pid or date in the filename');
+  assert.equal(append.busLogPath(), path.join(home, '.aios', 'logs', 'command-bus.log'));
+
+  // 3. the cap holds, and keeps the NEWEST half — a trail nobody can open is not a trail
+  for (let i = 0; i < 12000; i++) append.busLogAppend(`filler line ${i} ${'x'.repeat(60)}`);
+  const after = fs.readFileSync(append.busLogPath(), 'utf8');
+  assert.ok(after.length <= 512 * 1024, `capped, got ${after.length}`);
+  assert.match(after, /filler line 11999/, 'the newest line survives');
+  assert.doesNotMatch(after, /filler line 0 /, 'the oldest is dropped');
+  assert.match(after.split('\n')[0], /^\d{4}-\d{2}-\d{2}T/, 'the cut never leaves a half-line');
+
+  // 4. it can never take the bus down: losing the trail is bad, losing delivery is worse
+  const broken = new Function('fs', 'path', 'os', 'sendQueue_1', `
+    ${max![0]} ${pathFn![0]} ${appendFn![0]}
+    return busLogAppend;`)(
+    { mkdirSync: () => { throw new Error('EROFS'); }, appendFileSync: () => {}, statSync: () => ({ size: 0 }) },
+    path, { ...os, homedir: () => home }, { MY_SURFACE: 'app' },
+  ) as (m: string) => void;
+  assert.doesNotThrow(() => broken('this must not propagate'));
+
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('INVARIANT: log() writes to the trail, not only the console', () => {
+  /* The whole point is that a packaged build keeps a record. If log() ever goes back to
+     console-only, the next bus incident becomes archaeology again. */
+  const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(src, /const log = \(msg: string\): void => \{ console\.log\(`\[command-bus\] \$\{msg\}`\); busLogAppend\(msg\); \};/,
+    'log() must both print and persist');
 });
