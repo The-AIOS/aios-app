@@ -418,6 +418,34 @@ export function maxAttemptsFor(text: string): number {
  */
 export type SurfacePresence = { surface: string; pid: number };
 
+/**
+ * The ROOT of my own process tree — the pid a session in this surface will actually see.
+ *
+ * NOT `process.pid`, and the difference is the whole feature. Measured 2026-08-14: Glass's
+ * extension host was pid 53705 (a "Helper (Plugin)" process) while a terminal it owns descended
+ * from pid 92733 (the ptyHost "Helper"). They are SIBLINGS — both children of the IDE's Electron
+ * root 92519 — so announcing the extension host made `surfaceForAncestry` return undefined for
+ * every IDE-hosted session, which is exactly the derivation the presence record exists to serve.
+ *
+ * The root is the one pid that IS an ancestor of both: of the code doing the announcing, and of
+ * every terminal in that surface. For the App the root is already its own main process, so this
+ * returns process.pid unchanged there — walking uniformly costs one ps call at startup and removes
+ * the need to remember which surface is which.
+ *
+ * Bounded: a cycle or an unreadable ppid stops the walk rather than hanging startup.
+ */
+export function processTreeRoot(startPid: number, parentOf: (pid: number) => number): number {
+  let cur = startPid;
+  const seen = new Set<number>([cur]);
+  for (let i = 0; i < 32; i++) {
+    const up = parentOf(cur);
+    if (!up || up === 1 || up === cur || seen.has(up)) return cur;
+    seen.add(up);
+    cur = up;
+  }
+  return cur;
+}
+
 /** Read a presence record defensively — an absent or malformed file means "not running". */
 export function parsePresence(raw: unknown): SurfacePresence | undefined {
   if (!raw || typeof raw !== 'object') return undefined;

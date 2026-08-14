@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as os from 'os';
+import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as aios from './aios';
 import { parseRequest, buildSpawnCmd, needsTaskFile, type BusRequest } from '../core/commandBus';
@@ -9,7 +10,7 @@ import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
   shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, maxAttemptsFor,
-  triedBy, withTried, fulfillerId, type SendTarget,
+  triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 
@@ -146,6 +147,15 @@ function ensureReadme(dir: string, appVersion: string): void {
   }
 }
 
+/** One `ps` call: the parent of a pid, or 0 if it cannot be read. */
+function ppidOf(pid: number): number {
+  try {
+    const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+    const n = Number(out);
+    return Number.isFinite(n) ? n : 0;
+  } catch { return 0; }
+}
+
 /**
  * Announce this surface so a REQUESTER can derive where it is running.
  *
@@ -159,12 +169,27 @@ function ensureReadme(dir: string, appVersion: string): void {
  * the normal state, and treating it as authoritative would be the bug.
  */
 function announcePresence(appVersion: string): void {
+  /* PACKAGED BUILDS ONLY, and this is not tidiness — it prevents a dev instance from corrupting
+   * the record the real App depends on. Observed 2026-08-14: a dev App launched from a terminal
+   * INSIDE a session the installed App hosts walked up to the installed App's pid and announced
+   * that as its own root, overwriting app.json. Harmless there because the value happened to
+   * match; launched from a plain terminal it would have written a pid that is NOT the installed
+   * App, and every session that App hosts would then derive "neither".
+   * There is nothing to gain the other way: nobody needs to route a spawn into a dev build. */
+  if (!app.isPackaged) {
+    log('presence not announced — dev build (a dev instance must not overwrite the real record)');
+    return;
+  }
   try {
     const dir = path.join(os.homedir(), '.aios', 'surfaces');
     fs.mkdirSync(dir, { recursive: true });
-    const body = { surface: MY_SURFACE, pid: process.pid, at: Date.now(), version: appVersion };
+    /* The tree ROOT, not process.pid — see processTreeRoot. For the App these are the same pid
+       today (its main process has ppid 1), but deriving it removes a fact about our own process
+       layout from a file whose whole job is to be matched against someone else's ancestry. */
+    const root = processTreeRoot(process.pid, ppidOf);
+    const body = { surface: MY_SURFACE, pid: root, at: Date.now(), version: appVersion };
     fs.writeFileSync(path.join(dir, `${MY_SURFACE}.json`), JSON.stringify(body, null, 2) + '\n');
-    log(`announced presence: ${MY_SURFACE} pid ${process.pid}`);
+    log(`announced presence: ${MY_SURFACE} root pid ${root}${root === process.pid ? '' : ` (self ${process.pid})`}`);
   } catch (e) {
     log(`presence not announced (${e instanceof Error ? e.message : String(e)})`);   // non-fatal
   }
