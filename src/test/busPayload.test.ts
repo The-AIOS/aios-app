@@ -155,3 +155,28 @@ test('INVARIANT: the verification baseline is captured ONCE, not per attempt', (
   assert.doesNotMatch(bus, /const before = countUserTurnsContaining\(/,
     're-reading the baseline per attempt is the bug — derive `before` from the captured baseline');
 });
+
+test('INVARIANT: every test invocation uses the one portable spelling', () => {
+  /* `node --test out/test` (a bare directory) throws MODULE_NOT_FOUND on Node 21+ — it resolves
+     the path as a module instead of discovering tests. It happened to work on Node 20, which is
+     why it reached CI twice: once in package.json (green CI on the old Node 20 pins, broken on the
+     maintainer's Node 26), and once inline in the two Windows jobs after the first fix missed them.
+
+     The directory form exists for a real reason — npm runs scripts through cmd.exe on Windows,
+     which does not expand globs. The QUOTED glob satisfies both: the shell leaves it alone and Node
+     expands it internally, so it works on cmd.exe, Git Bash and POSIX alike (Node 21+).
+
+     Asserted because five call sites drifting apart is invisible in review — the failure is loud in
+     CI but only on the one platform that happens to run the odd one out. */
+  const want = 'node --test "out/test/*.test.js"';
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> };
+  assert.ok(pkg.scripts.test.includes(want), `package.json test script must use: ${want}`);
+  for (const f of fs.readdirSync('.github/workflows').filter((n) => n.endsWith('.yml'))) {
+    const body = fs.readFileSync(`.github/workflows/${f}`, 'utf8');
+    for (const line of body.split('\n')) {
+      if (!line.includes('node --test')) continue;
+      assert.ok(line.includes(want),
+        `${f}: every test invocation must be ${want} — found: ${line.trim()}`);
+    }
+  }
+});

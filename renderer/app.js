@@ -8,6 +8,39 @@
  * vault files.
  */
 
+/* Host platform (exposed by preload). The pane's shell is PowerShell on Windows, so command
+   quoting (shq/xQuote) and Windows-path handling (drive letters, backslashes, file:// URLs)
+   branch on this. A plain boolean, resolved once. */
+const IS_WIN = !!(window.glassShell && window.glassShell.platform === 'win32');
+
+/* Separator-agnostic path helpers. On Windows the paths main hands us are backslash-separated
+   (path.join output), so the renderer's forward-slash-only basename/dirname (`split('/').pop()`,
+   `lastIndexOf('/')`) silently return the whole string or ''. These accept BOTH separators. */
+const xSepIdx = (p) => Math.max(String(p).lastIndexOf('/'), String(p).lastIndexOf('\\'));
+const xBase = (p) => { const s = String(p); const i = xSepIdx(s); return i >= 0 ? s.slice(i + 1) : s; };
+/* Separator-agnostic containment: is `child` the same as `parent` or nested under it? Main hands
+   the renderer backslash paths on Windows, so a `child.startsWith(parent + '/')` test never matched
+   there — this accepts either separator (used for sort/git-decoration/relist/reveal containment). */
+const xUnder = (child, parent) => { const c = String(child), p = String(parent); return c === p || c.startsWith(p + '/') || c.startsWith(p + '\\'); };
+/* Absolute filesystem path → a well-formed file:// URL. On Windows C:\a\b.png must become
+   file:///C:/a/b.png (forward slashes, a leading slash before the drive); on POSIX /a/b.png →
+   file:///a/b.png. Each segment is percent-encoded (spaces, #, …) except a drive letter, whose
+   colon must survive. */
+function fileUrl(p) {
+  let s = String(p).replace(/\\/g, '/');
+  if (!s.startsWith('/')) s = '/' + s;                 // Windows drive path → /C:/...
+  return 'file://' + s.split('/').map((seg) => /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg)).join('/');
+}
+/* The inverse: a file:// URI back to a native filesystem path (for an incoming drop's uri-list).
+   `file:///C:/a/b` slices to `/C:/a/b` — the leading slash before the drive is invalid on Windows,
+   and main compares against backslash paths, so strip it and use backslashes on win32. */
+function fileUrlToPath(u) {
+  if (!String(u).startsWith('file://')) return u;
+  let p = decodeURIComponent(String(u).slice('file://'.length));
+  if (IS_WIN) p = p.replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\');
+  return p;
+}
+
 /* ── inline icon set (lucide-style strokes, static strings) ───────────────── */
 const ICONS = {
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
@@ -205,7 +238,7 @@ const SORT_READY = window.glassShell.sortState().then((s) => {
 function resolveSortDir(dir) {
   let best = '';
   for (const r of Object.keys(SORT.overrides)) {
-    if ((dir === r || dir.startsWith(r + '/')) && r.length > best.length) best = r;
+    if (xUnder(dir, r) && r.length > best.length) best = r;
   }
   const ov = best ? SORT.overrides[best] : undefined;
   return ov === 'name' || ov === 'mtime' ? ov : SORT.master;
@@ -795,7 +828,7 @@ async function openFrameworkDoc(file) {
   const root = await window.glassShell.vaultRoot();
   if (!root) { toast(t('viewer.noVault')); return; }
   // vaultRoot may be the framework root or its /vault subdir — the docs live at framework root
-  const fwRoot = root.endsWith('/vault') ? root.slice(0, -'/vault'.length) : root;
+  const fwRoot = /[\\/]vault$/.test(root) ? root.slice(0, -'/vault'.length) : root;
   void openViewer(fwRoot + '/' + file);
 }
 
@@ -1395,8 +1428,12 @@ function updateEmpty() {
    That covers the cases that actually occur — `git status` quotes paths containing spaces, and
    this vault is full of them ("00 - notes/...") — without turning every sentence into a
    candidate link. Unquoted paths keep the conservative rule. */
-const PATH_QUOTED_RE = /["'`]([^"'`\n]{2,200}?\.[A-Za-z]{1,8}(?::\d+)?)["'`]|["'`]([^"'`\n]{2,200}?\/[^"'`\n]{1,200}?)["'`]/g;
-const PATH_RE = /(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\d+)?|\b[A-Za-z0-9._@+-]+\.[A-Za-z]{1,8}(?::\d+)?/g;
+const PATH_QUOTED_RE = /["'`]([^"'`\n]{2,200}?\.[A-Za-z]{1,8}(?::\d+)?)["'`]|["'`]([^"'`\n]{2,200}?\/[^"'`\n]{1,200}?)["'`]|["'`]([^"'`\n]{2,200}?\\[^"'`\n]{1,200}?)["'`]/g;
+/* Third alternative (Windows): a drive-letter root `C:\` or `C:/` followed by \- or /-separated
+   segments — what PowerShell/dir/most Windows CLIs print. `\b` before the drive letter keeps it
+   from matching the `p:/` inside `http://…`. Existence-checked like every candidate, so a
+   spurious match simply resolves to nothing; on POSIX it just never fires. */
+const PATH_RE = /\b[A-Za-z]:[\\/](?:[^\s\\/:*?"<>|]+[\\/]?)+(?::\d+)?|(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\d+)?|\b[A-Za-z0-9._@+-]+\.[A-Za-z]{1,8}(?::\d+)?/g;
 
 /** Candidates on one line. Quoted matches first (their quotes delimit any spaces), then bare
     tokens — and each bare token also gets EXTENDED across the spaces that follow it.
@@ -1410,7 +1447,7 @@ const PATH_RE = /(?:~|\.{1,2})?\/?[A-Za-z0-9._@+-]+(?:\/[A-Za-z0-9._@+-]+)+(?::\
 function pathCandidates(text) {
   const out = [];
   for (const m of text.matchAll(PATH_QUOTED_RE)) {
-    const val = m[1] ?? m[2];
+    const val = m[1] ?? m[2] ?? m[3];
     if (!val) continue;
     out.push({ value: val, index: m.index + 1, length: val.length, alts: [] });
   }
@@ -2897,10 +2934,10 @@ async function openRecents() {
   }
   if (files.length) items.push({ label: t('recent.headFiles'), head: true });
   for (const r of files) {
-    const nm = String(r.path).split('/').pop();
+    const nm = xBase(r.path);
     items.push({
       label: nm,
-      desc: agoLabel(r.at) + ' · ' + String(r.path).split('/').slice(-3, -1).join('/'),
+      desc: agoLabel(r.at) + ' · ' + String(r.path).split(/[\\/]/).slice(-3, -1).join('/'),
       icon: fileIconName(nm),
       value: { t: 'file', path: r.path },
     });
@@ -2922,8 +2959,8 @@ async function openViewer(p) {
     if (pane.kind === 'view' && pane.path === p) { setActive(id); return; }
   }
   const file = await window.glassShell.fsRead(p);
-  if (!file) { toast(t('viewer.cannotOpen', { name: String(p).split('/').pop() })); return; }
-  const name = file.path.split('/').pop();
+  if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
+  const name = xBase(file.path);
   noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
   const id = 'v' + (++viewSeq);
   const el = document.createElement('div');
@@ -2932,7 +2969,7 @@ async function openViewer(p) {
   const head = document.createElement('div');
   head.className = 'vhead';
   const title = document.createElement('span'); title.className = 'vtitle';
-  const parts = file.path.split('/');
+  const parts = file.path.split(/[\\/]/);
   const crumb = document.createElement('span'); crumb.className = 'vcrumb';
   crumb.textContent = (parts[parts.length - 2] || '') + ' › ';
   title.append(crumb, document.createTextNode(name));
@@ -3027,7 +3064,7 @@ async function openViewer(p) {
     if (IMG_EXT.test(name)) {
       const img = document.createElement('img');
       img.className = 'imgview';
-      img.src = 'file://' + file.path;
+      img.src = fileUrl(file.path);
       body.appendChild(img);
       return;
     }
@@ -3035,7 +3072,7 @@ async function openViewer(p) {
       // Chromium's built-in PDF viewer (no sandbox attr — it blocks the plugin)
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
-      fr.src = 'file://' + file.path;
+      fr.src = fileUrl(file.path);
       body.appendChild(fr);
       return;
     }
@@ -3044,7 +3081,7 @@ async function openViewer(p) {
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
       fr.setAttribute('sandbox', 'allow-scripts');
-      fr.src = 'file://' + file.path;
+      fr.src = fileUrl(file.path);
       body.appendChild(fr);
       return;
     }
@@ -3073,10 +3110,10 @@ async function openViewer(p) {
     }
     const md = document.createElement('div');
     md.innerHTML = marked.parse(src); // operator's own vault content
-    const dir = file.path.slice(0, file.path.lastIndexOf('/'));
+    const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
-      if (s && !/^(https?|file|data):/.test(s)) img.src = 'file://' + dir + '/' + s;
+      if (s && !/^(https?|file|data):/.test(s)) img.src = fileUrl(dir + '/' + s);
     }
     // live task checkboxes — click toggles [ ]/[x] in the FILE (Obsidian-style)
     const boxes = md.querySelectorAll('input[type="checkbox"]');
@@ -3154,7 +3191,13 @@ const dirContainers = new Map(); // absDir → the element holding its child row
 const ensureExpand = new Map();  // path | 'sect:LABEL' → an expand-only fn (for auto-reveal)
 const xFindRow = (p) => { for (const r of explorerEl.querySelectorAll('.xrow[data-path]')) if (r.dataset.path === p) return r; return null; };
 const xSelect = (row) => { for (const r of explorerEl.querySelectorAll('.xrow.sel')) r.classList.remove('sel'); row.classList.add('sel'); };
-const xQuote = (p) => /[^A-Za-z0-9._/\-]/.test(p) ? "'" + p.replace(/'/g, "'\\''") + "'" : p;
+const xQuote = (p) => {
+  const s = String(p);
+  // Windows: the pane is PowerShell (double the quote to escape); allow \ and : unquoted so a
+  // bare drive path (C:\Users\x) is typed clean, and quote only when other specials appear.
+  if (IS_WIN) return /[^A-Za-z0-9._/\\:-]/.test(s) ? "'" + s.replace(/'/g, "''") + "'" : s;
+  return /[^A-Za-z0-9._/\-]/.test(s) ? "'" + s.replace(/'/g, "'\\''") + "'" : s;
+};
 
 /* Every setup script the app runs ends with a framed verdict IN THE TERMINAL. A non-technical
    operator watching a wall of pip output has no way to know whether it finished, whether the red
@@ -3179,13 +3222,19 @@ async function bannerPath() {
 async function withDoneBanner(cmd) {
   const b = await bannerPath();
   // no helper (write failed) → run the command plainly rather than not at all
-  return b ? `{ ${cmd} ; }; ${xQuote(b)} $?` : cmd;
+  if (!b) return cmd;
+  // Windows: `b` is already a FULL PowerShell invocation (powershell … -File '…done.ps1'), and the
+  // pane is PowerShell — where POSIX `{ cmd ; }; banner $?` is a scriptblock LITERAL that never runs
+  // (the bug that made every setup button a silent no-op). Run the command then the banner
+  // sequentially with `;`, passing PowerShell's own `$?` (True/False) as the status arg.
+  if (IS_WIN) return `${cmd} ; ${b} $?`;
+  return `{ ${cmd} ; }; ${xQuote(b)} $?`;
 }
-const xDirOf = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
+const xDirOf = (p) => { const s = String(p); const i = xSepIdx(s); return i > 0 ? s.slice(0, i) : (IS_WIN ? s : '/'); };
 
 function openTerminalHere(p, isDir) {
   const dir = isDir ? p : xDirOf(p);
-  void createPane({ name: dir.split('/').pop() || 'terminal', cwd: dir });
+  void createPane({ name: xBase(dir) || 'terminal', cwd: dir });
 }
 function sendPathToTerminal(p) {
   const id = active.term != null ? active.term : (active.main != null && panes.get(active.main)?.kind === 'term' ? active.main : null);
@@ -3204,7 +3253,7 @@ function attachDrag(row, p, isDir) {
   row.addEventListener('dragstart', (ev) => {
     if (!ev.dataTransfer) return;
     ev.dataTransfer.setData('text/plain', p);
-    ev.dataTransfer.setData('text/uri-list', 'file://' + encodeURI(p));
+    ev.dataTransfer.setData('text/uri-list', fileUrl(p));
     ev.dataTransfer.setData('application/x-aios-path', p);   // our own, unambiguous
     // the row already KNOWS whether it is a folder — carrying it beats asking the main
     // process again on drop, and it cannot disagree with what the operator dragged
@@ -3235,7 +3284,7 @@ function droppedPaths(ev) {
   // Last resort: a URI list, which some sources give instead of File objects.
   const list = dt.getData('text/uri-list') || dt.getData('text/plain') || '';
   return list.split(/\r?\n/).map((u) => u.trim()).filter((u) => u && !u.startsWith('#'))
-    .map((u) => (u.startsWith('file://') ? decodeURIComponent(u.slice('file://'.length)) : u));
+    .map(fileUrlToPath);
 }
 
 /* While ANY drag is in flight, mark the body so the drop zones can announce themselves.
@@ -3369,7 +3418,7 @@ async function applySort(folder, mode) {
   SORT.overrides = s.overrides || {};
   // re-list the override's whole rendered subtree in the new order (no repaint)
   for (const d of [...dirContainers.keys()]) {
-    if (d === folder || d.startsWith(folder + '/')) void relistFolder(d);
+    if (xUnder(d, folder)) void relistFolder(d);
   }
 }
 /* hover-reveal per-folder sort control — on section headers, workspace roots, and any dir row */
@@ -3441,7 +3490,7 @@ async function buildTree(absDir, container, depth, skipName, base) {
 function paintRowGit(row) {
   const p = row.dataset.path;
   if (!p) return;
-  if (GIT.repos.length && !GIT.repos.some((r) => p === r || p.startsWith(r + '/'))) return;
+  if (GIT.repos.length && !GIT.repos.some((r) => xUnder(p, r))) return;
   const isDir = row.classList.contains('dir');
   const code = GIT.files[p] || (isDir && GIT.dirty.has(p) ? 'M' : undefined);
   row.classList.remove('gM', 'gU', 'gA', 'gD', 'gR');
@@ -3462,8 +3511,8 @@ function applySectionGit(files) {
   const entries = Object.entries(files);
   explorerEl.querySelectorAll('.xsect[data-git-root]').forEach((head) => {
     const root = head.dataset.gitRoot, excl = head.dataset.gitExclude || '';
-    const inRoot = (p) => p === root || p.startsWith(root + '/');
-    const inExcl = (p) => !!excl && (p === excl || p.startsWith(excl + '/'));
+    const inRoot = (p) => xUnder(p, root);
+    const inExcl = (p) => !!excl && xUnder(p, excl);
     const tally = new Map();
     let n = 0;
     for (const [p, code] of entries) {
@@ -3540,13 +3589,17 @@ async function revealPath(abs) {
   if (roots.vault) places.push({ key: 'sect:VAULT', path: roots.vault });
   if (roots.framework && roots.framework !== roots.vault) places.push({ key: 'sect:FRAMEWORK', path: roots.framework });
   for (const w of roots.workspace) places.push({ key: 'sect:WORKSPACE', wpath: w.path, path: w.path });
-  const place = places.find((p) => abs === p.path || abs.startsWith(p.path + '/'));
+  // Separator-agnostic: on Windows both `abs` and the root paths are backslash-separated, so a
+  // forward-slash containment test / split never matched and reveal silently no-op'd. The ancestor
+  // keys in ensureExpand are the native paths main sent, so rebuild `acc` with the NATIVE separator.
+  const sep = IS_WIN ? '\\' : '/';
+  const place = places.find((p) => xUnder(abs, p.path));
   if (!place) return;
   await ensureExpand.get(place.key)?.();
   if (place.wpath) await ensureExpand.get(place.wpath)?.();
-  const parts = abs.slice(place.path.length + 1).split('/').filter(Boolean);
+  const parts = abs.slice(place.path.length + 1).split(/[\\/]/).filter(Boolean);
   let acc = place.path;
-  for (let i = 0; i < parts.length - 1; i++) { acc += '/' + parts[i]; const fn = ensureExpand.get(acc); if (fn) await fn(); }
+  for (let i = 0; i < parts.length - 1; i++) { acc += sep + parts[i]; const fn = ensureExpand.get(acc); if (fn) await fn(); }
   const target = xFindRow(abs);
   if (target) { xSelect(target); target.scrollIntoView({ block: 'nearest' }); }
 }
@@ -3901,7 +3954,7 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
     // An OS drop can be a folder too — that becomes a workspace folder, which is how an
     // outside project comes in.
     const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
-    if (addedDir) { toast(t('drop.folderAdded', { name: addedDir.split('/').pop() })); void paintExplorer(); continue; }
+    if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
     /* A file the reader refuses is simply outside every allowed root — which is most things
        dragged from Finder. Rather than dead-ending on "cannot open", bring its folder into
        scope: the same widening the Add-folder dialog performs, except the drop IS the
@@ -3910,7 +3963,7 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
     if (!readable) {
       const parent = xDirOf(dropped);
       const widened = await window.glassShell.addFolderPath(parent).catch(() => null);
-      if (widened) { toast(t('drop.folderAdded', { name: parent.split('/').pop() })); void paintExplorer(); }
+      if (widened) { toast(t('drop.folderAdded', { name: xBase(parent) })); void paintExplorer(); }
     }
     void openViewer(dropped);
   }
@@ -3925,7 +3978,7 @@ attachDropZone(document.getElementById('tpanes'), (paths, isDir) => {
   }
   // no terminal to receive it: opening one AT that folder is the useful reading
   const dir = isDir ? paths[0] : xDirOf(paths[0]);
-  void createPane({ name: dir.split('/').pop() || 'terminal', cwd: dir });
+  void createPane({ name: xBase(dir) || 'terminal', cwd: dir });
 });
 
 /* ── splitters (drag to resize) ───────────────────────────────────────────── */
@@ -4118,7 +4171,14 @@ window.glassShell.onIntent(async (m) => {
   }
 });
 
-function shq(s) { return `'${s.replace(/'/g, `'\\''`)}'`; }
+/* Quote a whole argument for the pane's shell. On Windows that shell is PowerShell, whose
+   single-quoted strings escape an embedded quote by DOUBLING it (''), not the POSIX '\'' idiom —
+   getting this wrong corrupts the FIRST prompt of every launched session, and apostrophes are
+   pervasive in EN/ES natural-language prompts. POSIX shells keep the '\'' form. */
+function shq(s) {
+  const str = String(s);
+  return IS_WIN ? `'${str.replace(/'/g, "''")}'` : `'${str.replace(/'/g, `'\\''`)}'`;
+}
 
 
 // The first prompt handed to a session launched with no explicit task — it triggers
@@ -4998,7 +5058,9 @@ function openSetupTab() {
           mkBtn(acts, t('setup.phase1'), async () => {
             const script = await window.glassShell.phase1Script().catch(() => '');
             if (!script) { toast(t('setup.phase1Missing')); return; }
-            void fixPane('phase1', `bash ${xQuote(script)}`);
+            // win32: phase1Script() already returns a full `powershell … -File '…ps1'` invocation,
+            // so run it as-is; POSIX gets the .sh path run through bash.
+            void fixPane('phase1', IS_WIN ? script : `bash ${xQuote(script)}`);
           }, { primary: true, title: t('setup.phase1Hint') });
           /* The per-tool fixes live in ADVANCED, not beside the primary. Two buttons — one
              saying "install what I need", one naming a single tool — force a choice the operator
@@ -5022,7 +5084,7 @@ function openSetupTab() {
         case 'login': {
           const acct = by('account');
           mkBtn(acts, t('setup.login'), () => void fixPane('account', (acct && acct.repairCmd) || CLAUDE + ' /login'), { primary: true, title: acct && acct.repairHint });
-          mkBtn(adv, t('onboarding.switchAccount'), () => void fixPane('account', CLAUDE + ' /logout && ' + CLAUDE + ' /login'));
+          mkBtn(adv, t('onboarding.switchAccount'), () => void fixPane('account', CLAUDE + ' /logout' + (IS_WIN ? ' ; ' : ' && ') + CLAUDE + ' /login'));
           break;
         }
         case 'github': {
@@ -5892,7 +5954,7 @@ function runFrequent(t) {
 /* ── quick open (⌘P): any file across vault + workspace ────────────────────── */
 async function quickOpen() {
   const idx = await window.glassShell.fsIndex();
-  const v = await listModal(t('quickOpen.title'), idx.map((f) => ({ label: f.name, desc: f.root + ' · ' + f.path.split('/').slice(-3, -1).join('/'), icon: fileIconName(f.name), value: f.path })), t('quickOpen.placeholder'));
+  const v = await listModal(t('quickOpen.title'), idx.map((f) => ({ label: f.name, desc: f.root + ' · ' + f.path.split(/[\\/]/).slice(-3, -1).join('/'), icon: fileIconName(f.name), value: f.path })), t('quickOpen.placeholder'));
   if (v) void openViewer(v);
 }
 

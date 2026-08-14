@@ -13,7 +13,16 @@ catch (e) { ptyLoadError = String((e as Error)?.message ?? e); }
 if (!pty && process.platform === 'darwin') {
   throw new Error(`node-pty must load on macOS — run: npx electron-rebuild -f -w node-pty (${ptyLoadError})`);
 }
-const skip = pty ? false : `no node-pty prebuild on ${process.platform}; pty round-trips run on macOS`;
+/* node-pty DOES load on Windows (N-API prebuild), so `skip` would be false and these would RUN —
+   but roundTrip drives `/bin/sh -c 'stty raw -echo; cat'`, which does not exist on Windows, and the
+   specific hazard it guards (the POSIX MAX_CANON 1024-byte canonical-mode tail-loss) has no ConPTY
+   analog — Windows pty delivery is exercised instead by the packaged `--smoke` pty gate. So skip on
+   win32 too, with the reason stated, rather than fail on an absent /bin/sh. */
+const skip = pty
+  ? (process.platform === 'win32'
+      ? 'raw-pty round-trip uses /bin/sh + stty (POSIX); ConPTY has no MAX_CANON buffer, and Windows pty delivery is covered by the packaged --smoke pty gate'
+      : false)
+  : `no node-pty prebuild on ${process.platform}; pty round-trips run on macOS`;
 import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '../core/busPayload';
 
 /* AI-66 end-to-end. The other suite reasons about the RULE; this one puts bytes through a real

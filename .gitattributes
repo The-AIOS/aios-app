@@ -1,0 +1,26 @@
+# Line endings are LF everywhere, enforced on checkout — including Windows.
+#
+# Without this, a Windows checkout (core.autocrlf=true, the git-for-windows default) lands every
+# text file with CRLF, which breaks two things: (a) the bundled bash scripts under scripts/setup/
+# get `#!/bin/bash\r` and fail with "/bin/bash^M: bad interpreter", and (b) src/test/protocolContract
+# hashes a byte-range of src/core/sendQueue.ts and asserts a fixed LF digest — CRLF flips that into a
+# false "protocol drift". eol=lf is the fix; never change the asserted hash to a CRLF one.
+* text=auto eol=lf
+
+# Shells + configs that MUST stay LF (redundant with the line above, explicit for clarity/safety).
+*.sh    text eol=lf
+*.command text eol=lf
+*.ts    text eol=lf
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+
+# Binary assets — never touch their bytes.
+*.icns  binary
+*.ico   binary
+*.png   binary
+*.plist binary

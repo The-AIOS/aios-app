@@ -42,6 +42,15 @@ before(() => {
   // the skills repair target: an idempotent installer that registers ONE skill
   // into the (fixture) Claude home — exactly what the real setup.sh does.
   w('skills/setup.sh', '#!/bin/sh\nmkdir -p "$GLASS_CLAUDE_HOME/skills"\ntouch "$GLASS_CLAUDE_HOME/skills/test-skill"\n', 0o755);
+  /* And its Windows sibling. The doctor refuses to run a `.sh` through bash on win32 — that
+     fails in a way that reads like the repair ran — so it offers a repair there ONLY when the
+     framework ships a `.ps1` next to the `.sh`. A fixture with just the `.sh` would therefore
+     be testing the degraded path on Windows and the real one everywhere else; shipping both
+     keeps ONE set of assertions exercising the same behaviour on every platform. */
+  w('skills/setup.ps1',
+    '$d = Join-Path $env:GLASS_CLAUDE_HOME "skills"\n'
+    + 'New-Item -ItemType Directory -Path $d -Force | Out-Null\n'
+    + 'New-Item -ItemType File -Path (Join-Path $d "test-skill") -Force | Out-Null\n');
   // a Claude home that EXISTS but has no signed-in account — the old check's
   // false-positive shape (dir present ≠ signed in).
   fs.writeFileSync(claudeJson, JSON.stringify({}));
@@ -105,7 +114,11 @@ test('skills: the repair loop — warn → run fix → the SAME check re-runs an
   const beforeFix = (await aios.setupChecks()).find((c) => c.id === 'skills');
   assert.ok(beforeFix, 'skills check present');
   assert.equal(beforeFix!.status, 'warn', 'no skills registered yet');
-  assert.equal(beforeFix!.canRepair, true, 'setup.sh exists → doctor can repair headless');
+  assert.equal(beforeFix!.canRepair, true, 'the installer exists → doctor can repair headless');
+  /* The hint names the launcher the repair will REALLY use — bash for a .sh, PowerShell for the
+     .ps1 sibling on Windows. A tooltip that promises bash on a machine with no bash is the same
+     class of lie as offering `brew install` on a Mac where brew cannot write. */
+  assert.match(beforeFix!.repairHint!, process.platform === 'win32' ? /^powershell .*-File '.*setup\.ps1'$/ : /^bash '.*setup\.sh'$/);
   const proved = await aios.repairCheck('skills');
   assert.ok(proved, 'repair returns the re-checked result');
   assert.equal(proved!.status, 'pass', 'the re-run proves the fix');
@@ -158,9 +171,43 @@ test('the phase 1 script is handed out as a REAL path, never one inside app.asar
   assert.match(src, /mode: 0o700/);
   assert.match(src, /!p\.includes\('app\.asar' \+ path\.sep\)/, 'never return an in-archive path');
   // and the returned path, in dev, must be executable by bash right now
-  const p = aios.phase1Script();
+  const handed = aios.phase1Script();
+  /* Windows hands out a ready-to-run PowerShell INVOCATION rather than a bare path: there is no
+     `bash` for the caller to prefix it with, and a bare .ps1 path is not universally runnable
+     under the default execution policy. The invariant underneath is identical on both — whatever
+     is handed out has to point at a REAL file on disk, never one inside the archive. */
+  const p = process.platform === 'win32'
+    ? (/-File '(.+)'$/.exec(handed)?.[1] ?? '')
+    : handed;
+  if (process.platform === 'win32') {
+    assert.match(handed, /^powershell -NoProfile -ExecutionPolicy Bypass -File '.*phase1-prerequisites\.ps1'$/, `unusable invocation: ${handed}`);
+  }
   assert.ok(p && !p.includes('app.asar' + require('path').sep), `unusable script path: ${p}`);
   assert.ok(fs.statSync(p).isFile());
+});
+
+test('win32 done.ps1 reads PowerShell\'s $? — "True" is the ONLY success', { skip: process.platform !== 'win32' }, () => {
+  /* A CONTRACT ACROSS TWO OWNERS, which is exactly the kind that breaks silently. The renderer
+     emits `<cmd> ; <banner invocation> $?` on win32, and PowerShell's `$?` is a BOOLEAN — the
+     first positional argument arrives as 'True'/'False', never as an exit code. So '0' is not
+     success here, and the failure that matters is the false green: a step that failed announcing
+     that everything worked. Asserted by RUNNING the generated script, because the way this would
+     actually regress is argument binding (someone reading $args, which a param block leaves
+     empty) — which no amount of reading the source would reveal. */
+  const invocation = aios.bannerScript('IT WORKED', 'ok sub', 'IT FAILED', 'fail sub');
+  const script = /-File '(.+)'$/.exec(invocation)?.[1] ?? '';
+  assert.ok(fs.statSync(script).isFile(), `banner script not written: ${invocation}`);
+  const run = (arg: string): string => require('child_process')
+    .execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, arg], { encoding: 'utf8', timeout: 20000 });
+
+  assert.match(run('True'), /IT WORKED/, "PowerShell's $? spelling of success");
+  assert.doesNotMatch(run('True'), /IT FAILED/);
+  assert.match(run('False'), /IT FAILED/, 'and its spelling of failure');
+  /* Everything that is not 'True' is a failure — including the POSIX spelling of success. A
+     banner that reads '0' as a win, on a channel that never sends '0', would only ever fire on
+     a malformed argument, and a false green is the one verdict worse than none. */
+  assert.match(run('0'), /IT FAILED/, "'0' is the POSIX contract, not this one");
+  assert.match(run(''), /IT FAILED/, 'a missing verdict fails safe');
 });
 
 test('every path in a command is shell-quoted', () => {
@@ -181,6 +228,18 @@ test('every path in a command is shell-quoted', () => {
   assert.doesNotMatch(src, /`bash \$\{script\}`/, 'a bare interpolated path is the bug');
   assert.doesNotMatch(src, /JSON\.stringify\(v\)/, 'double quotes still expand $');
   assert.equal((src.match(/bash \$\{shq\(script\)\}/g) || []).length, 2);
+  /* The Windows launcher is the same audit in another dialect: `-File C:\Users\Jane Doe\aios\…`
+     breaks exactly where `bash /Users/Jane Doe/aios/…` breaks, and a framework under a OneDrive
+     or "My Documents" path is the common case there rather than the exotic one.
+     It must quote with psq, NOT shq — reaching for the POSIX helper here produces a string that
+     looks quoted and is not: PowerShell escapes with a backtick, so shq's `'\''` idiom emits a
+     stray backslash and leaves the quote unbalanced (C:\Users\O'Brien\aios is enough to break
+     it). PowerShell doubles the quote instead. */
+  assert.match(src, /-File \$\{psq\(script\)\}/, 'the PowerShell launcher quotes its path too');
+  assert.match(src, /function psq\(s: string\): string/);
+  const psq = (s: string): string => `'${String(s).replace(/'/g, "''")}'`;
+  assert.equal(psq("C:\\Users\\O'Brien\\aios\\x.ps1"), "'C:\\Users\\O''Brien\\aios\\x.ps1'");
+  assert.doesNotMatch(src, /\$\{shq\((?:ok|okSub|fail|failSub|bar)\)\}/, 'PowerShell strings never use the POSIX quoter');
   // the helper itself must survive a quote in the path
   const shq = (p: string): string => `'${String(p).replace(/'/g, `'\\''`)}'`;
   assert.equal(shq("/tmp/it's here/x.sh"), `'/tmp/it'\\''s here/x.sh'`);

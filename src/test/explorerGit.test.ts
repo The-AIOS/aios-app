@@ -23,15 +23,31 @@ test('FRAMEWORK declares the vault as an exclusion; VAULT declares none', () => 
 });
 
 test('the rollup actually applies the exclusion, not just receives it', () => {
-  assert.match(app, /const inExcl = \(p\) => !!excl && \(p === excl \|\| p\.startsWith\(excl \+ '\/'\)\);/);
+  // The containment test moved into the shared `xUnder` helper when Windows arrived (backslash
+  // paths never matched a `+ '/'` test). Assert that the rollup DELEGATES to it rather than
+  // re-deriving a prefix check of its own — a second implementation is how the two drift.
+  assert.match(app, /const inExcl = \(p\) => !!excl && xUnder\(p, excl\);/);
   assert.match(app, /if \(!inRoot\(p\) \|\| inExcl\(p\)\) continue;/);
 });
 
 test('prefix tests are path-boundary safe — a sibling named like the root must not match', () => {
-  // `startsWith(root + '/')` rather than `startsWith(root)`: otherwise a sibling
-  // directory such as `…/vault-archive` would be counted inside `…/vault`.
-  assert.match(app, /p === root \|\| p\.startsWith\(root \+ '\/'\)/);
-  assert.doesNotMatch(app, /p\.startsWith\(root\)(?!\s*\+)/, 'must never prefix-match without the separator');
+  /* This used to pin the literal `p === root || p.startsWith(root + '/')`. Windows made that
+     spelling wrong (backslash paths) and the assertion failed on a CORRECT change — so it now
+     tests the BEHAVIOUR of the helper that owns the rule, which is what the title always claimed.
+     Extracted and executed rather than pattern-matched: a boundary bug is invisible to a regex
+     that only checks the code still looks a certain way. */
+  const m = /^const xUnder = .+$/m.exec(app);   // whole LINE — its body contains semicolons
+  assert.ok(m, 'the shared containment helper must be findable');
+  const xUnder = new Function(`${m[0]} return xUnder;`)() as (c: string, p: string) => boolean;
+
+  // inside → true, on both separators
+  assert.equal(xUnder('/a/vault', '/a/vault'), true, 'the root is inside itself');
+  assert.equal(xUnder('/a/vault/notes/x.md', '/a/vault'), true);
+  assert.equal(xUnder('C:\\a\\vault\\notes\\x.md', 'C:\\a\\vault'), true, 'backslash paths must match');
+  // the actual bug this guards: a SIBLING that merely shares the prefix
+  assert.equal(xUnder('/a/vault-archive', '/a/vault'), false, 'a sibling named like the root must NOT match');
+  assert.equal(xUnder('/a/vault-archive/secret.md', '/a/vault'), false);
+  assert.equal(xUnder('C:\\a\\vault-archive\\secret.md', 'C:\\a\\vault'), false, 'and not on Windows either');
 });
 
 test('rollup runs on every git refresh, so it cannot drift from the rows', () => {
@@ -98,7 +114,7 @@ test('"open terminal here" actually reaches the pty as a cwd', () => {
   // Asserts the INTENT (cwd reaches the pty), not the literal argument list — the list grew
   // a `name` for AI-64 and a shape-exact regex made an unrelated test fail.
   assert.match(app, /ptySpawn\(\{[^}]*\bcwd\b[^}]*\}\)/);
-  assert.match(app, /void createPane\(\{ name: dir\.split\('\/'\)\.pop\(\) \|\| 'terminal', cwd: dir \}\)/);
+  assert.match(app, /void createPane\(\{ name: xBase\(dir\) \|\| 'terminal', cwd: dir \}\)/);
 });
 
 test('a dragged row carries its own is-directory flag, so no drop needs to ask again', () => {
@@ -217,8 +233,19 @@ test('OS drops resolve File objects BEFORE text/plain — Finder puts a URL ther
   const iFiles = order.indexOf('pathForFile');
   const iPlain = order.indexOf("getData('text/plain')");
   assert.ok(iOwn < iFiles && iFiles < iPlain, 'ours → File objects → URI text, in that order');
-  // and a file:// URL must be decoded, not passed through
-  assert.match(app, /u\.startsWith\('file:\/\/'\) \? decodeURIComponent\(u\.slice\('file:\/\/'\.length\)\) : u/);
+  /* And a file:// URL must be DECODED, not passed through. The inline ternary this used to pin
+     became `fileUrlToPath` when Windows arrived (a drive path needs the leading slash stripped and
+     the separators flipped), so assert the conversion's behaviour instead of its spelling. */
+  const fm = /function fileUrlToPath\(u\) \{[\s\S]*?\n\}/.exec(app);
+  assert.ok(fm, 'the file:// converter must be findable');
+  const make = (isWin: boolean) =>
+    new Function('IS_WIN', `${fm![0]} return fileUrlToPath;`)(isWin) as (u: string) => string;
+  const posix = make(false);
+  assert.equal(posix('file:///Users/x/My%20Notes/a.md'), '/Users/x/My Notes/a.md', 'percent-decoded');
+  assert.equal(posix('/already/a/path.md'), '/already/a/path.md', 'a plain path passes through untouched');
+  const win = make(true);
+  assert.equal(win('file:///C:/a/My%20Notes/b.md'), 'C:\\a\\My Notes\\b.md',
+    'drive path: leading slash dropped, separators flipped, still decoded');
   assert.match(app, /filter\(\(u\) => u && !u\.startsWith\('#'\)\)/, 'uri-list comments are not paths');
 });
 
