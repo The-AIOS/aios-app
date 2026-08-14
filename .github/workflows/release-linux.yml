@@ -96,11 +96,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Poll for the mac MANIFEST, not merely the release. `gh release create` returns as soon
+          # as the release object exists, while its assets are still uploading — so "the release
+          # exists" cleared 14s before latest-mac.yml was attached on v0.8.3, and the fingerprint
+          # step below failed instantly on a file that was moments from arriving. The Linux lane
+          # was skipped and v0.8.3 shipped with no Linux feed at all, which is precisely the
+          # breakage this workflow's header warns about, caused by the guard meant to prevent it.
+          # Wait for the thing the next step actually reads.
           for i in $(seq 1 60); do
-            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-              echo "release $RELEASE_TAG exists"; exit 0
+            if gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx 'latest-mac.yml'; then
+              echo "release $RELEASE_TAG is published AND latest-mac.yml is attached"; exit 0
             fi
-            echo "waiting for $RELEASE_TAG to be published… ($i/60)"; sleep 30
+            echo "waiting for $RELEASE_TAG's mac manifest to land… ($i/60)"; sleep 30
           done
           echo "::error::$RELEASE_TAG was never published — refusing to create it, because a release without latest-mac.yml breaks every mac client's updater"
           exit 1
