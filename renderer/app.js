@@ -171,6 +171,7 @@ void window.glassShell.shellConfig().then((c) => {
   CLAUDE = c.claudeCmd || 'claude';
   KILLBEHAVIOR = c.killBehavior || 'ask';
   OPENNOTESIN = c.openNotesIn || 'rendered';
+  appScale = Math.min(18, Math.max(10, Number(c.appFontSize) || 13));
   applyAppScale(c.appFontSize);
   applyHiddenCards(c.hiddenCards);
   TERMFONT = Number(c.termFontSize) || 12.5;
@@ -212,6 +213,24 @@ function applyAppScale(size) {
   document.body.style.zoom = '';   // clear any value a previous build left behind
   fitTerms();                      // the grid changes size with the zoom
 }
+/* Interface size from the View menu — the same value Settings writes, so the two controls
+   cannot disagree. Persisted (setSetting) as well as applied, because a size that resets on
+   relaunch reads as the control not working. APP_SCALE_BASE 13 = 100%, matching applyAppScale. */
+const APP_SCALE_MIN = 10, APP_SCALE_MAX = 18, APP_SCALE_BASE = 13;
+let appScale = APP_SCALE_BASE;
+async function stepAppScale(delta) {
+  const from = Number(appScale) || APP_SCALE_BASE;
+  const next = delta === null
+    ? APP_SCALE_BASE
+    : Math.min(APP_SCALE_MAX, Math.max(APP_SCALE_MIN, from + delta));
+  const changed = next !== from;
+  appScale = next;
+  applyAppScale(next);
+  await window.glassShell.setSetting('appFontSize', next).catch(() => {});
+  // Trailing marker at the clamp: otherwise the keypress looks like nothing happened.
+  toast(t('appScale.level', { pct: Math.round((next / APP_SCALE_BASE) * 100) }) + (changed ? '' : ' ·'));
+}
+
 /* Cards the operator switched off in Settings — hidden, never removed, so order and
    content survive a re-enable. */
 function applyHiddenCards(list) {
@@ -4166,6 +4185,9 @@ window.glassShell.onIntent(async (m) => {
       if (m.reset) setEdZoom(1, true);
       else setEdZoom(edZoom + (Number(m.delta) || 0), true);
       return;
+    case 'appScale':
+      void stepAppScale(m.reset ? null : (Number(m.delta) || 0));
+      return;
     case 'recents':
       void openRecents();
       return;
@@ -4697,6 +4719,7 @@ function openSettingsTab() {
       const v = Math.min(18, Math.max(10, Number(appFontIn.value) || 13));
       appFontIn.value = String(v);
       await window.glassShell.setSetting('appFontSize', v);
+      appScale = v;
       applyAppScale(v);
       toast(t('settings.saved'));
     });

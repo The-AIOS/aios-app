@@ -104,20 +104,45 @@ Ensure -Cmd 'uv'      -Id 'astral-sh.uv'      -Label 'uv'
 # -- 3. Obsidian --------------------------------------------------------------
 # Required on every path: it is how you read the vault, and it is what the
 # bundled Obsidian MCP talks to. It is a GUI app, so presence is a file check.
+#
+# AI-110 - ASK WINGET, THE WAY THE .sh ASKS BREW.
+# Reported 2026-08-15 on the first clean Windows machine: Obsidian "did not land" and was
+# installed by hand. The script's own logic was already right - it re-checks after installing
+# and prints the manual URL - but the check itself tested TWO hardcoded paths and nothing else,
+# so an install that succeeded into a third location is indistinguishable from one that failed.
+# The macOS branch never had this hole because it falls back to `brew list --cask obsidian`:
+# the package manager's own answer, which cannot be wrong about its own install. Windows had no
+# equivalent, so winget is now asked the same question.
+#
+# Added `Programs\Obsidian` because that is where an electron-builder NSIS per-user install
+# lands by default, and the two paths here did not cover it. Which of the three Gabo's machine
+# actually used is still unconfirmed - hence asking winget rather than adding a third guess and
+# calling it settled.
+#
+# Factored into one function on purpose: the path list was duplicated above and below the
+# install, so adding a location to one copy would silently miss the other.
 Say "Obsidian"
-$obsidian = @(
-  (Join-Path $env:LOCALAPPDATA 'Obsidian\Obsidian.exe'),
-  (Join-Path $env:ProgramFiles 'Obsidian\Obsidian.exe')
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
+function Find-Obsidian {
+  $paths = @(
+    (Join-Path $env:LOCALAPPDATA 'Obsidian\Obsidian.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Obsidian\Obsidian.exe'),
+    (Join-Path $env:ProgramFiles 'Obsidian\Obsidian.exe')
+  ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($paths) { return $paths }
+  # No file found. Winget knows what it installed even when we cannot guess where.
+  if ($winget) {
+    $listed = winget list --id Obsidian.Obsidian -e --source winget 2>$null | Out-String
+    if ($listed -match 'Obsidian') { return 'winget' }
+  }
+  return $null
+}
+$obsidian = Find-Obsidian
 if ($obsidian) {
-  Ok "already installed ($obsidian)"
+  if ($obsidian -eq 'winget') { Ok "already installed (winget)" } else { Ok "already installed ($obsidian)" }
 } elseif ($winget) {
   Write-Host "  installing..."
   winget install --id Obsidian.Obsidian -e --source winget --accept-package-agreements --accept-source-agreements --silent | Out-Null
-  $obsidian = @(
-    (Join-Path $env:LOCALAPPDATA 'Obsidian\Obsidian.exe'),
-    (Join-Path $env:ProgramFiles 'Obsidian\Obsidian.exe')
-  ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+  $obsidian = Find-Obsidian
   if ($obsidian) { Ok "installed" } else { Warn "install failed - get it from https://obsidian.md" }
 } else {
   Warn "not installed - get it from https://obsidian.md"

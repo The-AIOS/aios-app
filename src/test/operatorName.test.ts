@@ -182,3 +182,53 @@ test('the real vault still resolves to Chuy — normalisation must not disturb a
   about('---\naliases:\n  - chuy\n  - chuycepeda\n---\n\nMy name is Jesús “Chuy” Cepeda.\n');
   assert.equal(aios.operatorName(), 'Chuy');
 });
+
+/* ── AI-112 — THE GREETING SAID `{{first-Name}}` TO TWO REAL PEOPLE ────────────
+   Reported 2026-08-15 on a Mac AND a Windows machine, on first run. The path, reproduced
+   rather than reasoned about: the shipped `about_me-template.md` carries
+   `aliases: ["{{first-name}}", "{{handle}}"]`, so `aliasFromFrontmatter` returns the
+   placeholder as a candidate, the first-word split preserves it (no whitespace), and
+   `displayName` lowercases it and capitalises the letter after the hyphen —
+   `{{first-name}}` → `{{first-Name}}`.
+
+   The capital N is the fingerprint, and it is why these tests assert the exact string:
+   the operator reported that casing and it identifies the code path uniquely. */
+
+test('AI-112 — the SHIPPED template greets nobody', () => {
+  /* Verbatim frontmatter from templates/aios/about_me-template.md. If the template changes
+     shape, this test should be updated deliberately — it exists to encode that the thing we
+     ship must not produce a greeting. */
+  about('---\ntags: [context, declared, identity]\nupdated: "{{date}}"\naliases:\n  - "{{first-name}}"\n  - "{{handle}}"\n---\n\n# about_me.md\n\n## Quick identity\nMy name is {{full name}}.\n');
+  assert.equal(aios.operatorName(), '', 'an untouched template must yield NO name, so the renderer greets without one');
+});
+
+test('AI-112 — the exact reported string can never come back', () => {
+  about('---\naliases:\n  - "{{first-name}}"\n---\n\nno prose\n');
+  const got = aios.operatorName();
+  assert.notEqual(got, '{{first-Name}}', 'the reported bug, by its exact fingerprint');
+  assert.equal(got, '', 'and it resolves to empty, not to some other mangling');
+  // any mustache shape, not just this one — the filter is on placeholders, not on one token
+  for (const ph of ['{{full name}}', '{{handle}}', '{{your-name}}', '{{NOMBRE}}']) {
+    about(`---\naliases:\n  - "${ph}"\n---\n\nnada\n`);
+    assert.equal(aios.operatorName(), '', `${ph} must not become a greeting`);
+  }
+});
+
+test('AI-112 — a PARTIALLY filled about_me still greets, which is the whole reason to filter per candidate', () => {
+  /* Someone who wrote their name but left the credential and role lines templated has
+     personalized the thing that matters. Rejecting the whole FILE on any placeholder would
+     trade one wrong behaviour for another — so the filter is per candidate. */
+  about('---\naliases:\n  - "{{first-name}}"\n---\n\n## Quick identity\nMy name is Iris.\n- {{credential or education, e.g. PhD in X}}\n- {{current primary role}}\n');
+  assert.equal(aios.operatorName(), 'Iris', 'the prose name wins over a placeholder alias');
+  // and with the identity phrase templated but a real alias, the alias still wins
+  about('---\naliases:\n  - Gabo\n---\n\n## Quick identity\nMy name is {{full name}}.\n');
+  assert.equal(aios.operatorName(), 'Gabo');
+});
+
+test('AI-112 — a real name that merely CONTAINS braces is not a placeholder', () => {
+  /* Guard against over-filtering: hasPlaceholders looks for {{…}}, so a stray brace in prose
+     must not silence a legitimate name. Contrived, but the failure mode of a too-eager filter
+     is silence, and silence is what this bug already produced once. */
+  about('---\naliases:\n  - "Ana"\n---\n\nMy name is Ana. She writes {curly} things.\n');
+  assert.equal(aios.operatorName(), 'Ana');
+});
