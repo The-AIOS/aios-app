@@ -175,6 +175,21 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
             { label: t('zoom.reset'), accelerator: 'CmdOrCtrl+Shift+0', click: () => intent('zoom', { reset: true }) },
           ],
         },
+        /* Interface size — the app-wide scale (native page zoom + xterm refit), which until now
+           only existed in Settings. It is a SEPARATE control from Editor Zoom above, and both
+           belong in the menu: ⌘+ is universally read as "make everything bigger", so an operator
+           looking at a terminal reaches for it, gets the document-only zoom, and concludes the
+           menu is broken. Giving the app-wide scale a visible home fixes the dead end without
+           touching the documented editor-zoom behaviour or stealing its accelerator.
+           ⌘⇧+ / ⌘⇧- / ⌘⌥0 are free; menu.test.ts asserts no accelerator is claimed twice. */
+        {
+          label: t('menu.appScale'),
+          submenu: [
+            { label: t('appScale.in'), accelerator: 'CmdOrCtrl+Shift+Plus', click: () => intent('appScale', { delta: 1 }) },
+            { label: t('appScale.out'), accelerator: 'CmdOrCtrl+Shift+-', click: () => intent('appScale', { delta: -1 }) },
+            { label: t('appScale.reset'), accelerator: 'CmdOrCtrl+Alt+0', click: () => intent('appScale', { reset: true }) },
+          ],
+        },
         { type: 'separator' },
         { label: t('menu.toggleTerminals'), accelerator: 'CmdOrCtrl+0', click: () => intent('layout', { toggleSplit: true }) },
         { role: 'togglefullscreen' },
