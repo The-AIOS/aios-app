@@ -641,6 +641,7 @@
   "setupCheck.nodeMissing": "not found — optional; install from nodejs.org only if a tool needs it",
   "setupCheck.claude": "Claude Code",
   "setupCheck.claudeMissing": "not found — install below",
+  "setupCheck.winRestartHint": "Already installed it? Windows needs AIOS restarted before it can see newly installed tools — quit and reopen. (The Claude desktop app needs this too.)",
   "setupCheck.framework": "AIOS framework",
   "setupCheck.frameworkMissing": "no framework at ~/aios — clone or create below",
   "setupCheck.vault": "Vault",

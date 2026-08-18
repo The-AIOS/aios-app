@@ -8,7 +8,7 @@ import { execFile, execFileSync } from 'child_process';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
-import { isWritten, isPersonalized, missingEvidence, type PersonalizationEvidence } from '../core/personalized';
+import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
 import { isInboxEntityDismissed, dismissInboxEntity, pruneInboxDismissals, type InboxDismissals } from '../core/inbox';
 import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
@@ -171,8 +171,27 @@ export function operatorName(): string {
   const alias = aliasFromFrontmatter(text);
   if (alias) cands.push(alias);
 
+  /* DROP TEMPLATE PLACEHOLDERS — they are not names, and one of them greeted two real people.
+   *
+   * Reported 2026-08-15 on a Mac AND a Windows machine: the App said `{{first-Name}}` to two
+   * operators on their first run. The path, reproduced exactly rather than guessed at:
+   * `about_me-template.md` ships `aliases: ["{{first-name}}", "{{handle}}"]`, so
+   * `aliasFromFrontmatter` hands back the placeholder as a legitimate candidate; it has no
+   * whitespace so the first-word split preserves it; and `displayName` then lowercases it and
+   * capitalises the letter after the hyphen — turning `{{first-name}}` into `{{first-Name}}`.
+   *
+   * That capital N is the fingerprint. The operator reported it with the capital and I initially
+   * dismissed it as a transcription slip; it was the evidence identifying the exact code path.
+   *
+   * Filtered per CANDIDATE rather than per FILE on purpose: someone who has written their name
+   * but left the credential and role lines templated has personalized the thing that matters, and
+   * refusing to greet them would trade one wrong behaviour for another. `hasPlaceholders` already
+   * existed in core/personalized for precisely this question — `operatorName` simply never asked
+   * it, which is why a check that was right about a template passing as personalized could sit
+   * beside a greeting that rendered one. */
+  const named = cands.filter((c) => !hasPlaceholders(c));
   // First word only: a greeting wants a first name, not "Ignacio Indaco".
-  const first = cands.map((c) => c.split(/\s+/)[0]).filter(Boolean);
+  const first = named.map((c) => c.split(/\s+/)[0]).filter(Boolean);
   if (!first.length) return '';
   /* Prefer something that LOOKS like a display name. A lowercase-only candidate is usually a
      slug, and greeting someone by their slug reads as a bug even when the string is technically
@@ -1316,6 +1335,30 @@ function runScript(script: string, cwd?: string): Promise<void> {
   });
 }
 
+/**
+ * AI-111 — on Windows, "not found" and "installed, but I cannot see it yet" are the same string.
+ *
+ * Measured 2026-08-15 on a clean Windows machine: the wizard installed Claude Code correctly and
+ * the very next check reported it missing. The App captured its environment when it launched, so a
+ * tool installed afterwards is invisible to it until the process restarts. git survived because
+ * its installer writes the SYSTEM PATH; Claude lands in npm's user prefix, the newest and least
+ * propagated entry.
+ *
+ * NOT OUR DEFECT, and that shaped the fix: the Claude desktop app required the same
+ * open-close-open on the same machine, so this is how Windows propagates environment changes to
+ * running processes. Re-reading PATH at check time would make us behave differently from the
+ * Claude app sitting beside us and would still leave every already-spawned terminal stale. So the
+ * honest fix is to say so — this arrives right after a SmartScreen warning and two elevation
+ * prompts, at the moment the operator expects success, and "it failed" is the wrong reading.
+ *
+ * Appended unconditionally on win32 rather than gated on "did we just install it": the sentence is
+ * true either way, and tracking install state would add machinery to earn a marginally quieter
+ * message on the one platform where the confusion is guaranteed.
+ */
+function winRestartNote(): string {
+  return process.platform === 'win32' ? ' ' + t('setupCheck.winRestartHint') : '';
+}
+
 function whichCheck(id: string, cmd: string, severity: 'fail' | 'warn', missingKey: string, repairCmd?: string): DoctorCheck {
   return {
     id, severity,
@@ -1323,7 +1366,7 @@ function whichCheck(id: string, cmd: string, severity: 'fail' | 'warn', missingK
       const d = await cmdCheck(cmd);
       return d
         ? { id, label: t('setupCheck.' + id), status: 'pass', message: d.split('\n').pop() || '', canRepair: false }
-        : { id, label: t('setupCheck.' + id), status: severity, message: t(missingKey), repairCmd, repairHint: repairCmd, canRepair: false };
+        : { id, label: t('setupCheck.' + id), status: severity, message: t(missingKey) + winRestartNote(), repairCmd, repairHint: repairCmd, canRepair: false };
     },
   };
 }
@@ -1360,7 +1403,7 @@ async function ghCheckWin(): Promise<CheckResult> {
   const hasWinget = !!(await psOnce('if (Get-Command winget -ErrorAction SilentlyContinue) { "YES" }'))?.includes('YES');
   if (hasWinget) {
     const install = `winget install --id GitHub.cli -e --source winget; ${loginCmd}`;
-    return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: 'not installed — winget install GitHub.cli', repairCmd: install, repairHint: install, canRepair: false };
+    return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: 'not installed — winget install GitHub.cli' + winRestartNote(), repairCmd: install, repairHint: install, canRepair: false };
   }
   return {
     id: 'gh', label: t('setupCheck.gh'), status: 'warn',
@@ -1441,7 +1484,7 @@ function doctorChecks(): DoctorCheck[] {
            the node check is only a warning — and the setup pane it runs in IS a PowerShell. */
         return {
           id: 'claude', label: t('setupCheck.claude'), status: 'fail',
-          message: t('setupCheck.claudeMissing'),
+          message: t('setupCheck.claudeMissing') + winRestartNote(),
           repairCmd: process.platform === 'win32'
             ? `irm https://claude.ai/install.ps1 | iex\n${pathFixSnippet()}`
             : `curl -fsSL https://claude.ai/install.sh | bash\n${pathFixSnippet()}`,

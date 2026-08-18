@@ -157,6 +157,28 @@ jobs:
       - run: npm ci
       - run: npm run compile
 
+      # THE WINDOWS SETUP SCRIPT HAD NO SYNTAX GUARD AT ALL — added 2026-08-17.
+      # `phase1-prerequisites.ps1` is the first thing a Windows newcomer runs and the only thing
+      # standing between them and a working toolchain, and nothing in this repo parsed it: not CI,
+      # not the tests (doctor.test.ts asserts the COMMAND that invokes it, never the file). So a
+      # typo in it would ship, and would break setup for exactly the operator least able to
+      # diagnose it. Parse-only — no execution, no installs, no side effects — which is all that is
+      # needed to catch the failure mode that matters.
+      - name: The setup scripts must at least parse
+        shell: pwsh
+        run: |
+          $bad = $false
+          foreach ($f in @('scripts/setup/phase1-prerequisites.ps1')) {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $bad = $true; Write-Host "::error file=$f::$f does not parse"; $errs | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" } }
+            else { Write-Host "$f parses clean" }
+          }
+          if ($bad) { exit 1 }
+      # And the POSIX sibling, for the same reason — bash ships on the runner.
+      - name: The .sh setup script must at least parse
+        run: bash -n scripts/setup/phase1-prerequisites.sh && echo "phase1-prerequisites.sh parses clean"
+
       # Unit suite on Windows too: the path.sep, shell-resolution and PowerShell-quoting branches
       # only exist on this platform, and a branch nothing exercises ships broken (the "Ctrl+Plus"
       # lesson, one platform over). A directory arg, not a glob — Node's runner discovers *.test.js

@@ -641,6 +641,7 @@
   "setupCheck.nodeMissing": "no encontrado — opcional; instálalo desde nodejs.org solo si alguna herramienta lo necesita",
   "setupCheck.claude": "Claude Code",
   "setupCheck.claudeMissing": "no encontrado — instálalo abajo",
+  "setupCheck.winRestartHint": "¿Ya lo instalaste? Windows necesita que reinicies AIOS para que detecte las herramientas recién instaladas — ciérrala y vuelve a abrirla. (La app de escritorio de Claude también lo necesita.)",
   "setupCheck.framework": "Framework AIOS",
   "setupCheck.frameworkMissing": "no hay framework en ~/aios — clónalo o créalo abajo",
   "setupCheck.vault": "Bóveda",
