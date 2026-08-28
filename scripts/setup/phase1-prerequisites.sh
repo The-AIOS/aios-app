@@ -26,6 +26,45 @@ say "AIOS setup — Phase 1 of 2: the tools a Claude session needs"
 echo "  Phase 2 is the AIOS itself, and a Claude session does that part with you."
 echo "  Everything here is safe to run again; steps already done are skipped."
 
+# ── OS guard ─────────────────────────────────────────────────────────────────
+# Everything below this line is macOS: Xcode Command Line Tools, then Homebrew,
+# then five brew installs and a brew cask. None of it exists on Linux — yet we
+# publish AIOS-amd64.deb and AIOS-x86_64.AppImage, so a Linux operator can install
+# the app, press the one button it offers, and watch a script fail partway through
+# with a Homebrew error. That is worse than no button: a broken promise reads as a
+# broken product.
+#
+# So say the true thing instead. The APP itself runs fine on Linux — this one
+# provisioning step is Mac-shaped — so a Linux operator who installs these by hand
+# has a working AIOS. Listing them is the whole gap.
+#
+# Not exit 1: this is not a failure, it is a step that is not automated here yet,
+# and a red error frames it wrongly for someone who did nothing wrong.
+if [ "$(uname -s)" != "Darwin" ]; then
+  say "Automatic setup is macOS and Windows only — for now"
+  echo "  The AIOS App itself runs fine here. It is this one install step that is not"
+  echo "  automated for Linux yet, so install these with your package manager:"
+  echo
+  echo "    git · node · gh · python3 · uv · Obsidian · Claude Code"
+  echo
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "    sudo apt-get update && sudo apt-get install -y git nodejs npm gh python3"
+  elif command -v dnf >/dev/null 2>&1; then
+    echo "    sudo dnf install -y git nodejs gh python3"
+  elif command -v pacman >/dev/null 2>&1; then
+    echo "    sudo pacman -S --noconfirm git nodejs npm github-cli python"
+  else
+    echo "    (use your distribution's package manager)"
+  fi
+  echo "    curl -LsSf https://astral.sh/uv/install.sh | sh     # uv"
+  echo "    npm install -g @anthropic-ai/claude-code            # Claude Code"
+  echo "    Obsidian: https://obsidian.md/download"
+  echo
+  echo "  Then re-open the app and press Re-check — every step verifies the same way"
+  echo "  on every platform, so it will find them."
+  exit 0
+fi
+
 # ── 0. Shell profile files ───────────────────────────────────────────────────
 # A brand-new macOS account has NO ~/.zshrc and NO ~/.zprofile. Anything that
 # appends a PATH line has to create the file first, or the append silently

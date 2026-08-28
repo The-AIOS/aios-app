@@ -78,6 +78,7 @@ const ICONS = {
   aios: '<rect x="2.5" y="2.5" width="19" height="19" rx="3"/><rect x="12.5" y="3.5" width="7.6" height="7.6" rx="1.4" fill="currentColor"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  plug: '<path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8zM12 17v5"/>',
   folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   folderOpen: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>',
   expand: '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
@@ -463,6 +464,9 @@ const pulse = {
   weekIdx: -1,
   pendingWeek: null,
   runCollapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('runCollapsed') || '[]'); } catch { return []; } })()),
+  /* Connectors groups, collapsed state per operator. Defaults come from connSection, not here —
+     an empty set must mean "nothing has been collapsed yet", never "everything starts open". */
+  connCollapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('connCollapsed') || '["other"]'); } catch { return ['other']; } })()),
   collapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('pulseCollapsed') || '[]'); } catch { return []; } })()),
   send: (m) => window.glassShell.panelSend(m),
   cmd: (command, ...args) => window.glassShell.panelSend({ type: 'cmd', command, args }),
@@ -482,6 +486,7 @@ const CARD_ICONS = {
   pOut: 'box',           // shipped
   pReports: 'chart',
   pHealth: 'check',
+  pConnectors: 'plug',
 };
 function cardIcon(key) { return CARD_ICONS[key] || 'star'; }
 
@@ -730,6 +735,13 @@ function refreshSalutes() {
 }
 setInterval(refreshSalutes, 60 * 1000);
 window.addEventListener('focus', refreshSalutes);
+/* Connectors re-reads on focus. It polled every five minutes and otherwise only on boot or the ↻,
+   so connecting something in a session — which is now the DEFAULT path for anything not one-click —
+   left the card wrong until the operator found the refresh button themselves. Reported exactly that
+   way: "I connected atlassian back and it still looked disconnected."
+   Focus is the right trigger because every path that changes a connector leaves this window: a
+   guided session in a pane, a terminal, a browser consent screen. Coming back IS the signal. */
+window.addEventListener('focus', () => void refreshConnectors());
 
 function pbtn(parent, { emoji, label, key, val, onClick, accent }) {
   const b = el('button', 'pbtn' + (accent ? ' accent' : ''));
@@ -908,6 +920,355 @@ function healthFixButton(c) {
     }
   });
   return fx;
+}
+
+/* ═══ CONNECTORS — the services the AIOS can reach ═══════════════════════════
+   AI-122 B2. Each bundled connector shown as a SERVICE ("Google Workspace"),
+   never as a protocol name. The rows come from canonical's own manifests
+   (mcps/<id>-mcp/connector.json) — the App ships no list of its own, so this
+   card cannot drift from what the framework actually bundles.
+
+   THIS CARD NEVER PROMPTS. The cold-start interview owns the ask, at its Step
+   11, right after a first /aios:today has shown an empty calendar — so the
+   question arrives with a reason attached. This is the place you come back to
+   afterward: see status, connect what you skipped, add something we don't
+   bundle. A card that greeted a freshly-onboarded operator would be one more
+   thing firing after setup said goodbye, which is the exact defect Front A
+   just removed three instances of. */
+let connChecking = false;
+
+const CONN_STATE = {
+  connected:       { dot: 'st-ok',   key: 'conn.connected' },
+  drift:           { dot: 'st-warn', key: 'conn.drift' },
+  'needs-key':     { dot: 'st-warn', key: 'conn.needsKey' },
+  'needs-install': { dot: 'st-mute', key: 'conn.needsInstall' },
+  available:       { dot: 'st-mute', key: 'conn.available' },
+  provided:        { dot: 'st-mute', key: 'conn.provided' },
+};
+
+async function refreshConnectors() {
+  const C = document.getElementById('pConnectors');
+  if (!C || connChecking) return;
+  connChecking = true;
+  let data = { rows: [], foreign: [] };
+  try { data = await window.glassShell.connectorsList(); } catch { /* keep the empty shape */ }
+  finally { connChecking = false; }
+  const rows = (data && data.rows) || [];
+  const other = (data && data.other) || [];
+
+  C.replaceChildren();
+  const title = pulseTitle(C, 'pConnectors', t('pulse.connectors'));
+  const mv = title.querySelector('.pmove');
+  if (mv) {
+    const re = el('button', '', '↻'); re.title = t('health.recheck');
+    re.addEventListener('click', (e) => { e.stopPropagation(); void refreshConnectors(); });
+    mv.prepend(re);
+  }
+  C.appendChild(title);
+
+  const bundled = rows.filter((r) => !r.custom);
+  const mine = rows.filter((r) => r.custom);
+
+  connSection(C, t('conn.secBundled'), 'bundled', bundled.length, (box) => {
+    for (const c of bundled) box.appendChild(connRow(c));
+  });
+
+  /* Custom holds anything under `mcps/custom/` — manifest or not. `mint-mcp` sat in "other
+     connections on this computer" for exactly as long as ownership was decided by whether we had a
+     description of it, which put the operator's own connector alongside remote endpoints it has
+     nothing in common with. Ownership is location. */
+  connSection(C, t('conn.secCustom'), 'custom', mine.length, (box) => {
+    if (!mine.length) box.appendChild(el('div', 'psubempty', t('conn.noCustom')));
+    for (const c of mine) box.appendChild(connRow(c));
+  }, { title: t('conn.addTitle'), onClick: () => void addCustomFlow() });
+
+  if (other.length) {
+    connSection(C, t('conn.other'), 'other', other.length, (box) => {
+      for (const o of other) {
+        const r = el('div', 'phrow');
+        r.appendChild(el('span', 'phdot st-mute'));
+        r.appendChild(el('span', 'phlab', o.id));
+        r.appendChild(el('span', 'phmsg', ''));
+        const b = el('button', 'phfix', t('conn.disconnect'));
+        b.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          b.disabled = true; b.textContent = t('conn.working');
+          const res = await window.glassShell.connectorsDisconnect(o.id).catch(() => null);
+          toast(res && res.ok ? t('conn.removed', { name: o.id }) : t('conn.failed') + ' — ' + o.id);
+          void refreshConnectors();
+        });
+        r.appendChild(b);
+        if (o.custom) r.appendChild(connTrash({ id: o.id, service: o.id, custom: true, tracked: o.tracked }));
+        box.appendChild(r);
+      }
+    });
+  }
+
+  if (!rows.length && !other.length) {
+    const e = el('div', 'phrow');
+    e.appendChild(el('span', 'phmsg', t('conn.empty')));
+    C.appendChild(e);
+  }
+
+  C.style.display = '';
+}
+
+/* Mirrors runSection — same caret, same count chip, same persistence shape, so the Connectors card
+   behaves like the Running card rather than inventing a second idiom for the same gesture. Its own
+   storage key and repaint, because sharing runSection's would collapse Sessions when you collapsed
+   Bundled. `other` starts collapsed: it is the group you look at rarely and the longest by far. */
+function connSection(parent, label, key, count, fill, add) {
+  const collapsed = pulse.connCollapsed.has(key);
+  const row = el('div', 'psubrow');
+  const head = el('button', 'psub' + (collapsed ? ' col' : ''));
+  head.appendChild(el('span', 'psubcaret', collapsed ? '▸' : '▾'));
+  head.appendChild(el('span', 'psublab', label));
+  if (count) head.appendChild(el('span', 'psubcount', String(count)));
+  head.addEventListener('click', () => {
+    if (pulse.connCollapsed.has(key)) pulse.connCollapsed.delete(key); else pulse.connCollapsed.add(key);
+    try { localStorage.setItem('connCollapsed', JSON.stringify([...pulse.connCollapsed])); } catch { /* ignore */ }
+    void refreshConnectors();
+  });
+  row.appendChild(head);
+  if (add) {
+    const a = el('button', 'psubadd'); a.innerHTML = icon('plus', 13); a.title = add.title;
+    a.addEventListener('click', (e) => { e.stopPropagation(); add.onClick(); });
+    row.appendChild(a);
+  }
+  parent.appendChild(row);
+  if (!collapsed) { const box = el('div', 'psubbox'); fill(box); parent.appendChild(box); }
+}
+
+function connRow(c) {
+  const meta = CONN_STATE[c.state] || CONN_STATE.available;
+  const r = el('div', 'phrow');
+  r.appendChild(el('span', 'phdot ' + meta.dot));
+  r.appendChild(el('span', 'phlab', c.service));
+
+  /* A healthy row is one line: the green dot already says "connected", and printing the word
+     eight times consumed exactly the width the exceptional rows need.
+     An exceptional row gets a SECOND LINE instead of competing for the first. Measured in a
+     render harness at 260/300/360px: sharing one line truncated the drift message at every
+     width a real pulse column has — "differs from the fram…" even at 360 — so the one row whose
+     entire purpose is to explain itself could not. Wrapping also gives the label back its full
+     width, which fixes "Google…" in the same change. */
+  const exceptional = c.state !== 'connected';
+  /* The registry id rides in the tooltip. Canonical names connectors by CAPABILITY — nano-banana
+     is "Image generation", pdf-generator is "PDF export" — which is right for someone who has
+     never heard of either, and invisible to an operator who knows them by name and cannot find
+     them. The id costs nothing here and no width in the row. */
+  const tip = [c.value, c.id !== c.service.toLowerCase() ? c.id : '', c.hint ? '→ ' + c.hint : '']
+    .filter(Boolean).join('\n');
+  if (exceptional) r.classList.add('two');
+  else {
+    const msg = el('span', 'phmsg', '');
+    msg.title = tip;
+    r.appendChild(msg);
+  }
+
+  const btn = connButton(c);
+  if (btn) r.appendChild(btn);
+  // The operator's own connectors get the symmetric opposite of "+ Add another".
+  if (c.custom) r.appendChild(connTrash(c));
+
+  if (exceptional) {
+    // State word + the specific detail, together, unabridged. The detail IS the actionable part:
+    // "differs from the framework" tells you something is wrong; "extra: chat:full appscript:full"
+    // tells you what to do about it, and it was reachable only by hovering.
+    /* Plain language, and for drift a REASON rather than a comparison. "differs from the
+       framework" is a maintainer's sentence — it describes our bookkeeping, not anything the
+       operator can act on. What it actually means is that the connection grants access nothing
+       here uses, which is a security answer they can evaluate, next to a button that fixes it.
+       `:full` is stripped: the suffix is registration syntax, not a service name. */
+    const detail = (c.detail || []).map((d) => String(d).replace(/^extra:\s*/, '').replace(/:full\b/g, ''));
+    const words = c.state === 'drift'
+      ? [t('conn.driftPlain'), detail.join(', ')].filter(Boolean).join(' — ')
+      : [t(meta.key), detail.join(' · ')].filter(Boolean).join(' — ');
+    const sub = el('div', 'phsub', words);
+    sub.title = tip;
+    r.appendChild(sub);
+  }
+  return r;
+}
+
+function connButton(c) {
+  // needs-install is a dead end for a click: registering now would write a command pointing at
+  // an interpreter that does not exist, producing a connector that reads as connected and fails
+  // at first use. Say what is actually needed instead of offering a button that lies.
+  if (c.state === 'needs-install') {
+    const b = el('button', 'phfix', t('conn.installFirst'));
+    b.disabled = true;
+    b.title = (c.detail || []).join('\n');
+    return b;
+  }
+
+  if (c.state === 'drift') {
+    const b = el('button', 'phfix', t('conn.fix'));
+    b.title = c.hint || '';
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      b.disabled = true; b.textContent = t('conn.working');
+      const res = await window.glassShell.connectorsFix(c.id).catch(() => null);
+      toast(res && res.ok ? t('conn.fixed', { name: c.service }) : t('conn.failed') + ' — ' + c.service);
+      void refreshConnectors();
+    });
+    return b;
+  }
+
+  if (c.state === 'connected') {
+    // Disconnect is deliberately the quietest control here. Its real value is context cost —
+    // every registered connector loads its tool schemas into every session — and that is not
+    // something a first-timer can evaluate, so it must not read as a recommended action.
+    const b = el('button', 'phfix', t('conn.disconnect'));
+    b.title = c.hint || '';
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      b.disabled = true; b.textContent = t('conn.working');
+      const res = await window.glassShell.connectorsDisconnect(c.id).catch(() => null);
+      // Say so either way. A bundled connector does not vanish when disconnected — it becomes
+      // available again — so with no message the row simply changes button and the click reads as
+      // having done nothing.
+      toast(res && res.ok ? t('conn.removed', { name: c.service }) : t('conn.failed') + ' — ' + c.service);
+      void refreshConnectors();
+    });
+    return b;
+  }
+
+  /* Not a server at all — the capability arrives another way (a bundled skill, a toolkit invoked
+     directly), so there is nothing to connect and the guide is the only honest action. */
+  if (c.state === 'provided') {
+    if (!c.docs) return null;
+    const g = el('button', 'phfix', t('conn.guide'));
+    g.title = t('conn.providedHint');
+    g.addEventListener('click', (e) => { e.stopPropagation(); void openConnectorDocs(c); });
+    return g;
+  }
+
+  /* Anything that is not one-click hands off to a GUIDED SESSION rather than a form.
+     A modal asking for GITHUB_PERSONAL_ACCESS_TOKEN assumes the operator knows what a personal
+     access token is, which scopes it needs, and where GitHub hides the page — the same assumption
+     AI-122 exists to remove. It is the README button's mistake one step later: both answer with a
+     document when what is needed is someone walking beside you. A session can explain, wait, retry
+     when the first token has the wrong scopes, and verify. A text field can do none of that. */
+  if (c.connect !== 'one-click' || !c.canConnect) {
+    const g = el('button', 'phfix', t('conn.connect'));
+    g.title = t('conn.guidedHint');
+    g.addEventListener('click', (e) => { e.stopPropagation(); void connectSession(c); });
+    return g;
+  }
+
+  // one-click: fully specified, no operator secret. Register directly, then prove it by re-reading.
+  const b = el('button', 'phfix', t('conn.connect'));
+  b.title = c.hint || '';
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    b.disabled = true; b.textContent = t('conn.working');
+    const res = await window.glassShell.connectorsConnect(c.id).catch(() => null);
+    toast(res && res.ok ? t('conn.connectedTo', { name: c.service }) : t('conn.failed') + ' — ' + c.service);
+    void refreshConnectors();
+  });
+  return b;
+}
+
+/**
+ * Delete an operator-added connector — unregister it AND remove its folder from the vault.
+ *
+ * Disconnect alone left the folder behind, so a connector someone had finished with sat in the card
+ * forever as `available`, re-connectable, with nothing that could get rid of it. This is the other
+ * half of "+ Add another".
+ *
+ * The confirmation escalates with the actual risk rather than always asking the same way. A
+ * COMMITTED folder is recoverable from git history, so the standard danger dialog is enough. An
+ * UNCOMMITTED one — which every freshly added connector is — cannot be recovered by anything, so it
+ * asks the operator to type the name. Uniform friction trains people to click through it; friction
+ * that appears exactly when the action is irreversible keeps meaning something.
+ */
+function connTrash(c) {
+  const b = el('button', 'phtrash');
+  b.innerHTML = icon('trash', 12);
+  b.title = t('conn.deleteHint', { name: c.service });
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const ok = c.tracked
+      ? await confirmModal(t('conn.deleteTitle', { name: c.service }), t('conn.deleteBodyTracked'), t('conn.deleteConfirm'))
+      : (await inputModal(t('conn.deleteTitle', { name: c.service }), t('conn.deleteType', { id: c.id })) || '').trim() === c.id;
+    if (!ok) return;
+    b.disabled = true;
+    const res = await window.glassShell.connectorsDelete(c.id).catch(() => null);
+    toast(res && res.ok ? t('conn.deleted', { name: c.service })
+                        : t('conn.failed') + ' — ' + ((res && res.error) || c.service));
+    void refreshConnectors();
+  });
+  return b;
+}
+
+/**
+ * Hand a connector to a session that walks the operator through it.
+ *
+ * The brief carries what the session would otherwise guess: which service, the README that
+ * documents it, which credential is missing, the exact registration command, and where to run it.
+ * And the instruction that matters most — do not assume the operator knows what any of this is —
+ * because the reason we opened a conversation instead of a text field is that they do not.
+ */
+async function connectSession(c) {
+  const roots = await window.glassShell.fsRoots().catch(() => null);
+  const fw = roots && roots.framework;
+  const sep = IS_WIN ? '\\' : '/';
+  const readme = fw ? [fw, 'mcps', c.id + '-mcp', c.docs || 'README.md'].join(sep) : '';
+  const brief = [
+    'Help me connect ' + c.service + ' to my AIOS, one step at a time, in plain words.',
+    readme ? 'Read ' + readme + ' first — it has the setup and the exact registration command.' : '',
+    (c.pending && c.pending.length)
+      ? 'It needs ' + c.pending.join(' and ') + '. Explain what that is and walk me through getting one BEFORE you ask me for it.'
+      : '',
+    c.hint ? 'The registration looks like: ' + c.hint.replace(/\u2022\u2022\u2022/g, '<the value I give you>') : '',
+    fw ? 'Run it from ' + fw + '.' : '',
+    'Then verify with "claude mcp list" and tell me plainly whether it worked. Assume I do not know what any of this is.',
+  ].filter(Boolean).join(' ');
+  toast(t('conn.handing', { name: c.service }));
+  spawnNamed('connect-' + c.id, brief);
+}
+
+async function openConnectorDocs(c) {
+  // fsRoots() returns NATIVE paths, so join with the native separator — the same trap that made
+  // revealPath silently no-op on Windows when it assumed forward slashes.
+  const roots = await window.glassShell.fsRoots().catch(() => null);
+  if (!roots || !roots.framework) return;
+  const sep = IS_WIN ? '\\' : '/';
+  void openViewer([roots.framework, 'mcps', c.id + '-mcp', c.docs || 'README.md'].join(sep));
+}
+
+/* The shared inputModal, the same one used for adding a marketplace, mounting a space and the
+   GitHub PAT — consistency was the ask, and it is also the only option: Electron does not implement
+   window.prompt() at all (it logs "prompt() is and will not be supported" and returns undefined),
+   so the first version of this looked wired and silently did nothing on every platform. */
+/* The Custom section's + action. Was a row-shaped button at the bottom of the card; it belongs on
+   the group it adds to, which is also how the Running card's Sessions/Terminals sections work. */
+async function addCustomFlow() {
+  const input = await inputModal(t('conn.addTitle'), t('conn.addPrompt'));
+  if (!input || !input.trim()) return;
+  const target = input.trim();
+  const res = await window.glassShell.connectorsAddCustom(target).catch(() => null);
+  if (res && res.ok) { toast(t('conn.connectedTo', { name: res.id || target })); void refreshConnectors(); return; }
+  /* A folder or a git repo is not a bad input — it is the case that genuinely needs judgment:
+     clone it, work out its dependencies, build them, derive a run command, then register. That is a
+     conversation, and it is precisely what `mcps/setup.sh` does for the bundled ones. */
+  if (res && res.error === 'local') {
+    const roots = await window.glassShell.fsRoots().catch(() => null);
+    const fw = roots && roots.framework;
+    toast(t('conn.handing', { name: target }));
+    spawnNamed('add-connector', [
+      'Install and connect the MCP at ' + target + ' into my AIOS.',
+      'Work out how it runs — dependencies, a virtualenv, a build — and get it working first.',
+      'Register it with "claude mcp add"' + (fw ? ', run from ' + fw + '.' : '.'),
+      fw ? 'Then document it at ' + fw + '/mcps/custom/<name>-mcp/ with a README.md and a connector.json matching the other manifests under ' + fw + '/mcps/.' : '',
+      'Verify with "claude mcp list". Explain what you are doing as you go — assume I do not know what any of this is.',
+    ].filter(Boolean).join(' '));
+    return;
+  }
+  if (res && res.error === 'unrecognised') toast(t('conn.addUnknown'));
+  else toast(t('conn.failed'));
+  void refreshConnectors();
 }
 
 /* Registry status → {dot class, label, tooltip}. A registered, alive session is
@@ -2379,6 +2740,10 @@ window.glassShell.onPtyData((m) => {
 window.glassShell.onPtyExit((m) => {
   const p = panes.get(m.id);
   if (p && p.kind === 'term') { p.exited = true; p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); paintRunning(); }
+  /* A guided connect/add session just closed — re-read rather than waiting for focus or the poll.
+     Same shape as the Health card's fix panes: run the check that found the problem to prove the
+     fix, never trust that the work happened. */
+  if (p && /^(connect-|add-connector)/.test(String(p.name || ''))) setTimeout(() => void refreshConnectors(), 800);
   // a Health fix terminal ended → re-run the doctor so the row proves (or denies) the fix
   if (healthFixPanes.delete(m.id)) setTimeout(() => void refreshHealth(), 600);
   // an Onboarding fix terminal ended → re-verify the stepper (auto-advance on proof)
@@ -4733,7 +5098,7 @@ function openSettingsTab() {
     const CARDS = [
       ['pDaily', 'pulse.daily'], ['pCal', 'pulse.calendar'], ['pQuick', 'pulse.quick'],
       ['pRun', 'pulse.running'], ['pAbout', 'pulse.aboutYou'], ['pSpaces', 'pulse.workspaces'],
-      ['pLearn', 'pulse.claudeLearned'], ['pOut', 'pulse.recentOutputs'], ['pReports', 'pulse.reports'], ['pHealth', 'pulse.health'],
+      ['pLearn', 'pulse.claudeLearned'], ['pOut', 'pulse.recentOutputs'], ['pReports', 'pulse.reports'], ['pHealth', 'pulse.health'], ['pConnectors', 'pulse.connectors'],
     ];
     const hiddenNow = new Set(cfg.hiddenCards || []);
     const cardsBtn = document.createElement('button');
@@ -5075,7 +5440,12 @@ function openSetupTab() {
          and it counts itself. */
       'Set up my AI-OS from https://github.com/The-AIOS/aios — read its SETUP.md and follow the sequence in the "Reading this as Claude?" block. '
       + 'I reached you from the AIOS App, so the app is already my execution surface: do not send me to install an IDE or the Glass extension. '
-      + 'Work through it with me interactively and finish by running /aios:today.');
+      /* No trailing instruction to run /aios:today. Front A moved the first ritual INSIDE the
+         interview (its Step 10) and made it exclusive: nothing else may run it, because the
+         interview closes on "Welcome to The AIOS" and anything firing after that goodbye is the
+         post-setup defect Front A just removed three instances of. Asking for it here would
+         re-add a fourth from a different repo. */
+      + 'Work through it with me interactively.');
     };
 
 
@@ -5128,15 +5498,23 @@ function openSetupTab() {
              No "node is optional" note either: the script installs the whole toolchain, and
              telling someone a dependency is optional invites them to skip it and meet it later
              as a failure. */
-          if (git && git.status !== 'pass') {
-            mkBtn(adv, t('onboarding.installGit'), () => void fixPane('git', git.repairCmd || 'xcode-select --install'), { title: git.repairHint });
+          /* No literal fallback command here. This read `git.repairCmd || 'xcode-select --install'`,
+             and repairCmd was undefined on Linux — so a Linux operator missing git was handed a
+             macOS command, on a platform we actually publish (.deb and AppImage are both release
+             assets). The remedy per platform belongs to the check, which knows what OS it is on;
+             a renderer fallback can only ever guess. No command → no button. */
+          if (git && git.status !== 'pass' && git.repairCmd) {
+            mkBtn(adv, t('onboarding.installGit'), () => void fixPane('git', git.repairCmd), { title: git.repairHint });
           }
           if (claude && claude.status !== 'pass') {
             // the check may be reporting "installed but off PATH", whose fix is not an install
             mkBtn(adv, claude.repairLabel || t('setup.installClaude'), () => void fixPane('claude', claude.repairCmd), { title: claude.repairHint });
           }
-          void node;
+          if (node && node.status !== 'pass' && node.repairCmd) {
+            mkBtn(adv, t('onboarding.installNode'), () => void fixPane('node', node.repairCmd), { title: node.repairHint });
+          }
           cmdHint(adv, git && git.repairHint);
+          cmdHint(adv, node && node.repairHint);
           cmdHint(adv, claude && claude.repairHint);
           break;
         }
@@ -5170,8 +5548,11 @@ function openSetupTab() {
              with no home in the flow at all. That work needs judgment, so it belongs to a
              session, and the session ends by running /aios:today itself. So the final box IS
              the setup session, and this step's check verifies the RESULT rather than the click. */
+          /* ONE button, nothing else. "Start a first project…" used to sit in Advanced here, and
+             it assumed a project could be created before the AIOS that holds projects exists —
+             offered to someone whose framework and vault are both still missing. There is exactly
+             one sensible action on this step, so it is the only one shown. */
           mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
-          mkBtn(adv, t('onboarding.firstProject'), () => void fixPane('first-project', CLAUDE + ' ' + shq(t('onboarding.firstProjectPrompt'))));
           break;
         }
       }
@@ -5180,8 +5561,17 @@ function openSetupTab() {
     function stepBody(s) {
       const bd = el('div', 'step-body');
       bd.appendChild(el('div', 'step-sub', t('onboarding.sub.' + s.id)));
+      /* THE HANDOVER STEP SHOWS NO CHECK ROWS. Everywhere else they are the point: each row is a
+         thing the operator can see and fix. Here they are a list of what the guided conversation is
+         ABOUT to do, and they contradicted the copy directly above them — the paragraph promises
+         "it sets up your vault" while a red row announces "no vault/00 - notes under the framework
+         root", which reads as a fault rather than a starting condition. Eight rows, seven of them
+         labelled "optional", in front of the one button that resolves all of them: that is the
+         MCP-class friction AI-122 exists to remove, wearing a different hat.
+         The checks still RUN — they are what proves the step done and advances it. Only the display
+         is suppressed. */
       const rows = el('div', 'step-checks');
-      for (const c of s.checks) {
+      for (const c of (s.id === 'firstrun' ? [] : s.checks)) {
         const r = el('div', 'srow');
         r.appendChild(el('span', 'phdot ' + (c.status === 'pass' ? 'st-ok' : c.status === 'warn' ? 'st-warn' : 'st-error')));
         r.appendChild(el('span', 'srlab', c.label + (s.optional.includes(c.id) ? ' · ' + t('onboarding.optional') : '')));
@@ -5231,8 +5621,22 @@ function openSetupTab() {
       const enter = el('button', 'vbtn primary', t('onboarding.enterAios'));
       enter.addEventListener('click', () => openHomeTab());
       row2.appendChild(enter);
-      const deepen = el('button', 'vbtn', t('setup.deepenContext'));
-      deepen.addEventListener('click', () => void createPane(ritual('cold-start', '/aios:cold-start-interview')));
+      /* THE FULL TOUR, NOT "deepen your context" — and it says the promised words out loud.
+         This panel can only ever render on an ALREADY-PERSONALIZED vault: `personalized` is the
+         single required check of the `firstrun` step, so the stepper cannot reach done without it.
+         So the one state this button appears in is the one where re-running the interview from
+         Step 0 would ask a returning operator to re-answer who they are.
+         The command already handles that correctly — its Detection section runs Depth only (Steps
+         4 · 5 · 8.5 · 9) when Core is plainly done. But it reaches that branch by INFERENCE, and
+         that same section names this exact button as the problem: a door "that never made any
+         promise", firing a bare invocation on a partially-configured vault. `show me the full
+         tour` is the trigger phrase the interview promises twice in its own copy (Step 0 and Step
+         11's close), so passing it turns a guess into an instruction — and the operator arrives at
+         the branch that was actually advertised to them. */
+      const deepen = el('button', 'vbtn', t('setup.fullTour'));
+      deepen.title = t('setup.fullTourHint');
+      deepen.addEventListener('click', () => void createPane(
+        ritual('cold-start', '/aios:cold-start-interview show me the full tour')));
       row2.appendChild(deepen);
       d.appendChild(row2);
       return d;
@@ -6260,6 +6664,7 @@ function relocalize(loc) {
   if (pulse.lastRunning) renderPulseRunning(pulse.lastRunning);
   if (pulse.lastMonth) paintCalendar();
   void refreshHealth(); // re-render the Health card with the new locale's labels
+  void refreshConnectors(); // same — its state words are localised too
   // re-open any synthetic tool tabs (Settings/Setup/Plugins/Home) so their labels refresh
   for (const [id, pane] of [...panes]) {
     if (pane.kind !== 'view' || !String(pane.path).startsWith('::')) continue;
@@ -6284,14 +6689,27 @@ void initLocale().then(async () => {
   pulse.send({ type: 'ready' });
   void refreshHealth();    // the Health card runs its first doctor pass at boot…
   setInterval(() => void refreshHealth(), 5 * 60 * 1000); // …then re-checks quietly
+  /* Connectors reads files and one JSON — cheap, so it can refresh on the same slow cadence.
+     No prompt, no toast: the card just reflects whatever the machine currently has. */
+  void refreshConnectors();
+  setInterval(() => void refreshConnectors(), 5 * 60 * 1000);
   /* FIRST RUN: with no framework or no vault the app cannot do anything useful, and every
      route to Setup was a control a newcomer has no reason to click — so they landed on an
      empty workspace and a greeting with no next step. Open Setup for them.
      Deliberately not a once-only flag: while the framework is missing this IS the only
      useful screen, and once it exists the branch never runs again. */
   try {
-    const roots = await window.glassShell.fsRoots();
-    if (!roots.framework || !roots.vault) openSetupTab();
+    /* readiness(), NOT fsRoots(). fsRoots only reports whether the PATHS RESOLVE, and both of them
+       resolve for a directory that is not a framework: `frameworkRoot()` succeeds on an empty dir,
+       and `vaultRoot()` falls back to the framework root when `vault/` is missing — so
+       `!framework || !vault` could never be true unless `~/aios` was absent entirely. A newcomer
+       whose clone failed halfway (which leaves the directory behind) landed on the Home tab with
+       nothing working and no route to Setup, since railSetup ships hidden and the palette is not
+       somewhere a first-timer looks. Exactly the outcome the comment above says this exists to
+       prevent. readiness() applies the same markers the doctor does — CLAUDE.md for the framework,
+       a real vault dir for the vault — so all three surfaces now agree. */
+    const r = await window.glassShell.readiness();
+    if (!r.framework || !r.vault) openSetupTab();
   } catch { /* if we cannot even ask, the Setup tab is still reachable by hand */ }
 });
 

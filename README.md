@@ -66,6 +66,56 @@ renderer; `dist` checks the artifact you would actually ship, which every other 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the reasoning and [RELEASING.md](./RELEASING.md)
 for how signing and distribution work.
 
+### Two instances: yours, and a newcomer's
+
+Most of what breaks in this app breaks on **first run**, and a machine that is already set up
+cannot show you first run — every check passes, Setup opens all-green, and the stepper you need to
+test has nothing to do. So there are two ways to launch it.
+
+**Normal** — your real framework and vault, in a throwaway Electron profile so it cannot disturb
+the installed app's window state:
+
+```bash
+npm run start:isolated
+```
+
+**Virgin** — a newcomer's first run. `GLASS_FRAMEWORK_PATH` points at an empty directory, so every
+framework check fails, Setup auto-opens, and you see exactly what someone installing today sees:
+
+```bash
+mkdir -p /tmp/virgin-framework
+GLASS_FRAMEWORK_PATH=/tmp/virgin-framework npx electron . --user-data-dir=.dev-virgin
+```
+
+Both flags matter, and for different reasons. `GLASS_FRAMEWORK_PATH` is what makes the checks fail
+(`frameworkRoot()` reads it, then `realpathSync`es — so the directory must exist). The separate
+`--user-data-dir` keeps onboarding state, window layout and dismissed prompts out of your real
+profile; without it a virgin run teaches your normal instance that onboarding is already done.
+
+Delete `.dev-virgin/` to reset a virgin run to truly-first-time. Both profile directories are
+gitignored.
+
+> ⚠️ **Do NOT press the final handover button ("Set up my AIOS") in a virgin instance.** The
+> isolation covers the App and stops there. `GLASS_FRAMEWORK_PATH` is an App variable — nothing in
+> the framework reads it — so the Claude session the button spawns does not inherit the sandbox. Its
+> brief says to follow `SETUP.md`, and `SETUP.md` says the framework lives at `~/aios`. On a machine
+> that already has one (and especially where `~/aios` is a **symlink** to a real vault, which is a
+> documented install shape) the session finds a complete framework, concludes the install is done,
+> and proceeds to the steps that WRITE — the cold-start interview authoring `context/declared/`,
+> wrapper installs, a first `/aios:today` — against the operator's live vault.
+>
+> This section previously claimed *"your real setup is untouched, because nothing writes outside the
+> paths you pass."* That is true of the App and false of the session it spawns, which is a bad thing
+> for a safety note to be wrong about. Everything up to that button is safe to click.
+>
+> To test the handover end to end, `HOME` has to be isolated too, so that `~/aios` resolves inside
+> the sandbox — which also means symlinking `~/.claude*` into the fake `HOME` so the session can
+> still authenticate. That rig does not exist yet; until it does, treat the handover button as
+> live-fire.
+
+Reach Setup in a normal instance from the command palette (**Setup**) or **Settings → Open Setup**.
+There is a `railSetup` button in the markup, but it ships `hidden` and nothing unhides it.
+
 ## Related
 
 - **[The-AIOS/aios](https://github.com/The-AIOS/aios)** — the framework: agents, skills, rituals, the vault

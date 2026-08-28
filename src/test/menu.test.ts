@@ -115,7 +115,13 @@ test('first run opens Setup by itself, and only when the app cannot work', () =>
   // Measured with an empty HOME: the app launched fine (pty, workbench, panel, theme all
   // OK) and showed an empty workspace plus "Good afternoon" — with no route to Setup that a
   // newcomer has any reason to click. Every existing route was a control they do not know.
-  assert.match(app, /if \(!roots\.framework \|\| !roots\.vault\) openSetupTab\(\);/);
+  /* Now asserted against READINESS, not fsRoots. The original form was measured with an empty
+     HOME — ~/aios absent entirely — which is the one case path resolution handles. It missed the
+     case a failed clone actually leaves behind: the directory EXISTS but is not a framework, where
+     frameworkRoot() succeeds and vaultRoot() falls back to the framework root, so the condition
+     could never be true. Found by walking a virgin instance: Setup did not open, Home did. */
+  assert.match(app, /const r = await window\.glassShell\.readiness\(\);/);
+  assert.match(app, /if \(!r\.framework \|\| !r\.vault\) openSetupTab\(\);/);
   // it must NOT fire for an operator who already has a framework — verified live: an
   // existing HOME opens no Setup tab
   assert.doesNotMatch(app, /openSetupTab\(\);\s*\n\s*\}\s*catch[\s\S]{0,40}\n\}\);\s*$/, 'must stay conditional');
@@ -337,10 +343,16 @@ test('the Phase 1 script is idempotent, honest, and self-proving', () => {
      for when npm cannot write globally (another user's Homebrew on a shared Mac, or a
      system-managed node), and it is paired with the PATH fix because it installs into the
      operator's home and leaves PATH alone. Order matters, so it is asserted. */
-  const iOnPath = sh.indexOf('if command -v claude');
-  const iOnDisk = sh.indexOf('.local/bin/claude" ] || [ -x');
-  const iNpm = sh.indexOf('npm install -g @anthropic-ai/claude-code');
-  const iCurl = sh.indexOf('claude.ai/install.sh');
+  /* Scoped to the Claude Code SECTION, not the whole file. Searching the file meant the order
+     could be broken by any earlier mention of the same command — which is exactly what happened
+     when the OS guard was added and echoed `npm install -g …` as advice for Linux, hundreds of
+     lines above the install logic. The test was measuring the wrong npm. */
+  const sec = sh.slice(sh.indexOf('# ── 5. Claude Code'));
+  assert.ok(sec, 'the Claude Code section marker moved — this test navigates by it');
+  const iOnPath = sec.indexOf('if command -v claude');
+  const iOnDisk = sec.indexOf('.local/bin/claude" ] || [ -x');
+  const iNpm = sec.indexOf('npm install -g @anthropic-ai/claude-code');
+  const iCurl = sec.indexOf('claude.ai/install.sh');
   assert.ok(iOnPath > 0 && iOnDisk > iOnPath && iNpm > iOnDisk && iCurl > iNpm,
     'order must be: on PATH → on disk → npm → curl fallback');
   // the on-disk state must NOT redownload — it only needs PATH

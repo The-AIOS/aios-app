@@ -1359,6 +1359,42 @@ function winRestartNote(): string {
   return process.platform === 'win32' ? ' ' + t('setupCheck.winRestartHint') : '';
 }
 
+/**
+ * The git install command for THIS platform — never another platform's.
+ *
+ * Linux was the hole. It returned undefined, and the renderer's Advanced lane filled the gap with
+ * a literal `xcode-select --install` fallback: a macOS command offered on Linux. That is the same
+ * impossible instruction the gh check learned not to give, and it is live rather than theoretical —
+ * `AIOS-amd64.deb` and `AIOS-x86_64.AppImage` are both published release assets.
+ *
+ * The Linux line detects the package manager instead of assuming one, because the .deb implies apt
+ * while the AppImage implies nothing at all. It ends in a plain sentence rather than a failure when
+ * no manager is recognised — a newcomer reading "install git with your package manager" is better
+ * served than one watching an unknown command error out.
+ */
+function installGitCmd(): string | undefined {
+  if (process.platform === 'darwin') return 'xcode-select --install';
+  if (process.platform === 'win32') return 'winget install --id Git.Git -e --source winget';
+  return 'if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y git; '
+    + 'elif command -v dnf >/dev/null 2>&1; then sudo dnf install -y git; '
+    + 'elif command -v pacman >/dev/null 2>&1; then sudo pacman -S --noconfirm git; '
+    + 'else echo "Install git with your package manager, then re-check."; fi';
+}
+
+/**
+ * Node's remedy. The one-shot Phase 1 script installs it on macOS and Windows, so this exists for
+ * the Advanced lane and for Linux, which Phase 1 does not cover at all (that script is Homebrew +
+ * Xcode CLT — "make this Mac capable" in its own words).
+ */
+function installNodeCmd(): string | undefined {
+  if (process.platform === 'darwin') return 'brew install node';
+  if (process.platform === 'win32') return 'winget install --id OpenJS.NodeJS.LTS -e --source winget';
+  return 'if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y nodejs npm; '
+    + 'elif command -v dnf >/dev/null 2>&1; then sudo dnf install -y nodejs; '
+    + 'elif command -v pacman >/dev/null 2>&1; then sudo pacman -S --noconfirm nodejs npm; '
+    + 'else echo "Install Node with your package manager, then re-check."; fi';
+}
+
 function whichCheck(id: string, cmd: string, severity: 'fail' | 'warn', missingKey: string, repairCmd?: string): DoctorCheck {
   return {
     id, severity,
@@ -1439,10 +1475,8 @@ function doctorChecks(): DoctorCheck[] {
     /* Windows gets a repairCmd of its own because the RENDERER falls back to
        `xcode-select --install` when this is undefined (setup's Advanced lane) — a macOS command
        offered on Windows is exactly the impossible instruction the gh check learned not to give. */
-    whichCheck('git', 'git', 'fail', 'setupCheck.gitMissing',
-      process.platform === 'darwin' ? 'xcode-select --install'
-        : process.platform === 'win32' ? 'winget install --id Git.Git -e --source winget' : undefined),
-    whichCheck('node', 'node', 'warn', 'setupCheck.nodeMissing'),
+    whichCheck('git', 'git', 'fail', 'setupCheck.gitMissing', installGitCmd()),
+    whichCheck('node', 'node', 'warn', 'setupCheck.nodeMissing', installNodeCmd()),
     /* Three states, not two. Observed on a real newcomer machine: the official installer
        SUCCEEDS, puts the binary at ~/.local/bin/claude, and then asks the operator to add
        ~/.local/bin to PATH themselves. Reporting that as "missing" sent someone who had just
@@ -2530,6 +2564,12 @@ function readinessUncached(): Readiness {
   const claude = loc.where === 'path';
   const r = frameworkRoot();
   const v = vaultRoot();
+  /* A DIRECTORY IS NOT A FRAMEWORK. `frameworkRoot()` only proves the path resolves, so an empty
+     or half-cloned `~/aios` — a failed clone leaves exactly that behind — reported framework: true.
+     The doctor already knew better and looked for CLAUDE.md; readiness did not, and the two
+     disagreed. Same marker as the doctor's check, so there is one definition of "is there a
+     framework" rather than one per caller. */
+  const framework = !!r && fs.existsSync(path.join(r, 'CLAUDE.md'));
   const vault = !!v && v !== r;   // vaultRoot() falls back to the framework root when absent
   const cj = readJson(claudeJsonPath()) as { oauthAccount?: { emailAddress?: string } };
   const signedIn = !!cj?.oauthAccount?.emailAddress;
@@ -2539,7 +2579,7 @@ function readinessUncached(): Readiness {
      exist yet. Two different questions, so two fields: the gate can refuse a ritual while the
      setup session itself, which needs the same four facts, still passes. */
   const personalized = personalization().ok;
-  return { claude, claudeWhere: loc.where, framework: !!r, vault, signedIn, personalized, ready: claude && !!r && vault && signedIn };
+  return { claude, claudeWhere: loc.where, framework, vault, signedIn, personalized, ready: claude && framework && vault && signedIn };
 }
 export const readiness = ttlMemo(readinessUncached, 4000);
 

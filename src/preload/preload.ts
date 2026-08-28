@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
+/** One row of the Connectors card. Mirrors main/connectors.ts ConnectorRow. */
+type ConnRow = {
+  id: string; service: string; value: string;
+  state: 'connected' | 'drift' | 'needs-key' | 'needs-install' | 'available';
+  detail: string[]; connect: 'one-click' | 'needs-key' | 'guided';
+  canConnect: boolean; hint?: string; pending: string[]; custom: boolean; tracked: boolean; docs?: string;
+};
+type ConnResult = { ok: boolean; error?: string; row?: ConnRow };
+
+
 /** The renderer's window into the shell — PTY now; pickers/watchers/state next. */
 contextBridge.exposeInMainWorld('glassShell', {
   /* The real filesystem path of a File from an OS drag. Electron REMOVED File.path in v32,
@@ -62,6 +72,13 @@ contextBridge.exposeInMainWorld('glassShell', {
   doctorRepair: (id: string): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean } | null> => ipcRenderer.invoke('doctor:repair', id),
   // the Health card's rows (framework · vault · account · skills · claude · gh)
   doctorHealth: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('doctor:health'),
+  // Connectors card: list / connect / disconnect / add one the framework does not bundle
+  connectorsList: (): Promise<{ rows: ConnRow[]; foreign: { id: string }[]; other: { id: string; custom: boolean; tracked: boolean }[] }> => ipcRenderer.invoke('connectors:list'),
+  connectorsConnect: (id: string, answers?: Record<string, string>): Promise<ConnResult> => ipcRenderer.invoke('connectors:connect', id, answers),
+  connectorsDisconnect: (id: string): Promise<ConnResult> => ipcRenderer.invoke('connectors:disconnect', id),
+  connectorsFix: (id: string): Promise<ConnResult> => ipcRenderer.invoke('connectors:fix', id),
+  connectorsDelete: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('connectors:delete', id),
+  connectorsAddCustom: (input: string, service?: string): Promise<ConnResult & { id?: string }> => ipcRenderer.invoke('connectors:addCustom', input, service),
   // the Onboarding flow: sequenced onboarding stepper (steps + which one is active)
   onboardingState: (): Promise<{ steps: { id: string; done: boolean; state: 'done' | 'active' | 'locked'; required: string[]; optional: string[]; checks: { id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[] }[]; current: number }> => ipcRenderer.invoke('onboarding:state'),
   // PAT lane of the GitHub step — stored via git's credential helper, never echoed

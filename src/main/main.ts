@@ -10,6 +10,7 @@ import { taskFileInstruction, needsTaskFile } from '../core/commandBus';
 import { needsSpill } from '../core/ptyLine';
 import { initAutoUpdater } from './updater';
 import * as aios from './aios';
+import * as connectors from './connectors';
 import * as fs from 'fs';
 
 /**
@@ -733,6 +734,21 @@ ipcMain.handle('onboarding:storePat', (_e, pat: string) => aios.storeGitHubPat(S
 // doctor: headless repair + re-run-the-same-check proof (see aios.repairCheck)
 ipcMain.handle('doctor:repair', (_e, id: string) => aios.repairCheck(String(id)));
 ipcMain.handle('doctor:health', () => aios.computeHealth());
+
+// connectors: read canonical's manifests, classify against the live registration, and register
+// through `claude mcp add` — never by editing ~/.claude.json, which running sessions also write.
+ipcMain.handle('connectors:list', () => connectors.listConnectors(aios.frameworkRoot()));
+ipcMain.handle('connectors:connect', (_e, id: string, answers?: Record<string, string>) =>
+  connectors.connect(aios.frameworkRoot(), String(id), answers ?? {}));
+ipcMain.handle('connectors:disconnect', (_e, id: string) =>
+  connectors.disconnect(aios.frameworkRoot(), String(id)));
+ipcMain.handle('connectors:fix', (_e, id: string) =>
+  connectors.fixDrift(aios.frameworkRoot(), String(id)));
+// delete: unregister AND remove the operator's own connector folder. Gated to mcps/custom/ in main.
+ipcMain.handle('connectors:delete', (_e, id: string) =>
+  connectors.deleteCustom(aios.frameworkRoot(), String(id)));
+ipcMain.handle('connectors:addCustom', (_e, input: string, service?: string) =>
+  connectors.addCustom(aios.frameworkRoot(), String(input ?? ''), service ? String(service) : undefined));
 ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved: aios.resolvedLocale(), hasIdentity: aios.hasIdentity(), operator: aios.operatorName(), identityNameGap: aios.identityNameGap(), primary: aios.primaryName() }));
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());
