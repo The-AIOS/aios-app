@@ -15,6 +15,7 @@
  * `mcps/google-workspace-mcp/README.md:32`.
  */
 import { execFile, execFileSync } from 'child_process';
+import { claudeLocation as aiosClaudeLocation } from './aios';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -369,7 +370,19 @@ const order = (s: ConnectorState): number =>
 
 function run(argv: string[], cwd?: string): Promise<{ ok: boolean; out: string }> {
   return new Promise((res) => {
-    const [cmd, ...args] = argv;
+    let [cmd, ...args] = argv;
+    /* RESOLVE `claude` — never invoke it by bare name from main.
+       The App captures its environment at launch, and on a first install that launch happens
+       BEFORE step 1 puts Claude Code on PATH — so `execFile('claude', …)` is ENOENT on precisely
+       the machine that just finished installing it. Observed in the field: GitHub and Google
+       Workspace connected fine because they are `needs-key` and hand off to a SESSION (a real
+       login shell), while Stitch — the only `one-click` connector — failed silently, because it
+       is the one path that runs from here. `claudeLocation()` already probes the way a terminal
+       resolves, interactive zsh included, which is where the installer writes PATH. */
+    if (cmd === 'claude') {
+      const loc = aiosClaudeLocation();
+      if (loc.bin) cmd = loc.bin;
+    }
     execFile(cmd, args, { cwd, timeout: 60_000, windowsHide: true }, (err, stdout, stderr) => {
       res({ ok: !err, out: String(stdout || '') + String(stderr || '') });
     });

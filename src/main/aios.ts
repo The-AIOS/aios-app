@@ -2097,6 +2097,31 @@ export function setClaudeConfig(key: ClaudeConfigKey, value: unknown): void {
  * created by this flow. Nothing else is trusted on their behalf, and nothing happens without the
  * click.
  */
+/**
+ * The directory the setup session should open in, created and trusted.
+ *
+ * On a machine that already has a framework this is that framework, unchanged. On a VIRGIN one —
+ * the case this whole flow exists for — `frameworkRoot()` is undefined, so the old guard
+ * (`if (roots?.framework) trustDir(...)`) granted nothing at all, the pty fell back to `$HOME`,
+ * and Claude Code asked "do you trust this folder?" for the operator's entire home directory.
+ * With **"No, exit" pre-selected**, so a newcomer pressing Enter kills their own setup.
+ *
+ * So: create the default install path and trust THAT. Narrow (one directory, not `$HOME`), and it
+ * is where `SETUP.md` clones anyway — `git clone` into an existing empty directory is fine. An
+ * empty `~/aios` still reports `framework: false` from readiness (it has no `CLAUDE.md`), so Setup
+ * correctly stays open.
+ */
+export function prepareSetupCwd(): string {
+  const existing = frameworkRoot();
+  if (existing) { trustDirForClaude(existing); return existing; }
+  const target = path.join(os.homedir(), 'aios');
+  try { fs.mkdirSync(target, { recursive: true }); } catch { /* fall through — trust it regardless */ }
+  let real = target;
+  try { real = fs.realpathSync(target); } catch { /* the literal path is the best we have */ }
+  trustDirForClaude(real);
+  return real;
+}
+
 export function trustDirForClaude(dir: string): void {
   if (!dir) return;
   writeClaudeUserJson((j) => {

@@ -780,6 +780,8 @@ function rewireForRoots(win: BrowserWindow): void {
 
 ipcMain.handle('aios:phase1', () => aios.phase1Script());
 ipcMain.handle('aios:trustDir', (_e, d: string) => { aios.trustDirForClaude(String(d || '')); return true; });
+// the setup session's cwd: the framework if there is one, else a created + trusted ~/aios
+ipcMain.handle('aios:prepareSetupCwd', () => aios.prepareSetupCwd());
 // the renderer owns the wording (it has the locale); main owns writing the file
 ipcMain.handle('aios:banner', (_e, m: { ok: string; okSub: string; fail: string; failSub: string }) =>
   aios.bannerScript(m.ok, m.okSub, m.fail, m.failSub));

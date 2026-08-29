@@ -100,6 +100,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   modelOptions: (): Promise<{ label: string; value: string }[]> => ipcRenderer.invoke('claude:modelOptions'),
   phase1Script: (): Promise<string> => ipcRenderer.invoke('aios:phase1'),
   trustDir: (dir: string): Promise<boolean> => ipcRenderer.invoke('aios:trustDir', dir),
+  prepareSetupCwd: (): Promise<string> => ipcRenderer.invoke('aios:prepareSetupCwd'),
   bannerScript: (m: { ok: string; okSub: string; fail: string; failSub: string }): Promise<string> => ipcRenderer.invoke('aios:banner', m),
   readiness: (): Promise<{ claude: boolean; framework: boolean; vault: boolean; signedIn: boolean; ready: boolean }> => ipcRenderer.invoke('aios:readiness'),
   addFrequent: (task: { label: string; kind: string; target: string; hint?: string; assignment?: string }): Promise<unknown[]> => ipcRenderer.invoke('aios:addFrequent', task),

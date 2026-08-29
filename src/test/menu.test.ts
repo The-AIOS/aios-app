@@ -132,8 +132,9 @@ test('a named spawn IS the identity — the session becomes the agent', () => {
   // CLAUDE.md's spawned-worker path globs agents/<bundle>/{name}.md, so --name is what makes
   // a session adopt a bundled agent on turn one. Running a slash command in the primary
   // session tells it ABOUT the agent instead, and cannot be closed independently.
-  assert.match(app, /function spawnNamed\(name, task\)/);
-  assert.match(app, /CLAUDE \+ ' --name ' \+ handle/);
+  // Signature gained optional cwd + permission mode; the identity contract is `--name`, unchanged.
+  assert.match(app, /function spawnNamed\(name, task, cwd, mode\)/);
+  assert.match(app, /CLAUDE \+ \(mode \? ' --permission-mode ' \+ mode : ''\)\s*\n?\s*\+ ' --name ' \+ handle/);
   assert.match(app, /const hit = byName\(handle\);/, 'reveal an open one rather than duplicating');
   assert.match(app, /case 'spawnNamed':/);
   // the title-bar compass uses the same path as the menu
@@ -319,7 +320,11 @@ test('setup is TWO phases, and the second only appears once Claude runs', () => 
      the operator's instruction gone. Removing the screen is deterministic; watching the terminal
      for a composer is a regex against another product's UI, and I tried that and threw it away. */
   assert.match(app, /const spawnSetupSession = async \(\) => \{/);
-  assert.match(app, /await window\.glassShell\.trustDir\(roots\.framework\)/);
+  /* Was `trustDir(roots.framework)`, which granted NOTHING on a virgin machine — the pty then fell
+     back to $HOME and Claude asked the operator to trust their whole home directory with "No, exit"
+     pre-selected. `prepareSetupCwd()` creates and trusts the default install path instead, and
+     returns it as the session's cwd. Observed on a real clean-user install. */
+  assert.match(app, /await window\.glassShell\.prepareSetupCwd\(\)/);
   assert.match(app, /return spawnNamed\('aios-setup',/);
   assert.match(app, /do not send me to install an IDE or the Glass extension/);
   /* And no step COUNT: it said "11-step", canonical grew to 13, and this line in a DIFFERENT repo

@@ -243,6 +243,18 @@ test('sanitiseId defeats traversal and substitution — these ids reach a shell 
 /* ── the card, and the guards that hold it ────────────────────────────────── */
 
 const APP = (): string => fs.readFileSync(path.join(__dirname, '../../renderer/app.js'), 'utf8');
+
+/**
+ * Source with comments removed.
+ *
+ * Six times in one day a source-grep guard in this file failed on the comment EXPLAINING the very
+ * defect it guards — prompt(), repairCmd, the phase1 OS guard, fsRoots, innerHTML, and a bundle
+ * probe that read a fix's own description as the defect. Each time the tempting "fix" is to delete
+ * the explanation, which keeps the guard green and removes the reason anyone would understand it.
+ * So the stripping lives here once, and every text guard uses it.
+ */
+const noComments = (src: string): string =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 const LOC = (l: string): Record<string, string> =>
   JSON.parse(fs.readFileSync(path.join(__dirname, `../../src/i18n/locales/${l}.json`), 'utf8'));
 const LOCALES = ['en', 'es', 'pt-br'];
@@ -297,14 +309,6 @@ test('the card never calls prompt() — Electron does not implement it', () => {
   // …and the pattern still catches a real call, so passing means something.
   assert.match(strip('const x = prompt("hi");'), CALL);
   assert.doesNotMatch(strip('/* window.prompt() is unsupported */'), CALL);
-});
-
-test('needs-install offers no clickable Connect — the button would write a broken registration', () => {
-  const app = APP();
-  const i = app.indexOf("if (c.state === 'needs-install')");
-  assert.ok(i > 0, 'the needs-install branch is gone');
-  const branch = app.slice(i, i + 400);
-  assert.match(branch, /b\.disabled = true/, 'needs-install must not be clickable');
 });
 
 test('the handover prompt no longer claims the first ritual — the interview owns it', () => {
@@ -632,21 +636,6 @@ test('a custom folder is ADOPTED into Custom, and never also listed as unknown',
   const { rows, other } = listConnectors(root);
   const ids = new Set(rows.map((r) => normaliseId(r.id)));
   for (const o of other) assert.ok(!ids.has(normaliseId(o.id)), `${o.id} is in both a group and "other"`);
-});
-
-test('Connect on anything not one-click opens a guided SESSION, not a form or a README', () => {
-  /* Three designs, in order: the README (answers a question nobody asked), then a masked text
-     field (assumes they know what a personal access token is, which scopes, and where GitHub hides
-     the page — the same assumption AI-122 exists to remove), now a session that can explain, wait,
-     retry a token with the wrong scopes, and verify. */
-  const app = APP();
-  const i = app.indexOf("if (c.connect !== 'one-click'");
-  assert.ok(i > 0, 'the non-one-click branch is gone');
-  const branch = app.slice(i, i + 500);
-  assert.match(branch, /connectSession\(c\)/, 'hand off to a session');
-  assert.doesNotMatch(branch, /openConnectorDocs/, 'a document is not the answer to "Connect"');
-  assert.doesNotMatch(branch, /inputModal/, 'a credential form assumes knowledge the operator lacks');
-  assert.doesNotMatch(app, /conn\.keyTitle/, 'the key modal is gone, so its string should be too');
 });
 
 test('the connect brief carries what a session would otherwise guess', () => {
@@ -1014,7 +1003,9 @@ test('nothing offers to start a project before the AIOS exists', () => {
     assert.ok(!('onboarding.firstProjectPrompt' in d), `${l}: dead string left behind`);
   }
   // With nothing in it, the Advanced disclosure must not render at all.
-  assert.match(app, /if \(advBody\.childElementCount\) bd\.appendChild\(adv\)/,
+  // The guard is now `childElementCount && earned` — empty Advanced still never renders, and a
+  // non-empty one waits until the step's primary action was tried (see "Advanced is earned").
+  assert.match(app, /if \(advBody\.childElementCount && earned\) bd\.appendChild\(adv\)/,
     'an empty Advanced block would still show a caret to open');
 });
 
@@ -1053,4 +1044,197 @@ test('personalized is what gates the completion panel — so the button can assu
   assert.ok(i > 0, 'the firstrun step is gone');
   assert.match(src.slice(i, i + 200), /required: \['personalized'\]/,
     'the tour button assumes a personalized vault because this gate guarantees one');
+});
+
+test('needs-install opens a guided SESSION, not a terminal', () => {
+  /* Three designs. A disabled button (clicked, nothing happened). Then a real terminal running
+     `mcps/setup.sh` — which on a clean-user install printed a wall of expert instructions and
+     "All MCPs installed" having installed NOTHING, because setup.sh matches FOLDER names
+     (`nano-banana-mcp`) and we passed the connector id. A static terminal cannot notice that its
+     own success line lied; a session can. The framework's installer says the same in its output:
+     "ask Claude to run /mcps-setup — it walks you through tokens + register + verify". */
+  const app = APP();
+  const i = app.indexOf("if (c.state === 'needs-install')");
+  assert.ok(i > 0, 'the needs-install branch is gone');
+  const branch = app.slice(i, i + 500);
+  assert.match(branch, /connectSession\(c, 'install'\)/, 'it must hand off to a session');
+  assert.doesNotMatch(branch, /createPane|bash /, 'no raw terminal from this state');
+  assert.doesNotMatch(branch, /connectorsConnect/, 'still no Connect from this state');
+});
+
+test('the install brief carries BOTH traps that were hit for real', () => {
+  const app = APP();
+  const i = app.indexOf("if (kind === 'install')");
+  const brief = app.slice(i, app.indexOf("} else if (kind === 'provided')", i));
+  // 1. the argument is the FOLDER name, not the connector id
+  assert.match(brief, /folder/, 'the brief must pass the folder name');
+  assert.match(app, /const folder = c\.id \+ '-mcp'/);
+  // 2. setup.sh's success line is unconditional — it says "All MCPs installed" having done nothing
+  assert.match(brief, /do not trust its output/i, 'the session must be warned the success line lies');
+  assert.match(brief, /Verify the file it was supposed to create actually exists/i);
+});
+
+test('every bundled Connect goes through a session — Stitch is why', () => {
+  /* Stitch's manifest says one-click with no env, so it registered instantly and reported
+     "connected" — while the installer's own notes require STITCH_API_KEY. We shipped a
+     registration that could not work because we trusted a manifest field over the thing it
+     describes, and the operator's reaction was the tell: "it just said connected, so I distrusted
+     it." A session verifies instead of asserting. */
+  const app = APP();
+  assert.doesNotMatch(app, /if \(c\.connect !== 'one-click' \|\| !c\.canConnect\)/,
+    'a manifest claiming one-click is not evidence the connector needs nothing');
+  const i = app.indexOf("brief = [\n      'Help me connect");
+  const generic = app.slice(app.indexOf('} else {', app.indexOf('async function connectSession')), app.indexOf('toast(t(\'conn.handing\'')); 
+  assert.match(generic, /Do not assume the manifest is complete/,
+    'the brief must tell the session not to trust the manifest either');
+});
+
+test('no connector action opens a document instead of a conversation', () => {
+  // "Open the guide" used to open a README in a viewer tab — the same handoff as the terminal, one
+  // format over: a document given to someone who does not yet know what to do with it.
+  const app = APP();
+  assert.doesNotMatch(app, /openConnectorDocs/, 'the README-tab path is gone');
+  const i = app.indexOf("if (c.state === 'provided')");
+  assert.match(app.slice(i, i + 400), /connectSession\(c, 'provided'\)/);
+});
+
+test('the step count is derived from the list, never written in prose', () => {
+  /* The subhead said "Seven steps" while ONBOARDING_STEPS has four — the same drift that made the
+     handover prompt claim "11 steps" against canonical's 13, and for the same reason: a number
+     living in a different file from the list it describes. Caught on a real clean-user screenshot. */
+  const app = APP();
+  assert.match(app, /t\('setup\.onboardingSub', \{ n: String\(st\.steps\.length\) \}\)/,
+    'the count must come from the step list at render time');
+  for (const l of LOCALES) {
+    const sub = String(LOC(l)['setup.onboardingSub']);
+    assert.match(sub, /\{n\}/, `${l}: no placeholder — the number is back in prose`);
+    assert.doesNotMatch(sub, /\b(Four|Seven|Cuatro|Siete|Quatro|Sete|\d+)\s/i,
+      `${l}: a literal count in the subhead will drift`);
+    // And it should not open by advertising terminals on the flow whose promise is you meet none.
+    assert.doesNotMatch(sub, /terminal/i, `${l}: terminals in the first sentence is the wrong note`);
+  }
+});
+
+test('Advanced is earned — hidden until the primary was tried and the step is still open', () => {
+  /* Each step's Advanced holds a REAL alternate lane (per-tool installs, switch-account, a PAT for
+     a machine where browser auth is blocked), so blanket removal would delete someone's only route.
+     But before the primary has run they are noise — and on step 1 they offer to do individually what
+     the one button does at once, the choice the code's own comment says the operator cannot make. */
+  const app = APP();
+  assert.match(app, /const earned = stepTried\.has\(s\.id\) && !s\.done;/);
+  assert.match(app, /if \(advBody\.childElementCount && earned\) bd\.appendChild\(adv\)/,
+    'a non-empty Advanced must still be withheld until earned');
+  // Recorded once, centrally — a new step cannot forget to opt in.
+  const i = app.indexOf('function buildStepActions');
+  assert.match(app.slice(i, i + 700), /acts\.addEventListener\('click'[\s\S]*stepTried\.add\(s\.id\)/,
+    'the primary attempt must be recorded where every step gets it for free');
+  // Session-scoped: a fresh launch deserves a clean first attempt at the primary path.
+  assert.doesNotMatch(app, /localStorage[^\n]*stepTried/, 'persisting it would resurface the noise');
+});
+
+test('the alternate lanes still exist — this gates them, it does not delete them', () => {
+  const app = APP();
+  for (const k of ['onboarding.installGit', 'onboarding.installNode', 'setup.installClaude',
+                   'onboarding.switchAccount', 'onboarding.usePat', 'onboarding.patHint']) {
+    assert.ok(app.includes(k), `${k} was removed — that is a lost escape hatch, not a cleanup`);
+  }
+});
+
+/* ── step copy: why and what, in words they already have ──────────────────── */
+
+test('every step has a tag — the action is the title, the tag is what it IS', () => {
+  const app = APP();
+  assert.match(app, /t\('onboarding\.tag\.' \+ s\.id\)/, 'no tag slot in the step head');
+  // On the HEAD, not the body: a collapsed/done step must still explain itself, which is when
+  // someone scrolls back asking "wait, what was GitHub for?".
+  const i = app.indexOf('function stepEl');
+  const head = app.slice(i, app.indexOf('return box;', i));
+  assert.match(head, /step-namewrap[\s\S]*step-tag/, 'the tag must be built into the step head');
+  for (const l of LOCALES) {
+    const d = LOC(l);
+    for (const id of ['prereqs', 'login', 'github', 'firstrun']) {
+      const tag = d[`onboarding.tag.${id}`];
+      assert.ok(tag && String(tag).trim(), `${l}: onboarding.tag.${id} missing`);
+      assert.ok(String(tag).length < 60, `${l}: tag ${id} is a second heading, not a gloss`);
+    }
+  }
+});
+
+test('no operator-visible step-1 copy names a tool they will never type — prose OR tooltip', () => {
+  /* Widened after the narrow version passed while `setup.phase1Hint` — the TOOLTIP on the primary
+     button — still read "Homebrew, the toolchain, Obsidian and Claude Code". #94 mode 8: I fixed the
+     prose and then interrogated the prose. The class is operator-visible step-1 copy, and it has
+     more than one surface.
+     `setupCheck.ghNoBrew` is the ONE justified exception and is asserted as such: it fires only when
+     Homebrew on a shared Mac belongs to another account, which IS the problem — naming it is what
+     makes the message actionable, and removing it would leave the operator stuck with no reason. */
+  for (const l of LOCALES) {
+    const d = LOC(l);
+    for (const k of ['setup.phase1Hint', 'setup.phase1', 'onboarding.step.prereqs']) {
+      const v = String(d[k] ?? '');
+      for (const w of ['Homebrew', 'toolchain', 'Node.js', 'npm']) {
+        assert.ok(!v.includes(w), `${l}/${k}: still names "${w}" — a surface the prose fix missed`);
+      }
+    }
+    const brew = Object.entries(d).filter(([, v]) => String(v).includes('Homebrew')).map(([k]) => k);
+    assert.deepEqual(brew, ['setupCheck.ghNoBrew'],
+      `${l}: Homebrew may appear ONLY in the shared-Mac diagnostic, found ${JSON.stringify(brew)}`);
+  }
+});
+
+test('no step prose names a tool the operator will never type', () => {
+  /* The de-jargoning sentence used to name Homebrew, Git, Node, Obsidian AND Claude Code — five
+     names, in the paragraph whose job is to remove them. The rows below already list what gets
+     installed; prose carries the WHY. */
+  for (const l of LOCALES) {
+    const d = LOC(l);
+    for (const id of ['prereqs', 'login', 'github', 'firstrun']) {
+      const v = String(d[`onboarding.sub.${id}`] ?? '');
+      for (const w of ['Homebrew', 'Node.js', 'npm', 'CLAUDE.md', 'model agnostic', 'model-agnostic']) {
+        assert.ok(!v.includes(w), `${l}/${id}: prose still names "${w}"`);
+      }
+    }
+  }
+});
+
+test('the Claude plan is stated up front, in every locale', () => {
+  // Zero copy mentioned it before. A newcomer could reach step 2 and meet an unannounced paywall —
+  // on the screen where the flow either earns trust or loses it.
+  const pat = { en: /paid Claude plan is required/i, es: /plan pago de Claude/i, 'pt-br': /plano pago do Claude/i };
+  for (const l of LOCALES) {
+    assert.match(String(LOC(l)['onboarding.sub.login']), pat[l as keyof typeof pat], `${l}: no plan sentence`);
+  }
+});
+
+test('step strings carry no markdown and no newlines — el() sets textContent', () => {
+  /* `**bold**` would ship as literal asterisks and `\n\n` collapses to a space. The fix is a
+     separate note key, NOT innerHTML — reaching for innerHTML in this file is what wiped the
+     explorer refresh button (#92). */
+  for (const l of LOCALES) {
+    for (const [k, v] of Object.entries(LOC(l))) {
+      if (!k.startsWith('onboarding.sub.') && !k.startsWith('onboarding.tag.') && !k.startsWith('onboarding.note.')) continue;
+      assert.ok(!String(v).includes('**'), `${l}/${k}: markdown bold`);
+      assert.ok(!String(v).includes('\n'), `${l}/${k}: newline`);
+    }
+  }
+  const app = APP();
+  assert.match(app, /t\('onboarding\.note\.' \+ s\.id\)/, 'the note line is gone');
+  const code = noComments(app);
+  const j = code.indexOf("const note = t('onboarding.note.");
+  assert.ok(j > 0, 'the note line is gone');
+  assert.doesNotMatch(code.slice(j - 400, j + 400), /innerHTML/, 'never innerHTML in the step body');
+  // …and the stripper actually works, so passing means something.
+  assert.equal(noComments('/* innerHTML */ x'), ' x');
+});
+
+test('a first launch opens in Facing — the layout that reads well with the explorer open', () => {
+  /* Stacked and Facing differ only once the explorer is showing, and that is precisely when a
+     newcomer first opens it. From clean-user testing: Facing is the nicer arrangement at that
+     moment, so it should be what someone who has never chosen sees. A saved preference still
+     wins — this changes the default, never an operator's choice. */
+  const app = APP();
+  assert.match(app, /migratePreset\(layoutState\.preset\) : 'Facing'/,
+    'the fallback preset must be Facing');
+  assert.match(app, /LAYOUTS\.includes\(migratePreset\(layoutState\.preset\)\)/,
+    'a saved preset must still take precedence over the default');
 });
