@@ -7,3 +7,4 @@ dist/
 
 # isolated dev profile (npm run start:isolated) — never committed
 .dev-userdata/
+.dev-virgin/

@@ -115,7 +115,13 @@ test('first run opens Setup by itself, and only when the app cannot work', () =>
   // Measured with an empty HOME: the app launched fine (pty, workbench, panel, theme all
   // OK) and showed an empty workspace plus "Good afternoon" — with no route to Setup that a
   // newcomer has any reason to click. Every existing route was a control they do not know.
-  assert.match(app, /if \(!roots\.framework \|\| !roots\.vault\) openSetupTab\(\);/);
+  /* Now asserted against READINESS, not fsRoots. The original form was measured with an empty
+     HOME — ~/aios absent entirely — which is the one case path resolution handles. It missed the
+     case a failed clone actually leaves behind: the directory EXISTS but is not a framework, where
+     frameworkRoot() succeeds and vaultRoot() falls back to the framework root, so the condition
+     could never be true. Found by walking a virgin instance: Setup did not open, Home did. */
+  assert.match(app, /const r = await window\.glassShell\.readiness\(\);/);
+  assert.match(app, /if \(!r\.framework \|\| !r\.vault\) openSetupTab\(\);/);
   // it must NOT fire for an operator who already has a framework — verified live: an
   // existing HOME opens no Setup tab
   assert.doesNotMatch(app, /openSetupTab\(\);\s*\n\s*\}\s*catch[\s\S]{0,40}\n\}\);\s*$/, 'must stay conditional');
@@ -126,8 +132,9 @@ test('a named spawn IS the identity — the session becomes the agent', () => {
   // CLAUDE.md's spawned-worker path globs agents/<bundle>/{name}.md, so --name is what makes
   // a session adopt a bundled agent on turn one. Running a slash command in the primary
   // session tells it ABOUT the agent instead, and cannot be closed independently.
-  assert.match(app, /function spawnNamed\(name, task\)/);
-  assert.match(app, /CLAUDE \+ ' --name ' \+ handle/);
+  // Signature gained optional cwd + permission mode; the identity contract is `--name`, unchanged.
+  assert.match(app, /function spawnNamed\(name, task, cwd, mode\)/);
+  assert.match(app, /CLAUDE \+ \(mode \? ' --permission-mode ' \+ mode : ''\)\s*\n?\s*\+ ' --name ' \+ handle/);
   assert.match(app, /const hit = byName\(handle\);/, 'reveal an open one rather than duplicating');
   assert.match(app, /case 'spawnNamed':/);
   // the title-bar compass uses the same path as the menu
@@ -313,7 +320,11 @@ test('setup is TWO phases, and the second only appears once Claude runs', () => 
      the operator's instruction gone. Removing the screen is deterministic; watching the terminal
      for a composer is a regex against another product's UI, and I tried that and threw it away. */
   assert.match(app, /const spawnSetupSession = async \(\) => \{/);
-  assert.match(app, /await window\.glassShell\.trustDir\(roots\.framework\)/);
+  /* Was `trustDir(roots.framework)`, which granted NOTHING on a virgin machine — the pty then fell
+     back to $HOME and Claude asked the operator to trust their whole home directory with "No, exit"
+     pre-selected. `prepareSetupCwd()` creates and trusts the default install path instead, and
+     returns it as the session's cwd. Observed on a real clean-user install. */
+  assert.match(app, /await window\.glassShell\.prepareSetupCwd\(\)/);
   assert.match(app, /return spawnNamed\('aios-setup',/);
   assert.match(app, /do not send me to install an IDE or the Glass extension/);
   /* And no step COUNT: it said "11-step", canonical grew to 13, and this line in a DIFFERENT repo
@@ -323,6 +334,42 @@ test('setup is TWO phases, and the second only appears once Claude runs', () => 
   assert.match(app, /follow the sequence in the "Reading this as Claude\?" block/);
   assert.match(app, /mkBtn\(acts, t\('setup\.phase2'\), \(\) => spawnSetupSession\(\)/);
   assert.match(app, /do not send me to install an IDE or the Glass extension/);
+});
+
+/** The body of `spawnSetupSession`, comments stripped — so a guard cannot fire on the prose that
+ *  documents it (a `doesNotMatch` for "claudeConfig" would otherwise be tripped by the comment
+ *  explaining why claudeConfig must not be read here). Both asserts below it are the CONTROL: an
+ *  empty or over-stripped string would make every doesNotMatch pass for the wrong reason. */
+function spawnSetupBody(): string {
+  const start = app.indexOf('const spawnSetupSession = async () => {');
+  assert.ok(start >= 0, 'spawnSetupSession not found — this guard would be measuring nothing');
+  const end = app.indexOf('\n    };', start);
+  assert.ok(end > start, 'could not find the end of spawnSetupSession');
+  const stripped = app.slice(start, end)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  assert.doesNotMatch(stripped, /produced the exact opposite/, 'the comment stripper did not strip');
+  assert.match(stripped, /prepareSetupCwd/, 'the comment stripper ate the code too');
+  return stripped;
+}
+
+test('the guided setup session opens in AUTO mode, and decides that here', () => {
+  /* Regression, measured on a clean macOS user account: `permissions: {}` with no `defaultMode`,
+     so `readValue` returned the key's SEED and `claudeConfig().mode` read back as the literal
+     string 'default'. The first form of this line — `(cc && cc.mode) || 'auto'` — read that as a
+     deliberate choice and passed `--permission-mode default` EXPLICITLY, so the guided setup
+     opened in MANUAL mode: a non-technical operator approving every tool call, in the one flow
+     built to remove exactly that friction. Strictly worse than passing no flag at all.
+     Seeding WRITES keys, so "present" stopped meaning "chosen" — the config cannot tell them
+     apart, and setup runs before the operator has ever opened Settings anyway. `coerce()` in
+     src/core/claudeConfig.ts already refuses to write a literal 'default' for the same reason. */
+  const body = spawnSetupBody();
+  assert.match(body, /cwd, 'auto'\)/, "the mode is a literal decided here, not read from anywhere");
+  assert.doesNotMatch(body, /claudeConfig/, 'must not derive the setup mode from Claude config');
+  assert.doesNotMatch(body, /\|\| 'auto'/, "'auto' must not sit behind a config read as a fallback");
+  // and the flag still only ships when a caller asks for one — other spawns inherit the
+  // operator's own mode, which is correct for every session that is not first-run setup
+  assert.match(app, /CLAUDE \+ \(mode \? ' --permission-mode ' \+ mode : ''\)/);
 });
 
 test('the Phase 1 script is idempotent, honest, and self-proving', () => {
@@ -337,10 +384,16 @@ test('the Phase 1 script is idempotent, honest, and self-proving', () => {
      for when npm cannot write globally (another user's Homebrew on a shared Mac, or a
      system-managed node), and it is paired with the PATH fix because it installs into the
      operator's home and leaves PATH alone. Order matters, so it is asserted. */
-  const iOnPath = sh.indexOf('if command -v claude');
-  const iOnDisk = sh.indexOf('.local/bin/claude" ] || [ -x');
-  const iNpm = sh.indexOf('npm install -g @anthropic-ai/claude-code');
-  const iCurl = sh.indexOf('claude.ai/install.sh');
+  /* Scoped to the Claude Code SECTION, not the whole file. Searching the file meant the order
+     could be broken by any earlier mention of the same command — which is exactly what happened
+     when the OS guard was added and echoed `npm install -g …` as advice for Linux, hundreds of
+     lines above the install logic. The test was measuring the wrong npm. */
+  const sec = sh.slice(sh.indexOf('# ── 5. Claude Code'));
+  assert.ok(sec, 'the Claude Code section marker moved — this test navigates by it');
+  const iOnPath = sec.indexOf('if command -v claude');
+  const iOnDisk = sec.indexOf('.local/bin/claude" ] || [ -x');
+  const iNpm = sec.indexOf('npm install -g @anthropic-ai/claude-code');
+  const iCurl = sec.indexOf('claude.ai/install.sh');
   assert.ok(iOnPath > 0 && iOnDisk > iOnPath && iNpm > iOnDisk && iCurl > iNpm,
     'order must be: on PATH → on disk → npm → curl fallback');
   // the on-disk state must NOT redownload — it only needs PATH

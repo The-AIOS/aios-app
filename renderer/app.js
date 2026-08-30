@@ -78,6 +78,7 @@ const ICONS = {
   aios: '<rect x="2.5" y="2.5" width="19" height="19" rx="3"/><rect x="12.5" y="3.5" width="7.6" height="7.6" rx="1.4" fill="currentColor"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
+  plug: '<path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8zM12 17v5"/>',
   folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   folderOpen: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>',
   expand: '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
@@ -320,7 +321,12 @@ const layoutState = (() => {
 // 'Full' was renamed to 'Stacked' (same arrangement). Without this a returning operator's
 // saved layout fails the includes() check and silently resets to the default.
 const migratePreset = (v) => (v === 'Full' ? 'Stacked' : v);
-let preset = LAYOUTS.includes(migratePreset(layoutState.preset)) ? migratePreset(layoutState.preset) : 'Stacked';
+/* DEFAULT IS 'Facing', not 'Stacked' (changed 2026-08-29 from clean-user testing). The two differ
+   only once the explorer is open — and that is exactly when a newcomer first opens it, so the
+   default should be the arrangement that reads well at that moment rather than the one that reads
+   well without it. A saved preference still wins: this is only what an operator who has never
+   chosen sees. */
+let preset = LAYOUTS.includes(migratePreset(layoutState.preset)) ? migratePreset(layoutState.preset) : 'Facing';
 let split = layoutState.split !== false; // terminals-below ON by default — "editor up, terminal bottom"
 let xw = layoutState.xw || 230;
 /* The panel opens at its TIGHTEST width, not 380. It is a companion column, and the first thing
@@ -344,12 +350,15 @@ let lastPanelPreset = (() => {
 let pOn = layoutState.pOn !== false;
 /* Explorer visible WITHIN a panel layout — the folder button toggles only this, never the panel
    (clicking it used to flip the whole preset, which hid the panel too).
-   FIRST RUN STARTS HIDDEN. A newcomer's first screen showed a file tree of a vault they have not
-   created yet, competing for attention with the one thing they need to look at. `!== false` made
-   "no saved state" mean "on", which is the right default for a returning operator and the wrong
-   one for a first launch — so the two cases are now distinguished: an explicit saved preference
-   is honoured, and the absence of one starts quiet. */
-let xOn = 'xOn' in layoutState ? layoutState.xOn !== false : false;
+   OPEN BY DEFAULT — reverted 2026-08-29 to plain `!== false`. It started hidden on first run for a
+   reason that was right when it was written: a newcomer's first screen showed a file tree of a
+   vault they had not created yet. What changed underneath it is the default LAYOUT. Facing and
+   Stacked differ only once the explorer is open, so a first launch that hides the explorer renders
+   the two identically — the operator never sees the arrangement the default was chosen for, and
+   the layout change lands as no change at all. Two defaults picked separately, each sound alone,
+   cancelling each other in combination. A saved preference still wins either way; this is only
+   what someone who has never chosen sees. */
+let xOn = layoutState.xOn !== false;
 
 /* TERMINAL RENDERER — an operator-visible choice, GPU by default.
    Glyph corruption in the terminal has survived two fixes aimed at the WebGL path, and xterm is
@@ -361,7 +370,15 @@ let xOn = 'xOn' in layoutState ? layoutState.xOn !== false : false;
    experience: the DOM renderer ignores devicePixelRatio (visibly softer) and repaints a frame
    behind. Switching applies LIVE to open terminals — an isolation test that costs a restart is one
    nobody runs twice. */
-let termRenderer = layoutState.termRenderer === 'dom' ? 'dom' : 'webgl';
+/* DEFAULT FLIPPED TO 'dom' (Compatibility), 2026-08-29 — the isolation test this switch was built
+   for has now run, on a clean-user first install: the terminal glyph corruption reproduced, the
+   operator switched to Compatibility, and it "fixed immediately". That is the answer the comment
+   above was waiting for — the WebGL renderer owns the corruption, and two prior fixes aimed at it
+   did not hold. The trade is real and worth stating: 'dom' ignores devicePixelRatio (visibly
+   softer) and repaints a frame behind. But the terminal is where the entire handoff happens, so a
+   garbled one is catastrophic while softness is cosmetic. GPU stays one click away for anyone who
+   prefers it and does not see corruption. */
+let termRenderer = layoutState.termRenderer === 'webgl' ? 'webgl' : 'dom';
 
 function attachRenderer(p) {
   if (!p || p.kind !== 'term' || !p.term) return;
@@ -463,6 +480,9 @@ const pulse = {
   weekIdx: -1,
   pendingWeek: null,
   runCollapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('runCollapsed') || '[]'); } catch { return []; } })()),
+  /* Connectors groups, collapsed state per operator. Defaults come from connSection, not here —
+     an empty set must mean "nothing has been collapsed yet", never "everything starts open". */
+  connCollapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('connCollapsed') || '["other"]'); } catch { return ['other']; } })()),
   collapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('pulseCollapsed') || '[]'); } catch { return []; } })()),
   send: (m) => window.glassShell.panelSend(m),
   cmd: (command, ...args) => window.glassShell.panelSend({ type: 'cmd', command, args }),
@@ -482,6 +502,7 @@ const CARD_ICONS = {
   pOut: 'box',           // shipped
   pReports: 'chart',
   pHealth: 'check',
+  pConnectors: 'plug',
 };
 function cardIcon(key) { return CARD_ICONS[key] || 'star'; }
 
@@ -730,6 +751,13 @@ function refreshSalutes() {
 }
 setInterval(refreshSalutes, 60 * 1000);
 window.addEventListener('focus', refreshSalutes);
+/* Connectors re-reads on focus. It polled every five minutes and otherwise only on boot or the ↻,
+   so connecting something in a session — which is now the DEFAULT path for anything not one-click —
+   left the card wrong until the operator found the refresh button themselves. Reported exactly that
+   way: "I connected atlassian back and it still looked disconnected."
+   Focus is the right trigger because every path that changes a connector leaves this window: a
+   guided session in a pane, a terminal, a browser consent screen. Coming back IS the signal. */
+window.addEventListener('focus', () => void refreshConnectors());
 
 function pbtn(parent, { emoji, label, key, val, onClick, accent }) {
   const b = el('button', 'pbtn' + (accent ? ' accent' : ''));
@@ -908,6 +936,385 @@ function healthFixButton(c) {
     }
   });
   return fx;
+}
+
+/* ═══ CONNECTORS — the services the AIOS can reach ═══════════════════════════
+   AI-122 B2. Each bundled connector shown as a SERVICE ("Google Workspace"),
+   never as a protocol name. The rows come from canonical's own manifests
+   (mcps/<id>-mcp/connector.json) — the App ships no list of its own, so this
+   card cannot drift from what the framework actually bundles.
+
+   THIS CARD NEVER PROMPTS. The cold-start interview owns the ask, at its Step
+   11, right after a first /aios:today has shown an empty calendar — so the
+   question arrives with a reason attached. This is the place you come back to
+   afterward: see status, connect what you skipped, add something we don't
+   bundle. A card that greeted a freshly-onboarded operator would be one more
+   thing firing after setup said goodbye, which is the exact defect Front A
+   just removed three instances of. */
+let connChecking = false;
+
+const CONN_STATE = {
+  connected:       { dot: 'st-ok',   key: 'conn.connected' },
+  drift:           { dot: 'st-warn', key: 'conn.drift' },
+  'needs-key':     { dot: 'st-warn', key: 'conn.needsKey' },
+  'needs-install': { dot: 'st-mute', key: 'conn.needsInstall' },
+  available:       { dot: 'st-mute', key: 'conn.available' },
+  provided:        { dot: 'st-mute', key: 'conn.provided' },
+};
+
+async function refreshConnectors() {
+  const C = document.getElementById('pConnectors');
+  if (!C || connChecking) return;
+  connChecking = true;
+  let data = { rows: [], foreign: [] };
+  try { data = await window.glassShell.connectorsList(); } catch { /* keep the empty shape */ }
+  finally { connChecking = false; }
+  const rows = (data && data.rows) || [];
+  const other = (data && data.other) || [];
+
+  C.replaceChildren();
+  const title = pulseTitle(C, 'pConnectors', t('pulse.connectors'));
+  const mv = title.querySelector('.pmove');
+  if (mv) {
+    const re = el('button', '', '↻'); re.title = t('health.recheck');
+    re.addEventListener('click', (e) => { e.stopPropagation(); void refreshConnectors(); });
+    mv.prepend(re);
+  }
+  C.appendChild(title);
+
+  const bundled = rows.filter((r) => !r.custom);
+  const mine = rows.filter((r) => r.custom);
+
+  connSection(C, t('conn.secBundled'), 'bundled', bundled.length, (box) => {
+    for (const c of bundled) box.appendChild(connRow(c));
+  });
+
+  /* Custom holds anything under `mcps/custom/` — manifest or not. `mint-mcp` sat in "other
+     connections on this computer" for exactly as long as ownership was decided by whether we had a
+     description of it, which put the operator's own connector alongside remote endpoints it has
+     nothing in common with. Ownership is location. */
+  connSection(C, t('conn.secCustom'), 'custom', mine.length, (box) => {
+    if (!mine.length) box.appendChild(el('div', 'psubempty', t('conn.noCustom')));
+    for (const c of mine) box.appendChild(connRow(c));
+  }, { title: t('conn.addTitle'), onClick: () => void addCustomFlow() });
+
+  if (other.length) {
+    connSection(C, t('conn.other'), 'other', other.length, (box) => {
+      for (const o of other) {
+        const r = el('div', 'phrow');
+        r.appendChild(el('span', 'phdot st-mute'));
+        r.appendChild(el('span', 'phlab', o.id));
+        r.appendChild(el('span', 'phmsg', ''));
+        const b = el('button', 'phfix', t('conn.disconnect'));
+        b.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          b.disabled = true; b.textContent = t('conn.working');
+          const res = await window.glassShell.connectorsDisconnect(o.id).catch(() => null);
+          toast(res && res.ok ? t('conn.removed', { name: o.id }) : t('conn.failed') + ' — ' + o.id);
+          void refreshConnectors();
+        });
+        r.appendChild(b);
+        if (o.custom) r.appendChild(connTrash({ id: o.id, service: o.id, custom: true, tracked: o.tracked }));
+        box.appendChild(r);
+      }
+    });
+  }
+
+  if (!rows.length && !other.length) {
+    const e = el('div', 'phrow');
+    e.appendChild(el('span', 'phmsg', t('conn.empty')));
+    C.appendChild(e);
+  }
+
+  C.style.display = '';
+}
+
+/* Mirrors runSection — same caret, same count chip, same persistence shape, so the Connectors card
+   behaves like the Running card rather than inventing a second idiom for the same gesture. Its own
+   storage key and repaint, because sharing runSection's would collapse Sessions when you collapsed
+   Bundled. `other` starts collapsed: it is the group you look at rarely and the longest by far. */
+function connSection(parent, label, key, count, fill, add) {
+  const collapsed = pulse.connCollapsed.has(key);
+  const row = el('div', 'psubrow');
+  const head = el('button', 'psub' + (collapsed ? ' col' : ''));
+  head.appendChild(el('span', 'psubcaret', collapsed ? '▸' : '▾'));
+  head.appendChild(el('span', 'psublab', label));
+  if (count) head.appendChild(el('span', 'psubcount', String(count)));
+  head.addEventListener('click', () => {
+    if (pulse.connCollapsed.has(key)) pulse.connCollapsed.delete(key); else pulse.connCollapsed.add(key);
+    try { localStorage.setItem('connCollapsed', JSON.stringify([...pulse.connCollapsed])); } catch { /* ignore */ }
+    void refreshConnectors();
+  });
+  row.appendChild(head);
+  if (add) {
+    const a = el('button', 'psubadd'); a.innerHTML = icon('plus', 13); a.title = add.title;
+    a.addEventListener('click', (e) => { e.stopPropagation(); add.onClick(); });
+    row.appendChild(a);
+  }
+  parent.appendChild(row);
+  if (!collapsed) { const box = el('div', 'psubbox'); fill(box); parent.appendChild(box); }
+}
+
+function connRow(c) {
+  const meta = CONN_STATE[c.state] || CONN_STATE.available;
+  const r = el('div', 'phrow');
+  r.appendChild(el('span', 'phdot ' + meta.dot));
+  r.appendChild(el('span', 'phlab', c.service));
+
+  /* A healthy row is one line: the green dot already says "connected", and printing the word
+     eight times consumed exactly the width the exceptional rows need.
+     An exceptional row gets a SECOND LINE instead of competing for the first. Measured in a
+     render harness at 260/300/360px: sharing one line truncated the drift message at every
+     width a real pulse column has — "differs from the fram…" even at 360 — so the one row whose
+     entire purpose is to explain itself could not. Wrapping also gives the label back its full
+     width, which fixes "Google…" in the same change. */
+  const exceptional = c.state !== 'connected';
+  /* The registry id rides in the tooltip. Canonical names connectors by CAPABILITY — nano-banana
+     is "Image generation", pdf-generator is "PDF export" — which is right for someone who has
+     never heard of either, and invisible to an operator who knows them by name and cannot find
+     them. The id costs nothing here and no width in the row. */
+  const tip = [c.value, c.id !== c.service.toLowerCase() ? c.id : '', c.hint ? '→ ' + c.hint : '']
+    .filter(Boolean).join('\n');
+  if (exceptional) r.classList.add('two');
+  else {
+    const msg = el('span', 'phmsg', '');
+    msg.title = tip;
+    r.appendChild(msg);
+  }
+
+  const btn = connButton(c);
+  if (btn) r.appendChild(btn);
+  // The operator's own connectors get the symmetric opposite of "+ Add another".
+  if (c.custom) r.appendChild(connTrash(c));
+
+  if (exceptional) {
+    // State word + the specific detail, together, unabridged. The detail IS the actionable part:
+    // "differs from the framework" tells you something is wrong; "extra: chat:full appscript:full"
+    // tells you what to do about it, and it was reachable only by hovering.
+    /* Plain language, and for drift a REASON rather than a comparison. "differs from the
+       framework" is a maintainer's sentence — it describes our bookkeeping, not anything the
+       operator can act on. What it actually means is that the connection grants access nothing
+       here uses, which is a security answer they can evaluate, next to a button that fixes it.
+       `:full` is stripped: the suffix is registration syntax, not a service name. */
+    const detail = (c.detail || []).map((d) => String(d).replace(/^extra:\s*/, '').replace(/:full\b/g, ''));
+    const words = c.state === 'drift'
+      ? [t('conn.driftPlain'), detail.join(', ')].filter(Boolean).join(' — ')
+      : [t(meta.key), detail.join(' · ')].filter(Boolean).join(' — ');
+    const sub = el('div', 'phsub', words);
+    sub.title = tip;
+    r.appendChild(sub);
+  }
+  return r;
+}
+
+function connButton(c) {
+  /* EVERY non-trivial action here opens a GUIDED SESSION, never a terminal.
+     Measured on a clean-user install: the installer terminal ran, printed a wall of expert
+     instructions ("export GEMINI_API_KEY (requires Cloud Billing enabled — ~$0.04/image)"), and
+     left the operator with nothing to do next. Worse, it printed "All MCPs installed" having
+     installed nothing — `setup.sh` matches FOLDER names (`nano-banana-mcp`) and we passed the
+     connector id, so the filter matched nothing and the script's unconditional success line fired
+     anyway. A static terminal cannot notice that; a session can, and can fix it.
+     The framework's own installer says the same thing in its output: "Recommended: ask Claude to
+     run /mcps-setup — it walks you through tokens + register + verify in a guided flow." */
+  if (c.state === 'needs-install') {
+    const b = el('button', 'phfix', t('conn.installFirst'));
+    b.title = (c.detail || []).join('\n');
+    b.addEventListener('click', (e) => { e.stopPropagation(); void connectSession(c, 'install'); });
+    return b;
+  }
+
+  if (c.state === 'drift') {
+    const b = el('button', 'phfix', t('conn.fix'));
+    b.title = c.hint || '';
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      b.disabled = true; b.textContent = t('conn.working');
+      const res = await window.glassShell.connectorsFix(c.id).catch(() => null);
+      toast(res && res.ok ? t('conn.fixed', { name: c.service }) : t('conn.failed') + ' — ' + c.service);
+      void refreshConnectors();
+    });
+    return b;
+  }
+
+  if (c.state === 'connected') {
+    // Disconnect is deliberately the quietest control here. Its real value is context cost —
+    // every registered connector loads its tool schemas into every session — and that is not
+    // something a first-timer can evaluate, so it must not read as a recommended action.
+    const b = el('button', 'phfix', t('conn.disconnect'));
+    b.title = c.hint || '';
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      b.disabled = true; b.textContent = t('conn.working');
+      const res = await window.glassShell.connectorsDisconnect(c.id).catch(() => null);
+      // Say so either way. A bundled connector does not vanish when disconnected — it becomes
+      // available again — so with no message the row simply changes button and the click reads as
+      // having done nothing.
+      toast(res && res.ok ? t('conn.removed', { name: c.service }) : t('conn.failed') + ' — ' + c.service);
+      void refreshConnectors();
+    });
+    return b;
+  }
+
+  /* Not a server at all — the capability arrives another way (a bundled skill, a toolkit invoked
+     directly), so there is nothing to connect and the guide is the only honest action. */
+  /* "Open the guide" opened a README in a viewer tab — a document, handed to someone who does not
+     yet know what to do with it. Same handoff as the terminal, one format over. A session reads the
+     README *for* them and walks the steps. */
+  if (c.state === 'provided') {
+    const g = el('button', 'phfix', t('conn.guide'));
+    g.title = t('conn.providedHint');
+    g.addEventListener('click', (e) => { e.stopPropagation(); void connectSession(c, 'provided'); });
+    return g;
+  }
+
+  /* Anything that is not one-click hands off to a GUIDED SESSION rather than a form.
+     A modal asking for GITHUB_PERSONAL_ACCESS_TOKEN assumes the operator knows what a personal
+     access token is, which scopes it needs, and where GitHub hides the page — the same assumption
+     AI-122 exists to remove. It is the README button's mistake one step later: both answer with a
+     document when what is needed is someone walking beside you. A session can explain, wait, retry
+     when the first token has the wrong scopes, and verify. A text field can do none of that. */
+  /* Bundled connectors ALWAYS go through a session, even `one-click` ones. Stitch is why: its
+     manifest says one-click with no env, so we registered it instantly and told the operator
+     "connected" — while the installer's own notes say it needs `STITCH_API_KEY` from
+     stitch.withgoogle.com. We shipped a registration that cannot work, because we trusted a
+     manifest field over the thing it describes. A session verifies instead of asserting, and the
+     operator's own reaction was the tell: "it just said connected, so I distrusted it." */
+  if (true) {
+    const g = el('button', 'phfix', t('conn.connect'));
+    g.title = t('conn.guidedHint');
+    g.addEventListener('click', (e) => { e.stopPropagation(); void connectSession(c); });
+    return g;
+  }
+
+  // one-click: fully specified, no operator secret. Register directly, then prove it by re-reading.
+  const b = el('button', 'phfix', t('conn.connect'));
+  b.title = c.hint || '';
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    b.disabled = true; b.textContent = t('conn.working');
+    const res = await window.glassShell.connectorsConnect(c.id).catch(() => null);
+    toast(res && res.ok ? t('conn.connectedTo', { name: c.service }) : t('conn.failed') + ' — ' + c.service);
+    void refreshConnectors();
+  });
+  return b;
+}
+
+/**
+ * Delete an operator-added connector — unregister it AND remove its folder from the vault.
+ *
+ * Disconnect alone left the folder behind, so a connector someone had finished with sat in the card
+ * forever as `available`, re-connectable, with nothing that could get rid of it. This is the other
+ * half of "+ Add another".
+ *
+ * The confirmation escalates with the actual risk rather than always asking the same way. A
+ * COMMITTED folder is recoverable from git history, so the standard danger dialog is enough. An
+ * UNCOMMITTED one — which every freshly added connector is — cannot be recovered by anything, so it
+ * asks the operator to type the name. Uniform friction trains people to click through it; friction
+ * that appears exactly when the action is irreversible keeps meaning something.
+ */
+function connTrash(c) {
+  const b = el('button', 'phtrash');
+  b.innerHTML = icon('trash', 12);
+  b.title = t('conn.deleteHint', { name: c.service });
+  b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const ok = c.tracked
+      ? await confirmModal(t('conn.deleteTitle', { name: c.service }), t('conn.deleteBodyTracked'), t('conn.deleteConfirm'))
+      : (await inputModal(t('conn.deleteTitle', { name: c.service }), t('conn.deleteType', { id: c.id })) || '').trim() === c.id;
+    if (!ok) return;
+    b.disabled = true;
+    const res = await window.glassShell.connectorsDelete(c.id).catch(() => null);
+    toast(res && res.ok ? t('conn.deleted', { name: c.service })
+                        : t('conn.failed') + ' — ' + ((res && res.error) || c.service));
+    void refreshConnectors();
+  });
+  return b;
+}
+
+/**
+ * Hand a connector to a session that walks the operator through it.
+ *
+ * The brief carries what the session would otherwise guess: which service, the README that
+ * documents it, which credential is missing, the exact registration command, and where to run it.
+ * And the instruction that matters most — do not assume the operator knows what any of this is —
+ * because the reason we opened a conversation instead of a text field is that they do not.
+ */
+async function connectSession(c, kind) {
+  const roots = await window.glassShell.fsRoots().catch(() => null);
+  const fw = roots && roots.framework;
+  const sep = IS_WIN ? '\\' : '/';
+  const folder = c.id + '-mcp';                       // setup.sh and the docs key off the FOLDER name
+  const readme = fw ? [fw, 'mcps', folder, c.docs || 'README.md'].join(sep) : '';
+
+  let brief;
+  if (kind === 'install') {
+    brief = [
+      'Install and connect ' + c.service + ' for me, one step at a time, in plain words.',
+      'It is not installed yet: ' + (c.detail || []).join(', ') + '.',
+      fw ? 'Run: bash ' + fw + '/mcps/setup.sh ' + folder : '',
+      /* Two traps, stated because both were hit on a real install: the argument is the FOLDER name
+         (`nano-banana-mcp`), not the connector id, and the script prints "All MCPs installed"
+         unconditionally — it says that even when its filter matched nothing and it did no work. */
+      'IMPORTANT: the argument is the folder name, and that script prints "All MCPs installed" even when it installed nothing — so do not trust its output. Verify the file it was supposed to create actually exists before telling me it worked.',
+      readme ? 'Read ' + readme + ' for what this connector needs.' : '',
+      'Then register it and verify with "claude mcp list". If it needs a key or a login, explain what that is and walk me through getting one BEFORE you ask me for it.',
+    ].filter(Boolean).join(' ');
+  } else if (kind === 'provided') {
+    brief = [
+      c.service + ' is not a server I connect — it ships another way.',
+      readme ? 'Read ' + readme + ' and tell me, in plain words, how this capability actually reaches me and what I do to use it.' : '',
+      'If there is anything to install or log into, walk me through it. If there is nothing to do, say so plainly so I stop wondering.',
+    ].filter(Boolean).join(' ');
+  } else {
+    brief = [
+      'Help me connect ' + c.service + ' to my AIOS, one step at a time, in plain words.',
+      readme ? 'Read ' + readme + ' first — it has the setup and the exact registration command.' : '',
+      (c.pending && c.pending.length)
+        ? 'It needs ' + c.pending.join(' and ') + '. Explain what that is and walk me through getting one BEFORE you ask me for it.'
+        : 'Check what it needs first — a key, a login, or nothing. Do not assume the manifest is complete: one connector was registered as needing nothing while it actually required an API key, and I was told it was connected when it could not work.',
+      c.hint ? 'The registration looks like: ' + c.hint.replace(/\u2022\u2022\u2022/g, '<the value I give you>') : '',
+      fw ? 'Run it from ' + fw + '.' : '',
+      'Then verify with "claude mcp list" and tell me plainly whether it worked. Assume I do not know what any of this is.',
+    ].filter(Boolean).join(' ');
+  }
+
+  toast(t('conn.handing', { name: c.service }));
+  spawnNamed('connect-' + c.id, brief, fw || undefined);
+}
+
+
+/* The shared inputModal, the same one used for adding a marketplace, mounting a space and the
+   GitHub PAT — consistency was the ask, and it is also the only option: Electron does not implement
+   window.prompt() at all (it logs "prompt() is and will not be supported" and returns undefined),
+   so the first version of this looked wired and silently did nothing on every platform. */
+/* The Custom section's + action. Was a row-shaped button at the bottom of the card; it belongs on
+   the group it adds to, which is also how the Running card's Sessions/Terminals sections work. */
+async function addCustomFlow() {
+  const input = await inputModal(t('conn.addTitle'), t('conn.addPrompt'));
+  if (!input || !input.trim()) return;
+  const target = input.trim();
+  const res = await window.glassShell.connectorsAddCustom(target).catch(() => null);
+  if (res && res.ok) { toast(t('conn.connectedTo', { name: res.id || target })); void refreshConnectors(); return; }
+  /* A folder or a git repo is not a bad input — it is the case that genuinely needs judgment:
+     clone it, work out its dependencies, build them, derive a run command, then register. That is a
+     conversation, and it is precisely what `mcps/setup.sh` does for the bundled ones. */
+  if (res && res.error === 'local') {
+    const roots = await window.glassShell.fsRoots().catch(() => null);
+    const fw = roots && roots.framework;
+    toast(t('conn.handing', { name: target }));
+    spawnNamed('add-connector', [
+      'Install and connect the MCP at ' + target + ' into my AIOS.',
+      'Work out how it runs — dependencies, a virtualenv, a build — and get it working first.',
+      'Register it with "claude mcp add"' + (fw ? ', run from ' + fw + '.' : '.'),
+      fw ? 'Then document it at ' + fw + '/mcps/custom/<name>-mcp/ with a README.md and a connector.json matching the other manifests under ' + fw + '/mcps/.' : '',
+      'Verify with "claude mcp list". Explain what you are doing as you go — assume I do not know what any of this is.',
+    ].filter(Boolean).join(' '));
+    return;
+  }
+  if (res && res.error === 'unrecognised') toast(t('conn.addUnknown'));
+  else toast(t('conn.failed'));
+  void refreshConnectors();
 }
 
 /* Registry status → {dot class, label, tooltip}. A registered, alive session is
@@ -2379,6 +2786,10 @@ window.glassShell.onPtyData((m) => {
 window.glassShell.onPtyExit((m) => {
   const p = panes.get(m.id);
   if (p && p.kind === 'term') { p.exited = true; p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); paintRunning(); }
+  /* A guided connect/add session just closed — re-read rather than waiting for focus or the poll.
+     Same shape as the Health card's fix panes: run the check that found the problem to prove the
+     fix, never trust that the work happened. */
+  if (p && /^(connect-|add-connector)/.test(String(p.name || ''))) setTimeout(() => void refreshConnectors(), 800);
   // a Health fix terminal ended → re-run the doctor so the row proves (or denies) the fix
   if (healthFixPanes.delete(m.id)) setTimeout(() => void refreshHealth(), 600);
   // an Onboarding fix terminal ended → re-verify the stepper (auto-advance on proof)
@@ -4257,7 +4668,7 @@ const RITUAL_BOOTSTRAP = 'Start session';
    both from the same string, so they cannot drift. */
 const ritual = (name, slash) => ({ name, cmd: CLAUDE + ' --name ' + name + ' ' + shq(slash) });
 
-function spawnNamed(name, task) {
+function spawnNamed(name, task, cwd, mode) {
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!handle) return;
   const hit = byName(handle);
@@ -4271,7 +4682,14 @@ function spawnNamed(name, task) {
      I tried watching the terminal for the composer instead and abandoned it: a regex against
      another product's UI, which read scrollback as current state and which I could not simulate
      faithfully enough to trust. Removing the screen is deterministic; guessing at it is not. */
-  void createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  /* `--permission-mode` is passed only when a caller asks for one. Auto mode is what makes the
+     guided setup feel like a conversation rather than a consent form — and until now we simply
+     INHERITED whatever Claude Code defaults to, which is a dependency we do not control and would
+     never notice changing. Stating it removes that. An operator who has set a mode in Settings
+     keeps theirs; the default is only a default. */
+  void createPane({ name: handle, cwd: cwd || undefined,
+    cmd: CLAUDE + (mode ? ' --permission-mode ' + mode : '')
+      + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
 }
 
 
@@ -4733,7 +5151,7 @@ function openSettingsTab() {
     const CARDS = [
       ['pDaily', 'pulse.daily'], ['pCal', 'pulse.calendar'], ['pQuick', 'pulse.quick'],
       ['pRun', 'pulse.running'], ['pAbout', 'pulse.aboutYou'], ['pSpaces', 'pulse.workspaces'],
-      ['pLearn', 'pulse.claudeLearned'], ['pOut', 'pulse.recentOutputs'], ['pReports', 'pulse.reports'], ['pHealth', 'pulse.health'],
+      ['pLearn', 'pulse.claudeLearned'], ['pOut', 'pulse.recentOutputs'], ['pReports', 'pulse.reports'], ['pHealth', 'pulse.health'], ['pConnectors', 'pulse.connectors'],
     ];
     const hiddenNow = new Set(cfg.hiddenCards || []);
     const cardsBtn = document.createElement('button');
@@ -5032,6 +5450,10 @@ function openSettingsTab() {
    the alternate lane, auto-advance on verified success. Idempotent by
    construction — re-opening re-VERIFIES; it never re-does a completed step. */
 const onboardingFixPanes = new Set(); // pty ids of Onboarding fix terminals → re-verify on exit
+/* Step ids whose PRIMARY action the operator has run this session — the signal that Advanced has
+   become relevant. Deliberately session-scoped rather than persisted: on a fresh launch the primary
+   path deserves a clean first attempt, and a stale "you tried this once" would resurface the noise. */
+const stepTried = new Set();
 let onboardingRepaint = null;         // live while the Setup tab is open
 
 function openSetupTab() {
@@ -5040,7 +5462,15 @@ function openSetupTab() {
     body.appendChild(wrap);
 
     const brand = el('div', 'tbrand');
-    brand.innerHTML = '<div class="tbig">' + t('setup.welcome') + '</div><div class="tsub">' + t('setup.onboardingSub') + '</div>';
+    /* NO HARDCODED STEP COUNT. It read "Seven steps" while ONBOARDING_STEPS has four — the same
+       drift that made the handover prompt say "11 steps" against canonical's 13, and for the same
+       reason: a number living in a different file from the list it describes. The count is now
+       filled from the list at render time, so it cannot disagree. Also dropped "every fix runs in a
+       terminal you can see" — true, but announcing terminals in the first sentence of the one flow
+       whose promise is that you never need one is the wrong opening note. */
+    brand.innerHTML = '<div class="tbig">' + t('setup.welcome') + '</div><div class="tsub">'
+      + t('setup.onboardingSub', { n: '…' }) + '</div>';
+    const subEl = brand.querySelector('.tsub');
     wrap.appendChild(brand);
     const list = el('div', 'steps');
     wrap.appendChild(list);
@@ -5066,8 +5496,27 @@ function openSetupTab() {
       /* Trust the directory the session will open in, so no dialog stands between the operator's
          click and Claude reading the instruction. Narrow by design: their own vault, at the moment
          they ask for it. */
-      const roots = await window.glassShell.fsRoots().catch(() => null);
-      if (roots?.framework) await window.glassShell.trustDir(roots.framework).catch(() => {});
+      /* Trust + cwd in one call, and it must work on a VIRGIN machine — the old form was
+         `if (roots?.framework) trustDir(...)`, which granted nothing when there is no framework
+         yet, i.e. exactly the first install. The pty then fell back to $HOME and Claude Code asked
+         the operator to trust their entire home directory, with "No, exit" pre-selected: one
+         reflexive Enter and the setup session they just asked for is gone. */
+      const cwd = await window.glassShell.prepareSetupCwd().catch(() => null);
+      /* Auto, UNCONDITIONALLY — not `claudeConfig().mode`, which was this line's first form and
+         produced the exact opposite of what it intended. `readValue` returns a key's SEED when
+         nothing is on disk (src/core/claudeConfig.ts), and nothing-on-disk is the normal state of
+         a fresh machine: measured on a clean macOS user, `permissions: {}` with no `defaultMode`,
+         so `mode` read back as the literal string 'default'. `(cc && cc.mode) || 'auto'` reads any
+         truthy value as a deliberate choice, so we passed `--permission-mode default` EXPLICITLY
+         and the guided setup opened in MANUAL mode — asking a non-technical operator to approve
+         every tool call, in the one flow that exists to remove exactly that friction. Strictly
+         worse than passing no flag at all.
+         The config cannot answer this question and never could: seeding writes keys, so 'present'
+         stopped meaning 'chosen'. `coerce()` in that same module already refuses to WRITE a
+         literal 'default' for this reason — "Claude treats absent as default, and a literal
+         'default' string is not the same thing". Passing it as a flag is that same mistake one
+         layer up. And setup is the one session with no choice to honour: it runs before the
+         operator has ever seen Settings. */
       return spawnNamed('aios-setup',
       /* No step COUNT in the prompt. It said "11-step"; canonical grew two necessary steps and
          became 13, and this line — in a different repo — went on saying 11 until a setup session
@@ -5075,7 +5524,12 @@ function openSetupTab() {
          and it counts itself. */
       'Set up my AI-OS from https://github.com/The-AIOS/aios — read its SETUP.md and follow the sequence in the "Reading this as Claude?" block. '
       + 'I reached you from the AIOS App, so the app is already my execution surface: do not send me to install an IDE or the Glass extension. '
-      + 'Work through it with me interactively and finish by running /aios:today.');
+      /* No trailing instruction to run /aios:today. Front A moved the first ritual INSIDE the
+         interview (its Step 10) and made it exclusive: nothing else may run it, because the
+         interview closes on "Welcome to The AIOS" and anything firing after that goodbye is the
+         post-setup defect Front A just removed three instances of. Asking for it here would
+         re-add a fourth from a different repo. */
+      + 'Work through it with me interactively.', cwd, 'auto');
     };
 
 
@@ -5105,6 +5559,13 @@ function openSetupTab() {
        step — gating is structural, not cosmetic. */
     function buildStepActions(s, acts, adv) {
       const by = (id) => s.checks.find((c) => c.id === id);
+      /* Record the PRIMARY attempt centrally rather than at each of the four call sites — one place
+         to be right, and a new step cannot forget to opt in. Everything appended to `acts` is a
+         primary action by construction (the alternates go to `adv`), so this is exactly the signal
+         Advanced waits for. */
+      acts.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('button')) stepTried.add(s.id);
+      }, true);
       switch (s.id) {
         case 'prereqs': {
           const git = by('git'), claude = by('claude'), node = by('node');
@@ -5128,15 +5589,23 @@ function openSetupTab() {
              No "node is optional" note either: the script installs the whole toolchain, and
              telling someone a dependency is optional invites them to skip it and meet it later
              as a failure. */
-          if (git && git.status !== 'pass') {
-            mkBtn(adv, t('onboarding.installGit'), () => void fixPane('git', git.repairCmd || 'xcode-select --install'), { title: git.repairHint });
+          /* No literal fallback command here. This read `git.repairCmd || 'xcode-select --install'`,
+             and repairCmd was undefined on Linux — so a Linux operator missing git was handed a
+             macOS command, on a platform we actually publish (.deb and AppImage are both release
+             assets). The remedy per platform belongs to the check, which knows what OS it is on;
+             a renderer fallback can only ever guess. No command → no button. */
+          if (git && git.status !== 'pass' && git.repairCmd) {
+            mkBtn(adv, t('onboarding.installGit'), () => void fixPane('git', git.repairCmd), { title: git.repairHint });
           }
           if (claude && claude.status !== 'pass') {
             // the check may be reporting "installed but off PATH", whose fix is not an install
             mkBtn(adv, claude.repairLabel || t('setup.installClaude'), () => void fixPane('claude', claude.repairCmd), { title: claude.repairHint });
           }
-          void node;
+          if (node && node.status !== 'pass' && node.repairCmd) {
+            mkBtn(adv, t('onboarding.installNode'), () => void fixPane('node', node.repairCmd), { title: node.repairHint });
+          }
           cmdHint(adv, git && git.repairHint);
+          cmdHint(adv, node && node.repairHint);
           cmdHint(adv, claude && claude.repairHint);
           break;
         }
@@ -5170,8 +5639,11 @@ function openSetupTab() {
              with no home in the flow at all. That work needs judgment, so it belongs to a
              session, and the session ends by running /aios:today itself. So the final box IS
              the setup session, and this step's check verifies the RESULT rather than the click. */
+          /* ONE button, nothing else. "Start a first project…" used to sit in Advanced here, and
+             it assumed a project could be created before the AIOS that holds projects exists —
+             offered to someone whose framework and vault are both still missing. There is exactly
+             one sensible action on this step, so it is the only one shown. */
           mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
-          mkBtn(adv, t('onboarding.firstProject'), () => void fixPane('first-project', CLAUDE + ' ' + shq(t('onboarding.firstProjectPrompt'))));
           break;
         }
       }
@@ -5180,8 +5652,23 @@ function openSetupTab() {
     function stepBody(s) {
       const bd = el('div', 'step-body');
       bd.appendChild(el('div', 'step-sub', t('onboarding.sub.' + s.id)));
+      /* An optional second line, for the caveat a step needs but its main paragraph should not
+         carry. Kept as its own key rather than markdown inside the paragraph, because `el()` sets
+         textContent — `**bold**` would ship as literal asterisks — and reaching for innerHTML here
+         is what wiped the explorer button (#92). Absent key → nothing renders. */
+      const note = t('onboarding.note.' + s.id);
+      if (note && note !== 'onboarding.note.' + s.id) bd.appendChild(el('div', 'step-note', note));
+      /* THE HANDOVER STEP SHOWS NO CHECK ROWS. Everywhere else they are the point: each row is a
+         thing the operator can see and fix. Here they are a list of what the guided conversation is
+         ABOUT to do, and they contradicted the copy directly above them — the paragraph promises
+         "it sets up your vault" while a red row announces "no vault/00 - notes under the framework
+         root", which reads as a fault rather than a starting condition. Eight rows, seven of them
+         labelled "optional", in front of the one button that resolves all of them: that is the
+         MCP-class friction AI-122 exists to remove, wearing a different hat.
+         The checks still RUN — they are what proves the step done and advances it. Only the display
+         is suppressed. */
       const rows = el('div', 'step-checks');
-      for (const c of s.checks) {
+      for (const c of (s.id === 'firstrun' ? [] : s.checks)) {
         const r = el('div', 'srow');
         r.appendChild(el('span', 'phdot ' + (c.status === 'pass' ? 'st-ok' : c.status === 'warn' ? 'st-warn' : 'st-error')));
         r.appendChild(el('span', 'srlab', c.label + (s.optional.includes(c.id) ? ' · ' + t('onboarding.optional') : '')));
@@ -5200,11 +5687,19 @@ function openSetupTab() {
       bd.appendChild(rows);
       const acts = el('div', 'step-acts');
       const adv = document.createElement('details'); adv.className = 'step-adv';
+      /* ADVANCED IS EARNED, NOT OFFERED. Each step's Advanced holds a real alternate lane — per-tool
+         installs, switch-account, a PAT for a machine where browser auth is blocked — so removing
+         them outright would delete the only route some operator has. But before the primary action
+         has been tried they are noise, and worse: on step 1 they offer to do individually what the
+         big button does at once, which is the choice the code's own comment says an operator has no
+         basis for making. So they appear once the primary has run and the step is STILL not done.
+         Uniform across steps, absent from every first-look screen, no escape hatch lost. */
+      const earned = stepTried.has(s.id) && !s.done;
       const advSum = document.createElement('summary'); advSum.textContent = t('onboarding.advanced'); adv.appendChild(advSum);
       const advBody = el('div', 'step-advbody'); adv.appendChild(advBody);
       buildStepActions(s, acts, advBody);
       if (acts.childElementCount) bd.appendChild(acts);
-      if (advBody.childElementCount) bd.appendChild(adv);
+      if (advBody.childElementCount && earned) bd.appendChild(adv);
       return bd;
     }
 
@@ -5213,7 +5708,15 @@ function openSetupTab() {
       const box = el('div', 'step ' + s.state + (fresh ? ' just-done' : ''));
       const hd = el('div', 'step-head');
       hd.appendChild(el('span', 'step-ix', s.done ? '✓' : String(i + 1)));
-      hd.appendChild(el('div', 'step-name', t('onboarding.step.' + s.id)));
+      /* Title = the ACTION, tag = what this actually is in words the operator already has.
+         "Log in to Claude" tells them what to do; "your AI subscription" tells them what it IS.
+         The tag sits on the head so it survives collapse — a done step still explains itself, which
+         is the moment someone scrolls back to ask "wait, what was GitHub for?" */
+      const nameWrap = el('div', 'step-namewrap');
+      nameWrap.appendChild(el('div', 'step-name', t('onboarding.step.' + s.id)));
+      const tag = t('onboarding.tag.' + s.id);
+      if (tag && tag !== 'onboarding.tag.' + s.id) nameWrap.appendChild(el('div', 'step-tag', tag));
+      hd.appendChild(nameWrap);
       const summary = s.done ? (s.checks.find((c) => s.required.includes(c.id)) || {}).message || '' : '';
       if (summary) hd.appendChild(el('div', 'step-msg', summary));
       box.appendChild(hd);
@@ -5231,8 +5734,22 @@ function openSetupTab() {
       const enter = el('button', 'vbtn primary', t('onboarding.enterAios'));
       enter.addEventListener('click', () => openHomeTab());
       row2.appendChild(enter);
-      const deepen = el('button', 'vbtn', t('setup.deepenContext'));
-      deepen.addEventListener('click', () => void createPane(ritual('cold-start', '/aios:cold-start-interview')));
+      /* THE FULL TOUR, NOT "deepen your context" — and it says the promised words out loud.
+         This panel can only ever render on an ALREADY-PERSONALIZED vault: `personalized` is the
+         single required check of the `firstrun` step, so the stepper cannot reach done without it.
+         So the one state this button appears in is the one where re-running the interview from
+         Step 0 would ask a returning operator to re-answer who they are.
+         The command already handles that correctly — its Detection section runs Depth only (Steps
+         4 · 5 · 8.5 · 9) when Core is plainly done. But it reaches that branch by INFERENCE, and
+         that same section names this exact button as the problem: a door "that never made any
+         promise", firing a bare invocation on a partially-configured vault. `show me the full
+         tour` is the trigger phrase the interview promises twice in its own copy (Step 0 and Step
+         11's close), so passing it turns a guess into an instruction — and the operator arrives at
+         the branch that was actually advertised to them. */
+      const deepen = el('button', 'vbtn', t('setup.fullTour'));
+      deepen.title = t('setup.fullTourHint');
+      deepen.addEventListener('click', () => void createPane(
+        ritual('cold-start', '/aios:cold-start-interview show me the full tour')));
       row2.appendChild(deepen);
       d.appendChild(row2);
       return d;
@@ -5245,6 +5762,7 @@ function openSetupTab() {
       try { st = await window.glassShell.onboardingState(); } catch { st = null; } finally { painting = false; }
       if (!st || !document.body.contains(wrap)) return;
       list.replaceChildren();
+      if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
       st.steps.forEach((s, i) => list.appendChild(stepEl(s, i)));
       if (st.current >= st.steps.length) list.appendChild(onboardingDoneEl());
       prevDone = new Set(st.steps.filter((s) => s.done).map((s) => s.id));
@@ -6260,6 +6778,7 @@ function relocalize(loc) {
   if (pulse.lastRunning) renderPulseRunning(pulse.lastRunning);
   if (pulse.lastMonth) paintCalendar();
   void refreshHealth(); // re-render the Health card with the new locale's labels
+  void refreshConnectors(); // same — its state words are localised too
   // re-open any synthetic tool tabs (Settings/Setup/Plugins/Home) so their labels refresh
   for (const [id, pane] of [...panes]) {
     if (pane.kind !== 'view' || !String(pane.path).startsWith('::')) continue;
@@ -6284,14 +6803,27 @@ void initLocale().then(async () => {
   pulse.send({ type: 'ready' });
   void refreshHealth();    // the Health card runs its first doctor pass at boot…
   setInterval(() => void refreshHealth(), 5 * 60 * 1000); // …then re-checks quietly
+  /* Connectors reads files and one JSON — cheap, so it can refresh on the same slow cadence.
+     No prompt, no toast: the card just reflects whatever the machine currently has. */
+  void refreshConnectors();
+  setInterval(() => void refreshConnectors(), 5 * 60 * 1000);
   /* FIRST RUN: with no framework or no vault the app cannot do anything useful, and every
      route to Setup was a control a newcomer has no reason to click — so they landed on an
      empty workspace and a greeting with no next step. Open Setup for them.
      Deliberately not a once-only flag: while the framework is missing this IS the only
      useful screen, and once it exists the branch never runs again. */
   try {
-    const roots = await window.glassShell.fsRoots();
-    if (!roots.framework || !roots.vault) openSetupTab();
+    /* readiness(), NOT fsRoots(). fsRoots only reports whether the PATHS RESOLVE, and both of them
+       resolve for a directory that is not a framework: `frameworkRoot()` succeeds on an empty dir,
+       and `vaultRoot()` falls back to the framework root when `vault/` is missing — so
+       `!framework || !vault` could never be true unless `~/aios` was absent entirely. A newcomer
+       whose clone failed halfway (which leaves the directory behind) landed on the Home tab with
+       nothing working and no route to Setup, since railSetup ships hidden and the palette is not
+       somewhere a first-timer looks. Exactly the outcome the comment above says this exists to
+       prevent. readiness() applies the same markers the doctor does — CLAUDE.md for the framework,
+       a real vault dir for the vault — so all three surfaces now agree. */
+    const r = await window.glassShell.readiness();
+    if (!r.framework || !r.vault) openSetupTab();
   } catch { /* if we cannot even ask, the Setup tab is still reachable by hand */ }
 });
 
