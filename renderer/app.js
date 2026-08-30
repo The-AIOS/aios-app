@@ -350,12 +350,15 @@ let lastPanelPreset = (() => {
 let pOn = layoutState.pOn !== false;
 /* Explorer visible WITHIN a panel layout — the folder button toggles only this, never the panel
    (clicking it used to flip the whole preset, which hid the panel too).
-   FIRST RUN STARTS HIDDEN. A newcomer's first screen showed a file tree of a vault they have not
-   created yet, competing for attention with the one thing they need to look at. `!== false` made
-   "no saved state" mean "on", which is the right default for a returning operator and the wrong
-   one for a first launch — so the two cases are now distinguished: an explicit saved preference
-   is honoured, and the absence of one starts quiet. */
-let xOn = 'xOn' in layoutState ? layoutState.xOn !== false : false;
+   OPEN BY DEFAULT — reverted 2026-08-29 to plain `!== false`. It started hidden on first run for a
+   reason that was right when it was written: a newcomer's first screen showed a file tree of a
+   vault they had not created yet. What changed underneath it is the default LAYOUT. Facing and
+   Stacked differ only once the explorer is open, so a first launch that hides the explorer renders
+   the two identically — the operator never sees the arrangement the default was chosen for, and
+   the layout change lands as no change at all. Two defaults picked separately, each sound alone,
+   cancelling each other in combination. A saved preference still wins either way; this is only
+   what someone who has never chosen sees. */
+let xOn = layoutState.xOn !== false;
 
 /* TERMINAL RENDERER — an operator-visible choice, GPU by default.
    Glyph corruption in the terminal has survived two fixes aimed at the WebGL path, and xterm is

@@ -1237,4 +1237,14 @@ test('a first launch opens in Facing — the layout that reads well with the exp
     'the fallback preset must be Facing');
   assert.match(app, /LAYOUTS\.includes\(migratePreset\(layoutState\.preset\)\)/,
     'a saved preset must still take precedence over the default');
+  /* And the explorer must be OPEN by default, or the line above buys nothing. The explorer
+     started hidden on first run for its own sound reason — a file tree of a vault the newcomer
+     has not created yet. But the two defaults were chosen separately and cancel each other:
+     with the explorer hidden, Facing and Stacked render IDENTICALLY, so a first launch shows
+     neither the arrangement nor the change. They are asserted together here because they are
+     one decision, and splitting them is how the pair silently drifted apart the first time. */
+  assert.match(app, /let xOn = layoutState\.xOn !== false;/,
+    'absent saved state must mean the explorer is showing');
+  assert.doesNotMatch(app, /let xOn = 'xOn' in layoutState/,
+    'the first-run-hidden form makes the Facing default invisible');
 });
