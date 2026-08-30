@@ -336,6 +336,42 @@ test('setup is TWO phases, and the second only appears once Claude runs', () => 
   assert.match(app, /do not send me to install an IDE or the Glass extension/);
 });
 
+/** The body of `spawnSetupSession`, comments stripped — so a guard cannot fire on the prose that
+ *  documents it (a `doesNotMatch` for "claudeConfig" would otherwise be tripped by the comment
+ *  explaining why claudeConfig must not be read here). Both asserts below it are the CONTROL: an
+ *  empty or over-stripped string would make every doesNotMatch pass for the wrong reason. */
+function spawnSetupBody(): string {
+  const start = app.indexOf('const spawnSetupSession = async () => {');
+  assert.ok(start >= 0, 'spawnSetupSession not found — this guard would be measuring nothing');
+  const end = app.indexOf('\n    };', start);
+  assert.ok(end > start, 'could not find the end of spawnSetupSession');
+  const stripped = app.slice(start, end)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  assert.doesNotMatch(stripped, /produced the exact opposite/, 'the comment stripper did not strip');
+  assert.match(stripped, /prepareSetupCwd/, 'the comment stripper ate the code too');
+  return stripped;
+}
+
+test('the guided setup session opens in AUTO mode, and decides that here', () => {
+  /* Regression, measured on a clean macOS user account: `permissions: {}` with no `defaultMode`,
+     so `readValue` returned the key's SEED and `claudeConfig().mode` read back as the literal
+     string 'default'. The first form of this line — `(cc && cc.mode) || 'auto'` — read that as a
+     deliberate choice and passed `--permission-mode default` EXPLICITLY, so the guided setup
+     opened in MANUAL mode: a non-technical operator approving every tool call, in the one flow
+     built to remove exactly that friction. Strictly worse than passing no flag at all.
+     Seeding WRITES keys, so "present" stopped meaning "chosen" — the config cannot tell them
+     apart, and setup runs before the operator has ever opened Settings anyway. `coerce()` in
+     src/core/claudeConfig.ts already refuses to write a literal 'default' for the same reason. */
+  const body = spawnSetupBody();
+  assert.match(body, /cwd, 'auto'\)/, "the mode is a literal decided here, not read from anywhere");
+  assert.doesNotMatch(body, /claudeConfig/, 'must not derive the setup mode from Claude config');
+  assert.doesNotMatch(body, /\|\| 'auto'/, "'auto' must not sit behind a config read as a fallback");
+  // and the flag still only ships when a caller asks for one — other spawns inherit the
+  // operator's own mode, which is correct for every session that is not first-run setup
+  assert.match(app, /CLAUDE \+ \(mode \? ' --permission-mode ' \+ mode : ''\)/);
+});
+
 test('the Phase 1 script is idempotent, honest, and self-proving', () => {
   const sh = fs.readFileSync('scripts/setup/phase1-prerequisites.sh', 'utf8');
   // a fresh macOS account has NO ~/.zshrc or ~/.zprofile — an append would land nowhere

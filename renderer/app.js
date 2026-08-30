@@ -5499,8 +5499,21 @@ function openSetupTab() {
          the operator to trust their entire home directory, with "No, exit" pre-selected: one
          reflexive Enter and the setup session they just asked for is gone. */
       const cwd = await window.glassShell.prepareSetupCwd().catch(() => null);
-      const cc = await window.glassShell.claudeConfig().catch(() => null);
-      const mode = (cc && cc.mode) || 'auto';   // their choice wins; 'auto' is the fallback, not an override
+      /* Auto, UNCONDITIONALLY — not `claudeConfig().mode`, which was this line's first form and
+         produced the exact opposite of what it intended. `readValue` returns a key's SEED when
+         nothing is on disk (src/core/claudeConfig.ts), and nothing-on-disk is the normal state of
+         a fresh machine: measured on a clean macOS user, `permissions: {}` with no `defaultMode`,
+         so `mode` read back as the literal string 'default'. `(cc && cc.mode) || 'auto'` reads any
+         truthy value as a deliberate choice, so we passed `--permission-mode default` EXPLICITLY
+         and the guided setup opened in MANUAL mode — asking a non-technical operator to approve
+         every tool call, in the one flow that exists to remove exactly that friction. Strictly
+         worse than passing no flag at all.
+         The config cannot answer this question and never could: seeding writes keys, so 'present'
+         stopped meaning 'chosen'. `coerce()` in that same module already refuses to WRITE a
+         literal 'default' for this reason — "Claude treats absent as default, and a literal
+         'default' string is not the same thing". Passing it as a flag is that same mistake one
+         layer up. And setup is the one session with no choice to honour: it runs before the
+         operator has ever seen Settings. */
       return spawnNamed('aios-setup',
       /* No step COUNT in the prompt. It said "11-step"; canonical grew two necessary steps and
          became 13, and this line — in a different repo — went on saying 11 until a setup session
@@ -5513,7 +5526,7 @@ function openSetupTab() {
          interview closes on "Welcome to The AIOS" and anything firing after that goodbye is the
          post-setup defect Front A just removed three instances of. Asking for it here would
          re-add a fourth from a different repo. */
-      + 'Work through it with me interactively.', cwd, mode);
+      + 'Work through it with me interactively.', cwd, 'auto');
     };
 
 
