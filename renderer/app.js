@@ -6070,8 +6070,13 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
    beats a separate "remove one…" row that opens a second list — the thing you want to act on
    is already under the pointer, which is how Glass's picker does it too. `run` returns true
    to keep the picker open and repaint (a delete), false to leave it alone. */
-/* A yes/no gate for destructive actions. Enter confirms, Escape cancels, and the cancel
-   button holds focus so an accidental Return does nothing. */
+/* A yes/no gate for destructive actions. Escape cancels, the cancel button holds focus, and
+   ENTER FOLLOWS THAT FOCUS rather than meaning "yes" — so the accidental Return this dialog
+   exists to absorb does nothing, which is what the focus ring has always promised. It did not
+   deliver: the handler resolved true whatever was focused, and its own preventDefault() stopped
+   the focused Cancel button from ever seeing the native activation that would have said no.
+   Tab to the danger button and Enter still confirms — the keyboard path is intact, it just
+   agrees with what is highlighted. */
 function confirmModal(title, message, confirmLabel) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
@@ -6088,7 +6093,7 @@ function confirmModal(title, message, confirmLabel) {
     const done = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
     const onKey = (e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
-      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(document.activeElement === ok); }
     };
     cancel.addEventListener('click', () => done(false));
     ok.addEventListener('click', () => done(true));

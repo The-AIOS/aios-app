@@ -73,3 +73,17 @@ test('cancel puts focus back — the pane must not be left live-looking but deaf
     'restore the zone’s active pane — a background tab’s × can be clicked while typing in the foreground one');
   assert.match(gate, /if \(back !== null && panes\.has\(back\)\) setActive\(back\);/);
 });
+
+test('Enter follows focus in confirmModal — a reflex Return must not confirm a destructive action', () => {
+  /* The dialog focuses Cancel and says so in its own comment, but the key handler resolved
+     `true` whatever was focused — and its preventDefault() stopped the focused Cancel button
+     from ever seeing the native activation that would have said no. So the gate against one
+     stray input was defeated by the next one. Shared with the connector delete and the
+     frequent-task remove, both of which are destructive and both of which focus Cancel too. */
+  const modal = app.slice(app.indexOf('function confirmModal(title, message, confirmLabel)'));
+  const body = modal.slice(0, modal.indexOf('\n}\n'));
+  assert.match(body, /e\.key === 'Enter'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); done\(document\.activeElement === ok\); \}/);
+  assert.doesNotMatch(body, /e\.key === 'Enter'\)[^\n]*done\(true\)/,
+    'Enter must not mean yes regardless of what holds focus');
+  assert.match(body, /cancel\.focus\(\);/, 'and the safe option still holds focus');
+});
