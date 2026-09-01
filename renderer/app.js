@@ -2361,7 +2361,7 @@ function makeTab(id, name, iconName) {
   const tx = document.createElement('span'); tx.className = 'tx'; tx.title = t('tab.close'); tx.textContent = '×';
   tab.append(ic, nm, tx);
   tab.addEventListener('click', (e) => {
-    if (e.target === tx) { closePane(id); return; }
+    if (e.target === tx) { void requestClosePane(id); return; }
     setActive(id);
   });
 
@@ -2688,6 +2688,48 @@ function submitToPty(id, text) {
   if (!text) return;
   window.glassShell.ptyWrite(id, text);
   setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 80);
+}
+
+/* THE X ON A TAB IS THE ONE CLOSE A HAND CAN MISS — so it, and only it, asks first.
+   The RUNNING strip holds one tab per live session, five or six of them a few pixels apart,
+   and closePane() kills the pty outright. In AIOS the cost of that miss is not a process: a
+   session that ends by the front door leaves a trace (/aios:close-session writes the day's
+   note, /aios:close-day consolidates it), and one killed by a stray click leaves none. The
+   record of what the session did goes with it.
+
+   Deliberately NARROW, and the narrowness is the whole design:
+     · Only a LIVE CLAUDE SESSION is gated. A viewer, a browser pane, a plain terminal or an
+       already-ended session closes exactly as before — nothing is lost with those, and a
+       prompt you always dismiss is a prompt you stop reading.
+     · Only THIS handler is gated, which is why the gate is here and not inside closePane().
+       Every programmatic close — the registry retiring a dead session, watchThenKill() after
+       a capture has landed, the command bus's `kill` — goes straight to closePane() and must
+       never meet a modal, because there is no hand there to answer it.
+   It asks; it does not capture. Wrapping the session up first is what the RUNNING row's
+   close and kill actions already offer. */
+async function requestClosePane(id) {
+  const p = panes.get(id);
+  if (!p) return;
+  if (p.kind !== 'term' || !p.isSession || p.exited) { closePane(id); return; }
+  const ok = await confirmModal(
+    t('tab.closeConfirmTitle', { name: p.name }),
+    t('tab.closeConfirmBody'),
+    t('tab.closeConfirmOk'),
+  );
+  /* Cancelling has to put the operator back where they were typing. confirmModal takes focus
+     onto its Cancel button and leaves it on <body> when it closes, and nothing else re-focuses
+     a terminal — so without this the pane still LOOKS live (caret blinking, tab highlighted)
+     while every keystroke goes nowhere. Restore the zone's ACTIVE pane, not necessarily the one
+     whose × was clicked: a background tab's × can be clicked while typing in the foreground one.
+     A path that did not exist before this change — the × always destroyed the pane. */
+  if (!ok) {
+    const back = active[zoneOf(p)];
+    if (back !== null && panes.has(back)) setActive(back);
+    return;
+  }
+  // The session may have ended, or been closed from elsewhere, while the modal was open.
+  // closePane() no-ops on an id it no longer knows, so the late answer is harmless.
+  closePane(id);
 }
 
 function closePane(id) {
