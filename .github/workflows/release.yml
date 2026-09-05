@@ -114,6 +114,15 @@ jobs:
       - name: Verify signing (codesign · hardened runtime · Gatekeeper)
         run: node scripts/verify-signing.mjs
 
+      # macOS was the one lane that never inspected its own packaged tree. Linux and Windows
+      # both reach verify-package through `npm run dist:linux` / `dist:win`; this lane calls
+      # electron-builder directly (it needs the zip for the updater, which `npm run dist` does
+      # not build), so the chained step silently did not apply. The platform we hand to most
+      # people was the one whose bundle CI never opened. Runs BEFORE publish, like every other
+      # gate here.
+      - name: Verify the packaged app (contents · helpers · it launches)
+        run: npm run verify:package
+
       # electron-updater's feed = latest-mac.yml on the newest Release, so a release published
       # without a usable one is worse than a failed build.
       #

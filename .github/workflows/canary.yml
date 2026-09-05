@@ -46,6 +46,12 @@ jobs:
       - name: Verify signing (codesign · hardened runtime · Gatekeeper)
         run: node scripts/verify-signing.mjs
 
+      # Here as well as in release.yml, and deliberately: this lane is where a packaging gate
+      # gets exercised on a macOS runner with nothing at stake. A gate whose first real run is
+      # a release is a gate nobody has tested.
+      - name: Verify the packaged app (contents · helpers · it launches)
+        run: npm run verify:package
+
       - name: Upload canary DMG (expires in 7 days)
         uses: actions/upload-artifact@v4
         with:
