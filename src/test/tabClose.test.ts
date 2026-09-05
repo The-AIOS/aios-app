@@ -30,15 +30,48 @@ test('the gate asks only for a live Claude session — everything else closes as
     'a viewer, a browser pane, a plain terminal and an ended session must not be gated');
 });
 
-test('the dialog names the session, and reuses the app’s own confirm — no new dependency', () => {
+test('the × asks the operator’s OWN question — killBehavior, not a yes/no of ours', () => {
+  /* The first version of this gate raised its own Cancel / Close-session confirm. That stopped
+     the accident but still destroyed the record whenever the operator genuinely meant to close
+     — and a lost record is the thing the gate exists to protect. It also made the Settings row
+     labelled “When you kill a session” untrue of the × specifically. Both are fixed by asking
+     the question the operator already configured, which offers capture. */
   const gate = app.slice(app.indexOf('async function requestClosePane'), app.indexOf('function closePane(id)'));
-  assert.match(gate, /await confirmModal\(/, 'the existing yes/no gate, not a native confirm()');
+  assert.match(gate, /await endSession\(\{ name: p\.name, paneId: id \}\)/,
+    'the × routes into the shared decision, naming the session and its pane');
   assert.doesNotMatch(gate, /window\.confirm|\balert\(/);
-  assert.match(gate, /t\('tab\.closeConfirmTitle', \{ name: p\.name \}\)/,
-    '“Are you sure?” tells the operator nothing — the session has to be named');
-  const afterCancel = gate.slice(gate.indexOf('if (!ok) {'));
-  assert.ok(afterCancel.slice(0, afterCancel.indexOf('closePane(id);')).includes('return;'),
-    'cancel must return before the close, not fall through into it');
+  assert.doesNotMatch(gate, /confirmModal|listModal/,
+    'the gate must not grow a second dialog of its own — endSession owns the question');
+});
+
+test('there is exactly ONE killBehavior decision, and both affordances reach it', () => {
+  /* The whole point of the follow-up. Two copies of a three-branch rule drift, and the branch
+     that drifts is the one nobody exercises — `capture`, which is precisely the branch that
+     protects the work. Asserted as ONE test because they are one decision: splitting a pair
+     into two assertions is how the pair silently comes apart. */
+  const sites = [...app.matchAll(/KILLBEHAVIOR === '(kill|capture)'/g)];
+  assert.equal(sites.length, 2, 'exactly one site branches on killBehavior (its two early returns)');
+  const decision = app.slice(app.indexOf('async function endSession'));
+  assert.match(decision.slice(0, decision.indexOf('\n}\n')), /KILLBEHAVIOR === 'kill'/,
+    'and that site is endSession');
+  // both entry points, one function
+  assert.match(app, /actBtn\('trash', t\('session\.kill'\), 'kill', \(\) => void endSession\(\{ name: a\.name, pid: a\.pid \}\)\)/,
+    'the RUNNING card trash button');
+  assert.match(app, /await endSession\(\{ name: p\.name, paneId: id \}\)/, 'the tab ×');
+});
+
+test('every HAND-DRIVEN close is gated — “only programmatic callers are exempt” must mean every hand', () => {
+  /* Left out of the first pass and reported rather than fixed: ⌘W, File → Close Tab, and the
+     RUNNING card’s Terminals row all ended a live session with no gate, so the same session had
+     one affordance that asked and three that did not. They are one-line routings because
+     requestClosePane() still closes a plain terminal instantly. */
+  assert.match(app, /case 'closeActive':\s*\n\s*if \(active\.main !== null\) void requestClosePane\(active\.main\);/);
+  assert.match(app, /case 'closeTerminal':\s*\n\s*if \(active\.term !== null\) void requestClosePane\(active\.term\);/);
+  assert.match(app, /close\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); void requestClosePane\(tid\); \}\);/,
+    'the Terminals row trash button');
+  // and the programmatic ones are untouched — a modal with no hand waiting hangs the caller
+  assert.match(app, /case 'closeByName': \{\s*\n\s*const hit = byName\(m\.name\);\s*\n\s*if \(hit\) closePane\(hit\[0\]\);/,
+    'the command bus kill must never raise a dialog');
 });
 
 test('the gate lives in the click handler, never inside closePane', () => {
@@ -51,24 +84,33 @@ test('the gate lives in the click handler, never inside closePane', () => {
     'closePane must stay unconditional');
 });
 
-test('the three confirm strings exist in all three locales — a missing key renders as its own name', () => {
+test('the picker’s strings exist in all three locales, and the retired ones are gone', () => {
+  /* The × now raises the session picker, so these are the strings it renders. The bespoke
+     tab.closeConfirm* keys it used to own are deliberately deleted rather than left behind:
+     a dead key reads as a live one to the next person editing a locale file. */
   for (const loc of ['en', 'es', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
-    for (const k of ['tab.closeConfirmTitle', 'tab.closeConfirmBody', 'tab.closeConfirmOk']) {
+    for (const k of ['session.killConfirmTitle', 'session.killCapture', 'session.killCaptureHint',
+                     'session.killNow', 'session.killNowHint', 'session.killPlaceholder']) {
       assert.ok(j[k], `${loc} is missing ${k}`);
     }
-    assert.match(j['tab.closeConfirmTitle'], /\{name\}/, `${loc} must interpolate the session name`);
+    assert.match(j['session.killConfirmTitle'], /\{name\}/, `${loc} must interpolate the session name`);
+    for (const dead of ['tab.closeConfirmTitle', 'tab.closeConfirmBody', 'tab.closeConfirmOk']) {
+      assert.ok(!(dead in j), `${loc} still carries the retired ${dead}`);
+    }
   }
   const bundle = fs.readFileSync('renderer/i18n.js', 'utf8');
-  assert.match(bundle, /tab\.closeConfirmTitle/,
-    'the generated bundle is stale — run npm run gen-i18n');
+  assert.match(bundle, /session\.killConfirmTitle/, 'the generated bundle is stale — run npm run gen-i18n');
+  assert.doesNotMatch(bundle, /closeConfirm/, 'the generated bundle still carries the retired keys');
 });
 
 test('cancel puts focus back — the pane must not be left live-looking but deaf', () => {
-  /* confirmModal focuses its Cancel button and leaves focus on <body> when it closes, and
-     setActive() is the only thing that focuses a terminal. Before this change the cancel path
-     did not exist, so nobody had to care; now it is the path the feature exists to produce. */
+  /* A modal takes focus and leaves it on <body> when it closes, and setActive() is the only
+     thing that focuses a terminal. Before the gate existed the cancel path did not exist, so
+     nobody had to care; now it is the path the feature exists to produce. endSession() returns
+     null on dismissal precisely so this caller can tell "nothing happened" from "it closed". */
   const gate = app.slice(app.indexOf('async function requestClosePane'), app.indexOf('function closePane(id)'));
+  assert.match(gate, /if \(!acted\) \{/, 'a dismissed picker must restore focus, not fall through');
   assert.match(gate, /const back = active\[zoneOf\(p\)\];/,
     'restore the zone’s active pane — a background tab’s × can be clicked while typing in the foreground one');
   assert.match(gate, /if \(back !== null && panes\.has\(back\)\) setActive\(back\);/);

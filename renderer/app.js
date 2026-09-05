@@ -1598,6 +1598,62 @@ function buildQuotaRow(q) {
   row.appendChild(el('span', 'qlabel', '5h ' + f + '% (7d ' + s7 + '%)' + reset));
   return row;
 }
+/* ═══ ENDING A LIVE SESSION — one decision, one dialog, every entry point ═══
+   `killBehavior` is the operator's answer to "when you kill a session, then what": ask
+   (capture or kill) · always capture first · kill immediately. Its Settings row is labelled
+   "When you kill a session", and until now that label was only true of ONE control — the
+   trash button on a RUNNING card session row. The tab × killed the pty outright and never
+   read the setting, so the same act on the same session behaved differently depending on
+   which affordance you reached for, and the setting quietly did not mean what it said.
+
+   So the behaviour lives here and both callers route through it. That matters more than the
+   duplication it removes: two copies of a three-branch rule drift, and the branch that drifts
+   is the one nobody exercises — `capture`, which almost nobody sets and which is precisely the
+   branch that protects the work.
+
+   `capture` deliberately does NOT close the pane. The operator who chose "always capture
+   first" asked for the record to be written before anything ends; the session types
+   /aios:close-session, wraps itself up and exits on its own, and its tab then reads (ended)
+   and closes on the next click with no gate. Same as the RUNNING card has always behaved.
+
+   Returns 'kill' | 'capture' — or null when the operator dismissed the picker, which is the
+   caller's cue that nothing happened and focus has to go back where it was. */
+async function endSession({ name, pid = null, paneId = null }) {
+  /* Resolved AFTER the await, never before: the session can end, or be closed from elsewhere,
+     while the picker is open. `panes.has` and closePane's own no-op cover the late answer. */
+  const pane = () => {
+    if (paneId !== null && panes.has(paneId)) return paneId;
+    const hit = name ? byName(name) : null;
+    return hit ? hit[0] : null;
+  };
+  const hardKill = () => {
+    const id = pane();
+    if (pid) void window.glassShell.sessionSignal(pid, 'SIGKILL');
+    if (id !== null) closePane(id);   // no pane in this window → the signal was the whole job
+    toast(t('session.killed', { name }));
+    return 'kill';
+  };
+  const capture = () => {
+    const id = pane();
+    if (id !== null) { submitToPty(id, '/aios:close-session'); setActive(id); }
+    else if (pid) void window.glassShell.sessionSignal(pid, 'SIGTERM');
+    toast(t('session.closing', { name }));
+    return 'capture';
+  };
+  if (KILLBEHAVIOR === 'kill') return hardKill();
+  if (KILLBEHAVIOR === 'capture') return capture();
+  /* #20: the same searchable/selectable list UX as the frequent-tasks picker — with a sentence
+     explaining what each option actually does. Note the safe option is FIRST, so listModal's
+     initial selection is on it and a reflex Return captures rather than kills. */
+  const choice = await listModal(t('session.killConfirmTitle', { name }), [
+    { label: t('session.killCapture'), desc: t('session.killCaptureHint'), icon: 'logout', value: 'capture' },
+    { label: t('session.killNow'), desc: t('session.killNowHint'), icon: 'trash', value: 'kill' },
+  ], t('session.killPlaceholder'));
+  if (choice === 'capture') return capture();
+  if (choice === 'kill') return hardKill();
+  return null;
+}
+
 function sessionRow(a) {
   const r = el('div', 'prow2'); r.tabIndex = 0;
   const s = statusInfo(a.status);
@@ -1656,33 +1712,9 @@ function sessionRow(a) {
     if (hit) { submitToPty(hit[0], '/aios:close-session'); setActive(hit[0]); }
     else if (a.pid) { void window.glassShell.sessionSignal(a.pid, 'SIGTERM'); toast(t('session.closing', { name: a.name })); }
   });
-  // Kill: behavior is configurable (Glass killBehavior parity) — ask (confirm
-  // capture/kill), kill (immediate SIGKILL), capture (/close-session first, keep
-  // the work). Kill is destructive + irreversible, so the default is ask.
-  actBtn('trash', t('session.kill'), 'kill', async () => {
-    const hardKill = () => {
-      const hit = byName(a.name);
-      if (a.pid) void window.glassShell.sessionSignal(a.pid, 'SIGKILL');
-      if (hit) closePane(hit[0]);
-      toast(t('session.killed', { name: a.name }));
-    };
-    const capture = () => {
-      const hit = byName(a.name);
-      if (hit) { submitToPty(hit[0], '/aios:close-session'); setActive(hit[0]); }
-      else if (a.pid) void window.glassShell.sessionSignal(a.pid, 'SIGTERM');
-      toast(t('session.closing', { name: a.name }));
-    };
-    if (KILLBEHAVIOR === 'kill') { hardKill(); return; }
-    if (KILLBEHAVIOR === 'capture') { capture(); return; }
-    // #20: the same searchable/selectable list UX as the frequent-tasks picker —
-    // with a sentence explaining what each option actually does.
-    const choice = await listModal(t('session.killConfirmTitle', { name: a.name }), [
-      { label: t('session.killCapture'), desc: t('session.killCaptureHint'), icon: 'logout', value: 'capture' },
-      { label: t('session.killNow'), desc: t('session.killNowHint'), icon: 'trash', value: 'kill' },
-    ], t('session.killPlaceholder'));
-    if (choice === 'capture') capture();
-    else if (choice === 'kill') hardKill();
-  });
+  // Kill: behavior is configurable (Glass killBehavior parity). One decision site,
+  // shared with the tab × — see endSession().
+  actBtn('trash', t('session.kill'), 'kill', () => void endSession({ name: a.name, pid: a.pid }));
   r.appendChild(acts);
   r.addEventListener('click', open);
   r.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
@@ -1696,7 +1728,10 @@ function terminalRow(tid, p) {
   else if (p.lastLine) r.appendChild(buildTicker('term-' + tid, p.lastLine)); // pty-grade: live output tail
   const acts = el('span', 'runacts');
   const close = el('button', 'runact kill'); close.innerHTML = icon('trash', 12); close.title = t('pulse.closeTerminal');
-  close.addEventListener('click', (e) => { e.stopPropagation(); closePane(tid); });
+  // Hand-driven, so it gets the same gate: a live session in its startup window can appear
+  // in this list, and the × on its tab asks. A plain terminal still closes instantly —
+  // requestClosePane() only stops for a live Claude session.
+  close.addEventListener('click', (e) => { e.stopPropagation(); void requestClosePane(tid); });
   acts.appendChild(close);
   r.appendChild(acts);
   r.addEventListener('click', () => setActive(tid));
@@ -2711,25 +2746,22 @@ async function requestClosePane(id) {
   const p = panes.get(id);
   if (!p) return;
   if (p.kind !== 'term' || !p.isSession || p.exited) { closePane(id); return; }
-  const ok = await confirmModal(
-    t('tab.closeConfirmTitle', { name: p.name }),
-    t('tab.closeConfirmBody'),
-    t('tab.closeConfirmOk'),
-  );
-  /* Cancelling has to put the operator back where they were typing. confirmModal takes focus
-     onto its Cancel button and leaves it on <body> when it closes, and nothing else re-focuses
-     a terminal — so without this the pane still LOOKS live (caret blinking, tab highlighted)
-     while every keystroke goes nowhere. Restore the zone's ACTIVE pane, not necessarily the one
-     whose × was clicked: a background tab's × can be clicked while typing in the foreground one.
-     A path that did not exist before this change — the × always destroyed the pane. */
-  if (!ok) {
+  /* The gate itself is `killBehavior`, not a yes/no of our own — see endSession(). The first
+     version of this asked "Close the session?" with Cancel / Close session, which stopped the
+     ACCIDENT but still destroyed the record whenever the operator genuinely meant it, and a
+     lost record is the thing this gate exists to protect. The picker offers capture, so the
+     deliberate close keeps the work too. */
+  const acted = await endSession({ name: p.name, paneId: id });
+  /* Dismissing has to put the operator back where they were typing. A modal takes focus and
+     leaves it on <body> when it closes, and nothing else re-focuses a terminal — so without
+     this the pane still LOOKS live (caret blinking, tab highlighted) while every keystroke
+     goes nowhere. Restore the zone's ACTIVE pane, not necessarily the one whose × was clicked:
+     a background tab's × can be clicked while typing in the foreground one.
+     A path that did not exist before the gate — the × always destroyed the pane. */
+  if (!acted) {
     const back = active[zoneOf(p)];
     if (back !== null && panes.has(back)) setActive(back);
-    return;
   }
-  // The session may have ended, or been closed from elsewhere, while the modal was open.
-  // closePane() no-ops on an id it no longer knows, so the late answer is harmless.
-  closePane(id);
 }
 
 function closePane(id) {
@@ -4552,9 +4584,11 @@ window.glassShell.onIntent(async (m) => {
       if (hit) closePane(hit[0]);
       return;
     }
+    /* Hand-driven (a menu item), so it is gated like the × — the "only programmatic callers
+       are exempt" rule has to mean every hand. */
     case 'closeTerminal':
-      if (active.term !== null) closePane(active.term);
-      else if (active.main !== null && panes.get(active.main)?.kind === 'term') closePane(active.main);
+      if (active.term !== null) void requestClosePane(active.term);
+      else if (active.main !== null && panes.get(active.main)?.kind === 'term') void requestClosePane(active.main);
       return;
     case 'deadLetters': {
       /* A dead letter is a message that died. It gets a toast per item, because the failure
@@ -4675,9 +4709,12 @@ window.glassShell.onIntent(async (m) => {
       }
       applyLayout();
       return;
+    /* ⌘W / File → Close Tab. Same hand, same gate. NOTE: this is a native accelerator
+       resolved in the main process, so it is NOT blocked by an open modal — pressing ⌘W
+       twice queues a second request behind the first picker rather than being swallowed. */
     case 'closeActive':
-      if (active.main !== null) closePane(active.main);
-      else if (active.term !== null) closePane(active.term);
+      if (active.main !== null) void requestClosePane(active.main);
+      else if (active.term !== null) void requestClosePane(active.term);
       return;
   }
 });
