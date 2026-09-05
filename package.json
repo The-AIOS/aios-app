@@ -55,6 +55,7 @@
     },
     "files": [
       "out/**/*",
+      "!out/test/**",
       "renderer/**/*",
       "package.json",
       "scripts/setup/**/*"

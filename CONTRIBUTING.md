@@ -21,6 +21,14 @@ npm start
 `npm run rebuild` is not optional. `node-pty` is a native module, and a mismatched ABI fails at
 terminal-spawn time rather than at install time — a confusing place to learn it.
 
+**If you used `npm ci` and the smoke run hangs forever with no output, this is why.** On macOS,
+`npm ci` restores `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` at mode `644`, so
+every pty spawn fails with `posix_spawnp failed`. That takes down three `busDelivery.e2e` tests
+and leaves `npm run smoke` waiting on its pty probe — no error, no timeout, nothing to read. The
+`npm run rebuild` above fixes it; so does `chmod +x` on that file if you want to know that was
+the cause. Reported by a contributor who lost an evening to it, which is the only reason it is
+written down here rather than rediscovered.
+
 ## The gates, and why each exists
 
 ```bash

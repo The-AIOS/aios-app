@@ -16,10 +16,12 @@
  * "The-AIOS Helper.app" inside a bundle that ships "AIOS Helper.app". Green everywhere,
  * DOA in the operator's hands. So the packaged bundle gets checked as the artifact it is.
  *
- * Two checks, cheapest first:
+ * Three checks, cheapest first:
  *   1. STATIC — CFBundleName must match the helper apps actually present, and all four must
  *      exist and be executable. Instant, deterministic, and would have caught the above.
- *   2. LIVE — run the packaged binary with `--smoke` (the in-app gate) and require a clean
+ *   2. CONTENTS — read the asar header and refuse a bundle carrying things we do not ship
+ *      (today: the compiled test suite). Also invisible to source, for the same reason.
+ *   3. LIVE — run the packaged binary with `--smoke` (the in-app gate) and require a clean
  *      exit. The only check that can prove the shipped artifact runs.
  */
 import { execFileSync, spawn } from 'node:child_process';
@@ -29,6 +31,52 @@ import path from 'node:path';
 const HELPERS = ['', ' (GPU)', ' (Renderer)', ' (Plugin)'];
 const fail = (msg) => { console.error(`verify-package: ✗ ${msg}`); process.exitCode = 1; };
 const ok = (msg) => console.log(`verify-package: ✓ ${msg}`);
+
+/**
+ * The shipped asar must not carry the compiled test suite.
+ *
+ * The recursive `out` glob in build.files swept `out/test` into every build — 62 files, 872K,
+ * and 46% of the
+ * compiled JS we shipped. Size is not the argument (872K against a 122MB dmg is noise). The
+ * argument is that each test quotes our internal defect record verbatim, one `npx asar extract`
+ * reads all of it, and everything inside a signed + notarized bundle is code we are vouching
+ * for. The test suite is not code we ship.
+ *
+ * Guarded HERE rather than in a unit test because the mistake is invisible to source: the
+ * exclusion lives in packaging config, and only the artifact can answer whether it took.
+ *
+ * The asar header is read directly (4 uint32s, then the JSON tree) rather than shelling out to
+ * @electron/asar — CI must not need a network fetch to answer this.
+ *
+ * NOTE the control: it asserts the parse actually SAW the tree before concluding "no tests".
+ * A header it could not read would otherwise report a clean bundle, which is the failure mode
+ * this whole file exists to refuse — a check that cannot fail is not a check.
+ */
+function checkNoTests(asar, label) {
+  if (!fs.existsSync(asar)) return fail(`${label}: no app.asar to inspect`);
+  let files;
+  try {
+    const fd = fs.openSync(asar, 'r');
+    const head = Buffer.alloc(16);
+    fs.readSync(fd, head, 0, 16, 0);
+    const len = head.readUInt32LE(12);
+    const json = Buffer.alloc(len);
+    fs.readSync(fd, json, 0, len, 16);
+    fs.closeSync(fd);
+    files = JSON.parse(json.toString('utf8')).files;
+  } catch (e) {
+    return fail(`${label}: could not read the asar header (${e.message}) — cannot certify its contents`);
+  }
+  // control: the parse has to have seen a real tree, or "no tests" means nothing
+  if (!files?.out?.files || !files.out.files.main) {
+    return fail(`${label}: asar header parsed but does not look like our bundle — refusing to certify it`);
+  }
+  const kids = Object.keys(files.out.files);
+  if (kids.includes('test')) {
+    return fail(`${label}: the compiled test suite is inside the shipped asar (out/test) — check build.files`);
+  }
+  ok(`${label}: no test suite in the shipped asar (out/ carries ${kids.join(', ')})`);
+}
 
 /** Every packaged .app electron-builder just produced. */
 function bundles() {
@@ -340,6 +388,7 @@ if (process.platform === 'darwin') {
     process.exit(1);
   }
   for (const app of apps) checkStatic(app);
+  for (const app of apps) checkNoTests(path.join(app, 'Contents/Resources/app.asar'), path.basename(path.dirname(app)));
   for (const app of apps) await checkLive(app);
 } else if (process.platform === 'linux') {
   const trees = linuxTrees();
@@ -348,6 +397,7 @@ if (process.platform === 'darwin') {
     process.exit(1);
   }
   for (const t of trees) checkStaticLinux(t);
+  for (const t of trees) checkNoTests(path.join(t, 'resources', 'app.asar'), path.basename(t));
   for (const t of trees) await checkLiveLinux(t);
 } else if (process.platform === 'win32') {
   const trees = windowsTrees();
@@ -356,6 +406,7 @@ if (process.platform === 'darwin') {
     process.exit(1);
   }
   for (const t of trees) checkStaticWindows(t);
+  for (const t of trees) checkNoTests(path.join(t, 'resources', 'app.asar'), path.basename(t));
   for (const t of trees) await checkLiveWindows(t);
 } else {
   console.error(`verify-package: ✗ no verifier for platform "${process.platform}" — refusing to report a pass it did not measure`);
