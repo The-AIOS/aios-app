@@ -164,9 +164,11 @@ function ppidOf(pid: number): number {
  * surface it already lives in walks its own process ancestry and compares against these pids; no
  * process-name matching, so it keeps working whichever IDE hosts Glass.
  *
- * Written every startup and never cleaned up on exit — a crash would skip the cleanup anyway, so
- * readers must check the pid is alive rather than trust the file's existence. Stale-but-present is
- * the normal state, and treating it as authoritative would be the bug.
+ * Written every startup, and now REMOVED on a clean exit (see retractPresence). The liveness
+ * check remains the real defence and nothing here weakens it: a crash, a SIGKILL or a power cut
+ * all skip the cleanup, so a reader that trusts the file's existence is still wrong. This only
+ * stops the directory misleading a human reading it by eye — on this machine a `glass.json`
+ * advertising a pid dead since 2026-08-14 sat beside a live `app.json` for three weeks.
  */
 function announcePresence(appVersion: string): void {
   /* PACKAGED BUILDS ONLY, and this is not tidiness — it prevents a dev instance from corrupting
@@ -180,6 +182,7 @@ function announcePresence(appVersion: string): void {
     log('presence not announced — dev build (a dev instance must not overwrite the real record)');
     return;
   }
+  app.on('before-quit', retractPresence);   // symmetric with the write below; packaged only, same as it
   try {
     const dir = path.join(os.homedir(), '.aios', 'surfaces');
     fs.mkdirSync(dir, { recursive: true });
@@ -193,6 +196,28 @@ function announcePresence(appVersion: string): void {
   } catch (e) {
     log(`presence not announced (${e instanceof Error ? e.message : String(e)})`);   // non-fatal
   }
+}
+
+/**
+ * Withdraw the presence file on a clean exit — tidy-up, never a guarantee.
+ *
+ * Deliberately narrow: it removes the file ONLY if the pid inside is ours. Two surfaces share
+ * this directory and an App that quits must not delete a record it does not own — and the same
+ * check saves us from the case where a second instance re-announced over ours while we were
+ * running, in which case the live one's file is the correct one to leave behind.
+ *
+ * Best-effort by construction. `before-quit` does not fire on SIGKILL or a crash, which is
+ * exactly why readers gate on a running pid instead of on this file existing.
+ */
+function retractPresence(): void {
+  try {
+    const f = path.join(os.homedir(), '.aios', 'surfaces', `${MY_SURFACE}.json`);
+    const mine = processTreeRoot(process.pid, ppidOf);
+    const body = JSON.parse(fs.readFileSync(f, 'utf8')) as { pid?: number };
+    if (body.pid !== mine) { log(`presence left in place — ${f} names pid ${body.pid}, not ours (${mine})`); return; }
+    fs.unlinkSync(f);
+    log(`presence retracted: ${MY_SURFACE}`);
+  } catch { /* absent, unreadable, or already gone — all fine */ }
 }
 
 function emit(win: BrowserWindow | undefined, kind: string, payload: Record<string, unknown>): void {
@@ -278,6 +303,47 @@ function readTranscript(sessionId: string): string {
 }
 
 /** Move a request to `.undelivered`, recording why. Loud beats silent. */
+/**
+ * Resolve a tier rung to a model id by asking the ONE table that owns it.
+ *
+ * The App launches `claude` straight from a login shell rather than through the `spawn` shell
+ * function, which is legitimate — it fulfils natively by design. What was not legitimate is
+ * that it carried its own rung list and its own rung→model map to compensate, and both went
+ * stale the moment the ladder grew from two rungs to four: three rungs were dropped and two
+ * resolved to the wrong model. So there is no table here. `hooks/resolve-tier` is the table,
+ * and this asks it.
+ *
+ * Its contract, and every branch below exists because getting one wrong reproduces the bug:
+ *  · exit 0 + text   → pass `--model <text>`
+ *  · exit 0 + EMPTY  → a REAL answer (`judgment` = inherit the binary's default). Pass no
+ *                      flag at all — never `--model ""`, which pins the empty string.
+ *  · exit 2          → an unknown rung. REFUSE the spawn and surface the script's stderr,
+ *                      which lists the valid rungs. Defaulting on a typo IS this bug.
+ *  · script absent   → also refuse. The App auto-updates itself, the hook arrives with
+ *                      `/aios:update`, so an operator can genuinely have this build and not
+ *                      the script — and a silent default there is the same silent default we
+ *                      are removing. Say what is missing and how to get it.
+ */
+function resolveTier(tier: string): { model?: string } | { error: string } {
+  const root = aios.frameworkRoot();
+  if (!root) return { error: `cannot resolve tier '${tier}': no framework root found` };
+  const hook = path.join(root, 'hooks', 'resolve-tier');
+  if (!fs.existsSync(hook)) {
+    return { error: `cannot resolve tier '${tier}': ${hook} is missing — run /aios:update to sync it, or pass an explicit "model" instead` };
+  }
+  try {
+    const out = execFileSync('bash', [hook, tier], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+    const model = out.trim();
+    return model ? { model } : {};          // empty + exit 0 = inherit the default
+  } catch (e) {
+    /* execFileSync throws on any non-zero exit. The script puts the reason AND the valid rungs
+       on stderr, so quote it rather than inventing a message of our own. */
+    const err = e as { stderr?: Buffer | string; status?: number; message?: string };
+    const why = String(err.stderr ?? '').trim() || err.message || 'resolve-tier failed';
+    return { error: `tier '${tier}' rejected (exit ${err.status ?? '?'}): ${why.split('\n').join(' · ')}` };
+  }
+}
+
 function markUndelivered(fromPath: string, req: BusRequest | null, reason: string): void {
   log(`DEAD LETTER — a message to '${req?.name ?? '?'}' was never delivered: ${reason}`);
   const dest = undeliveredPathFor(fromPath);
@@ -484,11 +550,20 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
       }
       // No task → a bootstrap prompt, so the worker runs its Session Start Ritual on turn
       // one instead of sitting idle (mirrors the `spawn` wrapper).
+      /* An explicit `model` wins over `tier`, matching the `spawn` wrapper
+         (`[ -n "$model" ] && spawn_model="$model"`) — so a caller pinning an id is never
+         second-guessed, and only a bare `tier` is resolved. */
+      let model = req.model;
+      if (!model && req.tier) {
+        const r = resolveTier(req.tier);
+        if ('error' in r) { markUndelivered(heldPath, req, r.error); return; }
+        model = r.model;                    // may be undefined — that is `judgment`
+      }
       const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
-        task: req.task || 'Start session', model: req.model, tier: req.tier, taskFile,
+        task: req.task || 'Start session', model, taskFile,
       });
       emit(win(), 'terminal', { name: req.name, cmd });
-      log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.model ? ` [model ${req.model}]` : req.tier ? ` [tier ${req.tier}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+      log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
     }
     try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
   } catch (e) {

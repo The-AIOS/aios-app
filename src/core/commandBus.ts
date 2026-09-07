@@ -30,7 +30,7 @@ export interface BusRequest {
   task?: string;                // spawn: the first prompt
   prompt?: string;              // send: text delivered into the live session
   model?: string;               // spawn: explicit model id (whitelisted)
-  tier?: 'mechanical' | 'judgment'; // spawn: cognitive-load hint → model
+  tier?: string;                // spawn: rung name — resolved by hooks/resolve-tier, never here
   /* contract 2: which fulfiller may take this request. Absent = any, which is exactly
      contract-1 behaviour — the field is additive, never required. */
   surface?: Surface;
@@ -50,23 +50,25 @@ export function whitelistModel(raw: unknown): string | undefined {
   return /^claude-[a-z0-9.\-]{1,40}$/i.test(s) ? s : undefined;
 }
 
-export function whitelistTier(raw: unknown): 'mechanical' | 'judgment' | undefined {
-  const s = String(raw ?? '').trim().toLowerCase();
-  return s === 'mechanical' || s === 'judgment' ? s : undefined;
-}
-
 /**
- * Tier → model. A small LOCAL mirror of the `spawn` wrapper's tier map (the
- * wrapper owns the canonical mapping; the app launches `claude` directly, so it
- * can't defer to it). Mechanical = the fast/cheaper tier; judgment = frontier.
- * If the tier ladder's model ids change, update here. `model` always wins.
+ * A rung is validated by SHAPE here, never by membership.
+ *
+ * This used to be `s === 'mechanical' || s === 'judgment'`, beside a local rung→model table.
+ * Both went stale the moment the ladder grew to four rungs, and they failed in two different
+ * ways at once: `fast`/`scale`/`frontier` were STRIPPED here (so the field vanished before
+ * anything could act on it, and the worker ran on the session default), while `mechanical` and
+ * `judgment` resolved through the stale table to the WRONG model — the second being worse,
+ * because it looks like it worked. Measured 2026-09-07 against 0.9.1.
+ *
+ * Which rungs exist, and what each resolves to, is ONE table: `hooks/resolve-tier`. A
+ * membership list here would be a second implementation of exactly the fact that churns, and
+ * it would drift again — it already did. So this only asserts the value is a safe token to
+ * hand to that script, and the script adjudicates (exit 2 on an unknown rung, which the
+ * caller must surface rather than swallow).
  */
-const TIER_MODELS: Record<'mechanical' | 'judgment', string> = {
-  mechanical: 'claude-sonnet-5',
-  judgment: 'claude-opus-4-8',
-};
-export function tierToModel(tier: 'mechanical' | 'judgment'): string {
-  return TIER_MODELS[tier];
+export function whitelistTier(raw: unknown): string | undefined {
+  const s = String(raw ?? '').trim().toLowerCase();
+  return /^[a-z][a-z0-9-]{1,23}$/.test(s) ? s : undefined;
 }
 
 /**
@@ -116,16 +118,24 @@ export function taskFileInstruction(file: string): string {
 }
 
 /**
- * Build the `claude --name …` command the app runs in a pane. `taskFile`, when
- * given, replaces the inline task with a read-the-file instruction (see
- * needsTaskFile). model beats tier; a bare spawn is just `claude --name <n>`.
+ * Build the `claude --name …` command the app runs in a pane. `taskFile`, when given, replaces
+ * the inline task with a read-the-file instruction (see needsTaskFile). A bare spawn is just
+ * `claude --name <n>`.
+ *
+ * `model` arrives already RESOLVED — this function has no idea what a rung is, and that is the
+ * point. Rung→model is `hooks/resolve-tier`'s single table; the caller (src/main) shells out to
+ * it and passes the answer. Keeping the resolution out of here also keeps this module pure: it
+ * cannot read a file or run a process, which is why the table was inlined in the first place.
+ *
+ * An EMPTY resolution is a real answer — `judgment` means "inherit the binary's frontier
+ * default" — so an absent `model` must emit no flag at all. Never `--model ""`.
  */
 export function buildSpawnCmd(
   claudeCmd: string,
   name: string,
-  opts: { task?: string; model?: string; tier?: 'mechanical' | 'judgment'; taskFile?: string } = {},
+  opts: { task?: string; model?: string; taskFile?: string } = {},
 ): string {
-  const model = opts.model ?? (opts.tier ? tierToModel(opts.tier) : undefined);
+  const model = opts.model && opts.model.trim() ? opts.model.trim() : undefined;
   const parts = [claudeCmd || 'claude'];
   if (model) parts.push('--model', model);
   parts.push('--name', name);
