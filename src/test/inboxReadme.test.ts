@@ -94,4 +94,24 @@ test('main-side writer defers, is non-fatal, and cannot feed the watcher', () =>
   assert.match(src, /README not written/, 'a failed write must not take the bus down');
   // the watcher only treats *.json as a request, so a README can never be dispatched
   assert.match(src, /endsWith\('\.json'\)/);
+})
+
+test('the generated README does not enumerate rungs — it points at the one table', () => {
+  /* AI-129, second half, found by a tester reading the file the App itself writes. This README
+     named a closed set of two rungs; the ladder grew to five and the file went stale beside the
+     handler it claims to describe ("rewritten to match the handler actually running"). That is
+     worse than ordinary drift because CLAUDE.md § Spawning Sessions points sessions at THIS FILE
+     as the protocol's authority — so an agent following the documented path would have concluded
+     `fast` and `scale` were invalid and fallen back to a legacy alias. Measured live: the App
+     bound `fast` correctly while its own README said `fast` did not exist.
+     A generated doc must not restate a fact it does not own. */
+  const md = buildInboxReadme('9.9.9');
+  assert.doesNotMatch(md, /"tier":\s*"mechanical"\s*\|\s*"judgment"/,
+    'a closed rung list is the defect — it drifts and this file is treated as authoritative');
+  assert.doesNotMatch(md, /"judgment"\s*\|/, 'no rung enumeration in any order');
+  assert.match(md, /resolve-tier --list/, 'it must say where the real list lives');
+  assert.match(md, /MODEL-ROUTING\.md/, 'and where the meaning of each rung lives');
+  // an unknown rung must be advertised as safe-to-guess, since it dead-letters rather than defaulting
+  assert.match(md, /refused with a dead letter/);
 });
+;

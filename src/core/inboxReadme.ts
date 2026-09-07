@@ -92,9 +92,10 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
 
 **spawn** (the default — no \`action\` key) — launch a named session:
 
-    { "name": "designer", "task": "design the hero", "tier": "mechanical" }
+    { "name": "designer", "task": "design the hero", "tier": "fast" }
 
-- \`task\` — optional first prompt. \`"model": "<id>"\` **or** \`"tier": "mechanical" | "judgment"\` — optional, routes the worker by cognitive load.
+- \`task\` — optional first prompt. \`"model": "<id>"\` **or** \`"tier": "<rung>"\` — optional, routes the worker by cognitive load.
+- **The rung names are not listed here on purpose.** This file used to name a closed set of two, went stale when the ladder grew, and then contradicted the handler beside it — while \`CLAUDE.md\` points sessions at this file as the protocol's authority. So an agent reading the authority would have concluded the current rungs were invalid. Ask the one table instead: **\`~/aios/hooks/resolve-tier --list\`** prints every rung and what it resolves to, and \`MODEL-ROUTING.md\` says what each is *for*. An unknown rung is refused with a dead letter that lists the valid ones, so a guess is safe — it fails loudly rather than falling back.
 - A name that is already live is *revealed*, never duplicated.
 - No \`task\` still bootstraps **when the App fulfils the request** — it sends a first prompt, so the worker runs its Session Start Ritual on turn one instead of sitting idle. Glass boots the session and leaves it at the prompt (the ritual fires on the first turn, and there is no first turn). Pass a \`task\` when you need one rather than relying on a bootstrap the other surface doesn't perform.
 
