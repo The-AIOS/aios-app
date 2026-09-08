@@ -2185,6 +2185,16 @@ function moveTab(z, dragId, overId, after) {
   let to = list.indexOf(overId);
   if (to < 0) { list.push(dragId); } else { list.splice(after ? to + 1 : to, 0, dragId); }
   paintStrip(z);
+  /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
+     derived from `tabOrder` in setVisible rather than stored separately — had the split kept its
+     own order, this would have been a second list to keep in step and a second way for the two to
+     disagree. So the whole feature here is remembering to re-lay-out; the answer is already
+     correct by construction.
+     Called unconditionally rather than only when split: setVisible is cheap when a zone shows one
+     pane (it clears inline geometry it has already cleared), and gating it on `zoneSplit` would be
+     a condition that silently stops being true the day the caller changes. */
+  setVisible(z);
+  saveLayout();
 }
 
 /* AI-69 — A TERMINAL COMING BACK INTO VIEW MUST BE REPAINTED, and fit() cannot do it.

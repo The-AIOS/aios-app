@@ -275,3 +275,17 @@ test('the ceiling is WIDTH, not count — measured against the zone in front of 
   assert.equal(fitsAnother(1, wide), true, 'exactly enough for two plus one gap');
   assert.equal(fitsAnother(1, wide - 1), false, 'one px short is short');
 });
+
+test('reordering the strip reorders the split — free, because order is DERIVED', () => {
+  /* The nicest property of the design, and worth stating so nobody "optimises" it away: the
+     split keeps no order of its own. `visible` is sorted by tabOrder in setVisible, so dragging a
+     tab past another re-tiles the panes with no second list to keep in step — and no second way
+     for the two to disagree. All moveTab has to do is ask for a re-layout. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('function moveTab(z, dragId, overId, after) {'));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+  assert.match(body, /setVisible\(z\);/, 'a reorder must re-lay-out, or the panes keep the old order');
+  assert.match(body, /saveLayout\(\);/, 'and the new order must survive a restart');
+  /* The split must NOT carry its own order field — that is what makes the above sufficient. */
+  assert.doesNotMatch(app, /zones\[z\]\.order|visibleOrder/, 'pane order is derived, never stored');
+});
