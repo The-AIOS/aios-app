@@ -191,10 +191,12 @@ test('every caffeinate string exists in all three locales', () => {
      control's name (the highlight carries on-or-off). What survives is the name, the two cases
      where the highlight would mislead, and the Settings row. Dead keys are DELETED rather than
      left behind — a stale key reads as a live one to whoever edits a locale file next. */
-  const keys = ['caffeinate.title', 'caffeinate.unsupported', 'caffeinate.overriding',
+  const keys = ['caffeinate.title', 'caffeinate.unsupported',
     'settings.caffeinate', 'settings.caffeinateHint', 'caffeinate.modeAuto', 'caffeinate.modeManual'];
+  /* `caffeinate.overriding` joined these once the DOT carried the override — a tooltip repeating
+     what a visual already says is the noise the operator asked the label to shed. */
   const gone = ['caffeinate.on', 'caffeinate.offAuto', 'caffeinate.offManual', 'caffeinate.autoBusy',
-    'caffeinate.overrideOn', 'caffeinate.overrideOff'];
+    'caffeinate.overrideOn', 'caffeinate.overrideOff', 'caffeinate.overriding'];
   for (const loc of ['en', 'es', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
     for (const k of keys) assert.ok(j[k], `${loc} is missing ${k}`);

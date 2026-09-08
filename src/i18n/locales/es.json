@@ -982,6 +982,5 @@
   "settings.caffeinateHint": "auto sigue tus sesiones activas; manual es solo el botón",
   "caffeinate.modeAuto": "Auto — mientras las sesiones trabajan",
   "caffeinate.modeManual": "Manual — solo cuando yo haga clic",
-  "caffeinate.overriding": "ignorando tus sesiones — haz clic otra vez para seguirlas",
   "window.shortcuts": "Atajos"
 }

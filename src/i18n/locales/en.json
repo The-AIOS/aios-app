@@ -982,6 +982,5 @@
   "settings.caffeinateHint": "auto follows your running sessions; manual is the button only",
   "caffeinate.modeAuto": "Auto — while sessions are working",
   "caffeinate.modeManual": "Manual — only when I click",
-  "caffeinate.overriding": "overriding your sessions — click again to follow them",
   "window.shortcuts": "Shortcuts"
 }

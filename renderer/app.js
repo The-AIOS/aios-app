@@ -4441,17 +4441,16 @@ function paintCaffeine(st) {
   dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
   /* The tooltip names the STATE and its reason, never the action — and when the platform refused
      the request it says so instead of claiming success. */
-  /* JUST THE NAME, normally. The highlight already says on-or-off, so repeating it in words is
-     noise — and the label is platform-free now: it read "Keep this Mac awake", which is simply
-     wrong on the Windows and Linux builds this same code ships to.
-     TWO EXCEPTIONS, and both are cases where the highlight ALONE would mislead:
-       · unsupported — we asked and the platform refused (Linux with no session bus). The cup would
-         look off while the operator believes they turned it on, so this one must say so.
-       · an override in AUTO mode — the cup's state no longer follows your sessions, and nothing
-         else on screen explains why, or how to get back. It names the way back. */
+  /* JUST THE NAME. The highlight says on-or-off and the dot says overriding, so words repeating
+     either are noise — and the label is platform-free now: it read "Keep this Mac awake", which
+     is simply wrong on the Windows and Linux builds this same code ships to.
+     ONE EXCEPTION SURVIVES, and it is the only case where the visual is not merely terse but
+     WRONG: `unsupported` means we asked and the platform refused (Linux with no session bus), so
+     the cup reads off while the operator believes they turned it on. Nothing else on screen can
+     say that. The override used to append a sentence here too and it has been removed — the dot
+     already carries it, which is what the operator asked the label to stop duplicating. */
   let why = '';
   if (st && st.unsupported) why = t('caffeinate.unsupported');
-  else if (st && st.mode === 'auto' && st.override !== null) why = t('caffeinate.overriding');
   caffTip = t('caffeinate.title') + (why ? ' · ' + why : '');
   dragCaffeine.title = caffTip;   // fallback only; attachTip is what actually shows
   /* An override in auto mode is a THIRD visual state, not just on-or-off: the cup has stopped
