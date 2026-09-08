@@ -989,5 +989,7 @@
   "tab.actions": "{name}",
   "tab.rename": "Rename this tab",
   "tab.renameHint": "your label wins over what the session announces",
-  "split.openRightHint": "show it beside the one you are in"
+  "split.openRightHint": "show it beside the one you are in",
+  "tab.renameSession": "Asked the session to rename itself to “{name}”",
+  "split.noRoom": "No room for another — replaced the furthest pane"
 }

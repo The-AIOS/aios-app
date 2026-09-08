@@ -12,20 +12,53 @@
  * WHAT THIS FILE IS. The visible SET and its fractions, and the geometry derived from them — as
  * data, with no DOM. It exists so the arithmetic that decides where a pane sits can be tested
  * without a window, and so the renderer keeps only the parts that must touch elements. The
- * renderer cannot import it (index.html loads plain scripts), so nothing here may be duplicated
- * there — the renderer receives geometry, it does not compute it. Main owns nothing here; this is
- * shared arithmetic, exercised by tests.
+ * renderer cannot import it (index.html loads plain scripts), so it MIRRORS the ten lines of
+ * geometry — and src/test/split.test.ts reads both sides and fails if either moves, the same
+ * arrangement as the busy classifier. Forced duplication, guarded rather than pretended away.
  *
  * WHY NO REPARENTING, EVER. `.pane` is `position: absolute` inside a `position: relative` zone,
  * so tiling is a per-pane `inset` and nothing moves in the DOM. That is not a convenience: moving
  * a pane in the DOM destroys the live terminal inside it.
  */
 
-/** How many panes a zone may show at once. v1 is two; N>2 is deliberately deferred. */
-export const MAX_VISIBLE = 2;
+/**
+ * Sane ceiling on panes per zone — but the REAL limit is width, see fitsAnother().
+ *
+ * The spec deferred N>2 because each extra pane "roughly doubles the work". That was written
+ * before the geometry existed and it did not hold: `boxes()` loops the visible list with
+ * fractions and `setVisible` shows a set, so both were already N-general. The only things
+ * enforcing two were this constant and the replace-at-capacity rule — and the operator reported
+ * that rule AS the bug: with three tabs, splitting evicted a pane by a policy that looks
+ * arbitrary from outside. Raising the ceiling removes a reported defect rather than adding risk.
+ *
+ * A count-based cap is the wrong instrument either way: it wastes a 34" monitor and ruins a
+ * laptop. So this is a ceiling and `fitsAnother()` is the gate.
+ */
+export const MAX_VISIBLE = 3;
 
-/** The gap between two tiled panes, in px — matched to `.pane`'s own 10px inset language. */
+/** The gap between tiled panes, in px — matched to `.pane`'s own 10px inset language. */
 export const SPLIT_GAP = 10;
+
+/**
+ * Narrowest a tiled pane may get, in px — ~40 columns plus `.pane`'s padding and border.
+ *
+ * Below this a TUI wraps into nonsense, which is worse than not splitting: the operator asked to
+ * see two things and would get two things they cannot read.
+ */
+export const MIN_PANE_PX = 320;
+
+/**
+ * Would one more pane still leave every pane usable in a zone this wide?
+ *
+ * `zoneWidth` is measured by the caller, never assumed — the answer differs between a laptop and
+ * a large monitor, and hardcoding either is how a feature works for its author and nobody else.
+ */
+export function fitsAnother(count: number, zoneWidth: number): boolean {
+  if (count >= MAX_VISIBLE) return false;
+  const next = count + 1;
+  const usable = zoneWidth - SPLIT_GAP * (next - 1);
+  return usable / next >= MIN_PANE_PX;
+}
 
 export interface ZoneLayout {
   /** Visible pane ids, left to right. Length 1 = unsplit. Never longer than MAX_VISIBLE. */
@@ -44,24 +77,28 @@ export function unsplit(id: number): ZoneLayout {
 /**
  * Open `next` beside `beside`, or focus it if it is already visible.
  *
- * At MAX_VISIBLE the NON-focused half is replaced rather than refused. Refusing would be the
+ * With no room left, a pane is replaced rather than the gesture refused. Refusing would be the
  * lazier rule and it reads as a broken gesture: the operator asked for this pane to be beside the
  * one they are working in, and "nothing happened" is never the answer they wanted.
  */
-export function splitWith(zone: ZoneLayout, beside: number, next: number): ZoneLayout {
+export function splitWith(zone: ZoneLayout, beside: number, next: number, room: boolean): ZoneLayout {
   if (next === beside) return zone;
   if (zone.visible.includes(next)) return zone;                 // already up — caller just focuses
-  if (zone.visible.length < MAX_VISIBLE) {
+  /* `room` is the caller's MEASURED answer from fitsAnother(). Passed in rather than decided here,
+     so this file carries no assumption about how wide the operator's window is. */
+  if (room) {
     const at = zone.visible.indexOf(beside);
     const visible = at < 0 ? [...zone.visible, next] : [...zone.visible];
     if (at >= 0) visible.splice(at + 1, 0, next);
     return { visible, frac: even(visible.length) };
   }
-  /* Full. Replace the half that is NOT focused, keeping the focused pane where it sits so the
-     operator's own work does not jump across the screen. */
+  /* No room. Replace the pane FURTHEST from the focused one and keep the focused pane where it
+     sits: the operator's own work must not jump, and evicting its immediate neighbour would
+     shuffle the arrangement more than the request needs. */
   const keep = zone.visible.indexOf(beside);
-  const visible = keep === 0 ? [beside, next] : [next, beside];
-  return { visible, frac: zone.frac.length === visible.length ? [...zone.frac] : even(visible.length) };
+  const drop = keep === 0 ? zone.visible.length - 1 : 0;
+  const visible = zone.visible.map((v, i) => (i === drop ? next : v));
+  return { visible, frac: even(visible.length) };
 }
 
 /**

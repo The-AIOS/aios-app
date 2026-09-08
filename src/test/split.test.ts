@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import {
-  MAX_VISIBLE, SPLIT_GAP, unsplit, splitWith, withoutPane, reconcile, boxes, isSplit, parseZone,
+  MAX_VISIBLE, SPLIT_GAP, MIN_PANE_PX, fitsAnother, unsplit, splitWith, withoutPane, reconcile, boxes, isSplit, parseZone,
 } from '../core/split';
 
 const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0);
@@ -23,26 +23,27 @@ test('an unsplit zone asks for NO inline geometry — the stylesheet keeps ownin
 });
 
 test('splitting puts the new pane beside the focused one, in order', () => {
-  const z = splitWith(unsplit(1), 1, 2);
+  const z = splitWith(unsplit(1), 1, 2, true);
   assert.deepEqual(z.visible, [1, 2], 'the new pane opens to the RIGHT of the one it was asked beside');
   assert.deepEqual(z.frac, [0.5, 0.5]);
   assert.equal(isSplit(z), true);
 });
 
 test('splitting with an already-visible pane is a no-op — the caller just focuses it', () => {
-  const z = splitWith({ visible: [1, 2], frac: [0.5, 0.5] }, 1, 2);
+  const z = splitWith({ visible: [1, 2], frac: [0.5, 0.5] }, 1, 2, true);
   assert.deepEqual(z.visible, [1, 2], 'must not duplicate a pane into both halves');
-  assert.equal(splitWith(unsplit(1), 1, 1).visible.length, 1, 'nor split a pane against itself');
+  assert.equal(splitWith(unsplit(1), 1, 1, true).visible.length, 1, 'nor split a pane against itself');
 });
 
-test('at capacity the NON-focused half is replaced, and the focused pane does not move', () => {
-  /* Refusing at capacity is the lazier rule and it reads as a broken gesture. And which half is
-     replaced matters: the operator's own work must not jump across the screen, so the pane they
-     asked "beside" keeps its side. */
-  const right = splitWith({ visible: [1, 2], frac: [0.5, 0.5] }, 1, 3);
-  assert.deepEqual(right.visible, [1, 3], 'focused pane was left — it stays left');
-  const left = splitWith({ visible: [1, 2], frac: [0.5, 0.5] }, 2, 3);
-  assert.deepEqual(left.visible, [3, 2], 'focused pane was right — it stays right');
+test('with no ROOM a pane is replaced, and the focused pane does not move', () => {
+  /* Refusing is the lazier rule and it reads as a broken gesture. Which pane is evicted matters:
+     the operator's own work must not jump across the screen, so the pane they asked "beside"
+     keeps its side and the FURTHEST one goes. `room` is measured by the caller — see fitsAnother
+     — because a count-based cap wastes a large monitor and ruins a laptop. */
+  const right = splitWith({ visible: [1, 2], frac: [0.5, 0.5] }, 1, 3, false);
+  assert.deepEqual(right.visible, [1, 3], 'focused pane was left — it stays left, furthest evicted');
+  const left = splitWith({ visible: [1, 2], frac: [0.5, 0.5] }, 2, 3, false);
+  assert.deepEqual(left.visible, [3, 2], 'focused pane was right — it stays right, furthest evicted');
   assert.ok(right.visible.length <= MAX_VISIBLE);
 });
 
@@ -107,8 +108,8 @@ test('persisted fractions are trusted only when they are complete AND sum to one
 });
 
 test('more panes than a zone may show are truncated at parse time', () => {
-  const z = parseZone({ visible: [1, 2, 3, 4] }, null);
-  assert.equal(z.visible.length, MAX_VISIBLE, 'N>2 is deferred — a persisted 4 must not tile 4');
+  const z = parseZone({ visible: [1, 2, 3, 4, 5] }, null);
+  assert.equal(z.visible.length, MAX_VISIBLE, 'a persisted layout must not exceed the ceiling');
   assert.equal(z.frac.length, z.visible.length);
 });
 
@@ -120,8 +121,10 @@ test('the renderer mirrors this arithmetic, and the duplication is GUARDED', () 
      If either side's constants or formula move, this fails and names both. That is the AI-129
      shape caught before it can drift, not after. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, new RegExp(`const SPLIT_GAP_PX = ${SPLIT_GAP};`),
-    `the renderer's gap must equal core's ${SPLIT_GAP}`);
+  assert.match(app, new RegExp(`const SPLIT_GAP_PX = ${SPLIT_GAP};`), `gap must equal core's ${SPLIT_GAP}`);
+  assert.match(app, new RegExp(`const MAX_VISIBLE_PANES = ${MAX_VISIBLE};`), 'ceiling must match core');
+  assert.match(app, new RegExp(`const MIN_PANE_PX = ${MIN_PANE_PX};`), 'minimum width must match core');
+  assert.match(app, /getBoundingClientRect\(\)\.width/, 'room must be MEASURED, never counted');
   // the interior-edge formula: start% + half a gap on the left, 100-end% + half a gap on the right
   assert.match(app, /left: i === 0 \? `\$\{PANE_EDGE_PX\}px` : `calc\(\$\{startPct\}% \+ \$\{SPLIT_GAP_PX \/ 2\}px\)`/);
   assert.match(app, /right: i === visible\.length - 1 \? `\$\{PANE_EDGE_PX\}px` : `calc\(\$\{100 - endPct\}% \+ \$\{SPLIT_GAP_PX \/ 2\}px\)`/);
@@ -221,16 +224,43 @@ test('the tab menu is useful on ANY tab — including the one you are looking at
     'the old visibility condition is what made the menu look dead');
 });
 
-test('AI-70: a manual tab name outranks the title the session announces', () => {
-  /* The two fixes that shipped in v0.7.0 both depend on the session announcing a title, so a pane
-     the operator deliberately labelled would be renamed back on the next announcement — silently
-     undoing the label they just set. Naming is cosmetic, so the operator's choice wins.
-     DELIVERABILITY is untouched: that needs proof, and a label is not proof. */
+test('AI-70: renaming is TWO renames — a session renames itself, a shell gets a label', () => {
+  /* The operator caught this: renaming a live session's tab changed only the tab, leaving the tab
+     saying one thing while the registry said another. That is not cosmetic — the bus addresses
+     sessions BY NAME and `/rename` rewrites the registry entry, so the two disagreeing is the
+     class that produced the earlier crash-adjacent weirdness. A session must rename ITSELF
+     through the dance that already works, and `manualName` must NEVER be set on one, or it blocks
+     the forward dance and re-creates the mismatch from the other side. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /pane\.manualName = true; renamePane\(id, next\.trim\(\)\);/, 'the menu sets the flag');
+  const menu = app.slice(app.indexOf("tab.addEventListener('contextmenu'"), app.indexOf('/* ── drag to reorder'));
+  assert.match(menu, /if \(pane\.isSession && !pane\.exited\) \{\s*\n\s*submitToPty\(id, '\/rename ' \+ next\);/,
+    'a live session is asked to rename itself');
+  const manual = menu.slice(menu.indexOf('} else {'));
+  assert.match(manual, /pane\.manualName = true;\s*\n\s*renamePane\(id, next\);/,
+    'and only the non-session branch labels the tab directly');
+  assert.ok(menu.indexOf("submitToPty(id, '/rename") < menu.indexOf('pane.manualName = true'),
+    'the session branch must come FIRST — a session must never reach the manual-label path');
   assert.match(app, /if \(!panes\.get\(id\)\?\.manualName\) renamePane\(id, nm\);/,
     'and the announced-title path honours it');
   /* The bus path must NOT have been widened by any of this — a name is not a delivery right. */
   const title = app.slice(app.indexOf('term.onTitleChange'));
   assert.match(title.slice(0, 1400), /DELIVERABILITY/, 'the two-questions comment must survive');
+});
+
+test('the ceiling is WIDTH, not count — measured against the zone in front of the operator', () => {
+  /* The operator asked why two. The honest answer: nothing in the geometry required it — boxes()
+     and setVisible were always N-general — and the two-cap was itself the reported bug, because
+     the replace-at-capacity rule evicted panes by a policy that looked arbitrary with three tabs.
+     A count cap is the wrong instrument in both directions: it wastes a 34" monitor and ruins a
+     laptop. So the gate is whether every pane stays usable at ~40 columns. */
+  assert.equal(fitsAnother(1, 1400), true, 'two panes fit a normal window');
+  assert.equal(fitsAnother(2, 1400), true, 'and three fit a wide one');
+  assert.equal(fitsAnother(2, 800), false, 'but not a narrow one — 3 x 320 does not fit 800');
+  assert.equal(fitsAnother(1, 600), false, 'nor two in a very narrow zone');
+  assert.equal(fitsAnother(MAX_VISIBLE, 100000), false, 'the ceiling still holds on any monitor');
+  /* The gap is charged for: n panes have n-1 gaps between them, so the usable width shrinks as
+     panes are added. Forgetting that is how the last pane ends up a few px narrower than the min. */
+  const wide = MIN_PANE_PX * 2 + SPLIT_GAP;
+  assert.equal(fitsAnother(1, wide), true, 'exactly enough for two plus one gap');
+  assert.equal(fitsAnother(1, wide - 1), false, 'one px short is short');
 });

@@ -1854,6 +1854,8 @@ const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, 
    renderer cannot import it (index.html loads plain scripts), so the few lines below mirror it and
    src/test/split.test.ts asserts the two agree, the same way the busy classifier is guarded. */
 const SPLIT_GAP_PX = 10;      // must equal core's SPLIT_GAP — guarded in split.test.ts
+const MAX_VISIBLE_PANES = 3;  // must equal core's MAX_VISIBLE — guarded there too
+const MIN_PANE_PX = 320;      // must equal core's MIN_PANE_PX — ~40 columns; guarded there too
 const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — guarded there too
 const zones = { main: { visible: [], frac: [] }, term: { visible: [], frac: [] } };
 const zoneSplit = (z) => zones[z].visible.length > 1;
@@ -2316,11 +2318,26 @@ function splitWithPane(z, next) {
   if (next === beside) return;
   const vis = zones[z].visible;
   if (vis.includes(next)) { setActive(next); return; }   // already up — focus it, do not duplicate
-  if (vis.length < 2) {
+  /* ROOM IS MEASURED, not counted. A count cap wastes a large monitor and ruins a laptop, and the
+     operator reported the old two-pane cap AS the bug: with three tabs it evicted a pane by a
+     policy that looked arbitrary. So the question is whether one more pane would still leave every
+     pane usable — ~40 columns — in THIS zone, at its current width. Mirrors core's fitsAnother();
+     both sides are read by split.test.ts. */
+  const zoneEl = document.getElementById(z === 'term' ? 'termzone' : 'work');
+  const zoneW = zoneEl ? zoneEl.getBoundingClientRect().width : 0;
+  const nextCount = vis.length + 1;
+  const room = nextCount <= MAX_VISIBLE_PANES
+    && (zoneW - SPLIT_GAP_PX * (nextCount - 1)) / nextCount >= MIN_PANE_PX;
+  if (room) {
     const at = vis.indexOf(beside);
     zones[z].visible = at < 0 ? [...vis, next] : [...vis.slice(0, at + 1), next, ...vis.slice(at + 1)];
   } else {
-    zones[z].visible = vis.indexOf(beside) === 0 ? [beside, next] : [next, beside];
+    /* Full. Evict the pane FURTHEST from the focused one and keep the focused pane where it sits,
+       so the operator's own work never jumps across the screen. */
+    const keep = vis.indexOf(beside);
+    const drop = keep === 0 ? vis.length - 1 : 0;
+    zones[z].visible = vis.map((v, i) => (i === drop ? next : v));
+    if (vis.length > 1) toast(t('split.noRoom'));
   }
   zones[z].frac = evenFrac(zones[z].visible.length);
   setVisible(z);
@@ -2562,12 +2579,28 @@ function makeTab(id, name, iconName) {
       else if (pick === 'unsplit') unsplitZone(z);
       else if (pick === 'close') void requestClosePane(id);
       else if (pick === 'rename') {
-        const next = await inputModal(t('tab.rename'), pane.name || t('pulse.terminal'), []);
-        /* An operator's own label WINS and must not be silently overwritten by a title the
-           session announces later — that is the half of AI-70 the two shipped fixes could not
-           cover, because both depend on the session announcing something. A plain shell, or a
-           pane the operator wants called `build`, announces nothing. */
-        if (next && next.trim()) { pane.manualName = true; renamePane(id, next.trim()); }
+        const next = (await inputModal(t('tab.rename'), pane.name || t('pulse.terminal'), []) || '').trim();
+        if (!next || next === pane.name) return;
+        /* TWO RENAMES, and treating them as one is the bug the operator caught.
+           A LIVE CLAUDE SESSION renames ITSELF. Typing the label onto the tab would leave the tab
+           saying one thing while the session registry says another — and a name mismatch is not
+           cosmetic here: the bus addresses sessions BY NAME, `/rename` rewrites the registry
+           entry, and the two disagreeing is the class that produced the earlier crash-adjacent
+           weirdness. So we drive the dance that already works — submit `/rename <name>` into the
+           pane and let the session's own title announcement rename the tab, exactly as it does
+           when the operator types it themselves. The session stays the single source of truth and
+           this adds no second path to the same fact.
+           A PLAIN SHELL has nothing to announce and no registry entry, so its label is ours to
+           set and must survive — that is the half of AI-70 the two v0.7.0 fixes could not cover.
+           `manualName` is therefore set ONLY here, never for a session: setting it on a session
+           would block the forward dance and re-create the mismatch from the other side. */
+        if (pane.isSession && !pane.exited) {
+          submitToPty(id, '/rename ' + next);
+          toast(t('tab.renameSession', { name: next }));
+        } else {
+          pane.manualName = true;
+          renamePane(id, next);
+        }
       }
     });
   });

@@ -989,5 +989,7 @@
   "tab.actions": "{name}",
   "tab.rename": "Renombrar esta pestaña",
   "tab.renameHint": "tu etiqueta gana sobre lo que anuncia la sesión",
-  "split.openRightHint": "mostrarla junto a la que estás usando"
+  "split.openRightHint": "mostrarla junto a la que estás usando",
+  "tab.renameSession": "Le pedí a la sesión que se renombre a «{name}»",
+  "split.noRoom": "No cabe otra — reemplacé el panel más lejano"
 }
