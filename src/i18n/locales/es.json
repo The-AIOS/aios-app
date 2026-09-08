@@ -993,5 +993,5 @@
   "tab.renameSession": "Le pedí a la sesión que se renombre a «{name}»",
   "split.noRoom": "No cabe otra — reemplacé el panel más lejano",
   "split.joined": "Se unió a la división",
-  "split.tookFull": "No cabe dividir — se abrió completa, ⌘\\ para volver"
+  "split.tookRight": "No cabe otro panel — se abrió en el espacio de la derecha"
 }

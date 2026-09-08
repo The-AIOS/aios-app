@@ -1914,10 +1914,34 @@ function homePane(id, p, { fresh = false } = {}) {
       zones[z].frac = evenFrac(zones[z].visible.length);
       toast(t('split.joined'));
     } else {
-      zones[z].visible = [id];
-      zones[z].frac = [1];
-      toast(t('split.tookFull'));
+      /* NO ROOM — the new pane takes the RIGHTMOST slot and the split SURVIVES at its current
+         size. Operator's call, and it is the better of the two: taking the whole zone answers
+         "I opened one more terminal" by removing two, which is a bigger change than the request.
+         Replacing one slot is the smallest edit that still puts the new pane in front of them.
+         The original complaint was never that a pane got replaced — it was that the replacement
+         happened "without checking if there was room". The check is what was missing; with it,
+         replacing is the honest last resort rather than a silent policy.
+         RIGHTMOST is by TAB ORDER, not by array position — `visible` is sorted by tabOrder in
+         setVisible, so the last element of the array is not necessarily the pane on the right.
+         The new pane then lands in that slot for free: registerTab pushes it to the end of
+         tabOrder, so it sorts rightmost on the next paint.
+         `frac` is deliberately NOT reset — the pane count is unchanged, so re-evening it would
+         throw away a splitter the operator had dragged, for no reason. */
+      const ord = tabOrder[z];
+      const rightmost = [...zones[z].visible].sort((a, b) => ord.indexOf(a) - ord.indexOf(b)).pop();
+      zones[z].visible = [...zones[z].visible.filter((v) => v !== rightmost), id];
+      toast(t('split.tookRight'));
     }
+    /* FOCUS MOVES WITH THE DECISION, and this line is load-bearing rather than tidy-up.
+       `setVisible` forces the focused pane visible by collapsing the zone to it — the rule that
+       makes `active` mean focus. At this point `active[z]` is still the PREVIOUS pane, and the
+       rightmost pane we just replaced may well be that one (focus in the right half is the normal
+       case). Leaving it would hand setVisible a focused pane that is no longer in the set, and it
+       would answer by collapsing to a single pane — destroying the arrangement this branch just
+       decided, which is exactly the outcome the operator rejected. Caught by measuring the live
+       window rather than by reading: the eval reported visible=[3] where [1,3] was intended.
+       Set AFTER the insertion above, which needs the old value as its anchor. */
+    active[z] = id;
     saveLayout();   // the arrangement changed, not just the focus
   }
   setVisible(z);

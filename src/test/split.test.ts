@@ -352,20 +352,43 @@ test('a NEW pane never evicts a split — it joins if it fits, else takes the zo
 
   /* BOTH OUTCOMES EXIST, AND BOTH SPEAK. */
   assert.match(body, /toast\(t\('split\.joined'\)\)/, 'joining must be announced');
-  assert.match(body, /toast\(t\('split\.tookFull'\)\)/, 'so must taking the zone');
-  assert.match(body, /zones\[z\]\.visible = \[id\]/,
-    'no room means the new pane takes the ZONE — the split members stay as tabs');
+  assert.match(body, /toast\(t\('split\.tookRight'\)\)/, 'so must taking the rightmost slot');
 
-  /* NOT AN EVICTION. splitWithPane may replace a slot, because there the operator pointed at the
-     pane they wanted beside their work. A pane merely being CREATED never earns that. */
-  assert.doesNotMatch(body, /\.map\(\(v, i\) => \(i ===/, 'a new pane must not overwrite a slot');
+  /* NO ROOM TAKES ONE SLOT, NEVER THE ZONE. Operator's decision, and the reasoning is that
+     answering "one more terminal" by removing two is a bigger change than the request. The
+     first implementation took the whole zone and they rejected it on exactly that ground. */
+  assert.doesNotMatch(body, /zones\[z\]\.visible = \[id\]/, 'a new pane must not take the whole zone');
+  assert.match(body, /\.filter\(\(v\) => v !== rightmost\)/, 'it replaces the rightmost pane only');
+
+  /* RIGHTMOST IS BY TAB ORDER, not by array position — `visible` is sorted by tabOrder in
+     setVisible, so the array's last element is not necessarily the pane on the right. Reading
+     the array end would evict a pane the operator sees in the middle. */
+  assert.match(body, /ord\.indexOf\(a\) - ord\.indexOf\(b\)/, 'rightmost must be resolved by tab order');
+
+  /* And the fractions must SURVIVE: the pane count does not change, so re-evening them would
+     discard a splitter the operator had dragged. */
+  const noRoom = body.slice(body.indexOf('} else {'));
+  assert.doesNotMatch(noRoom, /frac = evenFrac/, 'a same-count replacement must not re-even the split');
+
+  /* FOCUS MUST MOVE WITH THE DECISION, and this is not cosmetic. setVisible forces the focused
+     pane visible by COLLAPSING the zone to it. If focus were left on the pane that was just
+     replaced, setVisible would answer by collapsing to one pane — undoing the arrangement this
+     branch decided. Measured, not reasoned: the live window reported visible=[3] where [1,3]
+     was intended, until this assignment was added.
+     Asserted by ORDER, because the position is the whole point: inside the fresh block, and
+     before the setVisible that would otherwise collapse it. */
+  const freshAt = body.indexOf('if (fresh &&');
+  const focusAt = body.indexOf('active[z] = id;');
+  const visibleAt = body.indexOf('setVisible(z);');
+  assert.ok(freshAt >= 0 && focusAt > freshAt, 'focus must move inside the fresh-placement branch');
+  assert.ok(visibleAt > focusAt, 'and BEFORE setVisible, which collapses the zone to the focused pane');
 
   /* The placement is an arrangement change, so it must survive a restart. */
   assert.match(body, /saveLayout\(\)/, 'the new arrangement must persist');
 
   /* And the two messages must actually exist. */
   const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
-  for (const k of ['split.joined', 'split.tookFull']) {
+  for (const k of ['split.joined', 'split.tookRight']) {
     assert.ok(en[k], `missing i18n key ${k} — the toast would render its own key at the operator`);
   }
 });

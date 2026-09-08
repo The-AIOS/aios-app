@@ -993,5 +993,5 @@
   "tab.renameSession": "Asked the session to rename itself to “{name}”",
   "split.noRoom": "No room for another — replaced the furthest pane",
   "split.joined": "Joined the split",
-  "split.tookFull": "No room to split — opened full, ⌘\\ to go back"
+  "split.tookRight": "No room for another pane — opened in the rightmost slot"
 }
