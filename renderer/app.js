@@ -48,14 +48,34 @@ const ICONS = {
      box rather than aligning to the first svg, so the steam landed in the top-left corner instead
      of over the cup (operator-reported). One svg per state has no alignment to get wrong.
      The steam is the non-colour signal: someone who cannot rely on the coral still sees it. */
+  /* THE FOUR REFERENCE GLYPHS ARE ONE FAMILY — operator-reported: the cluster "looks like
+     multi-flavored" and they wanted consistency. It was four unrelated metaphors for four
+     documents (a book, a blank page, a ?-in-a-circle, a keyboard) at two different sizes, and
+     worse, the CHEATSHEET wore the universal HELP glyph while the actual help — the assistant —
+     wore a speech bubble. Two glyphs competing for "help" and neither of them meaning
+     "cheatsheet" is not a taste problem, it is a wrong label.
+     So: ONE outline, four marks. Same portrait page, same 24-box, same 1.7 stroke, all rendered
+     at the same 15px. The marks are chosen to differ by DENSITY AND RHYTHM rather than by
+     outline, because at 15px an outline is all you can really read — the same reason this file
+     already warns that a rocket and a pencil are indistinguishable at 13px. A bookmark's notch,
+     three sparse lines, two columns of key-and-meaning pairs, and two rows of key dots are four
+     different
+     textures inside an identical frame, which is what makes them scan as a set AND stay apart.
+     The plain rect (no folded corner) is deliberate: the fold eats the top-right of the interior,
+     which is exactly where the bookmark and the grid need room.
+     THE OUTLINE IS REPEATED RATHER THAN SHARED, on purpose: src/test/icons.test.ts evals this
+     table in ISOLATION (`new Function(block + 'return ICONS')`), so a reference to any outside
+     constant breaks every icon guard at once — which is exactly what happened when the outline
+     was hoisted to a `const PAGE`. That isolation is worth keeping: it is what lets the glyph
+     table be checked as data. So the family is enforced by a TEST that reads all four and fails
+     if their outlines diverge, rather than by a constant this table may not reach. */
+  docManual: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9.6 3v6.6l2.4-1.9 2.4 1.9V3"/>',
+  docReadme: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.4"/>',
+  docCheat: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.3 8.5h2.1M12 8.5h3.7M8.3 12h2.1M12 12h3.7M8.3 15.5h2.1M12 15.5h3.7"/>',
+  docKeys: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 9.5h.01M12 9.5h.01M15 9.5h.01M9 13h.01M12 13h.01M15 13h.01"/><path d="M10 16.8h4"/>',
   coffee: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/>',
-  /* SHORTCUTS — a keyboard. Its neighbours in the title bar are a book, a page and a
-     question-mark-in-a-circle, so the silhouette has to say "keys" at 15px and not "another
-     document": a wide shallow rect with key dots does that, where a ⌘ glyph would read as text
-     rather than an icon and would mean nothing on Windows or Linux. */
-  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2.4"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 13.5h.01M8 13.5h8M18 13.5h.01"/>',
-  /* HELP ASSISTANT — this button SPAWNS the onboarding agent, so it must not look like the three
-     docs beside it. Deliberately NOT the existing `robot`: that one means "launch an agent" on
+  /* HELP ASSISTANT — this button SPAWNS the onboarding agent, so it must not look like the four
+     reference pages beside it, and it is the operator's pinned RIGHT end of the cluster. Deliberately NOT the existing `robot`: that one means "launch an agent" on
      the rail, and reusing it here would say "pick an agent" rather than "ask for help". A speech
      bubble carries the asking, the two eyes carry the agent-ness, and the bubble's round
      silhouette is distinct from `robot`'s squared head at the only size these ever render. */
@@ -128,8 +148,6 @@ const ICONS = {
   wrench: '<path d="M14.6 6.4a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.7-3.7a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.7 3.7z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/>',
   sync: '<path d="M21 12a9 9 0 0 0-9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9 9 0 0 0 6.4-2.6L21 16"/><path d="M21 21v-5h-5"/>',
-  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
-  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   design: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 function icon(name, size = 14) {
@@ -4760,10 +4778,10 @@ dragPanel.addEventListener('click', () => {
 });
 // title-bar README + ? (help) buttons
 const dragReadme = document.getElementById('dragReadme');
-dragReadme.innerHTML = icon('book', 15);  // book → Operating Manual, opened in an in-app browser tab (#14)
+dragReadme.innerHTML = icon('docManual', 15);  // page + bookmark → the ONLINE Operating Manual, in an in-app browser tab (#14)
 dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()));
 const dragHelp = document.getElementById('dragHelp');
-dragHelp.innerHTML = icon('file', 15);  // doc → README
+dragHelp.innerHTML = icon('docReadme', 15);  // page + text lines → README.md (this button is NOT the assistant, whatever its id says)
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
 /* ═══ Title-bar hover tips ═══
    NATIVE TOOLTIPS DO NOT FIRE IN THIS CLUSTER, and every button in it had been setting `.title`
@@ -4824,7 +4842,7 @@ function paintCaffeine(st) {
   /* The steam IS the state, not a tint. A coloured glyph in a dark title bar reads as "slightly
      different"; two wisps of steam read as ON from across the room, which is the entire job of a
      control whose failure mode is not knowing which way it is set. */
-  dragCaffeine.innerHTML = icon(on ? 'coffeeOn' : 'coffee', 17);
+  dragCaffeine.innerHTML = icon(on ? 'coffeeOn' : 'coffee', 15);   // 15, like every other glyph in the cluster — 17 was the lone size outlier
   dragCaffeine.classList.toggle('caff-on', on);
   dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
   /* The tooltip names the STATE and its reason, never the action — and when the platform refused
@@ -4859,7 +4877,7 @@ if (dragCaffeine) {
      what it is — an unlabelled icon in a title bar is a guess. Reported by the operator: hovering
      showed nothing at all, because the only `title` assignment lived inside the paint. */
   dragCaffeine.title = caffTip;
-  dragCaffeine.innerHTML = icon('coffee', 17);
+  dragCaffeine.innerHTML = icon('coffee', 15);
   attachTip(dragCaffeine, () => caffTip);
   dragCaffeine.addEventListener('click', async () => { paintCaffeine(await window.glassShell.caffeinateToggle()); });
   window.glassShell.onCaffeinate(paintCaffeine);
@@ -4871,17 +4889,17 @@ if (dragCaffeine) {
    the cluster is where an operator looks. */
 const dragKeys = document.getElementById('dragKeys');
 if (dragKeys) {
-  dragKeys.innerHTML = icon('keyboard', 15);
+  dragKeys.innerHTML = icon('docKeys', 15);  // page + key dots → the shortcuts sheet. The standalone keyboard is retired: it was the only reference that was not a document silhouette, which is what left it looking adrift between the others.
   dragKeys.addEventListener('click', () => openShortcutsTab());
 }
 
 const dragCheat = document.getElementById('dragCheat');
-dragCheat.innerHTML = icon('help', 15);  // ?-in-a-circle → Cheatsheet (Glass parity)
+dragCheat.innerHTML = icon('docCheat', 15);  // page + ruled grid → CHEATSHEET.md. The ?-in-a-circle is retired here: it is the universal HELP glyph, so it competed with the assistant and said nothing about a cheatsheet. Glass keeps $(question) because VS Code offers only codicons — a forced divergence, not an unported fix.
 dragCheat.addEventListener('click', () => openFrameworkDoc('CHEATSHEET.md'));
 // The onboarding agent had no surface anywhere. It belongs beside the docs — a compass,
 // not the robot glyph (that one means "go with agents" in the panel).
 const dragGuide = document.getElementById('dragGuide');
-dragGuide.innerHTML = icon('assistant', 15);
+dragGuide.innerHTML = icon('assistant', 15);  // speech bubble → spawns `onboarding-aios`. THE AIOS ASSISTANT, and the operator's pinned right end: the one control here that hands the work to someone rather than telling you something.
 dragGuide.addEventListener('click', () => void spawnNamed('onboarding-aios'));
 /* Framework status — the Glass extension's quiet indicator: a colored dot + a short
    word in the panel header (NOT a boxed icon button), clickable to run the update when

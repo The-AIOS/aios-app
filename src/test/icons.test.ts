@@ -51,3 +51,55 @@ test('QUICK does not wear the glyph of any row inside it', () => {
   assert.ok(!rows.includes(header![1]),
     `the QUICK header (${header![1]}) must differ from its rows: ${rows.join(', ')}`);
 });
+
+test('the four title-bar reference glyphs are ONE family — same outline, different marks', () => {
+  /* Operator-reported: the cluster "looks like multi-flavored… i love some kind of consistency".
+     It was four unrelated metaphors for four documents — a book, a blank page, a ?-in-a-circle
+     and a keyboard — and the ?-in-a-circle is the universal HELP glyph, so the CHEATSHEET wore
+     the assistant's meaning while saying nothing about a cheatsheet.
+     The fix is one page outline with four different interior marks. This guard exists because the
+     outline is REPEATED in each entry rather than shared from a constant (ICONS is evaluated in
+     isolation above, so it cannot reach one) — which means the only thing keeping the family
+     together is this test. */
+  const family = ['docManual', 'docReadme', 'docCheat', 'docKeys'];
+  const OUTLINE = '<rect x="5" y="3" width="14" height="18" rx="2"/>';
+  for (const n of family) {
+    assert.ok(ICONS[n], `${n} must exist — it is one of the four references`);
+    assert.ok(ICONS[n].startsWith(OUTLINE),
+      `${n} must be drawn on the shared page outline, or the family stops being one`);
+    assert.ok(ICONS[n].length > OUTLINE.length + 10,
+      `${n} needs an interior mark — the bare outline would be indistinguishable from its siblings`);
+  }
+  /* And the marks must actually differ: four identical pages would pass the check above while
+     making four buttons impossible to tell apart, which is this suite's founding defect. */
+  const marks = family.map((n) => ICONS[n].slice(OUTLINE.length));
+  assert.equal(new Set(marks).size, family.length, 'each reference needs its own interior mark');
+
+  /* The retired glyphs must not come back on these buttons. `help` is the one that matters: it
+     means help everywhere, and the assistant is what help means here. */
+  assert.doesNotMatch(app, /dragCheat\.innerHTML = icon\('help'/, 'the cheatsheet is not the help glyph');
+  assert.doesNotMatch(app, /dragKeys\.innerHTML = icon\('keyboard'/, 'shortcuts joined the page family');
+
+  /* ONE SIZE across the cluster. The cup rendered at 17 while everything else was 15, which is
+     half of what "multi-flavoured" was describing. */
+  /* Read the cluster's ACTUAL children out of the markup rather than pattern-matching variable
+     names — the first version of this assertion matched `drag*`/`rail*` anywhere on a line and
+     swept up unrelated icon calls (22/13/16), reporting a failure that was purely its own. */
+  const html = fs.readFileSync('renderer/index.html', 'utf8');
+  const cluster = /<div id="dragacts">([\s\S]*?)<\/div>/.exec(html);
+  assert.ok(cluster, 'the title-bar cluster must be findable');
+  const btns = [...cluster![1].matchAll(/id="(\w+)"/g)].map((m) => m[1]);
+  assert.ok(btns.length >= 8, `sanity: the cluster has buttons, saw ${btns.length}`);
+  const sizes: Record<string, number> = {};
+  for (const id of btns) {
+    /* Only lines that name the button AND paint a glyph. Two buttons paint through a local
+       variable instead of their id and are simply not found here — asserting on what IS found
+       beats asserting on a list this test would have to keep in step by hand. */
+    const m = new RegExp(`${id}[^\n]{0,40}innerHTML = icon\\((?:on \\? '\\w+' : )?'\\w+', (\\d+)\\)`).exec(app);
+    if (m) sizes[id] = Number(m[1]);
+  }
+  const found = Object.values(sizes);
+  assert.ok(found.length >= 5, `sanity: found sizes for ${found.length} cluster glyphs`);
+  assert.deepEqual([...new Set(found)], [15],
+    `every title-bar glyph renders at 15px, saw ${JSON.stringify(sizes)}`);
+});
