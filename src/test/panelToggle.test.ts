@@ -16,7 +16,13 @@ const css = fs.readFileSync('renderer/theme.css', 'utf8');
 const html = fs.readFileSync('renderer/index.html', 'utf8');
 
 test('the toggle sits in the title bar, immediately left of the layouts button', () => {
-  assert.match(html, /<div id="dragacts"><button id="dragPanel" class="ribtn"><\/button><button id="railLayout"/);
+  /* Asserts ADJACENCY, which is what this test's name and its file header actually claim. It used
+     to be anchored to `<div id="dragacts">` immediately followed by dragPanel, which additionally
+     pinned dragPanel as the FIRST child — incidental, never the point, and it failed the moment a
+     new title-bar control was placed to its left (AI-132's keep-awake toggle, put leftmost at the
+     operator's request). A guard that fails for a reason it does not claim teaches people to edit
+     guards; this one now fails only if panel and layout stop being neighbours. */
+  assert.match(html, /<button id="dragPanel" class="ribtn"><\/button><button id="railLayout"/);
 });
 
 test('panel visibility is a per-layout flag, symmetric with the explorer', () => {
