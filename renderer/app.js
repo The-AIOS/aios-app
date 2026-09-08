@@ -49,6 +49,17 @@ const ICONS = {
      of over the cup (operator-reported). One svg per state has no alignment to get wrong.
      The steam is the non-colour signal: someone who cannot rely on the coral still sees it. */
   coffee: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/>',
+  /* SHORTCUTS — a keyboard. Its neighbours in the title bar are a book, a page and a
+     question-mark-in-a-circle, so the silhouette has to say "keys" at 15px and not "another
+     document": a wide shallow rect with key dots does that, where a ⌘ glyph would read as text
+     rather than an icon and would mean nothing on Windows or Linux. */
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="2.4"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 13.5h.01M8 13.5h8M18 13.5h.01"/>',
+  /* HELP ASSISTANT — this button SPAWNS the onboarding agent, so it must not look like the three
+     docs beside it. Deliberately NOT the existing `robot`: that one means "launch an agent" on
+     the rail, and reusing it here would say "pick an agent" rather than "ask for help". A speech
+     bubble carries the asking, the two eyes carry the agent-ness, and the bubble's round
+     silhouette is distinct from `robot`'s squared head at the only size these ever render. */
+  assistant: '<path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.4 9 9 0 0 1-2.6-.35L4.5 21.5l1.1-3.6A8.3 8.3 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5Z"/><circle cx="9.8" cy="11.3" r="1.05"/><circle cx="15.2" cy="11.3" r="1.05"/><path d="M12.5 3V1.4"/>',
   coffeeOn: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/><path d="M7 6.2c-.9-1.1.9-1.7 0-2.8"/><path d="M10.5 6.2c-.9-1.1.9-1.7 0-2.8"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
@@ -4314,6 +4325,7 @@ function paintRailTitles() {
   document.getElementById('dragReadme').title = t('window.manual');
   document.getElementById('dragHelp').title = t('window.readme');
   document.getElementById('dragCheat').title = t('window.cheatsheet');
+  document.getElementById('dragKeys').title = t('window.shortcuts');
   document.getElementById('dragGuide').title = t('window.guide');
   /* And now they actually SHOW. These titles have been set since the buttons shipped and none of
      them ever appeared — native tooltips do not fire inside the drag region. Attached here, after
@@ -4321,7 +4333,7 @@ function paintRailTitles() {
      listeners on a locale change, so the guard below runs the attach once. */
   if (!tipsAttached) {
     tipsAttached = true;
-    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragGuide', 'railSetup']) {
+    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide', 'railSetup']) {
       attachTip(document.getElementById(id));
     }
   }
@@ -4461,13 +4473,22 @@ if (dragCaffeine) {
   void window.glassShell.caffeinateState().then(paintCaffeine);
 }
 
+/* SHORTCUTS in the title bar. The sheet has existed since #38 and was reachable only by ⌘/ or the
+   Help menu — discoverable exactly by the people who already knew it. A button costs nothing and
+   the cluster is where an operator looks. */
+const dragKeys = document.getElementById('dragKeys');
+if (dragKeys) {
+  dragKeys.innerHTML = icon('keyboard', 15);
+  dragKeys.addEventListener('click', () => openShortcutsTab());
+}
+
 const dragCheat = document.getElementById('dragCheat');
 dragCheat.innerHTML = icon('help', 15);  // ?-in-a-circle → Cheatsheet (Glass parity)
 dragCheat.addEventListener('click', () => openFrameworkDoc('CHEATSHEET.md'));
 // The onboarding agent had no surface anywhere. It belongs beside the docs — a compass,
 // not the robot glyph (that one means "go with agents" in the panel).
 const dragGuide = document.getElementById('dragGuide');
-dragGuide.innerHTML = icon('guide', 15);
+dragGuide.innerHTML = icon('assistant', 15);
 dragGuide.addEventListener('click', () => void spawnNamed('onboarding-aios'));
 /* Framework status — the Glass extension's quiet indicator: a colored dot + a short
    word in the panel header (NOT a boxed icon button), clickable to run the update when

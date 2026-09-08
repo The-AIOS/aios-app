@@ -570,3 +570,54 @@ test('INVARIANT: a pane\'s opening command runs only after real geometry is push
   const geomIdx = app.indexOf('pushPtyGeom(id, p);');
   assert.ok(geomIdx > 0 && runIdx > geomIdx, 'the command must not be issued before the resize');
 });
+
+test('every title-bar button has a label that SHOWS, and each names what it does', () => {
+  /* Native tooltips never fired in this cluster — `#drag` is the window's `-webkit-app-region:
+     drag` surface, and `#dragacts` opting out with `no-drag` is enough for clicks but not for
+     native tips. So six buttons had been setting a `.title` nobody had ever seen since they
+     shipped, and the operator found it by hovering a seventh. Two things must now hold: every
+     button in the cluster is attached to the real tip element, and every one has a label. */
+  const html = fs.readFileSync('renderer/index.html', 'utf8');
+  const ids = [...html.matchAll(/<button id="(drag[A-Za-z]+|rail[A-Za-z]+)"/g)]
+    .map((m) => m[1])
+    .filter((id) => html.includes(`id="${id}"`));
+  const attached = app.slice(app.indexOf("for (const id of ['dragPanel'"), app.indexOf('attachTip(document.getElementById(id))'));
+  /* dragPanel is attached but exempt from needing a label: it ships `hidden` (the operator wants
+     the cluster to carry the layout changer only), and a button nobody can hover needs no
+     tooltip. It stays in the attach list so that unhiding it is a one-word change rather than a
+     one-word change plus a forgotten wiring step. */
+  const visible = ['railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide'];
+  for (const id of [...visible, 'dragPanel']) {
+    assert.ok(ids.includes(id), `${id} must exist in the title bar`);
+    assert.ok(attached.includes(`'${id}'`), `${id} must be attached to the hover tip or its label is invisible`);
+  }
+  for (const id of visible) {
+    assert.match(app, new RegExp(`getElementById\\('${id}'\\)\\.title = t\\(`), `${id} needs a label`);
+  }
+  /* The labels are NAMES, not sentences. They were written as descriptions when nobody could
+     read them ("Operating Manual — how the AIOS works"); a tooltip that actually appears wants a
+     name. Asserted as a length bound rather than exact wording, so copy can change freely. */
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  for (const k of ['window.manual', 'window.readme', 'window.cheatsheet', 'window.shortcuts', 'window.guide', 'rail.layout', 'caffeinate.title']) {
+    assert.ok(en[k], `missing ${k}`);
+    assert.ok(en[k].length <= 24, `${k} is a sentence, not a label: "${en[k]}"`);
+  }
+});
+
+test('the shortcuts sheet is reachable by BUTTON, not only by the chord that documents it', () => {
+  /* #38's sheet lists every binding, and until now the only ways in were ⌘/ and the Help menu —
+     discoverable exactly by the people who already knew the bindings. */
+  assert.match(app, /dragKeys\.addEventListener\('click', \(\) => openShortcutsTab\(\)\)/);
+  assert.match(app, /function openShortcutsTab\(\)/, 'and the sheet it opens must exist');
+});
+
+test('the help-assistant button does not wear a document icon — it spawns an agent', () => {
+  /* It sits among a book, a page and a question-mark-in-a-circle while actually spawning the
+     onboarding agent, so a generic `guide` glyph made it read as a fourth doc. Deliberately not
+     `robot` either: that means "launch an agent" on the rail, and here the act is asking for
+     help. A speech bubble with eyes carries both and has a different silhouette at 15px. */
+  assert.match(app, /dragGuide\.innerHTML = icon\('assistant', 15\)/);
+  assert.match(app, /dragGuide\.addEventListener\('click', \(\) => void spawnNamed\('onboarding-aios'\)\)/,
+    'the label must keep matching the act');
+  assert.match(app, /^\s+assistant: '/m, 'the icon must exist in ICONS');
+});
