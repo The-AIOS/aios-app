@@ -155,25 +155,50 @@ test('the button reports the state it can OBSERVE, and admits when the platform 
      refactor teaches people to edit guards, which is worse than the drift it was guarding. What
      must hold: the hover text combines the control's NAME with the current state's reason, and
      that text is what the tip actually renders. */
-  assert.match(app, /caffTip = t\('caffeinate\.title'\)[^\n]*why/,
-    'the hover text must combine the name with the state reason');
-  assert.match(app, /tipEl\.textContent = caffTip/, 'and the tip must render that text');
-  assert.match(app, /let why = t\('caffeinate\.offManual'\);/, '`why` must have a default, not undefined');
+  /* FOURTH rewrite of this assertion, and the count is the point. Each earlier form pinned an
+     exact line — a bare title, then `dragCaffeine.title = …`, then `tipEl.textContent = caffTip`
+     — and each failed on a correct refactor rather than on a defect: the tooltip moving into a
+     shared `attachTip` helper is an improvement, not drift. Over-specified guards train people to
+     edit guards, which costs more than the drift they were written to catch. Asserted here as the
+     WIRING that must hold: the button's tip is sourced from the state-derived text, and the tip
+     text is derived from the control's name. */
+  assert.match(app, /attachTip\(dragCaffeine, \(\) => caffTip\)/,
+    "the button's hover must be sourced from the state-derived text");
+  assert.match(app, /caffTip = t\('caffeinate\.title'\)/, 'and that text starts from the control name');
+  assert.match(app, /let why = '';/, '`why` must have a default, not undefined');
+  /* The label is PLATFORM-FREE. It read "Keep this Mac awake" while shipping to Windows and
+     Linux from the same source — wrong on two of three platforms, and only the operator noticing
+     caught it. The state words are gone from the normal case (the highlight says on-or-off), so
+     the two that remain are the cases where the highlight alone would mislead. */
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  for (const [k, v] of Object.entries(en)) {
+    if (!k.startsWith('caffeinate.') && k !== 'settings.caffeinate' && k !== 'settings.caffeinateHint') continue;
+    assert.doesNotMatch(v, /\bMac\b|macOS/, `${k} names a platform: "${v}"`);
+  }
   /* Native `title` alone was not enough: every button in this title-bar cluster sets one and none
      appeared for the operator — `#drag` is the window's drag region. So a real element is required. */
   assert.match(app, /className = 'pathtip'/, 'reuse the existing hover-tip element, not a new mechanism');
-  assert.match(app, /mouseleave.*tipEl\.hidden = true|tipEl\.hidden = true; \}\);/,
-    'and it must hide again — a stuck tooltip is worse than none');
+  /* It must hide again — a tip left hanging over a changed UI is worse than none. Asserted on the
+     shared helper's contract (a hide bound to mouseleave AND to click) rather than on a literal,
+     for the reason the comment above gives. */
+  assert.match(app, /const hide = \(\) => \{ if \(tipEl\) tipEl\.hidden = true; \};/);
+  assert.match(app, /el\.addEventListener\('mouseleave', hide\);/);
+  assert.match(app, /el\.addEventListener\('click', hide\);/, 'a click changes the UI under the tip');
 });
 
 test('every caffeinate string exists in all three locales', () => {
-  const keys = ['caffeinate.title', 'caffeinate.on', 'caffeinate.offAuto', 'caffeinate.offManual',
-    'caffeinate.autoBusy', 'caffeinate.overrideOn', 'caffeinate.overrideOff',
-    'caffeinate.unsupported', 'settings.caffeinate', 'settings.caffeinateHint',
-    'caffeinate.modeAuto', 'caffeinate.modeManual'];
+  /* Trimmed with the tooltip: the per-state sentences went away when the label became just the
+     control's name (the highlight carries on-or-off). What survives is the name, the two cases
+     where the highlight would mislead, and the Settings row. Dead keys are DELETED rather than
+     left behind — a stale key reads as a live one to whoever edits a locale file next. */
+  const keys = ['caffeinate.title', 'caffeinate.unsupported', 'caffeinate.overriding',
+    'settings.caffeinate', 'settings.caffeinateHint', 'caffeinate.modeAuto', 'caffeinate.modeManual'];
+  const gone = ['caffeinate.on', 'caffeinate.offAuto', 'caffeinate.offManual', 'caffeinate.autoBusy',
+    'caffeinate.overrideOn', 'caffeinate.overrideOff'];
   for (const loc of ['en', 'es', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
     for (const k of keys) assert.ok(j[k], `${loc} is missing ${k}`);
+    for (const k of gone) assert.ok(!(k in j), `${loc} still carries the retired ${k}`);
   }
   assert.match(fs.readFileSync('renderer/i18n.js', 'utf8'), /caffeinate\.unsupported/,
     'the generated bundle is stale — run npm run gen-i18n');
