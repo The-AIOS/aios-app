@@ -1855,7 +1855,7 @@ const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, 
    src/test/split.test.ts asserts the two agree, the same way the busy classifier is guarded. */
 const SPLIT_GAP_PX = 10;      // must equal core's SPLIT_GAP — guarded in split.test.ts
 const MAX_VISIBLE_PANES = 3;  // must equal core's MAX_VISIBLE — guarded there too
-const MIN_PANE_PX = 320;      // must equal core's MIN_PANE_PX — ~40 columns; guarded there too
+const MIN_PANE_PX = 320;      // must equal core's MIN_PANE_PX — ~30 columns MEASURED; guarded there too
 const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — guarded there too
 const zones = { main: { visible: [], frac: [] }, term: { visible: [], frac: [] } };
 const zoneSplit = (z) => zones[z].visible.length > 1;
@@ -2359,6 +2359,24 @@ function paneBoxes(z) {
  * asked for this pane beside the one they are in, and "nothing happened" is never the answer they
  * wanted. The focused pane keeps its side so their own work does not jump across the screen.
  */
+/**
+ * The partner for a split where the operator did NOT name a pane — the next tab in the strip,
+ * wrapping. `null` when the zone has nothing else to split with.
+ *
+ * Shared by the ⌘\ chord AND the context menu, because they are the same gesture asked two ways.
+ * The menu used to have no such notion: it offered "Open to the right" only for a tab that was
+ * NOT the focused one, so right-clicking the pane you were looking at offered nothing to split
+ * with — the "dead menu" the operator reported, back again the moment a zone went full and the
+ * tab under the cursor was the only visible one.
+ */
+function nextTabAfter(z, id) {
+  const order = tabOrder[z].filter((v) => panes.has(v));
+  if (order.length < 2) return null;
+  const at = order.indexOf(id);
+  const next = order[(at + 1) % order.length];
+  return next === id ? null : next;
+}
+
 function splitWithPane(z, next) {
   if (!panes.has(next) || zoneOf(panes.get(next)) !== z) return;
   const beside = active[z];
@@ -2615,10 +2633,14 @@ function makeTab(id, name, iconName) {
     if (!pane) return;
     const z = zoneOf(pane);
     const items = [{ label: t('tab.rename'), value: 'rename' }];
-    /* Split with THIS tab whenever it is not already the focused pane — including when it is the
-       other visible half, which simply focuses it. The old condition excluded every visible tab
-       and that is what made the menu look broken. */
-    if (id !== active[z]) items.push({ label: t('split.openRight'), value: 'right' });
+    /* Split with THIS tab whenever it is not the focused pane; on the FOCUSED tab, split with the
+       next tab in the strip — exactly what ⌘\ does, through the same helper. Operator-reported
+       twice now: gating this on `id !== active[z]` leaves the menu dead on the one tab you are
+       most likely to right-click, and it went dead again the moment a full zone made that tab the
+       only visible one. Omitted only when the zone genuinely has nothing else to split with,
+       which is the one case where offering it would just toast an apology. */
+    const partner = id === active[z] ? nextTabAfter(z, id) : id;
+    if (partner !== null) items.push({ label: t('split.openRight'), value: 'right' });
     if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
     items.push({ label: '-', value: '-' }, { label: t('tab.close'), value: 'close' });
     /* A NATIVE menu, not the app's listModal. That picker carries a filter box because it was
@@ -2627,7 +2649,7 @@ function makeTab(id, name, iconName) {
        the pointer, needs no styling, is keyboard-navigable, and behaves like every other
        right-click on the machine. The labels are still ours; main is told what to show. */
     void window.glassShell.tabMenu(items).then(async (pick) => {
-      if (pick === 'right') splitWithPane(z, id);
+      if (pick === 'right') { if (partner !== null) splitWithPane(z, partner); }
       else if (pick === 'unsplit') unsplitZone(z);
       else if (pick === 'close') void requestClosePane(id);
       else if (pick === 'rename') {
@@ -2977,10 +2999,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
         /* Split with the NEXT tab in the strip, which is what "open the other one beside this"
            means when the operator has not named a pane. No second pane → nothing to split, and
            saying so beats a silent no-op. */
-        const order = tabOrder[z].filter((id) => panes.has(id));
-        const at = order.indexOf(active[z]);
-        const next = order[(at + 1) % order.length];
-        if (next === undefined || next === active[z]) toast(t('split.needTwo'));
+        const next = nextTabAfter(z, active[z]);
+        if (next === null) toast(t('split.needTwo'));
         else splitWithPane(z, next);
       }
       return false;

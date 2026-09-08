@@ -40,10 +40,20 @@ export const MAX_VISIBLE = 3;
 export const SPLIT_GAP = 10;
 
 /**
- * Narrowest a tiled pane may get, in px — ~40 columns plus `.pane`'s padding and border.
+ * Narrowest a tiled pane may get, in px — **~30 columns, measured**, not the ~40 first claimed.
  *
  * Below this a TUI wraps into nonsense, which is worse than not splitting: the operator asked to
  * see two things and would get two things they cannot read.
+ *
+ * The number is now anchored to a measurement rather than an estimate, because the estimate was
+ * wrong and a wrong stated rationale is how a constant gets "corrected" in the wrong direction
+ * later. Measured in a live window (`--eval`, three tiled panes in a 747px zone): each pane came
+ * out 234px wide and xterm reported **21 columns** — so a pane spends ~24px on padding and border
+ * and ~10px per column. 320px is therefore ~30 columns, and 40 columns would need ~424px.
+ *
+ * It stays at 320 deliberately. Raising it to a true 40 columns would refuse the TWO-pane split on
+ * any zone under ~858px — including windows where that split is in daily use and perfectly
+ * readable. A floor exists to block the unreadable, not to enforce a comfortable ideal.
  */
 export const MIN_PANE_PX = 320;
 

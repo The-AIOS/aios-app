@@ -147,10 +147,17 @@ test('one MECHANISM, three entry points — chord, menu, and drag onto a pane', 
      that actually matters. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /e\.code === 'Backslash'/, 'the chord');
-  assert.match(app, /if \(pick === 'right'\) splitWithPane\(z, id\)/, 'the menu item');
+  /* The menu's entry point, asserted as WIRING rather than as an exact argument. Pinning the
+     argument (`splitWithPane(z, id)`) is what made this guard fire on a correct fix: the menu
+     had to start splitting the focused tab with its NEIGHBOUR, which changes the argument and
+     nothing about the invariant. What matters is that the 'right' pick reaches splitWithPane. */
+  assert.match(app, /pick === 'right'\)[^\n]*splitWithPane\(z, /, 'the menu item');
   assert.match(app, /splitWithPane\(zoneOf\(p\), dropped\)/, 'the drag');
   const callers = app.split('\n').filter((l) => l.includes('splitWithPane(') && !l.includes('function splitWithPane'));
   assert.equal(callers.length, 3, 'three entry points, one mechanism');
+  /* And the two gestures that split WITHOUT a named pane share one notion of the partner, so
+     "the next tab" cannot come to mean two different things. */
+  assert.match(app, /function nextTabAfter\(z, id\) \{/, 'one shared partner rule');
   /* The drop target is a PANE, and it must not disturb the two drags that predate it: the strip's
      own reorder (which claims drops on TABS) and the explorer's file-path handler. */
   const drop = app.slice(app.indexOf('function attachPaneDropTarget'));
@@ -229,7 +236,15 @@ test('the tab menu is useful on ANY tab — including the one you are looking at
      implies a list worth searching. */
   assert.match(menu, /window\.glassShell\.tabMenu\(items\)/, 'the tab menu must be native');
   assert.doesNotMatch(menu, /listModal\(/, 'the searchable picker is the wrong instrument here');
-  assert.match(menu, /if \(id !== active\[z\]\) items\.push/, 'split is offered for any non-focused tab');
+  /* Split is offered on EVERY tab that has something to split with — including the focused one,
+     where the partner is its neighbour. Asserted as the capability: the previous version of this
+     line pinned `id !== active[z]`, which is exactly the condition that had to change, so the
+     guard fired on the fix rather than on a regression. What must hold is that the item's
+     presence is decided by whether a partner EXISTS, never by which tab you right-clicked. */
+  assert.match(menu, /const partner = /, 'the menu resolves a partner');
+  assert.match(menu, /if \(partner !== null\) items\.push/, 'and offers the split whenever one exists');
+  assert.doesNotMatch(menu, /if \(id !== active\[z\]\) items\.push/,
+    'gating on the tab being unfocused is what left the menu dead on the tab you are looking at');
   assert.match(menu, /value: 'close'/);
   assert.doesNotMatch(menu, /!zones\[z\]\.visible\.includes\(id\)/,
     'the old visibility condition is what made the menu look dead');
@@ -353,4 +368,29 @@ test('a NEW pane never evicts a split — it joins if it fits, else takes the zo
   for (const k of ['split.joined', 'split.tookFull']) {
     assert.ok(en[k], `missing i18n key ${k} — the toast would render its own key at the operator`);
   }
+});
+
+test('the tab menu can always split — including on the tab you are looking at', () => {
+  /* Operator-reported TWICE. First: "right click, open second one to split, didn't work" — the
+     item was offered only for a tab that was not the focused one. Fixed once, then it regressed
+     for a new reason: a zone that goes full makes the focused tab the ONLY visible one, so the
+     tab you are most likely to right-click was again the one with nothing to offer.
+     The fix is not a looser condition, it is a shared notion of WHO to split with when the
+     operator has not named a pane — the next tab in the strip, which is exactly what the chord
+     already meant. One helper, both gestures, so they cannot drift. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('function nextTabAfter(z, id) {'));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+  assert.match(body, /order\.length < 2/, 'a zone with one pane has no partner — say null, not a guess');
+  assert.match(body, /\(at \+ 1\) % order\.length/, 'the partner is the NEXT tab, wrapping');
+
+  /* BOTH entry points must go through it — that is the whole point of extracting it. */
+  const uses = app.match(/nextTabAfter\(/g) || [];
+  assert.ok(uses.length >= 3, `the chord and the menu must both use it (definition + 2 callers), saw ${uses.length}`);
+
+  /* The menu must NOT gate the split item on the tab being unfocused. */
+  assert.doesNotMatch(app, /if \(id !== active\[z\]\) items\.push/,
+    'gating the split item on an unfocused tab is what made the menu look dead');
+  assert.match(app, /const partner = id === active\[z\] \? nextTabAfter\(z, id\) : id;/,
+    'the focused tab splits with its neighbour; any other tab splits with itself');
 });
