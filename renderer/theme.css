@@ -1232,3 +1232,13 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 .ttoggle.scoped::after { content: 'this vault'; position: absolute; left: 100%; margin-left: 8px;
   font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent);
   white-space: nowrap; pointer-events: none; }
+
+/* AI-132 keep-awake button. The STEAM carries the state (see the coffee icon), so colour here is
+   reinforcement, never the signal — a tinted glyph in a dark title bar reads as "slightly
+   different" rather than "on", which defeats the one job this control has. `.caff-warn` is the
+   case where we asked for a blocker and the platform refused (Linux without a session bus): the
+   button must look wrong rather than claim success. */
+#dragCaffeine.caff-on { color: var(--accent); }
+#dragCaffeine.caff-warn { color: var(--st-warn); }
+#dragCaffeine svg + svg { position: absolute; inset: 0; }
+#dragCaffeine { position: relative; }

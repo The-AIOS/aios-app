@@ -3,6 +3,7 @@ import * as os from 'os';
 import {
   CLAUDE_KEYS, BUILTIN_OUTPUT_STYLES, readStore, writeStore, readValue, coerce, setAt, isSet, seedableKeys,
 } from '../core/claudeConfig';
+import type { CaffeinateMode } from '../core/caffeinate';
 import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { parseFrontmatter } from '../core/frontmatter';
@@ -1072,7 +1073,7 @@ export function dailyNotePath(iso: string): string | undefined {
 
 // ── shell settings (.glass/shell.json — synced beside state.json) ───────────
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1107,6 +1108,12 @@ export function shellSettings(): ShellSettings {
     locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br'
     killBehavior: raw.killBehavior === 'kill' || raw.killBehavior === 'capture' ? raw.killBehavior : 'ask', // Glass parity; default confirm
     terminalMode: raw.terminalMode === 'auto' ? 'auto' : 'ask', // #6: ask where to run (only when live sessions exist); auto = primary/new
+    /* AI-132. `auto` is the default and absent-means-default costs nothing here: the blocker dies
+       with the app, so a fresh machine that never opens Settings gets the behaviour an operator
+       would have chosen, and no state survives to be wrong later. Only the literal 'manual' opts
+       out — anything else (a typo, a hand-edit, an older file) lands on auto rather than silently
+       disabling the feature. */
+    caffeinate: raw.caffeinate === 'manual' ? 'manual' : 'auto',
     openNotesIn: raw.openNotesIn === 'source' ? 'source' : 'rendered', // Glass "Open files in": rendered preview (default) or raw source
   };
 }

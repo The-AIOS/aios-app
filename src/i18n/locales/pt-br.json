@@ -975,5 +975,17 @@
   "onboarding.tag.login": "sua assinatura de IA",
   "onboarding.tag.github": "armazenamento grátis e privado para o trabalho com IA",
   "onboarding.tag.firstrun": "uma conversa guiada com IA",
-  "onboarding.note.login": "O AIOS está sendo construído para funcionar também com outras IAs — essa parte ainda está em desenvolvimento."
+  "onboarding.note.login": "O AIOS está sendo construído para funcionar também com outras IAs — essa parte ainda está em desenvolvimento.",
+  "caffeinate.title": "Manter este Mac acordado",
+  "caffeinate.on": "Suspensão evitada — a tela ainda pode apagar",
+  "caffeinate.offAuto": "Seguindo suas sessões — nada trabalhando, suspensão permitida",
+  "caffeinate.offManual": "Suspensão permitida — clique para manter acordado",
+  "caffeinate.autoBusy": "Suspensão evitada enquanto uma sessão trabalha",
+  "caffeinate.overrideOn": "Suspensão evitada — você pediu isso, ignorando as sessões",
+  "caffeinate.overrideOff": "Suspensão permitida — você pediu isso, ignorando as sessões",
+  "caffeinate.unsupported": "Este sistema recusou a solicitação — no Linux exige uma sessão de desktop",
+  "settings.caffeinate": "Manter o computador acordado",
+  "settings.caffeinateHint": "auto segue suas sessões ativas; manual é só o botão",
+  "caffeinate.modeAuto": "Auto — enquanto as sessões trabalham",
+  "caffeinate.modeManual": "Manual — só quando eu clicar"
 }

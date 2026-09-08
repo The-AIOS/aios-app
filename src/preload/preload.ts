@@ -58,6 +58,10 @@ contextBridge.exposeInMainWorld('glassShell', {
   claudeSetKeys: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('claude:setKeys'),
   updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
   onClaudeConfigChanged: (cb: (c: unknown) => void) => ipcRenderer.on('shell:claudeConfigChanged', (_e, c) => cb(c)),
+  // AI-132 keep-awake: main owns the decision and the blocker; the renderer shows state + sends intent.
+  caffeinateState: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:state'),
+  caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
+  onCaffeinate: (cb: (s: unknown) => void) => ipcRenderer.on('shell:caffeinate', (_e, s) => cb(s)),
   menuShortcuts: (): Promise<Array<{ group: string; label: string; accel: string }>> => ipcRenderer.invoke('menu:shortcuts'),
   resumableSessions: (): Promise<{ items: Array<{ id: string; name: string; proj: string; at: number }>; total: number; named: number; unnamed: number }> =>
     ipcRenderer.invoke('sessions:resumable'),
