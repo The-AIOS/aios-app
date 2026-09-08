@@ -4,10 +4,10 @@
     "nativeName": "English"
   },
   "window.tag": "your team of agents",
-  "window.readme": "README — what AIOS is",
-  "window.manual": "Operating Manual — how the AIOS works",
-  "window.cheatsheet": "Cheatsheet — the day-to-day index",
-  "window.guide": "Get oriented — spawn the AIOS onboarding guide",
+  "window.readme": "README",
+  "window.manual": "Manual",
+  "window.cheatsheet": "Cheatsheet",
+  "window.guide": "Help assistant",
   "viewer.collapse": "Collapse — back to a balanced split",
   "viewer.half": "Give this zone half the room again",
   "window.setup": "Set up the AIOS — installs and repairs",
@@ -976,11 +976,12 @@
   "onboarding.tag.github": "free, private storage for AI work",
   "onboarding.tag.firstrun": "a guided conversation with AI",
   "onboarding.note.login": "AIOS is being built to work with other AI as well — that part is still in progress.",
-  "caffeinate.title": "Keep computer awake",
+  "caffeinate.title": "Keep awake",
   "caffeinate.unsupported": "This system refused the request — on Linux this needs a desktop session",
   "settings.caffeinate": "Keep the computer awake",
   "settings.caffeinateHint": "auto follows your running sessions; manual is the button only",
   "caffeinate.modeAuto": "Auto — while sessions are working",
   "caffeinate.modeManual": "Manual — only when I click",
-  "caffeinate.overriding": "overriding your sessions — click again to follow them"
+  "caffeinate.overriding": "overriding your sessions — click again to follow them",
+  "window.shortcuts": "Shortcuts"
 }

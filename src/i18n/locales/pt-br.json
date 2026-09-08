@@ -4,10 +4,10 @@
     "nativeName": "Português (Brasil)"
   },
   "window.tag": "seu time de agentes",
-  "window.readme": "README — o que é o AIOS",
-  "window.manual": "Manual de operação — como o AIOS funciona",
-  "window.cheatsheet": "Cheatsheet — o índice do dia a dia",
-  "window.guide": "Oriente-se — inicie o guia de onboarding do AIOS",
+  "window.readme": "README",
+  "window.manual": "Manual",
+  "window.cheatsheet": "Guia rápido",
+  "window.guide": "Assistente de ajuda",
   "viewer.collapse": "Recolher — voltar a uma divisão equilibrada",
   "viewer.half": "Devolver a esta zona metade do espaço",
   "window.setup": "Configurar o AIOS — instalações e reparos",
@@ -976,11 +976,12 @@
   "onboarding.tag.github": "armazenamento grátis e privado para o trabalho com IA",
   "onboarding.tag.firstrun": "uma conversa guiada com IA",
   "onboarding.note.login": "O AIOS está sendo construído para funcionar também com outras IAs — essa parte ainda está em desenvolvimento.",
-  "caffeinate.title": "Manter o computador acordado",
+  "caffeinate.title": "Manter acordado",
   "caffeinate.unsupported": "Este sistema recusou a solicitação — no Linux exige uma sessão de desktop",
   "settings.caffeinate": "Manter o computador acordado",
   "settings.caffeinateHint": "auto segue suas sessões ativas; manual é só o botão",
   "caffeinate.modeAuto": "Auto — enquanto as sessões trabalham",
   "caffeinate.modeManual": "Manual — só quando eu clicar",
-  "caffeinate.overriding": "ignorando suas sessões — clique de novo para segui-las"
+  "caffeinate.overriding": "ignorando suas sessões — clique de novo para segui-las",
+  "window.shortcuts": "Atalhos"
 }
