@@ -43,12 +43,13 @@ function fileUrlToPath(u) {
 
 /* ── inline icon set (lucide-style strokes, static strings) ───────────────── */
 const ICONS = {
-  /* AI-132 keep-awake. A cup, and the STEAM is the state: two wisps when the blocker is held,
-     none when it is not. Colour alone would not do it — the whole point of this control is that
-     the operator can tell which way it is set at a glance, and a tinted glyph in a dark title bar
-     reads as "slightly different" rather than "on". */
+  /* AI-132 keep-awake. TWO COMPLETE ICONS, not a cup plus an overlay — the first attempt drew the
+     steam as a second absolutely-positioned <svg> with `inset: 0`, which stretches to the BUTTON's
+     box rather than aligning to the first svg, so the steam landed in the top-left corner instead
+     of over the cup (operator-reported). One svg per state has no alignment to get wrong.
+     The steam is the non-colour signal: someone who cannot rely on the coral still sees it. */
   coffee: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/>',
-  coffeeSteam: '<path d="M7 5c0-1 1-1.2 1-2.2M10.5 5c0-1 1-1.2 1-2.2" opacity=".9"/>',
+  coffeeOn: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/><path d="M7 6.2c-.9-1.1.9-1.7 0-2.8"/><path d="M10.5 6.2c-.9-1.1.9-1.7 0-2.8"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   explorer: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>',
@@ -4361,6 +4362,7 @@ dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
    second implementation of the rule. It shows what main reports and sends intent. */
 const dragCaffeine = document.getElementById('dragCaffeine');
 let caffState = null;
+let caffTip = '';   // the hover text, kept outside paint so the tip element can read it any time
 function paintCaffeine(st) {
   caffState = st;
   if (!dragCaffeine) return;
@@ -4368,7 +4370,7 @@ function paintCaffeine(st) {
   /* The steam IS the state, not a tint. A coloured glyph in a dark title bar reads as "slightly
      different"; two wisps of steam read as ON from across the room, which is the entire job of a
      control whose failure mode is not knowing which way it is set. */
-  dragCaffeine.innerHTML = icon('coffee', 15) + (on ? icon('coffeeSteam', 15) : '');
+  dragCaffeine.innerHTML = icon(on ? 'coffeeOn' : 'coffee', 17);
   dragCaffeine.classList.toggle('caff-on', on);
   dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
   /* The tooltip names the STATE and its reason, never the action — and when the platform refused
@@ -4379,15 +4381,38 @@ function paintCaffeine(st) {
   else if (st && st.reason === 'override-off') why = t('caffeinate.overrideOff');
   else if (st && st.reason === 'auto-busy') why = t('caffeinate.autoBusy');
   else if (st && st.reason === 'auto-idle') why = t('caffeinate.offAuto');
-  dragCaffeine.title = t('caffeinate.title') + ' · ' + why;
+  caffTip = t('caffeinate.title') + ' · ' + why;
+  dragCaffeine.title = caffTip;   // kept as a fallback; the hover tip below is what actually shows
 }
 if (dragCaffeine) {
   /* A base tooltip set BEFORE any state arrives. `paintCaffeine` overwrites it with the state and
      its reason, but until the first push lands (or if one never does) the button must still say
      what it is — an unlabelled icon in a title bar is a guess. Reported by the operator: hovering
      showed nothing at all, because the only `title` assignment lived inside the paint. */
-  dragCaffeine.title = t('caffeinate.title');
-  dragCaffeine.innerHTML = icon('coffee', 15);
+  dragCaffeine.title = caffTip;
+  dragCaffeine.innerHTML = icon('coffee', 17);
+  /* A REAL tooltip, because the native one never appeared for the operator. Every button in this
+     cluster sets `.title` the same way and none of them is reliable: `#drag` is the window's
+     `-webkit-app-region: drag` surface, and native tooltips inside a drag region do not
+     consistently fire even though `#dragacts` opts out with `no-drag`. Rather than assert which
+     layer swallows it, this reuses the `.pathtip` element the terminal's ⌘-click hover already
+     uses — same styling, fixed positioning, pointer-events:none, so it cannot eat its own hover. */
+  const tipEl = document.createElement('div');
+  tipEl.className = 'pathtip';
+  tipEl.hidden = true;
+  document.body.appendChild(tipEl);
+  dragCaffeine.addEventListener('mouseenter', () => {
+    tipEl.textContent = caffTip;
+    const r = dragCaffeine.getBoundingClientRect();
+    tipEl.hidden = false;
+    /* Positioned after unhiding so the width is real: clamped to the viewport, because this button
+       is the LEFTMOST of a right-aligned cluster and its tip is wider than it is. */
+    const w = tipEl.getBoundingClientRect().width;
+    tipEl.style.top = `${Math.round(r.bottom + 6)}px`;
+    tipEl.style.left = `${Math.round(Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8))}px`;
+  });
+  dragCaffeine.addEventListener('mouseleave', () => { tipEl.hidden = true; });
+  dragCaffeine.addEventListener('click', () => { tipEl.hidden = true; });
   dragCaffeine.addEventListener('click', async () => { paintCaffeine(await window.glassShell.caffeinateToggle()); });
   window.glassShell.onCaffeinate(paintCaffeine);
   void window.glassShell.caffeinateState().then(paintCaffeine);
