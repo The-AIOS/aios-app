@@ -214,3 +214,27 @@ test('the mode is a setting with auto as the default, and only "manual" opts out
   assert.match(m, /if \(key === 'caffeinate'\) caffeine\.modeChanged\(\);/,
     'changing the rule must retire any override, or auto visibly stops following sessions');
 });
+
+test('the dot means "your hand is on it" — in BOTH modes, one rule not two', () => {
+  /* Operator's question: "when setting is manual for caffeinate, i wonder if we should show the
+     dot as when overriding". Yes — because from their seat manual-and-on IS the overriding
+     situation: they pressed the button and the machine is awake because they said so. Marking the
+     same situation two different ways is what makes a control need explaining.
+     Guarded because the previous rule (`mode === 'auto' && override !== null`) reads as the more
+     careful one and would be re-introduced by anyone reasoning from "only auto has a rule to
+     override" — which is true about the CODE and false about the operator's experience. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /classList\.toggle\('caff-override', !!\(st && st\.override !== null\)\)/,
+    'the dot follows the override in any mode');
+  assert.doesNotMatch(app, /caff-override'[^\n]*mode === 'auto'/,
+    'gating the dot on auto is what left manual-and-on unmarked');
+
+  /* And the reason the redundancy in manual is acceptable rather than noise: manual only ever
+     cycles null <-> true, so the dot is never permanently lit — it tracks being held awake. */
+  assert.equal(nextOverride({ mode: 'manual', busy: false, override: null }), true,
+    'manual click turns it on');
+  assert.equal(nextOverride({ mode: 'manual', busy: false, override: true }), null,
+    'and clicking back RELEASES rather than pinning false — so the dot goes out');
+  assert.equal(nextOverride({ mode: 'manual', busy: true, override: null }), true,
+    'a busy session does not change manual: the button is the only authority');
+});

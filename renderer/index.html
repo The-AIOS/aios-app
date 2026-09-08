@@ -8,7 +8,18 @@
 <body>
 <div id="root">
   <div id="drag"><span class="wtitle"><span id="dragMark"></span><b>AIOS</b><span class="wtag" data-i18n="window.tag">your team of agents</span></span>
-    <div id="dragacts"><button id="dragCaffeine" class="ribtn"></button><button id="dragPanel" class="ribtn" hidden></button><button id="railLayout" class="ribtn"></button><button id="dragReadme"></button><button id="dragHelp"></button><button id="dragCheat"></button><button id="dragKeys"></button><button id="dragGuide"></button><button id="railSetup" class="ribtn" hidden></button></div>
+    <!-- TITLE-BAR CLUSTER, GROUPED BY WHAT A CLICK DOES — order is meaning here, not decoration.
+         Operator-reported: "shortcuts looks weird where it is". It was, and the cause was one
+         button earlier in the run: dragHelp SPAWNS the onboarding agent (an action), and it sat
+         between the readme and the cheatsheet, splitting the reference items in half — which left
+         the keyboard adrift between two halves of a broken group rather than beside its kin.
+           1. state + workbench     caffeine · panel · layout      (change something now)
+           2. references, prose→terse  readme · guide · cheat · keys  (open something to read)
+           3. ask + set up          help · setup                   (hand off to someone/something)
+         Deliberately NOT pinned by a test: a guard on exact order would fire on every legitimate
+         addition, which is the class of guard this suite has had to rewrite five times. The
+         comment carries the intent; the reviewer carries the enforcement. -->
+    <div id="dragacts"><button id="dragCaffeine" class="ribtn"></button><button id="dragPanel" class="ribtn" hidden></button><button id="railLayout" class="ribtn"></button><button id="dragReadme"></button><button id="dragGuide"></button><button id="dragCheat"></button><button id="dragKeys"></button><button id="dragHelp"></button><button id="railSetup" class="ribtn" hidden></button></div>
   </div>
   <div id="app">
     <div id="panel">

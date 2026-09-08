@@ -4841,11 +4841,17 @@ function paintCaffeine(st) {
   if (st && st.unsupported) why = t('caffeinate.unsupported');
   caffTip = t('caffeinate.title') + (why ? ' · ' + why : '');
   dragCaffeine.title = caffTip;   // fallback only; attachTip is what actually shows
-  /* An override in auto mode is a THIRD visual state, not just on-or-off: the cup has stopped
-     following sessions. Marked so the operator can see they are overriding and that one more
-     click resumes auto — the question "what brings it back to auto?" was asked because nothing
-     on screen answered it. */
-  dragCaffeine.classList.toggle('caff-override', !!(st && st.mode === 'auto' && st.override !== null));
+  /* THE DOT MEANS "YOUR HAND IS ON IT" — in either mode, which is the operator's own call and
+     makes it one rule instead of two. It was gated on `auto`, on the reasoning that only auto has
+     a rule to override; but from the operator's seat manual-and-on is the SAME situation (they
+     pressed the button, the machine is awake because they said so), and marking the same
+     situation two different ways is what makes a control need explaining.
+     In manual the dot is redundant with the coral fill — manual only ever cycles null ↔ true, so
+     dot-on and on coincide — and that redundancy is the price of the simpler rule. It is not
+     noise: it is never *always* on, only on while the machine is being held awake.
+     In auto it still carries what nothing else can — the cup has stopped following sessions, and
+     one more click resumes auto. */
+  dragCaffeine.classList.toggle('caff-override', !!(st && st.override !== null));
 }
 if (dragCaffeine) {
   /* A base tooltip set BEFORE any state arrives. `paintCaffeine` overwrites it with the state and
