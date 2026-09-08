@@ -149,9 +149,21 @@ test('the button reports the state it can OBSERVE, and admits when the platform 
      operator reported (hovering showed nothing at all, because the only title assignment lived
      inside the paint, so there was none until the first state push landed). A base label is the
      correct fallback for that window; what must never happen is the state never being appended. */
-  assert.match(app, /dragCaffeine\.title = t\('caffeinate\.title'\) \+ ' · ' \+ why;/,
-    'the painted tooltip must append the state and its reason');
-  assert.match(app, /let why = t\('caffeinate\.offManual'\);/, 'and `why` must have a default, not undefined');
+  /* Asserted by INTENT, not by exact syntax. This assertion has now been rewritten twice because
+     it pinned a literal line — first forbidding a base title, then naming `dragCaffeine.title = …`
+     the moment the hover moved to a real tooltip element. A guard that fails on a correct
+     refactor teaches people to edit guards, which is worse than the drift it was guarding. What
+     must hold: the hover text combines the control's NAME with the current state's reason, and
+     that text is what the tip actually renders. */
+  assert.match(app, /caffTip = t\('caffeinate\.title'\)[^\n]*why/,
+    'the hover text must combine the name with the state reason');
+  assert.match(app, /tipEl\.textContent = caffTip/, 'and the tip must render that text');
+  assert.match(app, /let why = t\('caffeinate\.offManual'\);/, '`why` must have a default, not undefined');
+  /* Native `title` alone was not enough: every button in this title-bar cluster sets one and none
+     appeared for the operator — `#drag` is the window's drag region. So a real element is required. */
+  assert.match(app, /className = 'pathtip'/, 'reuse the existing hover-tip element, not a new mechanism');
+  assert.match(app, /mouseleave.*tipEl\.hidden = true|tipEl\.hidden = true; \}\);/,
+    'and it must hide again — a stuck tooltip is worse than none');
 });
 
 test('every caffeinate string exists in all three locales', () => {
