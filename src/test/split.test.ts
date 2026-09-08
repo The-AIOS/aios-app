@@ -311,3 +311,46 @@ test('clicking INSIDE a pane moves the marks, not just the caret', () => {
   assert.match(body, /q\.tab\.classList\.toggle\('active', pid === id\)/, 'the tab mark follows');
   assert.match(body, /q\.el\.classList\.toggle\('panefocus', split && pid === id\)/, 'and the pane ring');
 });
+
+test('a NEW pane never evicts a split — it joins if it fits, else takes the zone', () => {
+  /* Operator-reported: with a zone split, opening another terminal or session "replaces the
+     rightmost screen without checking if there was room". That is the worst of the three
+     available outcomes — one of the two things they were deliberately watching disappeared, and
+     nothing said so. The other two are both honest: join when the zone can still fit a usable
+     pane, otherwise take the zone full and leave the split's members as tabs (⌘\ brings the pair
+     straight back). Both are announced.
+     Guarded as CAPABILITY, not as source lines: the decision must be measured, gated on a fresh
+     pane, and must never reach for the eviction shape. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('function homePane(id, p, { fresh = false } = {}) {'));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+
+  /* MEASURED. The ceiling is width — the same rule as fitsAnother() — so the answer differs
+     between a laptop and a 34" monitor and cannot be a constant. */
+  assert.match(body, /getBoundingClientRect\(\)\.width/, 'the zone must be measured, never assumed');
+  assert.match(body, /MIN_PANE_PX/, 'and compared against the narrowest usable pane');
+  assert.match(body, /SPLIT_GAP_PX/, 'with the gaps charged for');
+
+  /* GATED ON `fresh`. applySplit() re-homes every pane on every layout change; a re-home that
+     re-decided the arrangement would rearrange the zone on an unrelated repaint. */
+  assert.match(body, /if \(fresh &&/, 'only a fresh pane may decide placement');
+
+  /* BOTH OUTCOMES EXIST, AND BOTH SPEAK. */
+  assert.match(body, /toast\(t\('split\.joined'\)\)/, 'joining must be announced');
+  assert.match(body, /toast\(t\('split\.tookFull'\)\)/, 'so must taking the zone');
+  assert.match(body, /zones\[z\]\.visible = \[id\]/,
+    'no room means the new pane takes the ZONE — the split members stay as tabs');
+
+  /* NOT AN EVICTION. splitWithPane may replace a slot, because there the operator pointed at the
+     pane they wanted beside their work. A pane merely being CREATED never earns that. */
+  assert.doesNotMatch(body, /\.map\(\(v, i\) => \(i ===/, 'a new pane must not overwrite a slot');
+
+  /* The placement is an arrangement change, so it must survive a restart. */
+  assert.match(body, /saveLayout\(\)/, 'the new arrangement must persist');
+
+  /* And the two messages must actually exist. */
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  for (const k of ['split.joined', 'split.tookFull']) {
+    assert.ok(en[k], `missing i18n key ${k} — the toast would render its own key at the operator`);
+  }
+});

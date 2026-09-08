@@ -1883,6 +1883,43 @@ function homePane(id, p, { fresh = false } = {}) {
   registerTab(id, z);
   paintStrip(z);
   panesEl(z).appendChild(p.el);
+  /* A NEW PANE ARRIVING IN A ZONE THAT IS ALREADY SPLIT. Operator-reported: it silently took a
+     slot from a pane already on screen, without ever asking whether there was room for another
+     one. Losing one of the two things you are deliberately watching, with no notice, is the worst
+     of the three possible outcomes — so this is the one place that decides, and it decides by
+     MEASURING (fitsAnother's rule), never by a count.
+
+       room     → JOIN the split, beside the pane the operator is focused in.
+       no room  → take the zone FULL, keeping the split's members as hidden tabs.
+
+     "Full" is deliberately not "replace one of them": a new thing filling the screen reads as a
+     mode change and ⌘\ brings the pair straight back, whereas a pane quietly vanishing out of a
+     split reads as a bug. Either way the operator is TOLD which of the two happened.
+
+     Only `fresh` panes come through here — applySplit() re-homes every pane on every layout
+     change, and a re-home must never re-decide the arrangement. `active[z]` is still the
+     previously-focused pane at this point (each creation path calls setActive AFTER homePane),
+     which is exactly the anchor we want to insert beside. */
+  if (fresh && zoneSplit(z) && !zones[z].visible.includes(id)) {
+    const zEl = document.getElementById(z === 'term' ? 'termzone' : 'viewzone');
+    const zoneW = zEl ? zEl.getBoundingClientRect().width : 0;
+    const nextCount = zones[z].visible.length + 1;
+    const room = nextCount <= MAX_VISIBLE_PANES
+      && (zoneW - SPLIT_GAP_PX * (nextCount - 1)) / nextCount >= MIN_PANE_PX;
+    if (room) {
+      const at = zones[z].visible.indexOf(active[z]);
+      zones[z].visible = at < 0
+        ? [...zones[z].visible, id]
+        : [...zones[z].visible.slice(0, at + 1), id, ...zones[z].visible.slice(at + 1)];
+      zones[z].frac = evenFrac(zones[z].visible.length);
+      toast(t('split.joined'));
+    } else {
+      zones[z].visible = [id];
+      zones[z].frac = [1];
+      toast(t('split.tookFull'));
+    }
+    saveLayout();   // the arrangement changed, not just the focus
+  }
   setVisible(z);
   updateEmpty();
   /* A pane landing in a HIDDEN zone must un-hide it, or the operator opens something and

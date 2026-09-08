@@ -991,5 +991,7 @@
   "tab.renameHint": "seu rótulo vence o que a sessão anuncia",
   "split.openRightHint": "mostrar ao lado da que você está usando",
   "tab.renameSession": "Pedi à sessão para se renomear como “{name}”",
-  "split.noRoom": "Sem espaço para outra — substituí o painel mais distante"
+  "split.noRoom": "Sem espaço para outra — substituí o painel mais distante",
+  "split.joined": "Entrou na divisão",
+  "split.tookFull": "Sem espaço para dividir — abriu inteira, ⌘\\ para voltar"
 }
