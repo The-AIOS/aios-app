@@ -4379,9 +4379,15 @@ function paintCaffeine(st) {
   else if (st && st.reason === 'override-off') why = t('caffeinate.overrideOff');
   else if (st && st.reason === 'auto-busy') why = t('caffeinate.autoBusy');
   else if (st && st.reason === 'auto-idle') why = t('caffeinate.offAuto');
-  dragCaffeine.title = t('caffeinate.title') + ' — ' + why;
+  dragCaffeine.title = t('caffeinate.title') + ' · ' + why;
 }
 if (dragCaffeine) {
+  /* A base tooltip set BEFORE any state arrives. `paintCaffeine` overwrites it with the state and
+     its reason, but until the first push lands (or if one never does) the button must still say
+     what it is — an unlabelled icon in a title bar is a guess. Reported by the operator: hovering
+     showed nothing at all, because the only `title` assignment lived inside the paint. */
+  dragCaffeine.title = t('caffeinate.title');
+  dragCaffeine.innerHTML = icon('coffee', 15);
   dragCaffeine.addEventListener('click', async () => { paintCaffeine(await window.glassShell.caffeinateToggle()); });
   window.glassShell.onCaffeinate(paintCaffeine);
   void window.glassShell.caffeinateState().then(paintCaffeine);
@@ -5228,7 +5234,15 @@ function openSettingsTab() {
     for (const [l, v] of [[t('caffeinate.modeAuto'), 'auto'], [t('caffeinate.modeManual'), 'manual']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; caffSel.appendChild(o); }
     caffSel.value = cfg.caffeinate || 'auto';
     caffSel.addEventListener('change', async () => { await window.glassShell.setSetting('caffeinate', caffSel.value); toast(t('settings.saved')); });
-    row(wrap, t('settings.caffeinate'), caffSel, t('settings.caffeinateHint'));
+    const caffRow = row(wrap, t('settings.caffeinate'), caffSel, t('settings.caffeinateHint'));
+    /* The same cup that sits in the title bar, inline in the label — so the setting and the
+       control it governs read as one thing rather than two features that happen to share a word.
+       Prepended into the existing .tlabel rather than by widening row()'s contract for every
+       other caller (it takes textContent by design). */
+    const caffMark = document.createElement('span');
+    caffMark.className = 'tlabicon';
+    caffMark.innerHTML = icon('coffee', 13);
+    caffRow.querySelector('.tlabel')?.prepend(caffMark);
 
     // terminalMode (#6): where actions run — ask (pick among live sessions) or auto (primary/new)
     const modeSel = document.createElement('select');

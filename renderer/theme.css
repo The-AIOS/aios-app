@@ -1238,7 +1238,16 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    different" rather than "on", which defeats the one job this control has. `.caff-warn` is the
    case where we asked for a blocker and the platform refused (Linux without a session bus): the
    button must look wrong rather than claim success. */
-#dragCaffeine.caff-on { color: var(--accent); }
+/* ON is unmistakable, at the operator's request: coral glyph AND a soft coral wash, so it reads
+   as a pressed toggle from across the room rather than "a slightly different grey". The steam in
+   the icon carries the same signal for anyone who cannot rely on colour. */
+#dragCaffeine.caff-on { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 6px; }
+#dragCaffeine.caff-on:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+/* OFF must still be legible — an invisible control cannot be found, let alone toggled. */
+#dragCaffeine { opacity: .85; }
+#dragCaffeine:hover { opacity: 1; }
+/* the cup inline in the Settings label, so the setting and the button read as one thing */
+.tlabicon { display: inline-flex; vertical-align: -2px; margin-right: 6px; opacity: .75; }
 #dragCaffeine.caff-warn { color: var(--st-warn); }
 #dragCaffeine svg + svg { position: absolute; inset: 0; }
 #dragCaffeine { position: relative; }

@@ -143,8 +143,15 @@ test('the button reports the state it can OBSERVE, and admits when the platform 
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /caff-warn/, 'the refused case must be visible, not swallowed');
   assert.match(app, /t\('caffeinate\.unsupported'\)/);
-  // the tooltip names state, never the action
-  assert.doesNotMatch(app, /title = t\('caffeinate\.title'\);?$/m, 'a bare action label tells the operator nothing');
+  /* The tooltip must carry the STATE, not only the control's name. Asserted as the presence of
+     the state-aware assignment rather than as the ABSENCE of a bare one — this guard originally
+     forbade `title = t('caffeinate.title')` outright and then fired on the fix for a real bug the
+     operator reported (hovering showed nothing at all, because the only title assignment lived
+     inside the paint, so there was none until the first state push landed). A base label is the
+     correct fallback for that window; what must never happen is the state never being appended. */
+  assert.match(app, /dragCaffeine\.title = t\('caffeinate\.title'\) \+ ' · ' \+ why;/,
+    'the painted tooltip must append the state and its reason');
+  assert.match(app, /let why = t\('caffeinate\.offManual'\);/, 'and `why` must have a default, not undefined');
 });
 
 test('every caffeinate string exists in all three locales', () => {
