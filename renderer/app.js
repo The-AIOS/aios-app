@@ -2567,14 +2567,19 @@ function makeTab(id, name, iconName) {
     const pane = panes.get(id);
     if (!pane) return;
     const z = zoneOf(pane);
-    const items = [{ label: t('tab.rename'), desc: t('tab.renameHint'), icon: 'md', value: 'rename' }];
+    const items = [{ label: t('tab.rename'), value: 'rename' }];
     /* Split with THIS tab whenever it is not already the focused pane — including when it is the
        other visible half, which simply focuses it. The old condition excluded every visible tab
        and that is what made the menu look broken. */
-    if (id !== active[z]) items.push({ label: t('split.openRight'), desc: t('split.openRightHint'), icon: 'layout', value: 'right' });
-    if (zoneSplit(z)) items.push({ label: t('split.unsplit'), desc: '', icon: 'compress', value: 'unsplit' });
-    items.push({ label: t('tab.close'), desc: '', icon: 'trash', value: 'close' });
-    void listModal(pane.name || t('pulse.terminal'), items, t('modal.filterPlaceholder')).then(async (pick) => {
+    if (id !== active[z]) items.push({ label: t('split.openRight'), value: 'right' });
+    if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
+    items.push({ label: '-', value: '-' }, { label: t('tab.close'), value: 'close' });
+    /* A NATIVE menu, not the app's listModal. That picker carries a filter box because it was
+       built for long searchable lists (sessions, skills, commands), and on four rows the operator
+       read it as over-powered — a search field implies a list worth searching. Native appears at
+       the pointer, needs no styling, is keyboard-navigable, and behaves like every other
+       right-click on the machine. The labels are still ours; main is told what to show. */
+    void window.glassShell.tabMenu(items).then(async (pick) => {
       if (pick === 'right') splitWithPane(z, id);
       else if (pick === 'unsplit') unsplitZone(z);
       else if (pick === 'close') void requestClosePane(id);
@@ -2653,6 +2658,49 @@ function makeTab(id, name, iconName) {
 }
 
 let dragTab = null;
+
+/* ═══ AI-82 gesture 3 — DRAG A TAB ONTO A PANE ═══
+   Deferred on the first pass, and the row said why and when: it is "the most discoverable
+   gesture and worth revisiting once the tiling and the interaction sweep are proven, at which
+   point it is additive instead of a risk multiplier". Both are now proven live, so it is additive.
+
+   The drop target is a PANE, not "the right half of the zone" — spatially it means "put this
+   beside THAT", which is the sentence the operator is already thinking, and it needs no invisible
+   half-zone geometry to learn. Dropping onto the pane a tab is already showing is a no-op rather
+   than an error.
+
+   Scoped so it cannot disturb what already works: the tab strip's own reorder drag is untouched
+   (it claims drops on TABS), this claims drops on PANES, and both gate on the app-private
+   `application/x-aios-tab` type plus a same-zone check — the explorer installs its own
+   dragover/drop handlers for file paths, and without the guard a tab dropped there would be read
+   as a path. */
+function attachPaneDropTarget(p, id) {
+  const el = p.el;
+  const ok = (ev) => {
+    if (!dragTab) return false;
+    const dp = panes.get(dragTab.id);
+    return !!dp && zoneOf(dp) === zoneOf(p) && dragTab.id !== id;
+  };
+  el.addEventListener('dragover', (ev) => {
+    if (!ok(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    el.classList.add('panedrop');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('panedrop'));
+  el.addEventListener('drop', (ev) => {
+    el.classList.remove('panedrop');
+    if (!ok(ev)) return;
+    ev.preventDefault();
+    ev.stopPropagation();          // never let the explorer's path handler see a tab
+    const dropped = dragTab.id;
+    dragTab = null;
+    /* Focus the pane that was dropped ON first, so "beside" means beside THIS one — splitWithPane
+       opens next to whatever is focused, and reusing it keeps one implementation of the rule. */
+    setActive(id);
+    splitWithPane(zoneOf(p), dropped);
+  });
+}
 function clearDropHint() {
   for (const el of document.querySelectorAll('.tab.drop-before, .tab.drop-after')) {
     el.classList.remove('drop-before', 'drop-after');
@@ -2746,6 +2794,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, isSession: paneIsClaude(cmd) };
   panes.set(id, p);
+  attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
   homePane(id, p, { fresh: true });
   // raw tty fills the pane — type straight into the session; drag with the mouse
   // to select, which copies to the clipboard (xterm-native, no composer bar).
@@ -3040,6 +3089,7 @@ function openBrowserPane(url, label) {
   const tab = makeTab(id, label || 'browser', 'html');
   const paneObj = { kind: 'browser', name: label || 'browser', el, tab, url };
   panes.set(id, paneObj);
+  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
   setActive(id);
 }
@@ -3750,6 +3800,7 @@ async function openViewer(p) {
   const tab = makeTab(id, name, fileIconName(name));
   const paneObj = { kind: 'view', name, el, tab, path: file.path };
   panes.set(id, paneObj);
+  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
 
   const renderable = MD_EXT.test(name) || HTML_EXT.test(name) || IMG_EXT.test(name) || PDF_EXT.test(name);
@@ -5404,6 +5455,7 @@ function openToolTab(key, titleText, build, opts) {
     };
   }
   panes.set(id, paneObj);
+  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
   build(body, head);
   setActive(id);

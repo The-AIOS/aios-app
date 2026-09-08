@@ -1269,3 +1269,8 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    on screen says where the next keystroke lands. */
 .zsplit .pane.termcard:not(.panehidden) { border-color: var(--line); }
 .zsplit .pane.termcard.panefocus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+
+/* AI-82 drag-to-split: the pane under the cursor says it will take the drop. A coral inset ring
+   rather than a border change — the border already carries focus, and two meanings on one edge is
+   how an operator stops trusting either. */
+.pane.panedrop { box-shadow: inset 0 0 0 2px var(--accent), var(--edge), var(--depth); }

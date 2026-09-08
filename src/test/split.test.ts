@@ -135,27 +135,33 @@ test('the renderer mirrors this arithmetic, and the duplication is GUARDED', () 
   assert.match(app, /const PANE_EDGE_PX = 10;/);
 });
 
-test('one MECHANISM, two entry points — and the deferred third stays deferred', () => {
-  /* The spec says "pick one; do not ship three". Chuy asked for the chord AND the context item,
-     which is not a violation: both call a single splitWithPane() and neither needs new geometry,
-     so the marginal cost of the second is a menu row. The candidate the spec was warning about is
-     dragging a tab into the right half — drop-target hit-testing, widening a drag surface the
-     code comments say was deliberately kept to reordering within one strip. */
+test('one MECHANISM, three entry points — chord, menu, and drag onto a pane', () => {
+  /* The spec's "pick one; do not ship three" was about shipping three UNPROVEN mechanisms at
+     once, and the row said when the third became safe: drag is "the most discoverable gesture and
+     worth revisiting once the tiling and the interaction sweep are proven, at which point it is
+     additive instead of a risk multiplier". Both were proven live before it was added, so this is
+     the anticipated moment rather than scope creep.
+     The earlier version of this test asserted drag stayed deferred — and it FIRED when drag was
+     built, which is a guard doing its job: reversing a deliberate deferral should cost a
+     deliberate edit. All three still route through one splitWithPane(), which is the invariant
+     that actually matters. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  const calls = [...app.matchAll(/splitWithPane\(/g)].length;
-  assert.ok(calls >= 3, 'one function, called from its definition and both entry points');
   assert.match(app, /e\.code === 'Backslash'/, 'the chord');
-  assert.match(app, /if \(pick === 'right'\) splitWithPane\(z, id\)/, 'the context item');
-  /* Drag-to-split is deferred, and the assertion has to say exactly that: this app ALREADY has
-     `dragover`/`dataTransfer` for tab reordering and explorer file drops, both older than AI-82,
-     so forbidding those words fires on unrelated correct code. (It did — an earlier form of this
-     line used a broad alternation and failed on the tab-reorder handler.) What must hold is that
-     no DRAG path performs a split: every line that calls splitWithPane is a chord or a menu. */
+  assert.match(app, /if \(pick === 'right'\) splitWithPane\(z, id\)/, 'the menu item');
+  assert.match(app, /splitWithPane\(zoneOf\(p\), dropped\)/, 'the drag');
   const callers = app.split('\n').filter((l) => l.includes('splitWithPane(') && !l.includes('function splitWithPane'));
-  assert.equal(callers.length, 2, 'exactly two entry points: the chord and the context item');
-  for (const l of callers) {
-    assert.doesNotMatch(l, /drag|drop|dataTransfer/i, `a drag path must not split: ${l.trim()}`);
-  }
+  assert.equal(callers.length, 3, 'three entry points, one mechanism');
+  /* The drop target is a PANE, and it must not disturb the two drags that predate it: the strip's
+     own reorder (which claims drops on TABS) and the explorer's file-path handler. */
+  const drop = app.slice(app.indexOf('function attachPaneDropTarget'));
+  assert.match(drop.slice(0, drop.indexOf('\n}')), /ev\.stopPropagation\(\);/,
+    "a tab dropped on a pane must never reach the explorer's path handler");
+  assert.match(drop, /zoneOf\(dp\) === zoneOf\(p\)/, 'and a tab cannot cross zones by dragging');
+  assert.match(app, /attachPaneDropTarget\(p, id\)|attachPaneDropTarget\(paneObj, id\)/);
+  // excluding the DEFINITION, whose signature matches the same shape as a call
+  const hooks = app.split('\n').filter((l) => l.includes('attachPaneDropTarget(') && !l.includes('function attachPaneDropTarget')).length;
+  const regs = [...app.matchAll(/panes\.set\(id, (p|paneObj)\)/g)].length;
+  assert.equal(hooks, regs, 'every pane kind is a drop target — a new one must not forget');
 });
 
 test('`active` means FOCUS now, and the focused pane is always visible', () => {
@@ -218,6 +224,11 @@ test('the tab menu is useful on ANY tab — including the one you are looking at
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const menu = app.slice(app.indexOf("tab.addEventListener('contextmenu'"), app.indexOf('/* ── drag to reorder'));
   assert.match(menu, /value: 'rename'/, 'rename is always available (AI-70)');
+  /* A NATIVE menu, not the app's searchable picker. listModal exists for long lists and carries a
+     filter box; on four rows that reads as over-powered — the operator said so. A search field
+     implies a list worth searching. */
+  assert.match(menu, /window\.glassShell\.tabMenu\(items\)/, 'the tab menu must be native');
+  assert.doesNotMatch(menu, /listModal\(/, 'the searchable picker is the wrong instrument here');
   assert.match(menu, /if \(id !== active\[z\]\) items\.push/, 'split is offered for any non-focused tab');
   assert.match(menu, /value: 'close'/);
   assert.doesNotMatch(menu, /!zones\[z\]\.visible\.includes\(id\)/,
