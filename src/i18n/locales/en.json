@@ -976,16 +976,11 @@
   "onboarding.tag.github": "free, private storage for AI work",
   "onboarding.tag.firstrun": "a guided conversation with AI",
   "onboarding.note.login": "AIOS is being built to work with other AI as well — that part is still in progress.",
-  "caffeinate.title": "Keep this Mac awake",
-  "caffeinate.on": "Sleep prevented — the display may still blank",
-  "caffeinate.offAuto": "Following your sessions — nothing is working, so sleep is allowed",
-  "caffeinate.offManual": "Sleep allowed — click to keep awake",
-  "caffeinate.autoBusy": "Sleep prevented while a session is working",
-  "caffeinate.overrideOn": "Sleep prevented — you asked for this, ignoring sessions",
-  "caffeinate.overrideOff": "Sleep allowed — you asked for this, ignoring sessions",
+  "caffeinate.title": "Keep computer awake",
   "caffeinate.unsupported": "This system refused the request — on Linux this needs a desktop session",
   "settings.caffeinate": "Keep the computer awake",
   "settings.caffeinateHint": "auto follows your running sessions; manual is the button only",
   "caffeinate.modeAuto": "Auto — while sessions are working",
-  "caffeinate.modeManual": "Manual — only when I click"
+  "caffeinate.modeManual": "Manual — only when I click",
+  "caffeinate.overriding": "overriding your sessions — click again to follow them"
 }

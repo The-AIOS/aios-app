@@ -15,14 +15,23 @@ const app = fs.readFileSync('renderer/app.js', 'utf8');
 const css = fs.readFileSync('renderer/theme.css', 'utf8');
 const html = fs.readFileSync('renderer/index.html', 'utf8');
 
-test('the toggle sits in the title bar, immediately left of the layouts button', () => {
-  /* Asserts ADJACENCY, which is what this test's name and its file header actually claim. It used
-     to be anchored to `<div id="dragacts">` immediately followed by dragPanel, which additionally
-     pinned dragPanel as the FIRST child — incidental, never the point, and it failed the moment a
-     new title-bar control was placed to its left (AI-132's keep-awake toggle, put leftmost at the
-     operator's request). A guard that fails for a reason it does not claim teaches people to edit
-     guards; this one now fails only if panel and layout stop being neighbours. */
-  assert.match(html, /<button id="dragPanel" class="ribtn"><\/button><button id="railLayout"/);
+test('the panel toggle stays REACHABLE even though its button is hidden', () => {
+  /* The premise of this test was retired 2026-09-08: the operator asked for the title-bar cluster
+     to carry the layout changer only, so `dragPanel` ships `hidden`. What matters is not that a
+     button sits somewhere — it is that panel visibility can still be toggled at all, because
+     `pOn` is a flag no layout preset controls (see this file's header: a preset-based toggle was
+     the original bug). Hiding the button is a simplification ONLY while another affordance holds,
+     so that is now what is asserted.
+     Its earlier form pinned dragPanel as the FIRST child of #dragacts — incidental, never what
+     the name claimed — and it failed when the keep-awake toggle was placed to its left. Twice in
+     one day a guard here failed for a reason it did not claim, which is why this one measures the
+     capability instead of the markup. */
+  assert.match(html, /<button id="dragPanel" class="ribtn" hidden><\/button>/,
+    'hidden, not removed — the element is still the toggle the intent routes to');
+  const menu = fs.readFileSync('src/main/menu.ts', 'utf8');
+  assert.match(menu, /accelerator: 'CmdOrCtrl\+B', click: \(\) => intent\('layout', \{ togglePanel: true \}\)/,
+    'CmdOrCtrl+B and the View menu item are what make hiding the button safe');
+  assert.match(app, /if \(m\.togglePanel\)/, 'and the renderer must still route that intent');
 });
 
 test('panel visibility is a per-layout flag, symmetric with the explorer', () => {

@@ -4315,6 +4315,16 @@ function paintRailTitles() {
   document.getElementById('dragHelp').title = t('window.readme');
   document.getElementById('dragCheat').title = t('window.cheatsheet');
   document.getElementById('dragGuide').title = t('window.guide');
+  /* And now they actually SHOW. These titles have been set since the buttons shipped and none of
+     them ever appeared — native tooltips do not fire inside the drag region. Attached here, after
+     the titles exist, and idempotent-by-accident is not good enough: attaching twice would stack
+     listeners on a locale change, so the guard below runs the attach once. */
+  if (!tipsAttached) {
+    tipsAttached = true;
+    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragGuide', 'railSetup']) {
+      attachTip(document.getElementById(id));
+    }
+  }
 }
 document.getElementById('railPlugins').addEventListener('click', () => openPluginsTab());
 // go-with-agents (robot + live count badge), create-custom (+), and density (compact)
@@ -4355,6 +4365,50 @@ dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios
 const dragHelp = document.getElementById('dragHelp');
 dragHelp.innerHTML = icon('file', 15);  // doc → README
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
+/* ═══ Title-bar hover tips ═══
+   NATIVE TOOLTIPS DO NOT FIRE IN THIS CLUSTER, and every button in it had been setting `.title`
+   as if they did. `#drag` is the window's `-webkit-app-region: drag` surface; `#dragacts` opts
+   out with `no-drag` (so clicks work) but native tooltips still do not consistently appear
+   inside it. Reported by the operator on the keep-awake button and then true of all of them —
+   panel, layout, readme, help, cheatsheet, guide had been silently label-less since they shipped.
+
+   Rather than argue about which layer swallows the native tip, this renders a real element: the
+   same `.pathtip` the terminal's ⌘-click hover already uses, so no new mechanism and no new
+   styling. ONE element is shared by every button — N hidden divs would be N things to leak.
+
+   `text()` is read at HOVER TIME, not at attach time, so a button whose label changes with state
+   (the keep-awake cup) needs no re-attachment, and a button whose label is set later by the
+   locale pass is still correct. Default source is the element's own `.title`, which keeps the
+   existing i18n assignments as the single home for the words. */
+let tipEl = null;
+let tipsAttached = false;
+function attachTip(el, text) {
+  if (!el) return;
+  if (!tipEl) {
+    tipEl = document.createElement('div');
+    tipEl.className = 'pathtip';
+    tipEl.hidden = true;
+    document.body.appendChild(tipEl);
+  }
+  const show = () => {
+    const s = (text ? text() : el.title) || '';
+    if (!s) return;
+    tipEl.textContent = s;
+    tipEl.hidden = false;
+    /* Measured AFTER unhiding, or the width is 0 and every tip lands left of where it belongs.
+       Clamped to the viewport because this cluster is right-aligned and its tips are wider than
+       the buttons they describe. */
+    const r = el.getBoundingClientRect();
+    const w = tipEl.getBoundingClientRect().width;
+    tipEl.style.top = `${Math.round(r.bottom + 6)}px`;
+    tipEl.style.left = `${Math.round(Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8))}px`;
+  };
+  const hide = () => { if (tipEl) tipEl.hidden = true; };
+  el.addEventListener('mouseenter', show);
+  el.addEventListener('mouseleave', hide);
+  el.addEventListener('click', hide);   // a tip left hanging over a changed UI is worse than none
+}
+
 /* ═══ AI-132 keep-awake — the button is a STATE READOUT that happens to be clickable ═══
    Every decision lives in main (src/main/caffeinate.ts + the pure policy in src/core): this
    renderer cannot import src/core at all — index.html loads UMD bundles, the generated i18n.js
@@ -4375,14 +4429,24 @@ function paintCaffeine(st) {
   dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
   /* The tooltip names the STATE and its reason, never the action — and when the platform refused
      the request it says so instead of claiming success. */
-  let why = t('caffeinate.offManual');
+  /* JUST THE NAME, normally. The highlight already says on-or-off, so repeating it in words is
+     noise — and the label is platform-free now: it read "Keep this Mac awake", which is simply
+     wrong on the Windows and Linux builds this same code ships to.
+     TWO EXCEPTIONS, and both are cases where the highlight ALONE would mislead:
+       · unsupported — we asked and the platform refused (Linux with no session bus). The cup would
+         look off while the operator believes they turned it on, so this one must say so.
+       · an override in AUTO mode — the cup's state no longer follows your sessions, and nothing
+         else on screen explains why, or how to get back. It names the way back. */
+  let why = '';
   if (st && st.unsupported) why = t('caffeinate.unsupported');
-  else if (st && st.reason === 'override-on') why = t('caffeinate.overrideOn');
-  else if (st && st.reason === 'override-off') why = t('caffeinate.overrideOff');
-  else if (st && st.reason === 'auto-busy') why = t('caffeinate.autoBusy');
-  else if (st && st.reason === 'auto-idle') why = t('caffeinate.offAuto');
-  caffTip = t('caffeinate.title') + ' · ' + why;
-  dragCaffeine.title = caffTip;   // kept as a fallback; the hover tip below is what actually shows
+  else if (st && st.mode === 'auto' && st.override !== null) why = t('caffeinate.overriding');
+  caffTip = t('caffeinate.title') + (why ? ' · ' + why : '');
+  dragCaffeine.title = caffTip;   // fallback only; attachTip is what actually shows
+  /* An override in auto mode is a THIRD visual state, not just on-or-off: the cup has stopped
+     following sessions. Marked so the operator can see they are overriding and that one more
+     click resumes auto — the question "what brings it back to auto?" was asked because nothing
+     on screen answered it. */
+  dragCaffeine.classList.toggle('caff-override', !!(st && st.mode === 'auto' && st.override !== null));
 }
 if (dragCaffeine) {
   /* A base tooltip set BEFORE any state arrives. `paintCaffeine` overwrites it with the state and
@@ -4391,28 +4455,7 @@ if (dragCaffeine) {
      showed nothing at all, because the only `title` assignment lived inside the paint. */
   dragCaffeine.title = caffTip;
   dragCaffeine.innerHTML = icon('coffee', 17);
-  /* A REAL tooltip, because the native one never appeared for the operator. Every button in this
-     cluster sets `.title` the same way and none of them is reliable: `#drag` is the window's
-     `-webkit-app-region: drag` surface, and native tooltips inside a drag region do not
-     consistently fire even though `#dragacts` opts out with `no-drag`. Rather than assert which
-     layer swallows it, this reuses the `.pathtip` element the terminal's ⌘-click hover already
-     uses — same styling, fixed positioning, pointer-events:none, so it cannot eat its own hover. */
-  const tipEl = document.createElement('div');
-  tipEl.className = 'pathtip';
-  tipEl.hidden = true;
-  document.body.appendChild(tipEl);
-  dragCaffeine.addEventListener('mouseenter', () => {
-    tipEl.textContent = caffTip;
-    const r = dragCaffeine.getBoundingClientRect();
-    tipEl.hidden = false;
-    /* Positioned after unhiding so the width is real: clamped to the viewport, because this button
-       is the LEFTMOST of a right-aligned cluster and its tip is wider than it is. */
-    const w = tipEl.getBoundingClientRect().width;
-    tipEl.style.top = `${Math.round(r.bottom + 6)}px`;
-    tipEl.style.left = `${Math.round(Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8))}px`;
-  });
-  dragCaffeine.addEventListener('mouseleave', () => { tipEl.hidden = true; });
-  dragCaffeine.addEventListener('click', () => { tipEl.hidden = true; });
+  attachTip(dragCaffeine, () => caffTip);
   dragCaffeine.addEventListener('click', async () => { paintCaffeine(await window.glassShell.caffeinateToggle()); });
   window.glassShell.onCaffeinate(paintCaffeine);
   void window.glassShell.caffeinateState().then(paintCaffeine);

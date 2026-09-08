@@ -1245,6 +1245,14 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    asked for the glyph alone. The steam (a different icon, not an overlay) carries the same signal
    without relying on colour. */
 #dragCaffeine.caff-on { color: var(--accent); }
+/* An override in AUTO is a third state, not a brighter on: the cup has stopped following your
+   sessions. A small dot says "you are steering this" without a second colour to decode, and the
+   hover names the way back. Without it, "what brings it back to auto?" has no on-screen answer. */
+#dragCaffeine.caff-override::after {
+  content: ''; position: absolute; right: 3px; top: 4px;
+  width: 4px; height: 4px; border-radius: 50%; background: currentColor;
+}
+#dragCaffeine { position: relative; }
 /* OFF must still be legible — an invisible control cannot be found, let alone toggled. */
 #dragCaffeine { opacity: .85; }
 #dragCaffeine:hover { opacity: 1; }
