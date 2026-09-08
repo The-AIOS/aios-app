@@ -986,5 +986,8 @@
   "split.openRight": "Abrir a la derecha",
   "split.unsplit": "Cerrar la división",
   "split.needTwo": "Abre una segunda para dividir",
-  "tab.actions": "{name}"
+  "tab.actions": "{name}",
+  "tab.rename": "Renombrar esta pestaña",
+  "tab.renameHint": "tu etiqueta gana sobre lo que anuncia la sesión",
+  "split.openRightHint": "mostrarla junto a la que estás usando"
 }

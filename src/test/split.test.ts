@@ -191,3 +191,46 @@ test('a closed half hands the whole zone to the survivor, and the layout persist
   assert.match(app, /zoneFrac: \{ main: zones\.main\.frac, term: zones\.term\.frac \}/,
     'fractions are what persist — pane ids do not survive a restart');
 });
+
+test('panes tile in TAB ORDER, whatever order the set was built in', () => {
+  /* Operator-reported: splitting from the second tab put that pane on the LEFT and the first
+     tab's pane on the right, so tabs and panes read in opposite directions. The set is built by
+     insertion (beside the focused pane, or replacing the non-focused half), and insertion order
+     is not screen order — so it is sorted once in setVisible rather than at each of the three
+     places that mutate it. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /const ord = tabOrder\[z\];\s*\n\s*zones\[z\]\.visible\.sort\(\(a, b\) => ord\.indexOf\(a\) - ord\.indexOf\(b\)\);/,
+    'left-to-right on screen must match left-to-right in the strip');
+  /* And it must be sorted BEFORE geometry is computed, or the boxes go to the wrong panes. */
+  const fn = app.slice(app.indexOf('function setVisible(z) {'));
+  assert.ok(fn.indexOf('visible.sort(') < fn.indexOf('const geom = paneBoxes(z)'),
+    'sort must precede the geometry it feeds');
+});
+
+test('the tab menu is useful on ANY tab — including the one you are looking at', () => {
+  /* Reported as "right click didn't work": the split action was offered only for a tab NOT in the
+     visible set, so right-clicking the pane you were looking at produced a menu whose only row
+     said "open a second one". A menu that depends on the tab being in the right state reads as
+     broken, so every row that can apply to the tab under the cursor is offered. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const menu = app.slice(app.indexOf("tab.addEventListener('contextmenu'"), app.indexOf('/* ── drag to reorder'));
+  assert.match(menu, /value: 'rename'/, 'rename is always available (AI-70)');
+  assert.match(menu, /if \(id !== active\[z\]\) items\.push/, 'split is offered for any non-focused tab');
+  assert.match(menu, /value: 'close'/);
+  assert.doesNotMatch(menu, /!zones\[z\]\.visible\.includes\(id\)/,
+    'the old visibility condition is what made the menu look dead');
+});
+
+test('AI-70: a manual tab name outranks the title the session announces', () => {
+  /* The two fixes that shipped in v0.7.0 both depend on the session announcing a title, so a pane
+     the operator deliberately labelled would be renamed back on the next announcement — silently
+     undoing the label they just set. Naming is cosmetic, so the operator's choice wins.
+     DELIVERABILITY is untouched: that needs proof, and a label is not proof. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /pane\.manualName = true; renamePane\(id, next\.trim\(\)\);/, 'the menu sets the flag');
+  assert.match(app, /if \(!panes\.get\(id\)\?\.manualName\) renamePane\(id, nm\);/,
+    'and the announced-title path honours it');
+  /* The bus path must NOT have been widened by any of this — a name is not a delivery right. */
+  const title = app.slice(app.indexOf('term.onTitleChange'));
+  assert.match(title.slice(0, 1400), /DELIVERABILITY/, 'the two-questions comment must survive');
+});

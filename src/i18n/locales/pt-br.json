@@ -986,5 +986,8 @@
   "split.openRight": "Abrir à direita",
   "split.unsplit": "Fechar a divisão",
   "split.needTwo": "Abra uma segunda para dividir",
-  "tab.actions": "{name}"
+  "tab.actions": "{name}",
+  "tab.rename": "Renomear esta aba",
+  "tab.renameHint": "seu rótulo vence o que a sessão anuncia",
+  "split.openRightHint": "mostrar ao lado da que você está usando"
 }

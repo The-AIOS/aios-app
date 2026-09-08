@@ -986,5 +986,8 @@
   "split.openRight": "Open to the right",
   "split.unsplit": "Close the split",
   "split.needTwo": "Open a second one to split",
-  "tab.actions": "{name}"
+  "tab.actions": "{name}",
+  "tab.rename": "Rename this tab",
+  "tab.renameHint": "your label wins over what the session announces",
+  "split.openRightHint": "show it beside the one you are in"
 }

@@ -2248,6 +2248,13 @@ function setVisible(z) {
     zones[z].visible = [active[z]];
     zones[z].frac = [1];
   }
+  /* BUG (operator-reported): the split showed panes in the order they were ADDED to the set, so
+     splitting from the second tab put it on the LEFT and the first tab's pane on the right — tabs
+     and panes read in opposite directions. Left-to-right on screen must match left-to-right in
+     the strip, always, whatever order the set was built in. Sorted here, once, rather than at
+     each of the three places that mutate the set. */
+  const ord = tabOrder[z];
+  zones[z].visible.sort((a, b) => ord.indexOf(a) - ord.indexOf(b));
   const shown = zones[z].visible;
   const geom = paneBoxes(z);
   for (const [pid, p] of panes) {
@@ -2531,18 +2538,37 @@ function makeTab(id, name, iconName) {
      The spec's "pick one; do not ship three" is about MECHANISMS — the third candidate, dragging a
      tab into the right half, needs drop-target hit-testing and widens a drag surface deliberately
      scoped to reordering within one strip, so it stays deferred. */
+  /* The tab menu. Reported broken because it was only useful on a tab that happened to be in the
+     right state: right-clicking the pane you were LOOKING at offered nothing but "open a second
+     one", which reads as a dead menu. It now always carries actions that apply to the tab under
+     the cursor, and Rename is one of them — AI-70, open since the first external issue on the
+     public repo (#1, 07-27), which asked for exactly this and could not be built then because
+     there was no contextmenu on a tab at all. Splitting created one, so the affordance is a menu
+     row rather than new machinery. */
   tab.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
-    const z = zoneOf(panes.get(id) || {});
-    const items = [];
-    if (!zones[z].visible.includes(id)) items.push({ label: t('split.openRight'), value: 'right' });
-    else if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
-    if (!items.length) items.push({ label: t('split.needTwo'), value: null });
-    void listModal(t('tab.actions', { name: panes.get(id)?.name || '' }), items.map((i) => ({
-      label: i.label, desc: '', icon: 'layout', value: i.value,
-    })), t('modal.filterPlaceholder')).then((pick) => {
+    const pane = panes.get(id);
+    if (!pane) return;
+    const z = zoneOf(pane);
+    const items = [{ label: t('tab.rename'), desc: t('tab.renameHint'), icon: 'md', value: 'rename' }];
+    /* Split with THIS tab whenever it is not already the focused pane — including when it is the
+       other visible half, which simply focuses it. The old condition excluded every visible tab
+       and that is what made the menu look broken. */
+    if (id !== active[z]) items.push({ label: t('split.openRight'), desc: t('split.openRightHint'), icon: 'layout', value: 'right' });
+    if (zoneSplit(z)) items.push({ label: t('split.unsplit'), desc: '', icon: 'compress', value: 'unsplit' });
+    items.push({ label: t('tab.close'), desc: '', icon: 'trash', value: 'close' });
+    void listModal(pane.name || t('pulse.terminal'), items, t('modal.filterPlaceholder')).then(async (pick) => {
       if (pick === 'right') splitWithPane(z, id);
       else if (pick === 'unsplit') unsplitZone(z);
+      else if (pick === 'close') void requestClosePane(id);
+      else if (pick === 'rename') {
+        const next = await inputModal(t('tab.rename'), pane.name || t('pulse.terminal'), []);
+        /* An operator's own label WINS and must not be silently overwritten by a title the
+           session announces later — that is the half of AI-70 the two shipped fixes could not
+           cover, because both depend on the session announcing something. A plain shell, or a
+           pane the operator wants called `build`, announces nothing. */
+        if (next && next.trim()) { pane.manualName = true; renamePane(id, next.trim()); }
+      }
     });
   });
 
@@ -2859,7 +2885,12 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
          DELIVERABILITY — may the bus type into this pane? That needs PROOF, because getting it
            wrong routes someone's message into the wrong session. Only a live registry match
            earns it, and only that name may later be declared ended. */
-    renamePane(id, nm);
+    /* AI-70: a MANUAL name wins. The two fixes that shipped in v0.7.0 both depend on the session
+       announcing a title, so a pane the operator deliberately called `build` would be renamed
+       back to whatever the session says on its next announcement — silently undoing the label
+       they just set. Naming is cosmetic, so an operator's choice simply outranks the announcement;
+       DELIVERABILITY below is untouched, because that needs proof and a label is not proof. */
+    if (!panes.get(id)?.manualName) renamePane(id, nm);
     const hit = ((pulse.lastRunning || {}).running || []).find((a) => a.name === nm);
     if (!hit) return;
     p.isSession = true;
