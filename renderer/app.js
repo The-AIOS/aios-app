@@ -43,6 +43,12 @@ function fileUrlToPath(u) {
 
 /* ── inline icon set (lucide-style strokes, static strings) ───────────────── */
 const ICONS = {
+  /* AI-132 keep-awake. A cup, and the STEAM is the state: two wisps when the blocker is held,
+     none when it is not. Colour alone would not do it — the whole point of this control is that
+     the operator can tell which way it is set at a glance, and a tinted glyph in a dark title bar
+     reads as "slightly different" rather than "on". */
+  coffee: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/>',
+  coffeeSteam: '<path d="M7 5c0-1 1-1.2 1-2.2M10.5 5c0-1 1-1.2 1-2.2" opacity=".9"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   explorer: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>',
@@ -4348,6 +4354,39 @@ dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios
 const dragHelp = document.getElementById('dragHelp');
 dragHelp.innerHTML = icon('file', 15);  // doc → README
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
+/* ═══ AI-132 keep-awake — the button is a STATE READOUT that happens to be clickable ═══
+   Every decision lives in main (src/main/caffeinate.ts + the pure policy in src/core): this
+   renderer cannot import src/core at all — index.html loads UMD bundles, the generated i18n.js
+   and app.js, nothing else — so it must not classify or decide anything here, or it would be a
+   second implementation of the rule. It shows what main reports and sends intent. */
+const dragCaffeine = document.getElementById('dragCaffeine');
+let caffState = null;
+function paintCaffeine(st) {
+  caffState = st;
+  if (!dragCaffeine) return;
+  const on = !!(st && st.on);
+  /* The steam IS the state, not a tint. A coloured glyph in a dark title bar reads as "slightly
+     different"; two wisps of steam read as ON from across the room, which is the entire job of a
+     control whose failure mode is not knowing which way it is set. */
+  dragCaffeine.innerHTML = icon('coffee', 15) + (on ? icon('coffeeSteam', 15) : '');
+  dragCaffeine.classList.toggle('caff-on', on);
+  dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
+  /* The tooltip names the STATE and its reason, never the action — and when the platform refused
+     the request it says so instead of claiming success. */
+  let why = t('caffeinate.offManual');
+  if (st && st.unsupported) why = t('caffeinate.unsupported');
+  else if (st && st.reason === 'override-on') why = t('caffeinate.overrideOn');
+  else if (st && st.reason === 'override-off') why = t('caffeinate.overrideOff');
+  else if (st && st.reason === 'auto-busy') why = t('caffeinate.autoBusy');
+  else if (st && st.reason === 'auto-idle') why = t('caffeinate.offAuto');
+  dragCaffeine.title = t('caffeinate.title') + ' — ' + why;
+}
+if (dragCaffeine) {
+  dragCaffeine.addEventListener('click', async () => { paintCaffeine(await window.glassShell.caffeinateToggle()); });
+  window.glassShell.onCaffeinate(paintCaffeine);
+  void window.glassShell.caffeinateState().then(paintCaffeine);
+}
+
 const dragCheat = document.getElementById('dragCheat');
 dragCheat.innerHTML = icon('help', 15);  // ?-in-a-circle → Cheatsheet (Glass parity)
 dragCheat.addEventListener('click', () => openFrameworkDoc('CHEATSHEET.md'));
@@ -5180,6 +5219,16 @@ function openSettingsTab() {
     killSel.value = cfg.killBehavior || 'ask';
     killSel.addEventListener('change', async () => { await window.glassShell.setSetting('killBehavior', killSel.value); KILLBEHAVIOR = killSel.value; toast(t('settings.saved')); });
     row(wrap, t('settings.killBehavior'), killSel, t('settings.killBehaviorHint'));
+    /* AI-132. Same shape as killBehavior above — a select whose change writes through immediately.
+       `auto` first because it is the default and the one an operator would pick if they thought
+       about it; main drops any override when this changes, so switching modes never leaves the
+       button frozen at an exception nobody remembers setting. */
+    const caffSel = document.createElement('select');
+    caffSel.className = 'tinput';
+    for (const [l, v] of [[t('caffeinate.modeAuto'), 'auto'], [t('caffeinate.modeManual'), 'manual']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; caffSel.appendChild(o); }
+    caffSel.value = cfg.caffeinate || 'auto';
+    caffSel.addEventListener('change', async () => { await window.glassShell.setSetting('caffeinate', caffSel.value); toast(t('settings.saved')); });
+    row(wrap, t('settings.caffeinate'), caffSel, t('settings.caffeinateHint'));
 
     // terminalMode (#6): where actions run — ask (pick among live sessions) or auto (primary/new)
     const modeSel = document.createElement('select');
@@ -6696,6 +6745,7 @@ function handleChord(e) {
     case 'KeyR': void pickRunning(); return true;
     case 'KeyS': void spawnWorkerFlow(); return true;
     case 'KeyT': void createPane({ name: 'terminal' }); return true;
+    case 'KeyZ': void window.glassShell.caffeinateToggle().then(paintCaffeine); return true;   // zzz — keep-awake toggle
     case 'KeyE': void reportsFlow(); return true;
     case 'KeyX': void pickContext(''); return true;
     case 'KeyP': send('aios.personalizationsPicker'); return true;

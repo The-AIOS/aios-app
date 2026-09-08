@@ -5,6 +5,7 @@ import * as pty from 'node-pty';
 import { PanelHost } from './panelHost';
 import { installMenu } from './menu';
 import { initCommandBus } from './commandBus';
+import * as caffeine from './caffeinate';
 import { composeBuilderBrief, slugify, type DesignerKind, type DesignerFields } from '../core/designer';
 import { taskFileInstruction, needsTaskFile } from '../core/commandBus';
 import { needsSpill } from '../core/ptyLine';
@@ -750,6 +751,8 @@ ipcMain.handle('connectors:delete', (_e, id: string) =>
 ipcMain.handle('connectors:addCustom', (_e, input: string, service?: string) =>
   connectors.addCustom(aios.frameworkRoot(), String(input ?? ''), service ? String(service) : undefined));
 ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved: aios.resolvedLocale(), hasIdentity: aios.hasIdentity(), operator: aios.operatorName(), identityNameGap: aios.identityNameGap(), primary: aios.primaryName() }));
+ipcMain.handle('caffeinate:state', () => caffeine.state());
+ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());
 ipcMain.handle('claude:modelOptions', () => aios.modelOptions());
@@ -799,8 +802,12 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'mode' | 'remoteControl' | 'aut
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
 });
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale', value: unknown) => {
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate', value: unknown) => {
   aios.setShellSetting(key, value);
+  /* AI-132: changing the RULE retires any override — otherwise you switch manual→auto and watch
+     auto not follow sessions, with nothing on screen explaining why. Applies immediately rather
+     than waiting for the next 2s tick, so the button reflects the new mode as the select closes. */
+  if (key === 'caffeinate') caffeine.modeChanged();
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
     installMenu(() => mainWin);  // the native menu can't re-render itself — rebuild it
@@ -834,6 +841,18 @@ app.whenReady().then(() => {
   // spawn/kill/send requests natively (Glass 0.4.2/0.4.3 parity). Interactive
   // window only — never during smoke/shot/eval.
   if (!SMOKE && !SHOT && !EVAL) initCommandBus(() => mainWin, app.getVersion());
+  /* AI-132 keep-awake. Same guards as the bus: a smoke/shot/eval run must not hold a real
+     machine awake. 2s matches the rendering cadence the RUNNING card already polls sessions on,
+     so `auto` reacts as fast as the operator can see a session go busy and no new poll exists
+     just for this. The teardown releases the blocker — the process dying releases it anyway, so
+     this only covers a quit that lingers. */
+  if (!SMOKE && !SHOT && !EVAL) {
+    const stopCaffeine = caffeine.init((st) => {
+      const w = mainWin;
+      if (w && !w.isDestroyed() && !w.webContents.isDestroyed()) w.webContents.send('shell:caffeinate', st);
+    }, 2000);
+    app.on('before-quit', stopCaffeine);
+  }
   // Auto-update (packaged builds only — self-guards on app.isPackaged): check on
   // boot + every 6h, native-notify when staged, install on quit. GitHub-Releases
   // channel; never fires in dev/smoke/shot/eval. Renderer surface folds into the
