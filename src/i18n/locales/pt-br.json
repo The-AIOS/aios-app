@@ -982,5 +982,9 @@
   "settings.caffeinateHint": "auto segue suas sessões ativas; manual é só o botão",
   "caffeinate.modeAuto": "Auto — enquanto as sessões trabalham",
   "caffeinate.modeManual": "Manual — só quando eu clicar",
-  "window.shortcuts": "Atalhos"
+  "window.shortcuts": "Atalhos",
+  "split.openRight": "Abrir à direita",
+  "split.unsplit": "Fechar a divisão",
+  "split.needTwo": "Abra uma segunda para dividir",
+  "tab.actions": "{name}"
 }

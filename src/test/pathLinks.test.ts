@@ -324,7 +324,11 @@ test('zoom has exactly ONE owner — the menu', () => {
 
 test('zoom is clamped and persisted', () => {
   assert.match(app, /ED_ZOOM_MIN = 0\.7, ED_ZOOM_MAX = 2\.0/, 'bounds must exist');
-  assert.match(app, /pOn, termRenderer, edZoom \}\)/, 'the level must survive a restart');
+  /* Asserts that `edZoom` is IN the persisted object, not that it is the last key in it — the
+     earlier form pinned `edZoom })` and broke the moment AI-82 persisted split fractions after
+     it. What this test cares about is that the zoom level survives a restart. */
+  assert.match(app, /localStorage\.setItem\('shellLayout', JSON\.stringify\(\{[^}]*edZoom/,
+    'the level must survive a restart');
   // and a restored value outside the bounds must not be trusted
   assert.match(app, /v >= ED_ZOOM_MIN && v <= ED_ZOOM_MAX \? v : 1/,
     'a corrupt or out-of-range saved zoom must fall back, not apply');

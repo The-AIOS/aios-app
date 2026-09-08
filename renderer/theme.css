@@ -1259,3 +1259,13 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 /* the cup inline in the Settings label, so the setting and the button read as one thing */
 .tlabicon { display: inline-flex; vertical-align: -2px; margin-right: 6px; opacity: .75; }
 #dragCaffeine.caff-warn { color: var(--st-warn); }
+
+/* AI-82 split view. `.shown` is every pane on screen; `.active` is the one the keystrokes reach.
+   Two marks because the operator needs both answers, and with two panes up "which is focused" is
+   a question the single `.active` class could never have been asked. */
+.tab.shown:not(.active) { border-color: var(--line); opacity: .92; }
+.tab.shown:not(.active) .tname { color: var(--ink); }
+/* The focused pane in a split gets a visible edge — with two terminals side by side, nothing else
+   on screen says where the next keystroke lands. */
+.zsplit .pane.termcard:not(.panehidden) { border-color: var(--line); }
+.zsplit .pane.termcard.panefocus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }

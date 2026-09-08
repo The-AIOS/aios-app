@@ -982,5 +982,9 @@
   "settings.caffeinateHint": "auto follows your running sessions; manual is the button only",
   "caffeinate.modeAuto": "Auto — while sessions are working",
   "caffeinate.modeManual": "Manual — only when I click",
-  "window.shortcuts": "Shortcuts"
+  "window.shortcuts": "Shortcuts",
+  "split.openRight": "Open to the right",
+  "split.unsplit": "Close the split",
+  "split.needTwo": "Open a second one to split",
+  "tab.actions": "{name}"
 }

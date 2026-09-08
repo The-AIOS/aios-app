@@ -424,7 +424,7 @@ function setTermRenderer(v) {
 }
 
 function saveLayout() {
-  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom })); } catch { /* ignore */ }
+  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
 }
 
 function applyLayout() {
@@ -1841,6 +1841,22 @@ function renderPulseUpdate(m) {
 
 /* ── unified/split zones: tabs + panes per zone ───────────────────────────── */
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
+/* AI-82 — `active` is now FOCUS, not visibility.
+   It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
+   single pane whose id matched. Every existing consumer of `active[z]` still wants "the pane the
+   operator is working in", so the name and the meaning both survive — what changed is that a zone
+   can show more than the focused one. Deliberate: `AI-64` tied *addressable pane* to a single
+   active session, and that seam has produced a bug three separate times, so keeping ONE focused id
+   is the change that touches the fewest of those callers.
+
+   `zones[z].visible` is the ordered list actually on screen (v1: at most two), `frac` their
+   widths. The arithmetic lives in src/core/split.ts, which is the tested specification — the
+   renderer cannot import it (index.html loads plain scripts), so the few lines below mirror it and
+   src/test/split.test.ts asserts the two agree, the same way the busy classifier is guarded. */
+const SPLIT_GAP_PX = 10;      // must equal core's SPLIT_GAP — guarded in split.test.ts
+const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — guarded there too
+const zones = { main: { visible: [], frac: [] }, term: { visible: [], frac: [] } };
+const zoneSplit = (z) => zones[z].visible.length > 1;
 const active = { main: null, term: null };
 let viewSeq = 0;
 
@@ -2222,23 +2238,109 @@ function liveTerms() {
 }
 
 function setVisible(z) {
-  const act = active[z];
+  /* Drop ids that no longer exist before deciding anything — a pane can die between a split and
+     the next paint, and a stale id would tile a hole. Mirrors core's reconcile(). */
+  zones[z].visible = zones[z].visible.filter((id) => panes.has(id) && zoneOf(panes.get(id)) === z);
+  if (zones[z].visible.length !== zones[z].frac.length) zones[z].frac = evenFrac(zones[z].visible.length);
+  /* The focused pane is always visible. This is what makes `active` mean focus rather than
+     visibility without every old caller having to learn the difference. */
+  if (active[z] !== null && panes.has(active[z]) && !zones[z].visible.includes(active[z])) {
+    zones[z].visible = [active[z]];
+    zones[z].frac = [1];
+  }
+  const shown = zones[z].visible;
+  const geom = paneBoxes(z);
   for (const [pid, p] of panes) {
     if (zoneOf(p) !== z) continue;
-    const on = pid === act;
+    const at = shown.indexOf(pid);
+    const on = at >= 0;
     const wasHidden = !paneShown(p);
     setPaneShown(p, on);
-    p.tab.classList.toggle('active', on);
+    /* `active` marks the FOCUSED tab; `shown` marks every tab on screen. Two classes because the
+       operator needs to see both — which panes are up, and which one their keystrokes reach. */
+    p.tab.classList.toggle('active', pid === active[z]);
+    p.tab.classList.toggle('shown', on);
+    /* Which pane the keystrokes reach — only meaningful, and only marked, while split. */
+    p.el.classList.toggle('panefocus', on && pid === active[z] && shown.length > 1);
+    if (on && geom) { p.el.style.left = geom[at].left; p.el.style.right = geom[at].right; }
+    else { p.el.style.left = ''; p.el.style.right = ''; }   // '' hands the box back to .pane's own inset
     // Repaint on the hidden → visible transition only; repainting an already-visible pane
     // on every call would burn a frame on each tab click for nothing.
     if (on && wasHidden) repaintTerm(p);
   }
+  document.getElementById(z === 'term' ? 'termzone' : 'work')?.classList.toggle('zsplit', shown.length > 1);
+  /* Geometry changed, so every visible terminal needs refitting and its pty told the truth. One
+     call, already rAF-coalesced — the spec's "resize storm" risk is a DRAG concern and the drag
+     divider is deferred, so v1's geometry only moves on discrete events. */
+  fitTerms();
+}
+
+const evenFrac = (n) => (n <= 0 ? [] : Array.from({ length: n }, () => 1 / n));
+
+/* Mirrors src/core/split.ts boxes(). Kept in step by src/test/split.test.ts, which reads both. */
+function paneBoxes(z) {
+  const { visible, frac } = zones[z];
+  if (visible.length <= 1) return null;
+  const out = [];
+  let acc = 0;
+  for (let i = 0; i < visible.length; i++) {
+    const f = frac[i] ?? 1 / visible.length;
+    const startPct = acc * 100;
+    const endPct = (acc + f) * 100;
+    out.push({
+      left: i === 0 ? `${PANE_EDGE_PX}px` : `calc(${startPct}% + ${SPLIT_GAP_PX / 2}px)`,
+      right: i === visible.length - 1 ? `${PANE_EDGE_PX}px` : `calc(${100 - endPct}% + ${SPLIT_GAP_PX / 2}px)`,
+    });
+    acc += f;
+  }
+  return out;
+}
+
+/**
+ * Open `next` beside the focused pane in its zone — the one gesture, from ⌘\ or the tab menu.
+ *
+ * At capacity the NON-focused half is replaced rather than the gesture refusing: the operator
+ * asked for this pane beside the one they are in, and "nothing happened" is never the answer they
+ * wanted. The focused pane keeps its side so their own work does not jump across the screen.
+ */
+function splitWithPane(z, next) {
+  if (!panes.has(next) || zoneOf(panes.get(next)) !== z) return;
+  const beside = active[z];
+  if (next === beside) return;
+  const vis = zones[z].visible;
+  if (vis.includes(next)) { setActive(next); return; }   // already up — focus it, do not duplicate
+  if (vis.length < 2) {
+    const at = vis.indexOf(beside);
+    zones[z].visible = at < 0 ? [...vis, next] : [...vis.slice(0, at + 1), next, ...vis.slice(at + 1)];
+  } else {
+    zones[z].visible = vis.indexOf(beside) === 0 ? [beside, next] : [next, beside];
+  }
+  zones[z].frac = evenFrac(zones[z].visible.length);
+  setVisible(z);
+  saveLayout();
+}
+
+/** Leave the split, keeping only the focused pane. */
+function unsplitZone(z) {
+  if (!zoneSplit(z)) return;
+  zones[z].visible = active[z] !== null ? [active[z]] : zones[z].visible.slice(0, 1);
+  zones[z].frac = [1];
+  setVisible(z);
+  saveLayout();
 }
 
 function setActive(id) {
   const p = panes.get(id);
   if (!p) return;
   const z = zoneOf(p);
+  /* Clicking a HIDDEN pane's tab while split swaps it into the half the operator was focused in,
+     rather than collapsing the split. Collapsing would make every tab click destroy the
+     arrangement the operator built, which is the opposite of what a split is for. */
+  const vis = zones[z].visible;
+  if (vis.length > 1 && !vis.includes(id)) {
+    const at = Math.max(0, vis.indexOf(active[z]));
+    zones[z].visible = vis.map((v, i) => (i === at ? id : v));
+  }
   active[z] = id;
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
@@ -2258,8 +2360,14 @@ function setActive(id) {
 
 function ensureActive(z) {
   const ids = [...panes.entries()].filter(([, p]) => zoneOf(p) === z).map(([id]) => id);
-  if (!ids.includes(active[z])) active[z] = ids[ids.length - 1] ?? null;
+  /* A pane that is gone leaves the visible set, and the survivor takes the whole zone — the
+     spec's "close one half → the other takes the full zone". Done by filtering rather than by
+     rebuilding, so the surviving pane keeps its side until it is alone. */
+  zones[z].visible = zones[z].visible.filter((v) => ids.includes(v));
+  zones[z].frac = evenFrac(zones[z].visible.length);
+  if (!ids.includes(active[z])) active[z] = zones[z].visible[0] ?? ids[ids.length - 1] ?? null;
   setVisible(z);
+  saveLayout();
 }
 
 /* ═══ APP UPDATE PILL ═══════════════════════════════════════════════════════
@@ -2416,6 +2524,26 @@ function makeTab(id, name, iconName) {
   tab.addEventListener('click', (e) => {
     if (e.target === tx) { void requestClosePane(id); return; }
     setActive(id);
+  });
+
+  /* GESTURE 2 — "Open to the right". Same mechanism as ⌘\ (one splitWithPane), a second entry
+     point: the chord is fast once known and invisible until then, a context item is the reverse.
+     The spec's "pick one; do not ship three" is about MECHANISMS — the third candidate, dragging a
+     tab into the right half, needs drop-target hit-testing and widens a drag surface deliberately
+     scoped to reordering within one strip, so it stays deferred. */
+  tab.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    const z = zoneOf(panes.get(id) || {});
+    const items = [];
+    if (!zones[z].visible.includes(id)) items.push({ label: t('split.openRight'), value: 'right' });
+    else if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
+    if (!items.length) items.push({ label: t('split.needTwo'), value: null });
+    void listModal(t('tab.actions', { name: panes.get(id)?.name || '' }), items.map((i) => ({
+      label: i.label, desc: '', icon: 'layout', value: i.value,
+    })), t('modal.filterPlaceholder')).then((pick) => {
+      if (pick === 'right') splitWithPane(z, id);
+      else if (pick === 'unsplit') unsplitZone(z);
+    });
   });
 
   /* ── drag to reorder, WITHIN ONE STRIP ONLY ──
@@ -2648,6 +2776,25 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
      what garbled the `claude --resume` picker. A TUI must never be started at a lie. */
   if (cmd) void window.glassShell.ptyRun(id, cmd);
   term.attachCustomKeyEventHandler((e) => {
+    /* ⌘\ — split / unsplit the focused zone. Deliberately NOT in the ⌘⌥G family: this is a
+       workbench gesture, and ⌘\ is what a terminal user already reaches for (iTerm, VS Code).
+       Handled before the chord check because it is a single stroke, not a chord prefix. */
+    if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && !e.altKey && e.code === 'Backslash') {
+      e.preventDefault();
+      const z = active.term !== null && split ? 'term' : 'main';
+      if (zoneSplit(z)) unsplitZone(z);
+      else {
+        /* Split with the NEXT tab in the strip, which is what "open the other one beside this"
+           means when the operator has not named a pane. No second pane → nothing to split, and
+           saying so beats a silent no-op. */
+        const order = tabOrder[z].filter((id) => panes.has(id));
+        const at = order.indexOf(active[z]);
+        const next = order[(at + 1) % order.length];
+        if (next === undefined || next === active[z]) toast(t('split.needTwo'));
+        else splitWithPane(z, next);
+      }
+      return false;
+    }
     if (e.type === 'keydown' && handleChord(e)) return false; // ⌘⌥G chords win everywhere
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
     if (e.type !== 'keydown' || !e.metaKey || e.altKey) return true;
