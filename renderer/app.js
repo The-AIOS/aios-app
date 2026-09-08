@@ -2684,7 +2684,42 @@ let dragTab = null;
    `application/x-aios-tab` type plus a same-zone check — the explorer installs its own
    dragover/drop handlers for file paths, and without the guard a tab dropped there would be read
    as a path. */
+/**
+ * Clicking INSIDE a pane focuses it — the half of the spec's focus semantics that was missing.
+ *
+ * `active` became "focused rather than the only visible one", but nothing told it when the
+ * operator moved by clicking into the other pane. So the caret went there while the tab highlight
+ * and the pane's focus ring stayed behind, which is worse than no indicator at all: the two marks
+ * that exist to answer "where do my keystrokes land" were pointing at the wrong pane.
+ *
+ * A LIGHT path on purpose. Routing this through setActive() would re-run geometry and refit every
+ * terminal on every click in a terminal — and nothing has moved, so that is a resize push for
+ * nothing (`fit()` is a no-op on an unchanged size, but pushPtyGeom is not). Visibility and
+ * geometry are untouched here; only the two marks change.
+ */
+function focusPane(id) {
+  const p = panes.get(id);
+  if (!p) return;
+  const z = zoneOf(p);
+  if (active[z] === id) return;                       // already focused — a click must cost nothing
+  /* A hidden pane needs the full path: it has to enter the visible set, which IS a geometry
+     change. Only an already-visible pane can take the shortcut. */
+  if (!zones[z].visible.includes(id)) { setActive(id); return; }
+  active[z] = id;
+  const split = zones[z].visible.length > 1;
+  for (const [pid, q] of panes) {
+    if (zoneOf(q) !== z) continue;
+    q.tab.classList.toggle('active', pid === id);
+    q.el.classList.toggle('panefocus', split && pid === id);
+  }
+  paintRunning();   // the RUNNING card marks the focused session too
+}
+
 function attachPaneDropTarget(p, id) {
+  /* mousedown, not click: it fires before focus moves into xterm's textarea, so the marks update
+     in the same frame the caret does rather than one behind it. Capture phase, because xterm
+     stops propagation on its own container for some events and a bubbling listener can miss. */
+  p.el.addEventListener('mousedown', () => focusPane(id), true);
   const el = p.el;
   const ok = (ev) => {
     if (!dragTab) return false;

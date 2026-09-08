@@ -289,3 +289,25 @@ test('reordering the strip reorders the split — free, because order is DERIVED
   /* The split must NOT carry its own order field — that is what makes the above sufficient. */
   assert.doesNotMatch(app, /zones\[z\]\.order|visibleOrder/, 'pane order is derived, never stored');
 });
+
+test('clicking INSIDE a pane moves the marks, not just the caret', () => {
+  /* Operator-reported: with two terminals split, clicking the other one moved the cursor but left
+     the tab highlight and the focus ring on the first. That is worse than having no indicator —
+     the two marks that exist to answer "where do my keystrokes land" were pointing at the wrong
+     pane. It is the half of the spec's focus semantics that was missing: `active` became "focused
+     rather than the only visible one", and nothing told it when focus moved by CLICK. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /p\.el\.addEventListener\('mousedown', \(\) => focusPane\(id\), true\)/,
+    'a click in a pane must focus it — mousedown, and capture, so the marks land with the caret');
+  const fn = app.slice(app.indexOf('function focusPane(id) {'));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+  /* A click must cost nothing when it lands where focus already is, and must NOT refit: nothing
+     has moved, so a geometry pass would be a pty resize push for free. */
+  assert.match(body, /if \(active\[z\] === id\) return;/, 'a click on the focused pane is free');
+  assert.doesNotMatch(body, /fitTerms\(\)|paneBoxes\(/, 'no geometry work — nothing moved');
+  /* But a HIDDEN pane cannot take the shortcut: entering the visible set IS a geometry change. */
+  assert.match(body, /if \(!zones\[z\]\.visible\.includes\(id\)\) \{ setActive\(id\); return; \}/,
+    'a hidden pane must take the full path');
+  assert.match(body, /q\.tab\.classList\.toggle\('active', pid === id\)/, 'the tab mark follows');
+  assert.match(body, /q\.el\.classList\.toggle\('panefocus', split && pid === id\)/, 'and the pane ring');
+});
