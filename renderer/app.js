@@ -176,6 +176,16 @@ function icon(name, size = 14) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.file}</svg>`;
 }
 function fileIconName(name) {
+  /* THE FRAMEWORK DOCS ARE NAMED, not typed. Operator-reported: opening the Cheatsheet gave a tab
+     wearing the README's icon — true, and correct by the old rule, because both are `.md` and the
+     rule only ever asked what EXTENSION a file has. For these three that is the wrong question:
+     they each have a dedicated button in the title bar, so the tab should carry the same glyph
+     the button that opened it does, and a reader should be able to tell two open docs apart
+     without reading the labels. Matching on basename keeps the decision here rather than adding
+     an icon parameter to every opener — so the explorer tree gets it too, for free. */
+  const base = xBase(String(name)).toUpperCase();
+  if (base === 'CHEATSHEET.MD') return 'help';      // ?-in-a-circle, as in the title bar
+  if (base === 'README.MD') return 'docText';       // page + lines, as in the title bar
   if (/\.pdf$/i.test(name)) return 'file';
   if (/\.md$/i.test(name)) return 'md';
   if (/\.html?$/i.test(name)) return 'html';
@@ -5762,6 +5772,16 @@ function openHomeTab() {
    Settings needs it: it MIRRORS Claude's own config, and `build` ran exactly once per pane — so a
    value changed by `/config`, by another session, or by hand was invisible until the tab was
    closed and re-created. A mirror that only updates when you rebuild it is a photograph. */
+const TOOL_TAB_ICONS = {
+  '::home': 'aios',                                  // the front door wears the app's own mark
+  '::whatsnew': 'sparkles',
+  '::shortcuts': IS_MAC ? 'cmdKey' : 'keyboard',     // exactly what the title-bar button shows
+  '::settings': 'gear',
+  '::setup': 'wrench',
+  '::plugins': 'plug',
+  '::designer': 'design',
+};
+
 function openToolTab(key, titleText, build, opts) {
   for (const [id, pane] of panes) {
     if (pane.kind === 'view' && pane.path === key) {
@@ -5791,7 +5811,14 @@ function openToolTab(key, titleText, build, opts) {
   const body = document.createElement('div');
   body.className = 'vbody';
   el.append(head, body);
-  const tab = makeTab(id, titleText, 'layout');
+  /* Each tool tab wears ITS OWN glyph. They all rendered `layout` before, so Shortcuts, Settings
+     and Designer were indistinguishable in the strip — the same defect the operator caught on the
+     docs, one layer up.
+     Keyed off the pane KEY rather than passed by each caller: the key is already these panes'
+     identity (it is what openToolTab dedupes on), there is exactly one place to edit when a tool
+     is added, and it needed no surgery at seven call sites. Where a tool has a title-bar button,
+     the tab wears that button's glyph — so the thing you clicked and the tab it produced agree. */
+  const tab = makeTab(id, titleText, (opts && opts.icon) || TOOL_TAB_ICONS[key] || 'layout');
   const paneObj = { kind: 'view', name: titleText, el, tab, path: key };
   /* Preserve the scroll position across a rebuild — and AWAIT the builder first.
      The builder is async (Settings awaits shellConfig, vaultRoot, claudeSetKeys), so restoring
