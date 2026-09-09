@@ -15,6 +15,14 @@ const IS_WIN = !!(window.glassShell && window.glassShell.platform === 'win32');
 /* macOS specifically, not "not Windows" — Linux is neither, and the one place this decides is
    whether a ⌘ can stand for "shortcuts". It cannot anywhere else. */
 const IS_MAC = !!(window.glassShell && window.glassShell.platform === 'darwin');
+/* WAS THIS PROFILE EMPTY WHEN WE LAUNCHED? Captured at script load, before anything in this file
+   can write a key, because that is the only moment able to tell a FIRST-EVER launch from a launch
+   that merely predates a feature. Asked later it is always false, since we will have written
+   something ourselves.
+   It exists for exactly one decision — see maybeShowWhatsNew(), where reading "no stamp" as "new
+   operator" would have skipped the announcement for every single person upgrading INTO the
+   feature. */
+const PROFILE_WAS_EMPTY = (() => { try { return localStorage.length === 0; } catch { return true; } })();
 
 /* Separator-agnostic path helpers. On Windows the paths main hands us are backslash-separated
    (path.join output), so the renderer's forward-slash-only basename/dirname (`split('/').pop()`,
@@ -5442,7 +5450,18 @@ async function maybeShowWhatsNew() {
      read this release's notes" is a fact about this machine, not about the vault. Sharing it would
      mean updating on a second computer silently swallows the announcement. */
   try { localStorage.setItem('whatsNewSeen', v); } catch { /* private mode — then just do not open */ }
-  if (!seen || seen === v) return;
+  if (seen === v) return;                        // same release; nothing has changed since they looked
+  /* NO STAMP AT ALL IS TWO DIFFERENT PEOPLE, and telling them apart is the whole reason
+     PROFILE_WAS_EMPTY exists. Caught by asking the operator's own question before cutting — "the
+     whats new will open automatically after update restart, correct?" — and measuring it:
+       · A FIRST-EVER LAUNCH has an empty profile. Onboarding owns that screen; "what's new" to
+         someone with no old version is a non-sequitur.
+       · AN INSTALL THAT PREDATES THIS FEATURE also has no stamp — because the code that writes it
+         ships in the very release being announced — but its profile is full of prior state. That
+         is the entire audience for this release's notes, and reading their missing key as
+         "new operator" would have skipped every one of them. The feature would have started
+         working one release AFTER the release it was built to announce. */
+  if (!seen && PROFILE_WAS_EMPTY) return;
   openWhatsNewTab();
 }
 

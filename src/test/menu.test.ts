@@ -651,8 +651,27 @@ test("what's new opens once after an update, and its copy cannot describe the la
 
   /* A FRESH INSTALL SHOWS NOTHING — "what's new" to someone with no old version is a
      non-sequitur, and that branch is also what keeps this out of the smoke run. */
-  assert.match(body, /if \(!seen \|\| seen === v\) return;/,
-    'no stored version means a first run: stamp and stay quiet');
+  /* NO STAMP IS TWO DIFFERENT PEOPLE, and this is the guard the feature would have shipped
+     broken without. The operator asked the right question before the cut — "the whats new will
+     open automatically after update restart, correct?" — and measured, it did NOT: everyone
+     upgrading from the previous release has no stamp, because the code that writes it ships in
+     the release being announced. Reading that missing key as "new operator" skipped the entire
+     audience, and the feature would have begun working one release AFTER the one it exists to
+     announce.
+     So the two cases must stay separated by whether the profile had ANY prior state at launch. */
+  assert.match(body, /if \(seen === v\) return;/, 'same release says nothing');
+  assert.match(body, /if \(!seen && PROFILE_WAS_EMPTY\) return;/,
+    'a first-EVER launch stays quiet; an install that predates the feature must be told');
+  const app3 = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app3, /const PROFILE_WAS_EMPTY = \(\(\) => \{ try \{ return localStorage\.length === 0; \}/,
+    'the emptiness check must exist');
+  /* CAPTURED AT SCRIPT LOAD, not inside the function. Asked later it is always false, because by
+     then we have written the stamp ourselves — measured on a genuinely fresh profile, which
+     reported three keys by the time the function ran and still answered "empty at launch". */
+  const loadAt = app3.indexOf('const PROFILE_WAS_EMPTY =');
+  const fnAt = app3.indexOf('async function maybeShowWhatsNew()');
+  assert.ok(loadAt > 0 && loadAt < fnAt,
+    'it has to be captured at load — inside the function the answer is always false');
 
   /* THE STAMP IS WRITTEN BEFORE THE TAB OPENS. If rendering throws, the operator gets one failed
      tab — not a tab that reopens on every launch for the rest of the release. */
