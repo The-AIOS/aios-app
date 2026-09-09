@@ -228,6 +228,11 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
         { type: 'separator' },
         { label: t('menu.manual'), click: () => intent('manual') },
         { label: t('menu.readme'), click: () => intent('readme') },
+        /* "What's new" opens itself once after an update, and it must also live here — an
+           announcement an operator can only ever see at a moment they did not choose is one they
+           will close by reflex and then have no way back to. Same reasoning as the shortcuts
+           sheet having a button as well as the chord. */
+        { label: t('menu.whatsnew'), click: () => intent('whatsnew') },
         { type: 'separator' },
         { label: t('menu.commons'), click: () => open('https://the-aios.org') },
         { label: t('menu.github'), click: () => open('https://github.com/The-AIOS/aios') },

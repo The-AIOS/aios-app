@@ -998,5 +998,17 @@
   "caffeinate.modeManualShort": "manual",
   "shortcut.split": "Dividir la zona activa con la siguiente pestaña",
   "shortcut.unsplit": "Salir de la vista dividida",
-  "shortcut.save": "Guardar el archivo abierto"
+  "shortcut.save": "Guardar el archivo abierto",
+  "whatsnew.tab": "Novedades",
+  "whatsnew.title": "Novedades de AIOS {version}",
+  "whatsnew.sub": "Dos cosas que puedes probar ahora mismo, y varias correcciones menores.",
+  "whatsnew.h1": "Dos terminales lado a lado",
+  "whatsnew.b1": "Presiona ⌘\\ para poner la siguiente pestaña junto a la que estás usando — o haz clic derecho en una pestaña y elige Abrir a la derecha, o arrastra una pestaña sobre un panel. Caben hasta tres si la ventana es lo bastante ancha, y ⌘⇧\\ sale de la vista dividida. Las pestañas y los paneles mantienen el mismo orden, así que arrastrar una pestaña mueve su panel.",
+  "whatsnew.h2": "Mantener la computadora despierta",
+  "whatsnew.b2": "La taza en la barra de título. En automático sigue tus sesiones activas — se mantiene mientras una trabaja y se libera cuando todas quedan inactivas. En manual el botón es la única autoridad. En ambos casos, un clic lo anula durante esta ejecución, y el punto significa que la decisión es tuya.",
+  "whatsnew.h3": "También en esta versión",
+  "whatsnew.b3": "Renombra una pestaña desde su menú contextual — una sesión activa se renombra a sí misma, así que la pestaña y la sesión ya no pueden discrepar. Abrir una terminal nueva en una vista dividida se une a ella si hay espacio, en lugar de quitarle el panel a otra. Y la hoja de atajos ya incluye ⌘\\ y ⌘S.",
+  "whatsnew.more": "Notas completas en GitHub →",
+  "menu.whatsnew": "Novedades",
+  "whatsnew.for": "0.9.3"
 }

@@ -5135,6 +5135,9 @@ window.glassShell.onIntent(async (m) => {
     case 'spawnWorker': void spawnWorkerFlow(); return;
     case 'launchPrimary': { const c = await window.glassShell.shellConfig(); launchPrimary(c.primary || 'aios'); return; }
     case 'shortcuts': openShortcutsTab(); return;
+    /* On demand as well as automatically. An announcement you can only ever see once, at a moment
+       you did not choose, is one an operator will close by reflex and never find again. */
+    case 'whatsnew': openWhatsNewTab(); return;
     case 'openToday': { const d = new Date(); window.glassShell.panelSend({ type: 'openDay', date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }); return; }
     case 'designer': openDesignerTab(); return;
     case 'accountSwap': void accountSwapFlow(); return;
@@ -5350,6 +5353,71 @@ function spawnNamed(name, task, cwd, mode) {
    ⌘⌥G chord prefix (that exists to dodge VS Code / Antigravity bindings). One rule,
    two rows: ⌘ opens a SURFACE · ⌘⇧ opens a PICKER. The old chords still work for
    muscle memory, but these are the canonical keys. */
+/* ═══ WHAT'S NEW ═══════════════════════════════════════════════════════════════
+   THE GAP THIS CLOSES. Release notes existed only as GitHub Releases, and the app
+   auto-updates: the pill says "restart to install it", the operator restarts, and nothing
+   whatsoever says what changed. Two terminals side by side shipped behind a chord, and a chord
+   nobody is told about is a feature nobody has. Operator-raised: *"wonder how would users notice
+   the new features?"* — and their own answer settled the shape: *"a tab in editor like when
+   updating chrome, a simple whats new that opens after update."*
+
+   WHY A TAB AND NOT A MODAL OR A BADGE. A modal interrupts and gets dismissed reflexively; a
+   badge waits to be noticed and usually is not. A tab is the one surface an operator can read
+   now, keep for later, or close — and it costs nothing to ignore. It also needs no new
+   machinery: openToolTab is the same mechanism behind the shortcuts sheet.
+
+   THE CONTENT LIVES IN i18n, not in a bundled notes file. That is deliberate on two counts: the
+   app ships in three languages, so English-only notes would be the one untranslated screen in
+   it; and the key SET is fixed (title, sub, three headings and bodies, a link) while the VALUES
+   are rewritten each release. Bounded upkeep, no new artifact to package, and no network. */
+function openWhatsNewTab() {
+  openToolTab('::whatsnew', t('whatsnew.tab'), async (body) => {
+    let v = '';
+    try { v = await window.glassShell.appVersion(); } catch { v = ''; }
+    const wrap = el('div', 'tool');
+    body.appendChild(wrap);
+    wrap.appendChild(el('div', 'tbig', t('whatsnew.title', { version: v })));
+    wrap.appendChild(el('div', 'tsub', t('whatsnew.sub')));
+    for (const n of [1, 2, 3]) {
+      wrap.appendChild(el('div', 'ttitle', t('whatsnew.h' + n)));
+      wrap.appendChild(el('div', 'thint', t('whatsnew.b' + n)));
+    }
+    /* The full notes stay on GitHub — this pane is the headlines, not a changelog. openExternal
+       rather than an in-app browser pane: a release page is somewhere they may want to keep, and
+       it carries links out of our sandbox. */
+    const link = el('button', 'tcact', t('whatsnew.more'));
+    link.addEventListener('click', () => void window.glassShell.openExternal(
+      'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
+    wrap.appendChild(link);
+  });
+}
+
+/**
+ * Open it ONCE, on the first launch after the version changed.
+ *
+ * Three rules, and each one exists because its absence is a bug the operator would meet:
+ *  · A FRESH INSTALL SHOWS NOTHING. No stored version means this is a first run, which belongs to
+ *    onboarding — "what's new" to someone with no old version is a non-sequitur. We stamp and stay
+ *    quiet. (It is also what keeps this out of the smoke run, whose profile is always fresh.)
+ *  · THE STAMP IS WRITTEN BEFORE THE TAB OPENS. If rendering ever throws, the operator gets one
+ *    failed tab, not a tab that reopens on every launch forever.
+ *  · SAME VERSION, NOTHING. The comparison is against the version, so it cannot fire twice for
+ *    one release and it needs no separate "seen" bookkeeping to go stale.
+ */
+async function maybeShowWhatsNew() {
+  let v = '';
+  try { v = await window.glassShell.appVersion(); } catch { return; }
+  if (!v) return;
+  let seen = null;
+  try { seen = localStorage.getItem('whatsNewSeen'); } catch { return; }
+  /* localStorage, NOT .glass/state.json: that file roams with the vault through git, and "have I
+     read this release's notes" is a fact about this machine, not about the vault. Sharing it would
+     mean updating on a second computer silently swallows the announcement. */
+  try { localStorage.setItem('whatsNewSeen', v); } catch { /* private mode — then just do not open */ }
+  if (!seen || seen === v) return;
+  openWhatsNewTab();
+}
+
 function openShortcutsTab() {
   openToolTab('::shortcuts', t('shortcuts.title'), async (body) => {
     const wrap = el('div', 'tool');
@@ -7509,7 +7577,11 @@ void initLocale().then(async () => {
        prevent. readiness() applies the same markers the doctor does — CLAUDE.md for the framework,
        a real vault dir for the vault — so all three surfaces now agree. */
     const r = await window.glassShell.readiness();
-    if (!r.framework || !r.vault) openSetupTab();
+    if (!r.framework || !r.vault) { openSetupTab(); return; }
+    /* AFTER readiness, and only when the workbench is actually usable. A "what's new" tab in front
+       of an operator whose framework is missing is noise on top of a real problem — Setup owns
+       that screen, and returning above keeps this out of its way. */
+    void maybeShowWhatsNew();
   } catch { /* if we cannot even ask, the Setup tab is still reachable by hand */ }
 });
 

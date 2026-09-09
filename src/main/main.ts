@@ -776,6 +776,10 @@ ipcMain.handle('tab:menu', async (e, items: { label: string; value: string }[]) 
   menu.popup({ window: win ?? undefined, callback: () => resolve(picked) });
 }));
 
+/* The running version, for the renderer's "what's new" check. Deliberately NOT updaterCheckNow(),
+   which asks the same question over the network — this one is asked at every launch and must not
+   depend on connectivity or on an update server answering. */
+ipcMain.handle('shell:appVersion', () => app.getVersion());
 ipcMain.handle('caffeinate:state', () => caffeine.state());
 ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
 ipcMain.handle('claude:config', () => aios.claudeConfig());

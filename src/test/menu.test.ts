@@ -121,7 +121,18 @@ test('first run opens Setup by itself, and only when the app cannot work', () =>
      frameworkRoot() succeeds and vaultRoot() falls back to the framework root, so the condition
      could never be true. Found by walking a virgin instance: Setup did not open, Home did. */
   assert.match(app, /const r = await window\.glassShell\.readiness\(\);/);
-  assert.match(app, /if \(!r\.framework \|\| !r\.vault\) openSetupTab\(\);/);
+  /* Asserted as the CONDITION plus the call, not as one exact line — the line gained an early
+     `return` when the what's-new tab was added after it (Setup owns that screen; an announcement
+     on top of a broken framework is noise on top of a real problem), and pinning the source text
+     fired on that correct change. */
+  const gate = /if \(!r\.framework \|\| !r\.vault\)[^\n]*openSetupTab\(\)/;
+  assert.match(app, gate, 'Setup opens only when readiness says the app cannot work');
+  /* And nothing may run in that branch's place unconditionally: whatever follows the gate has to
+     be skipped when the app is not ready. */
+  const after = app.slice(app.search(gate));
+  const line = after.slice(0, after.indexOf('\n'));
+  assert.match(line, /return;/,
+    'the not-ready branch must RETURN — anything added after it would otherwise greet a broken install');
   // it must NOT fire for an operator who already has a framework — verified live: an
   // existing HOME opens no Setup tab
   assert.doesNotMatch(app, /openSetupTab\(\);\s*\n\s*\}\s*catch[\s\S]{0,40}\n\}\);\s*$/, 'must stay conditional');
@@ -620,4 +631,57 @@ test('the help-assistant button does not wear a document icon — it spawns an a
   assert.match(app, /dragGuide\.addEventListener\('click', \(\) => void spawnNamed\('onboarding-aios'\)\)/,
     'the label must keep matching the act');
   assert.match(app, /^\s+assistant: '/m, 'the icon must exist in ICONS');
+});
+
+test("what's new opens once after an update, and its copy cannot describe the last release", () => {
+  /* THE GAP: release notes lived only as GitHub Releases while the app auto-updates, so the pill
+     said "restart to install it", the operator restarted, and nothing said what changed. Two
+     terminals side by side shipped behind a chord — and a chord nobody is told about is a feature
+     nobody has. The operator chose the shape: "a tab in editor like when updating chrome, a
+     simple whats new that opens after update."
+
+     THE GUARD THAT MATTERS MOST is the last one in this test. The predictable way this feature
+     rots is not a crash — it is shipping 0.9.4 with 0.9.3's notes, which is worse than no notes
+     because it is confidently wrong. So the copy carries the version it was written for, and the
+     build fails when that disagrees with package.json. Bumping the version now REQUIRES touching
+     the copy, which is the only mechanism that makes the announcement keep telling the truth. */
+  const app2 = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app2.slice(app2.indexOf('async function maybeShowWhatsNew() {'));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+
+  /* A FRESH INSTALL SHOWS NOTHING — "what's new" to someone with no old version is a
+     non-sequitur, and that branch is also what keeps this out of the smoke run. */
+  assert.match(body, /if \(!seen \|\| seen === v\) return;/,
+    'no stored version means a first run: stamp and stay quiet');
+
+  /* THE STAMP IS WRITTEN BEFORE THE TAB OPENS. If rendering throws, the operator gets one failed
+     tab — not a tab that reopens on every launch for the rest of the release. */
+  const stampAt = body.indexOf("localStorage.setItem('whatsNewSeen'");
+  const openAt = body.indexOf('openWhatsNewTab()');
+  assert.ok(stampAt > 0 && openAt > stampAt, 'stamp first, then open — order is the crash guard');
+
+  /* PER MACHINE, NOT PER VAULT. .glass/state.json roams with the vault through git, so storing it
+     there would mean updating on a second computer silently swallows the announcement. */
+  assert.doesNotMatch(body, /glassShell\.(set|state)/, 'the seen-flag is local to this machine');
+
+  /* REACHABLE ON DEMAND. An announcement visible only once, at a moment the operator did not
+     choose, is one they close by reflex and then cannot find. */
+  assert.match(app2, /case 'whatsnew': openWhatsNewTab\(\); return;/, 'the intent must be wired');
+  const menuSrc = fs.readFileSync('src/main/menu.ts', 'utf8');
+  assert.match(menuSrc, /t\('menu\.whatsnew'\), click: \(\) => intent\('whatsnew'\)/, 'and it needs a menu home');
+
+  /* THE COPY EXISTS IN EVERY LANGUAGE — this is the only screen that would otherwise ship
+     English-only in a three-language app. */
+  const KEYS = ['whatsnew.tab', 'whatsnew.title', 'whatsnew.sub', 'whatsnew.more', 'whatsnew.for',
+    'whatsnew.h1', 'whatsnew.b1', 'whatsnew.h2', 'whatsnew.b2', 'whatsnew.h3', 'whatsnew.b3'];
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version: string };
+  for (const loc of ['en', 'es', 'pt-br']) {
+    const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    for (const k of KEYS) assert.ok(d[k], `${loc}: missing ${k} — the pane would render its own key`);
+    assert.match(d['whatsnew.title'], /\{version\}/,
+      `${loc}: the title must interpolate the version, never hardcode one`);
+    /* AND THE COPY MUST BE FOR THIS RELEASE. */
+    assert.equal(d['whatsnew.for'], pkg.version,
+      `${loc}: the what's-new copy says it is for ${d['whatsnew.for']} but the app is ${pkg.version} — rewrite the notes with the version bump`);
+  }
 });

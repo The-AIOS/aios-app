@@ -998,5 +998,17 @@
   "caffeinate.modeManualShort": "manual",
   "shortcut.split": "Split the focused zone with the next tab",
   "shortcut.unsplit": "Leave the split",
-  "shortcut.save": "Save the open file"
+  "shortcut.save": "Save the open file",
+  "whatsnew.tab": "What's new",
+  "whatsnew.title": "What's new in AIOS {version}",
+  "whatsnew.sub": "Two things you can try right now, and a handful of smaller fixes.",
+  "whatsnew.h1": "Two terminals side by side",
+  "whatsnew.b1": "Press ⌘\\ to put the next tab beside the one you are in — or right-click a tab and choose Open to the right, or drag a tab onto a pane. Up to three fit when the window is wide enough, and ⌘⇧\\ leaves the split. Tabs and panes stay in the same order, so dragging a tab moves its pane.",
+  "whatsnew.h2": "Keep the computer awake",
+  "whatsnew.b2": "The cup in the title bar. On auto it follows your running sessions — held while one is working, released when they all go idle. On manual the button is the only authority. Either way, one click overrides it for this run, and the dot means your hand is on it.",
+  "whatsnew.h3": "Also in this release",
+  "whatsnew.b3": "Rename a tab from its right-click menu — a live session renames itself, so the tab and the session can no longer disagree. Opening a new terminal in a split joins it when there is room instead of taking someone else’s pane. And the shortcuts sheet finally lists ⌘\\ and ⌘S.",
+  "whatsnew.more": "Full release notes on GitHub →",
+  "menu.whatsnew": "What's New",
+  "whatsnew.for": "0.9.3"
 }
