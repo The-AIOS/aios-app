@@ -4380,7 +4380,7 @@ function attachDropZone(elm, onPath, opts = {}) {
 }
 
 /* right-click context menu — built once, reused */
-let ctxEl = null, ctxTarget = null, ctxBrowserRow = null;
+let ctxEl = null, ctxTarget = null, ctxOutsideRow = null;
 function ctxMenu() {
   if (ctxEl) return ctxEl;
   ctxEl = el('div', 'xctx'); ctxEl.hidden = true;
@@ -4388,17 +4388,24 @@ function ctxMenu() {
   item(t('ctx.reveal'), (target) => window.glassShell.revealInOS(target.path));
   /* Sits directly under "Reveal in Finder" because it is the same gesture pointed somewhere else:
      hand this file to the desktop rather than to a pane. The contrast that makes it worth having
-     is with our OWN browser — clicking an .html opens it in an in-app browser pane, and sometimes
-     what you want is the real one, with your extensions, your session, your devtools.
-     Directories are excluded: a folder has no page to render, and "reveal in browser" on one
-     would either do nothing or dump a file listing — neither is what the row promises.
+     is with our OWN panes — clicking an .html opens an in-app browser pane, and sometimes what
+     you want is the real browser, with your extensions and your devtools.
+     IT IS NAMED "OUTSIDE AIOS", NOT "IN BROWSER", and the rename came from use: the row shipped
+     as "Reveal in browser" and the operator watched a .md open in their editor and a .pdf in
+     Preview. Neither was a failure — `openExternal` asks the OS what handles that TYPE, and for
+     .html the answer is the browser while for a .pdf it is Preview, which is the better PDF
+     viewer anyway. The behaviour was right and the promise was wrong, so the promise moved.
+     (Forcing a browser regardless of type is a different mechanism — resolve the default browser
+     and launch it — and it is not obviously desirable: it would drag PDFs out of Preview.)
+     Directories stay out: for a folder the OS answer is Finder, which is precisely what the row
+     one line above already does, and two adjacent rows that both open Finder is worse than one.
      `openPathExternal` takes the PATH; main validates it against the allowed roots and builds the
      file:// URL itself. It answers false when it refuses, and that answer is SHOWN — the sibling
      openExternal handler's habit of returning true while dropping the request is precisely the
      shape of bug this row would otherwise inherit. */
-  ctxBrowserRow = item(t('ctx.revealInBrowser'), async (target) => {
+  ctxOutsideRow = item(t('ctx.openOutside'), async (target) => {
     const ok = await window.glassShell.openPathExternal(target.path);
-    if (!ok) toast(t('ctx.revealInBrowserFailed'));
+    if (!ok) toast(t('ctx.openOutsideFailed'));
   });
   item(t('ctx.copyPath'), (target) => { window.glassShell.copyText(target.path); toast(t('ctx.pathCopied')); });
   item(t('ctx.openTerminalHere'), (target) => openTerminalHere(target.path, target.dir));
@@ -4423,7 +4430,7 @@ function attachCtx(row, path, dir) {
        name promising something else. (Pasting the same URL into an already-open Chrome DOES
        render a listing — but that is Chrome deciding, not the OS routing, and Safari does not
        do it at all. Two different mechanisms that look alike from outside.) */
-    if (ctxBrowserRow) ctxBrowserRow.hidden = !!dir;
+    if (ctxOutsideRow) ctxOutsideRow.hidden = !!dir;
     m.hidden = false;
     // a click point is a zero-size rect — same zoom correction applies
     anchorMenu(m, { left: ev.clientX, bottom: ev.clientY, top: ev.clientY }, { gap: 2, width: 190 });

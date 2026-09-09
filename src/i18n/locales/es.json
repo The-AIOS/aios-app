@@ -1012,6 +1012,6 @@
   "menu.whatsnew": "Novedades",
   "whatsnew.for": "0.9.3",
   "caffeinate.statusOverride": "anulado",
-  "ctx.revealInBrowser": "Abrir en el navegador",
-  "ctx.revealInBrowserFailed": "No se pudo abrir fuera de AIOS — puede que ya no exista o esté fuera de tus carpetas"
+  "ctx.openOutside": "Abrir fuera de AIOS",
+  "ctx.openOutsideFailed": "No se pudo abrir fuera de AIOS — puede que ya no exista o esté fuera de tus carpetas"
 }

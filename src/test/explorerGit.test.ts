@@ -271,9 +271,13 @@ test('drop markers clear after an EXTERNAL drop, which never sends dragend', () 
   assert.match(app, /elm\.classList\.remove\('dropok'\);\n\s*clearDragging\(\);/);
 });
 
-test('"Reveal in browser" hands a file to the desktop, through a door as narrow as the one it sits beside', () => {
-  /* Operator-asked: a row under "Reveal in Finder" that opens the file in the DEFAULT browser
-     rather than the app's own browser pane.
+test('"Open outside AIOS" hands a file to the desktop, through a door as narrow as the one it sits beside', () => {
+  /* Operator-asked: a row under "Reveal in Finder" that opens the file OUTSIDE the app rather
+     than in one of its panes. It shipped as "Reveal in browser" and was renamed from use — a .md
+     opened in the operator's editor and a .pdf in Preview, because `openExternal` asks the OS
+     what handles that TYPE. The behaviour was right and the promise was wrong, so the promise
+     moved. The KEYS moved with it: a key called revealInBrowser behind a label that says
+     otherwise is the drift this suite exists to catch.
      It could not reuse `shell:openExternal`: that handler accepts http(s) only and silently
      drops everything else **while returning true**, so a file:// URL would have reported success
      and done nothing. Widening its regex to admit `file:` would also have handed the renderer
@@ -310,7 +314,7 @@ test('"Reveal in browser" hands a file to the desktop, through a door as narrow 
   /* Placed directly under Reveal in Finder, which is the whole point of the request. */
   const menu = app2.slice(app2.indexOf('function ctxMenu()'), app2.indexOf('function attachCtx'));
   const iReveal = menu.indexOf("t('ctx.reveal')");
-  const iBrowser = menu.indexOf("t('ctx.revealInBrowser')");
+  const iBrowser = menu.indexOf("t('ctx.openOutside')");
   assert.ok(iReveal >= 0 && iBrowser > iReveal, 'the new row sits directly beneath Reveal in Finder');
   assert.ok(menu.indexOf("t('ctx.copyPath')") > iBrowser, 'and above the rest of the menu');
 
@@ -318,14 +322,14 @@ test('"Reveal in browser" hands a file to the desktop, through a door as narrow 
      hands macOS a folder and the frontmost app becomes Finder — so the row would duplicate
      "Reveal in Finder" under a name promising a browser. A row that exists to say no is worse
      than a row that is not there. */
-  assert.match(app2, /if \(ctxBrowserRow\) ctxBrowserRow\.hidden = !!dir;/,
+  assert.match(app2, /if \(ctxOutsideRow\) ctxOutsideRow\.hidden = !!dir;/,
     'the row must be hidden for a directory target');
-  assert.doesNotMatch(app2, /revealInBrowserDir/,
-    'the folder toast is unreachable now — an unused string is a small lie about the UI');
+  assert.doesNotMatch(app2, /revealInBrowser/,
+    'the old browser-promising name must not survive anywhere — label, key or variable');
 
   for (const loc of ['en', 'es', 'pt-br']) {
     const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
-    for (const k of ['ctx.revealInBrowser', 'ctx.revealInBrowserFailed']) {
+    for (const k of ['ctx.openOutside', 'ctx.openOutsideFailed']) {
       assert.ok(d[k], `${loc}: missing ${k}`);
     }
   }
