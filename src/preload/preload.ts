@@ -136,6 +136,11 @@ contextBridge.exposeInMainWorld('glassShell', {
   notesDel: (name: string, index: number): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:del', name, index),
   fsGit: (): Promise<{ files: Record<string, string>; dirty: string[]; repos: string[] }> => ipcRenderer.invoke('fs:git'),
   revealInOS: (p: string): Promise<boolean> => ipcRenderer.invoke('shell:reveal', p),
+  /* Open a local file OUTSIDE the app — the system's default handler, never the in-app browser
+     pane. Takes a PATH, not a URL: main validates it against the allowed roots and builds the
+     file:// URL itself, so the renderer cannot name an arbitrary target. Resolves false when the
+     path is refused or missing, which the caller must actually report. */
+  openPathExternal: (p: string): Promise<boolean> => ipcRenderer.invoke('shell:openPathExternal', p),
   setZoom: (factor: number): Promise<number> => ipcRenderer.invoke('shell:zoom', factor),
   readText: (): Promise<string> => ipcRenderer.invoke('shell:readText'),
   copyText: (t: string): Promise<boolean> => ipcRenderer.invoke('shell:copyText', t),

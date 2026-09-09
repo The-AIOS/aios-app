@@ -1011,5 +1011,8 @@
   "whatsnew.more": "Notas completas no GitHub →",
   "menu.whatsnew": "Novidades",
   "whatsnew.for": "0.9.3",
-  "caffeinate.statusOverride": "substituído"
+  "caffeinate.statusOverride": "substituído",
+  "ctx.revealInBrowser": "Abrir no navegador",
+  "ctx.revealInBrowserDir": "Isso é uma pasta — escolha um arquivo para abrir no navegador",
+  "ctx.revealInBrowserFailed": "Não foi possível abrir fora do AIOS — pode não existir mais ou estar fora das suas pastas"
 }

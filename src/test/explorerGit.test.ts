@@ -270,3 +270,54 @@ test('drop markers clear after an EXTERNAL drop, which never sends dragend', () 
   // and the zone clears its own state where the drop is actually handled
   assert.match(app, /elm\.classList\.remove\('dropok'\);\n\s*clearDragging\(\);/);
 });
+
+test('"Reveal in browser" hands a file to the desktop, through a door as narrow as the one it sits beside', () => {
+  /* Operator-asked: a row under "Reveal in Finder" that opens the file in the DEFAULT browser
+     rather than the app's own browser pane.
+     It could not reuse `shell:openExternal`: that handler accepts http(s) only and silently
+     drops everything else **while returning true**, so a file:// URL would have reported success
+     and done nothing. Widening its regex to admit `file:` would also have handed the renderer
+     the ability to open any path on the machine through one call. Hence a separate, narrower
+     door — and these assertions are the narrowness. */
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  const fn = main.slice(main.indexOf("ipcMain.handle('shell:openPathExternal'"));
+  const body = fn.slice(0, fn.indexOf('\n});'));
+
+  /* IT TAKES A PATH AND BUILDS THE URL ITSELF. Main must never open a URL the renderer
+     assembled — the validation would then be of a different string than the one opened. */
+  assert.match(body, /pathToFileURL\(abs\)/, 'main builds the file:// URL from the path it validated');
+  assert.doesNotMatch(body, /openExternal\(\s*(?:p|url)\b/, 'never open a renderer-supplied URL');
+
+  /* CONTAINMENT — the same predicate the explorer, quick-open and "open terminal here" use. */
+  assert.match(body, /inAllowed\(abs\)/, 'refuse anything outside the operator\'s own roots');
+
+  /* "NOTHING" MUST NOT RESOLVE TO SOMETHING. This is the bug the refusal tests caught:
+     path.resolve('') returns the process CWD, which is inside a root and does exist, so an empty
+     or null argument opened the app's own working directory. Requiring an ABSOLUTE path fixes
+     the class, not the two spellings of empty that happened to be tried. */
+  assert.match(body, /path\.isAbsolute\(raw\)/, 'an absolute path is required, so "" cannot resolve to the CWD');
+  assert.match(body, /if \(!raw \|\| /, 'and empty is rejected before it is resolved');
+
+  /* A FILE, not merely an existing thing — a directory is what the row ABOVE this one does. */
+  assert.match(body, /isFile\(\)/, 'directories belong to Reveal in Finder, not to this row');
+
+  /* AND A REFUSAL MUST BE VISIBLE. Returning true while doing nothing is the precise defect of
+     the neighbouring handler; the caller has to show the operator when it says no. */
+  const app2 = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app2, /const ok = await window\.glassShell\.openPathExternal\(target\.path\);\s*\n\s*if \(!ok\) toast\(/,
+    'a false answer has to reach the operator');
+
+  /* Placed directly under Reveal in Finder, which is the whole point of the request. */
+  const menu = app2.slice(app2.indexOf('function ctxMenu()'), app2.indexOf('function attachCtx'));
+  const iReveal = menu.indexOf("t('ctx.reveal')");
+  const iBrowser = menu.indexOf("t('ctx.revealInBrowser')");
+  assert.ok(iReveal >= 0 && iBrowser > iReveal, 'the new row sits directly beneath Reveal in Finder');
+  assert.ok(menu.indexOf("t('ctx.copyPath')") > iBrowser, 'and above the rest of the menu');
+
+  for (const loc of ['en', 'es', 'pt-br']) {
+    const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    for (const k of ['ctx.revealInBrowser', 'ctx.revealInBrowserDir', 'ctx.revealInBrowserFailed']) {
+      assert.ok(d[k], `${loc}: missing ${k}`);
+    }
+  }
+});

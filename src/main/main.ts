@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
+import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
 import * as pty from 'node-pty';
 import { PanelHost } from './panelHost';
 import { installMenu } from './menu';
@@ -610,6 +611,39 @@ ipcMain.handle('aios:plugins', () => ({
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//.test(url)) void shell.openExternal(url);
   return true;
+});
+/* "Reveal in browser" — hand a LOCAL file to the desktop, outside the app.
+   Deliberately NOT routed through shell:openExternal above, and the reason is worth stating:
+   that handler accepts http(s) ONLY and silently drops everything else **while returning true**,
+   so a renderer passing a file:// URL would be told it worked and nothing would happen. Widening
+   that regex to admit `file:` would also hand the renderer the ability to open ANY path on the
+   machine through one call — the guard is there on purpose.
+   So this is a separate, narrower door: it takes a PATH rather than a URL, refuses anything
+   outside `allowedRoots()` (the framework root plus the operator's own workspace folders — the
+   same containment the explorer, quick-open and "open terminal here" already use), requires the
+   file to exist, and builds the file:// URL HERE. Main never trusts a URL the renderer
+   assembled; it assembles its own from a path it has just validated.
+   Returns false rather than throwing on refusal, so the caller can say so instead of appearing
+   to succeed — which is exactly the failure mode of the handler above. */
+ipcMain.handle('shell:openPathExternal', (_e, p: string) => {
+  try {
+    /* REJECT "nothing" BEFORE RESOLVING IT. `path.resolve('')` returns the process's CWD — which
+       is inside an allowed root and does exist — so an empty or missing argument sailed through
+       both checks and opened the app's own working directory. Caught by testing the refusal
+       cases: `''` and `null` both answered true. An input meaning "no path" must never resolve
+       to a real one, and requiring an ABSOLUTE path is what makes that structural rather than a
+       special case for the two spellings of empty I happened to try. */
+    const raw = typeof p === 'string' ? p.trim() : '';
+    if (!raw || !path.isAbsolute(raw)) return false;
+    const abs = path.resolve(raw);
+    if (!inAllowed(abs)) return false;
+    /* A FILE, not merely something that exists. A directory would hand Finder/Explorer a folder —
+       which is what the row above this one already does, under a name that promises it. */
+    let st; try { st = fs.statSync(abs); } catch { return false; }
+    if (!st.isFile()) return false;
+    void shell.openExternal(pathToFileURL(abs).toString());
+    return true;
+  } catch { return false; }
 });
 // signal any registered session by pid (interrupt/terminate/kill) — works for
 // sessions started outside this window too, where we have no TTY to type into

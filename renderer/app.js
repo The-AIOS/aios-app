@@ -4386,6 +4386,21 @@ function ctxMenu() {
   ctxEl = el('div', 'xctx'); ctxEl.hidden = true;
   const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { fn(ctxTarget); ctxEl.hidden = true; }); ctxEl.appendChild(b); };
   item(t('ctx.reveal'), (target) => window.glassShell.revealInOS(target.path));
+  /* Sits directly under "Reveal in Finder" because it is the same gesture pointed somewhere else:
+     hand this file to the desktop rather than to a pane. The contrast that makes it worth having
+     is with our OWN browser — clicking an .html opens it in an in-app browser pane, and sometimes
+     what you want is the real one, with your extensions, your session, your devtools.
+     Directories are excluded: a folder has no page to render, and "reveal in browser" on one
+     would either do nothing or dump a file listing — neither is what the row promises.
+     `openPathExternal` takes the PATH; main validates it against the allowed roots and builds the
+     file:// URL itself. It answers false when it refuses, and that answer is SHOWN — the sibling
+     openExternal handler's habit of returning true while dropping the request is precisely the
+     shape of bug this row would otherwise inherit. */
+  item(t('ctx.revealInBrowser'), async (target) => {
+    if (target.dir) { toast(t('ctx.revealInBrowserDir')); return; }
+    const ok = await window.glassShell.openPathExternal(target.path);
+    if (!ok) toast(t('ctx.revealInBrowserFailed'));
+  });
   item(t('ctx.copyPath'), (target) => { window.glassShell.copyText(target.path); toast(t('ctx.pathCopied')); });
   item(t('ctx.openTerminalHere'), (target) => openTerminalHere(target.path, target.dir));
   item(t('ctx.sendPath'), (target) => sendPathToTerminal(target.path));
