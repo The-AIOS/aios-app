@@ -52,51 +52,45 @@ test('QUICK does not wear the glyph of any row inside it', () => {
     `the QUICK header (${header![1]}) must differ from its rows: ${rows.join(', ')}`);
 });
 
-test('the four title-bar reference glyphs are ONE family — same outline, different marks', () => {
-  /* Operator-reported: the cluster "looks like multi-flavored… i love some kind of consistency".
-     It was four unrelated metaphors for four documents — a book, a blank page, a ?-in-a-circle
-     and a keyboard — and the ?-in-a-circle is the universal HELP glyph, so the CHEATSHEET wore
-     the assistant's meaning while saying nothing about a cheatsheet.
-     The fix is one page outline with four different interior marks. This guard exists because the
-     outline is REPEATED in each entry rather than shared from a constant (ICONS is evaluated in
-     isolation above, so it cannot reach one) — which means the only thing keeping the family
-     together is this test. */
-  const family = ['docManual', 'docReadme', 'docCheat', 'docKeys'];
-  const OUTLINE = '<rect x="5" y="3" width="14" height="18" rx="2"/>';
-  for (const n of family) {
-    assert.ok(ICONS[n], `${n} must exist — it is one of the four references`);
-    assert.ok(ICONS[n].startsWith(OUTLINE),
-      `${n} must be drawn on the shared page outline, or the family stops being one`);
-    assert.ok(ICONS[n].length > OUTLINE.length + 10,
-      `${n} needs an interior mark — the bare outline would be indistinguishable from its siblings`);
-  }
-  /* And the marks must actually differ: four identical pages would pass the check above while
-     making four buttons impossible to tell apart, which is this suite's founding defect. */
-  const marks = family.map((n) => ICONS[n].slice(OUTLINE.length));
-  assert.equal(new Set(marks).size, family.length, 'each reference needs its own interior mark');
+test('the title-bar row is seven DISTINCT silhouettes, and \u2318 never ships off macOS', () => {
+  /* The one-family version of this row was rejected from use: "now it's harder to click it
+     intuitively, 4 icons looking the same gives a higher confusion rate." That is the more
+     important property — a title-bar glyph exists to be hit without reading — so the row is
+     seven different shapes on purpose, and this guard protects the two decisions that a future
+     tidy-up would most plausibly undo.
 
-  /* The retired glyphs must not come back on these buttons. `help` is the one that matters: it
-     means help everywhere, and the assistant is what help means here. */
-  assert.doesNotMatch(app, /dragCheat\.innerHTML = icon\('help'/, 'the cheatsheet is not the help glyph');
-  assert.doesNotMatch(app, /dragKeys\.innerHTML = icon\('keyboard'/, 'shortcuts joined the page family');
+     1. THE MANUAL IS AN OPEN BOOK, NOT A CLOSED ONE. A closed book is a portrait rect with a
+        band, which at 15px is the readme page again; measured on a contact sheet at 15/26/72px.
+        "Restore the closed book, it's simpler" is the tempting wrong move. */
+  assert.ok(ICONS.bookOpen, 'the manual needs the open-book glyph');
+  assert.match(ICONS.bookOpen, /M12 6\.6v13\.4/, 'an open book has a spine — that is what separates it from a page');
+  assert.match(app, /dragReadme\.innerHTML = icon\('bookOpen'/, 'the manual button wears it');
 
-  /* ONE SIZE across the cluster. The cup rendered at 17 while everything else was 15, which is
+  /* 2. THE README PAGE CARRIES ITS `i` INSIDE. A separate badge ring overlapping the corner is
+        what the operator's reference showed; drawn faithfully the page lines and the ring merge
+        into a blob at 15px. A bare info circle reads well and collides with the cheatsheet's `?`. */
+  assert.ok(ICONS.docInfo, 'the readme needs the page-with-i glyph');
+  assert.match(ICONS.docInfo, /<rect /, 'the i must sit in a PAGE — a bare circle collides with the cheatsheet');
+  assert.notEqual(ICONS.docInfo.replace(/\s+/g, ''), (ICONS.help || '').replace(/\s+/g, ''));
+
+  /* 3. \u2318 IS macOS-ONLY. It means nothing on Windows and is missing from some Linux systems,
+        and this row ships to all three. The branch is the whole protection. */
+  assert.match(app, /icon\(IS_MAC \? 'cmdKey' : 'keyboard', 15\)/,
+    'shortcuts shows \u2318 only on macOS; everywhere else it is a keyboard');
+  assert.match(app, /const IS_MAC = /, 'and the platform must be read, never assumed');
+  assert.ok(ICONS.cmdKey && ICONS.keyboard, 'both halves of that branch must exist');
+
+  /* ONE SIZE across the cluster. The cup rendered at 17 while everything else was 15, which was
      half of what "multi-flavoured" was describing. */
-  /* Read the cluster's ACTUAL children out of the markup rather than pattern-matching variable
-     names — the first version of this assertion matched `drag*`/`rail*` anywhere on a line and
-     swept up unrelated icon calls (22/13/16), reporting a failure that was purely its own. */
   const html = fs.readFileSync('renderer/index.html', 'utf8');
   const cluster = /<div id="dragacts">([\s\S]*?)<\/div>/.exec(html);
   assert.ok(cluster, 'the title-bar cluster must be findable');
-  const btns = [...cluster![1].matchAll(/id="(\w+)"/g)].map((m) => m[1]);
+  const btns = [...cluster![1].matchAll(/id="(\w+)"/g)].map((m2) => m2[1]);
   assert.ok(btns.length >= 8, `sanity: the cluster has buttons, saw ${btns.length}`);
   const sizes: Record<string, number> = {};
   for (const id of btns) {
-    /* Only lines that name the button AND paint a glyph. Two buttons paint through a local
-       variable instead of their id and are simply not found here — asserting on what IS found
-       beats asserting on a list this test would have to keep in step by hand. */
-    const m = new RegExp(`${id}[^\n]{0,40}innerHTML = icon\\((?:on \\? '\\w+' : )?'\\w+', (\\d+)\\)`).exec(app);
-    if (m) sizes[id] = Number(m[1]);
+    const m2 = new RegExp(`${id}[^\n]{0,60}innerHTML = icon\\(([^)]*?), (\\d+)\\)`).exec(app);
+    if (m2) sizes[id] = Number(m2[2]);
   }
   const found = Object.values(sizes);
   assert.ok(found.length >= 5, `sanity: found sizes for ${found.length} cluster glyphs`);
