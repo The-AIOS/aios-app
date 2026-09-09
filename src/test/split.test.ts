@@ -153,8 +153,14 @@ test('one MECHANISM, three entry points — chord, menu, and drag onto a pane', 
      nothing about the invariant. What matters is that the 'right' pick reaches splitWithPane. */
   assert.match(app, /pick === 'right'\)[^\n]*splitWithPane\(z, /, 'the menu item');
   assert.match(app, /splitWithPane\(zoneOf\(p\), dropped\)/, 'the drag');
-  const callers = app.split('\n').filter((l) => l.includes('splitWithPane(') && !l.includes('function splitWithPane'));
-  assert.equal(callers.length, 3, 'three entry points, one mechanism');
+  /* Count CODE, not comments. This fired at 4 the moment a RENDERER_KEYS row was annotated
+     `// splitWithPane()` to say which handler its accelerator documents — a true comment about a
+     real caller, counted as a caller. A guard that greps source has to strip what the compiler
+     strips, or every explanatory comment is a false positive waiting to happen. */
+  const codeOf = (l: string): string => l.split('//')[0];
+  const callers = app.split('\n').map(codeOf)
+    .filter((l) => l.includes('splitWithPane(') && !l.includes('function splitWithPane'));
+  assert.equal(callers.length, 3, `three entry points, one mechanism — saw ${callers.length}`);
   /* And the two gestures that split WITHOUT a named pane share one notion of the partner, so
      "the next tab" cannot come to mean two different things. */
   assert.match(app, /function nextTabAfter\(z, id\) \{/, 'one shared partner rule');

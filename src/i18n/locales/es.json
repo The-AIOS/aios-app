@@ -977,7 +977,7 @@
   "onboarding.tag.firstrun": "una conversación guiada con IA",
   "onboarding.note.login": "AIOS se está construyendo para funcionar también con otras IA — esa parte sigue en desarrollo.",
   "caffeinate.title": "Mantener despierta",
-  "caffeinate.unsupported": "Este sistema rechazó la solicitud — en Linux requiere una sesión de escritorio",
+  "caffeinate.unsupported": "rechazado por el sistema",
   "settings.caffeinate": "Mantener la computadora despierta",
   "settings.caffeinateHint": "auto sigue tus sesiones activas; manual es solo el botón",
   "caffeinate.modeAuto": "Auto — mientras las sesiones trabajan",
@@ -995,5 +995,8 @@
   "split.joined": "Se unió a la división",
   "split.tookRight": "No cabe otro panel — se abrió en el espacio de la derecha",
   "caffeinate.modeAutoShort": "automático",
-  "caffeinate.modeManualShort": "manual"
+  "caffeinate.modeManualShort": "manual",
+  "shortcut.split": "Dividir la zona activa con la siguiente pestaña",
+  "shortcut.unsplit": "Salir de la vista dividida",
+  "shortcut.save": "Guardar el archivo abierto"
 }

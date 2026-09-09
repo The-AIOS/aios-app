@@ -4873,6 +4873,12 @@ function paintCaffeine(st) {
      ONE EXCEPTION SURVIVES for a different reason: `unsupported` means we asked and the platform
      refused (Linux with no session bus), so the cup reads off while the operator believes they
      turned it on. No pixel can say that either. */
+  /* SHORT, and the length is a constraint rather than a preference — operator-raised: "just be
+     careful they are not massively long". Measured before shortening, the refusal case composed
+     to 90 chars in English and 111 in Spanish, against 16-30 for the normal case. The full
+     explanation ("on Linux this means no session bus") still exists where there is room for it:
+     the [caffeinate] main-process log prints it verbatim on the failing start. A tooltip is not
+     the place to teach D-Bus. Capped in src/test/caffeinate.test.ts, in every locale. */
   let why = '';
   if (st && st.unsupported) why = t('caffeinate.unsupported');
   const mode = st && st.mode === 'manual' ? t('caffeinate.modeManualShort') : t('caffeinate.modeAutoShort');
@@ -5439,6 +5445,18 @@ const RENDERER_KEYS = [
      separately, since it will mislead the next reader too. */
   { group: 'menu.view', label: 'shortcut.exitMaximized', accel: 'Escape' },      // setZen(false)
   { group: 'menu.view', label: 'shortcut.openPath', accel: 'CmdOrCtrl+Click' },  // attachPathLinks
+  /* AI-82's chords. Operator-reported: "shortcuts page is missing the split shortcut" — and it
+     was missing from BOTH places a keystroke can be discovered. The sheet is built from the
+     native menu's accelerators plus this list, and `⌘\` is neither: it lives only in the
+     renderer's own key handler, so the one gesture the release is named for was invisible to the
+     one surface that exists to answer "what can I press". A chord handled in the renderer has to
+     be added HERE by hand; nothing derives it, which is exactly why it was forgotten.
+     (The PR body for this branch claimed the menu carried `⌘\`. It did not — corrected there.) */
+  { group: 'menu.view', label: 'shortcut.split', accel: 'CmdOrCtrl+\\' },        // splitWithPane()
+  { group: 'menu.view', label: 'shortcut.unsplit', accel: 'CmdOrCtrl+Shift+\\' }, // unsplitZone()
+  /* Found in the same audit rather than reported: ⌘S saves the source editor and appeared in no
+     menu and no sheet. Auditing the whole set beat fixing the one that was noticed. */
+  { group: 'menu.file', label: 'shortcut.save', accel: 'CmdOrCtrl+S' },          // codeedit onSave
 ];
 
 /** `CmdOrCtrl+Shift+T` → `⌘⇧T` on macOS, `Ctrl+Shift+T` elsewhere.

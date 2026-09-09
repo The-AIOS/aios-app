@@ -266,3 +266,75 @@ test('the tooltip names the SETTING — the one thing no pixel on the button say
   assert.ok(en['caffeinate.modeAuto'].length > en['caffeinate.modeAutoShort'].length,
     'the picker keeps the explaining form; the tooltip gets the short one');
 });
+
+test('title-bar tooltips stay short — in EVERY locale, worst case included', () => {
+  /* Operator-raised: "just be careful they are not massively long". Measured before this cap,
+     the keep-awake tooltip composed to 90 chars in English and 111 in Spanish once the platform
+     refused the request, against 16-30 for the normal case — a paragraph hanging off a 26px
+     button. The normal case was never the problem, which is exactly why an eyeball check on the
+     English happy path would have missed it: the blow-up needs a rare state AND the longest
+     locale, and translations only get longer.
+     So the bound is checked where it actually bites — composed, and per locale. */
+  const LOCALES = ['en', 'es', 'pt-br'];
+  const PLAIN = 24;      // a one-word control name, in any language
+  const COMPOSED = 64;   // name + mode + the refusal reason, the worst a hover can render
+  for (const loc of LOCALES) {
+    const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    for (const k of ['window.manual', 'window.readme', 'window.cheatsheet', 'window.shortcuts',
+                     'window.guide', 'rail.layout', 'caffeinate.title']) {
+      assert.ok(d[k], `${loc}: missing ${k}`);
+      assert.ok(d[k].length <= PLAIN,
+        `${loc}: "${d[k]}" is ${d[k].length} chars — a title-bar tooltip is a label, cap ${PLAIN}`);
+    }
+    /* The composed worst case: the longer of the two mode words, plus a refusal. */
+    const mode = [d['caffeinate.modeAutoShort'], d['caffeinate.modeManualShort']]
+      .reduce((a, b) => (a.length >= b.length ? a : b));
+    const worst = `${d['caffeinate.title']}: ${mode} · ${d['caffeinate.unsupported']}`;
+    assert.ok(worst.length <= COMPOSED,
+      `${loc}: the hover can render ${worst.length} chars — cap ${COMPOSED}. Got "${worst}"`);
+  }
+});
+
+test('every chord the RENDERER handles alone is listed in the shortcuts sheet', () => {
+  /* Operator-reported: "shortcuts page is missing the split shortcut". The sheet is built from
+     the native menu's accelerators PLUS the RENDERER_KEYS list, so a chord handled only in
+     renderer/app.js is discoverable únicamente if someone remembers to add it by hand — and
+     `⌘\`, the gesture this release is named for, was in neither. Nothing derives the list, which
+     is what makes this a guard rather than a comment: the failure is silent, the surface whose
+     whole job is to answer "what can I press" simply omits it.
+     Auditing the set found ⌘S undocumented too, which is the argument for checking all of them
+     instead of adding back the one that was noticed. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const list = /const RENDERER_KEYS = \[[\s\S]*?\n\];/.exec(app);
+  assert.ok(list, 'RENDERER_KEYS must be findable — it is half of the shortcuts sheet');
+  const menu = fs.readFileSync('src/main/menu.ts', 'utf8');
+  const documented = (accel: string): boolean =>
+    list![0].includes(`'${accel}'`) || menu.includes(`accelerator: '${accel}'`);
+
+  /* The renderer's own handlers, each named by the key it matches, with the accelerator it must
+     appear as. Adding a renderer chord means adding a line here too — deliberately, so the sheet
+     cannot silently fall behind the app again. */
+  /* ESCAPING, and it caught this guard on its first run: we are searching SOURCE TEXT, not
+     comparing runtime values. In app.js the accelerator is written `'CmdOrCtrl+\\'` — two
+     backslash characters in the file — so a TS literal `'CmdOrCtrl+\\'`, which evaluates to one
+     backslash, never matches. String.raw gives the characters as they appear on disk, which is
+     what `includes` needs. A guard that reads code has to speak the code's spelling. */
+  const BACKSLASH = String.raw`CmdOrCtrl+\\`;
+  const SHIFT_BACKSLASH = String.raw`CmdOrCtrl+Shift+\\`;
+  const handled: Array<[string, string]> = [
+    ["e.code === 'Backslash'", BACKSLASH],
+    ["e.key === 's'", 'CmdOrCtrl+S'],
+  ];
+  for (const [handler, accel] of handled) {
+    assert.ok(app.includes(handler), `sanity: the renderer still handles ${accel} (${handler})`);
+    assert.ok(documented(accel),
+      `${accel} is handled in the renderer and appears in NO menu and NO sheet row — invisible to the operator`);
+  }
+  /* The unsplit half is the same gesture and must not be half-documented. */
+  assert.ok(documented(SHIFT_BACKSLASH), 'leaving the split needs a row too');
+  /* And every row must carry a real label key, or the sheet renders raw key names. */
+  for (const m of list![0].matchAll(/label: '([\w.]+)'/g)) {
+    const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+    assert.ok(en[m[1]], `${m[1]} has no English label — the sheet would print the key`);
+  }
+});
