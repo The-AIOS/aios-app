@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        # full history: check:whatsnew compares this release's notes against the previous TAG's,
+        # and a shallow clone has no tags to compare with.
+        with: { fetch-depth: 0 }
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -24,6 +27,11 @@ jobs:
       - run: npm ci --ignore-scripts # skip electron download for unit-only
       - run: npm run compile
       - run: node --test "out/test/*.test.js"
+      # The what's-new copy must describe THIS version. Cheap, no electron, so it belongs in the
+      # linux job that already runs on every push and PR — the whole point is to be told while the
+      # bump is still a diff someone is looking at, not at tag time when the notes are an
+      # afterthought.
+      - run: npm run check:whatsnew
 
   smoke:
     # macOS minutes bill 10× on private repos — full smoke runs on PRs + manual,

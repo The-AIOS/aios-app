@@ -191,10 +191,12 @@ test('every caffeinate string exists in all three locales', () => {
      control's name (the highlight carries on-or-off). What survives is the name, the two cases
      where the highlight would mislead, and the Settings row. Dead keys are DELETED rather than
      left behind — a stale key reads as a live one to whoever edits a locale file next. */
-  const keys = ['caffeinate.title', 'caffeinate.unsupported', 'caffeinate.overriding',
+  const keys = ['caffeinate.title', 'caffeinate.unsupported',
     'settings.caffeinate', 'settings.caffeinateHint', 'caffeinate.modeAuto', 'caffeinate.modeManual'];
+  /* `caffeinate.overriding` joined these once the DOT carried the override — a tooltip repeating
+     what a visual already says is the noise the operator asked the label to shed. */
   const gone = ['caffeinate.on', 'caffeinate.offAuto', 'caffeinate.offManual', 'caffeinate.autoBusy',
-    'caffeinate.overrideOn', 'caffeinate.overrideOff'];
+    'caffeinate.overrideOn', 'caffeinate.overrideOff', 'caffeinate.overriding'];
   for (const loc of ['en', 'es', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
     for (const k of keys) assert.ok(j[k], `${loc} is missing ${k}`);
@@ -211,4 +213,142 @@ test('the mode is a setting with auto as the default, and only "manual" opts out
   const m = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(m, /if \(key === 'caffeinate'\) caffeine\.modeChanged\(\);/,
     'changing the rule must retire any override, or auto visibly stops following sessions');
+});
+
+test('the dot means "your hand is on it" — in BOTH modes, one rule not two', () => {
+  /* Operator's question: "when setting is manual for caffeinate, i wonder if we should show the
+     dot as when overriding". Yes — because from their seat manual-and-on IS the overriding
+     situation: they pressed the button and the machine is awake because they said so. Marking the
+     same situation two different ways is what makes a control need explaining.
+     Guarded because the previous rule (`mode === 'auto' && override !== null`) reads as the more
+     careful one and would be re-introduced by anyone reasoning from "only auto has a rule to
+     override" — which is true about the CODE and false about the operator's experience. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /classList\.toggle\('caff-override', !!\(st && st\.override !== null\)\)/,
+    'the dot follows the override in any mode');
+  assert.doesNotMatch(app, /caff-override'[^\n]*mode === 'auto'/,
+    'gating the dot on auto is what left manual-and-on unmarked');
+
+  /* And the reason the redundancy in manual is acceptable rather than noise: manual only ever
+     cycles null <-> true, so the dot is never permanently lit — it tracks being held awake. */
+  assert.equal(nextOverride({ mode: 'manual', busy: false, override: null }), true,
+    'manual click turns it on');
+  assert.equal(nextOverride({ mode: 'manual', busy: false, override: true }), null,
+    'and clicking back RELEASES rather than pinning false — so the dot goes out');
+  assert.equal(nextOverride({ mode: 'manual', busy: true, override: null }), true,
+    'a busy session does not change manual: the button is the only authority');
+});
+
+test('the tooltip names WHAT IS IN FORCE — the mode, or "override" when one is active', () => {
+  /* Two operator calls, in sequence, and the second corrected the first. It began as the control
+     name alone; then "do you think the tooltip for the coffee should state the setting?" added the
+     mode; then "the coffee tooltip needs a 'Keep awake: override' status dont you think? for when
+     the little dot comes?" — which is not a third preference but a fix to a small lie: with an
+     override active the hover read "Keep awake: auto" while the cup was pointedly NOT following
+     auto. Naming the configured setting while something else decides is the kind of half-truth
+     that makes an operator stop trusting a status line.
+     The rule the code must keep: THE DOT AND THE WORD SAY THE SAME THING. Both key off
+     `override !== null`, so they can never disagree, and that holds in manual too — manual only
+     ever cycles null ↔ true, so on IS an override there. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /caffTip = t\('caffeinate\.title'\) \+ ': ' \+ status/,
+    'the hover text is the control name plus what is in force');
+  assert.match(app, /st\.override !== null[\s\S]{0,80}t\('caffeinate\.statusOverride'\)/,
+    'an active override is what the word must report');
+  assert.match(app, /st\.mode === 'manual' \? t\('caffeinate\.modeManualShort'\) : t\('caffeinate\.modeAutoShort'\)/,
+    'and with no override it falls back to the mode, read from the pushed state');
+
+  /* The dot must stay keyed on the SAME condition, or the two carriers drift apart. */
+  assert.match(app, /classList\.toggle\('caff-override', !!\(st && st\.override !== null\)\)/,
+    'dot and word both follow the override, in either mode');
+
+  /* REPLACES the mode rather than appending to it: "auto · override · refused by this system"
+     blows the length cap in Spanish, and keeping these short was the operator's other note in
+     the same breath. */
+  assert.doesNotMatch(app, /status = [^\n]*modeAutoShort[^\n]*\+[^\n]*statusOverride/,
+    'the word is one status, not a list');
+
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  for (const k of ['caffeinate.modeAutoShort', 'caffeinate.modeManualShort', 'caffeinate.statusOverride']) {
+    assert.ok(en[k], `missing ${k} — the tooltip would render its own key`);
+    assert.ok(en[k].length <= 12, `${k} is a tooltip word, not a sentence: "${en[k]}"`);
+  }
+  assert.ok(en['caffeinate.modeAuto'].length > en['caffeinate.modeAutoShort'].length,
+    'the picker keeps the explaining form; the tooltip gets the short one');
+});
+
+test('title-bar tooltips stay short — in EVERY locale, worst case included', () => {
+  /* Operator-raised: "just be careful they are not massively long". Measured before this cap,
+     the keep-awake tooltip composed to 90 chars in English and 111 in Spanish once the platform
+     refused the request, against 16-30 for the normal case — a paragraph hanging off a 26px
+     button. The normal case was never the problem, which is exactly why an eyeball check on the
+     English happy path would have missed it: the blow-up needs a rare state AND the longest
+     locale, and translations only get longer.
+     So the bound is checked where it actually bites — composed, and per locale. */
+  const LOCALES = ['en', 'es', 'pt-br'];
+  const PLAIN = 24;      // a one-word control name, in any language
+  const COMPOSED = 64;   // name + mode + the refusal reason, the worst a hover can render
+  for (const loc of LOCALES) {
+    const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    for (const k of ['window.manual', 'window.readme', 'window.cheatsheet', 'window.shortcuts',
+                     'window.guide', 'rail.layout', 'caffeinate.title']) {
+      assert.ok(d[k], `${loc}: missing ${k}`);
+      assert.ok(d[k].length <= PLAIN,
+        `${loc}: "${d[k]}" is ${d[k].length} chars — a title-bar tooltip is a label, cap ${PLAIN}`);
+    }
+    /* The composed worst case: the longer of the two mode words, plus a refusal. */
+    /* THREE possible status words now, not two — the override case was added after this cap and
+       is the longest in one locale, which is exactly the kind of thing a cap written against the
+       old shape stops measuring while still passing. */
+    const status = [d['caffeinate.modeAutoShort'], d['caffeinate.modeManualShort'],
+                    d['caffeinate.statusOverride']]
+      .reduce((a, b) => (a.length >= b.length ? a : b));
+    const worst = `${d['caffeinate.title']}: ${status} · ${d['caffeinate.unsupported']}`;
+    assert.ok(worst.length <= COMPOSED,
+      `${loc}: the hover can render ${worst.length} chars — cap ${COMPOSED}. Got "${worst}"`);
+  }
+});
+
+test('every chord the RENDERER handles alone is listed in the shortcuts sheet', () => {
+  /* Operator-reported: "shortcuts page is missing the split shortcut". The sheet is built from
+     the native menu's accelerators PLUS the RENDERER_KEYS list, so a chord handled only in
+     renderer/app.js is discoverable únicamente if someone remembers to add it by hand — and
+     `⌘\`, the gesture this release is named for, was in neither. Nothing derives the list, which
+     is what makes this a guard rather than a comment: the failure is silent, the surface whose
+     whole job is to answer "what can I press" simply omits it.
+     Auditing the set found ⌘S undocumented too, which is the argument for checking all of them
+     instead of adding back the one that was noticed. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const list = /const RENDERER_KEYS = \[[\s\S]*?\n\];/.exec(app);
+  assert.ok(list, 'RENDERER_KEYS must be findable — it is half of the shortcuts sheet');
+  const menu = fs.readFileSync('src/main/menu.ts', 'utf8');
+  const documented = (accel: string): boolean =>
+    list![0].includes(`'${accel}'`) || menu.includes(`accelerator: '${accel}'`);
+
+  /* The renderer's own handlers, each named by the key it matches, with the accelerator it must
+     appear as. Adding a renderer chord means adding a line here too — deliberately, so the sheet
+     cannot silently fall behind the app again. */
+  /* ESCAPING, and it caught this guard on its first run: we are searching SOURCE TEXT, not
+     comparing runtime values. In app.js the accelerator is written `'CmdOrCtrl+\\'` — two
+     backslash characters in the file — so a TS literal `'CmdOrCtrl+\\'`, which evaluates to one
+     backslash, never matches. String.raw gives the characters as they appear on disk, which is
+     what `includes` needs. A guard that reads code has to speak the code's spelling. */
+  const BACKSLASH = String.raw`CmdOrCtrl+\\`;
+  const SHIFT_BACKSLASH = String.raw`CmdOrCtrl+Shift+\\`;
+  const handled: Array<[string, string]> = [
+    ["e.code === 'Backslash'", BACKSLASH],
+    ["e.key === 's'", 'CmdOrCtrl+S'],
+  ];
+  for (const [handler, accel] of handled) {
+    assert.ok(app.includes(handler), `sanity: the renderer still handles ${accel} (${handler})`);
+    assert.ok(documented(accel),
+      `${accel} is handled in the renderer and appears in NO menu and NO sheet row — invisible to the operator`);
+  }
+  /* The unsplit half is the same gesture and must not be half-documented. */
+  assert.ok(documented(SHIFT_BACKSLASH), 'leaving the split needs a row too');
+  /* And every row must carry a real label key, or the sheet renders raw key names. */
+  for (const m of list![0].matchAll(/label: '([\w.]+)'/g)) {
+    const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+    assert.ok(en[m[1]], `${m[1]} has no English label — the sheet would print the key`);
+  }
 });

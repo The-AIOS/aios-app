@@ -39,6 +39,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false   # supply-chain hygiene: no token left in .git
+          # FULL HISTORY, and it is load-bearing rather than tidy: check:whatsnew compares this
+          # release's notes against the previous TAG's, and a tag push checks out shallow with
+          # only its own tag. The script would then find no previous release, pass, and report
+          # success — a gate that cannot fail, the exact shape of the v0.7.0 escape this job
+          # exists to prevent.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -55,6 +61,12 @@ jobs:
       # rebuilt above, so the pty round-trips run here even though the cheap linux job skips
       # them — the one place a release is cut is the one place everything must pass.
       - run: npm test
+
+      # AND the notes have to be about THIS release. `npm test` catches a stamp that disagrees
+      # with package.json; this also refuses copy that is byte-identical to the previous tag's,
+      # which is the case a stamp bump alone would wave through. Shipping 0.9.4 with 0.9.3's news
+      # is worse than shipping none: the operator reads it and believes it.
+      - run: npm run check:whatsnew
 
       # NOT `npm run smoke` here. The six-gate smoke boots the real workbench against the
       # operator's vault — it asserts an operator name, agent/command/skill counts and a file

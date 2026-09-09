@@ -54,11 +54,16 @@ contextBridge.exposeInMainWorld('glassShell', {
      on win32 doubles a single-quote, POSIX shells escape it) and render/compare Windows paths.
      A plain string ('win32' | 'darwin' | 'linux'); the renderer has no other way to know. */
   platform: process.platform,
+  /* The installed version. Sits beside `platform` in spirit — a fact about the running app that
+     the renderer has no other way to learn, and that it needs at launch to answer "did we just
+     update?" without asking the network. */
+  appVersion: (): Promise<string> => ipcRenderer.invoke('shell:appVersion'),
   claudeStores: (): Promise<Record<string, string>> => ipcRenderer.invoke('claude:stores'),
   claudeSetKeys: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('claude:setKeys'),
   updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
   onClaudeConfigChanged: (cb: (c: unknown) => void) => ipcRenderer.on('shell:claudeConfigChanged', (_e, c) => cb(c)),
   // AI-132 keep-awake: main owns the decision and the blocker; the renderer shows state + sends intent.
+  tabMenu: (items: { label: string; value: string }[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
   caffeinateState: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:state'),
   caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
   onCaffeinate: (cb: (s: unknown) => void) => ipcRenderer.on('shell:caffeinate', (_e, s) => cb(s)),

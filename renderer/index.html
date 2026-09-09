@@ -8,6 +8,24 @@
 <body>
 <div id="root">
   <div id="drag"><span class="wtitle"><span id="dragMark"></span><b>AIOS</b><span class="wtag" data-i18n="window.tag">your team of agents</span></span>
+    <!-- TITLE-BAR CLUSTER. Order is meaning, and this order was ALREADY correct — a previous
+         pass "regrouped" it by reading the button ids and made it worse, so the mapping is
+         written down here rather than left to be inferred again:
+             dragReadme  -> the ONLINE Operating Manual (a web page, not README.md)
+             dragHelp    -> README.md                   (not the help assistant)
+             dragCheat   -> CHEATSHEET.md
+             dragGuide   -> spawns the `onboarding-aios` agent  <- THIS is the AIOS Assistant
+         Every one of those four ids is a lie by now. Renaming them is a separate change; until
+         then, THIS COMMENT is the map. Read it before moving anything.
+         The row, left to right, is a gradient of what a click does:
+             cup            state — the machine (the only glyph with state, so the only one
+                            allowed to change shape and colour)
+             panel · layout the window
+             manual · readme · cheat · keys   things that tell you something
+             assistant      hand it to someone
+         Pinned ends are the operator's: cup leftmost, assistant rightmost.
+         Deliberately NOT pinned by a test — a guard on exact order fires on every legitimate
+         addition, which is the class this suite has already rewritten five times. -->
     <div id="dragacts"><button id="dragCaffeine" class="ribtn"></button><button id="dragPanel" class="ribtn" hidden></button><button id="railLayout" class="ribtn"></button><button id="dragReadme"></button><button id="dragHelp"></button><button id="dragCheat"></button><button id="dragKeys"></button><button id="dragGuide"></button><button id="railSetup" class="ribtn" hidden></button></div>
   </div>
   <div id="app">

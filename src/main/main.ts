@@ -751,6 +751,35 @@ ipcMain.handle('connectors:delete', (_e, id: string) =>
 ipcMain.handle('connectors:addCustom', (_e, input: string, service?: string) =>
   connectors.addCustom(aios.frameworkRoot(), String(input ?? ''), service ? String(service) : undefined));
 ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved: aios.resolvedLocale(), hasIdentity: aios.hasIdentity(), operator: aios.operatorName(), identityNameGap: aios.identityNameGap(), primary: aios.primaryName() }));
+/**
+ * A NATIVE context menu for a tab (AI-82).
+ *
+ * The first version used the app's `listModal`, which carries a filter box because it was built
+ * for long searchable lists — sessions, skills, commands. On a four-row tab menu that reads as
+ * over-powered, and the operator said so: a search field implies a list worth searching.
+ *
+ * A native menu is the correct affordance and costs nothing new: it appears at the pointer, needs
+ * no styling, is keyboard-navigable, and matches what every other app on the machine does with a
+ * right-click. Labels come from the RENDERER because i18n lives there — main is told what to
+ * show, never what the words mean, so there is no second copy of the strings.
+ */
+ipcMain.handle('tab:menu', async (e, items: { label: string; value: string }[]) => new Promise<string | null>((resolve) => {
+  const win = BrowserWindow.fromWebContents(e.sender) ?? mainWin;
+  let picked: string | null = null;
+  const menu = Menu.buildFromTemplate((items || []).map((it) => (
+    it.value === '-' ? { type: 'separator' as const }
+      : { label: String(it.label), click: () => { picked = String(it.value); } }
+  )));
+  /* Resolved on CLOSE, not on click: a menu dismissed with Escape or a click elsewhere must
+     resolve too, or the renderer's await hangs forever and the tab silently stops responding to
+     right-clicks. `picked` stays null in that case, which is the honest answer. */
+  menu.popup({ window: win ?? undefined, callback: () => resolve(picked) });
+}));
+
+/* The running version, for the renderer's "what's new" check. Deliberately NOT updaterCheckNow(),
+   which asks the same question over the network — this one is asked at every launch and must not
+   depend on connectivity or on an update server answering. */
+ipcMain.handle('shell:appVersion', () => app.getVersion());
 ipcMain.handle('caffeinate:state', () => caffeine.state());
 ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
 ipcMain.handle('claude:config', () => aios.claudeConfig());

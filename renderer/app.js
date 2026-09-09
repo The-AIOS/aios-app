@@ -12,6 +12,17 @@
    quoting (shq/xQuote) and Windows-path handling (drive letters, backslashes, file:// URLs)
    branch on this. A plain boolean, resolved once. */
 const IS_WIN = !!(window.glassShell && window.glassShell.platform === 'win32');
+/* macOS specifically, not "not Windows" — Linux is neither, and the one place this decides is
+   whether a ⌘ can stand for "shortcuts". It cannot anywhere else. */
+const IS_MAC = !!(window.glassShell && window.glassShell.platform === 'darwin');
+/* WAS THIS PROFILE EMPTY WHEN WE LAUNCHED? Captured at script load, before anything in this file
+   can write a key, because that is the only moment able to tell a FIRST-EVER launch from a launch
+   that merely predates a feature. Asked later it is always false, since we will have written
+   something ourselves.
+   It exists for exactly one decision — see maybeShowWhatsNew(), where reading "no stamp" as "new
+   operator" would have skipped the announcement for every single person upgrading INTO the
+   feature. */
+const PROFILE_WAS_EMPTY = (() => { try { return localStorage.length === 0; } catch { return true; } })();
 
 /* Separator-agnostic path helpers. On Windows the paths main hands us are backslash-separated
    (path.join output), so the renderer's forward-slash-only basename/dirname (`split('/').pop()`,
@@ -48,14 +59,45 @@ const ICONS = {
      box rather than aligning to the first svg, so the steam landed in the top-left corner instead
      of over the cup (operator-reported). One svg per state has no alignment to get wrong.
      The steam is the non-colour signal: someone who cannot rely on the coral still sees it. */
-  coffee: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/>',
-  /* SHORTCUTS — a keyboard. Its neighbours in the title bar are a book, a page and a
-     question-mark-in-a-circle, so the silhouette has to say "keys" at 15px and not "another
-     document": a wide shallow rect with key dots does that, where a ⌘ glyph would read as text
-     rather than an icon and would mean nothing on Windows or Linux. */
+  /* THE TITLE-BAR REFERENCE GLYPHS — SEVEN DISTINCT SILHOUETTES, and that is the whole design.
+     This replaced a one-page-outline "family" the operator rejected from use: *"now it's harder
+     to click it intuitively, 4 icons looking the same gives a higher confusion rate."* They are
+     right and it is the more important property — a title-bar glyph's entire job is to be hit
+     without reading, and consistency that costs identifiability has bought the wrong thing.
+     So the row is deliberately seven different SHAPES, one per class, checked as a row at 15px
+     rather than judged one at a time at 72px (rendered with `--shot` and a PyMuPDF contact sheet;
+     the sheet is what settled the two calls below):
+        mug        cup        state
+        wide rect  layout     the window
+        closed book  manual   <- FAMILIARITY WON, deliberately. An open book separates better
+                                 at 15px and I argued for it; the operator compared against the
+                                 shipped version and chose the closed book back. That is the
+                                 right call and worth stating so nobody "fixes" it: these two
+                                 buttons have been in the title bar for releases, and a glyph the
+                                 operator already reaches for without looking is worth more than
+                                 a marginal silhouette gain. Muscle memory IS identifiability.
+        page + 3 lines  readme  <- and this is what pays for the pair being two portrait rects:
+                                 the operator's own refinement, three content lines in place of
+                                 the folded corner. The fold is a tiny mark in one corner, so
+                                 fold-vs-band was the collision; three text lines against the
+                                 book's single bottom band differ across the whole interior,
+                                 which is the part you actually see at 15px.
+        circle + ?  cheatsheet  restored at the operator's request
+        the ⌘ itself  shortcuts  unmistakable, and unlike anything else here
+        bubble      assistant  unchanged
+     `?` and `i` sit next to each other on purpose now: one is a bare circle, the other is inside
+     a page, so the silhouettes differ even though both are a letter in a shape. */
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  docText: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.4"/>',
+  help: '<circle cx="12" cy="12" r="9.2"/><path d="M9.6 9.4a2.6 2.6 0 0 1 5 .9c0 1.7-2.6 2.2-2.6 3.9"/><path d="M12 17.6h.01"/>',
+  /* The ⌘ itself (U+2318's shape as strokes, not the character — a font glyph would read as text,
+     and would be missing outright on some Linux systems). Only ever shown on macOS: see
+     `keyboard` below, which is what Windows and Linux get, because a ⌘ there means nothing. */
+  cmdKey: '<path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/>',
   keyboard: '<rect x="2" y="6" width="20" height="12" rx="2.4"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M6 13.5h.01M8 13.5h8M18 13.5h.01"/>',
-  /* HELP ASSISTANT — this button SPAWNS the onboarding agent, so it must not look like the three
-     docs beside it. Deliberately NOT the existing `robot`: that one means "launch an agent" on
+  coffee: '<path d="M3 8h11v5a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8Z"/><path d="M14 9h2a2 2 0 0 1 0 4h-2"/><path d="M4 20h10"/>',
+  /* HELP ASSISTANT — this button SPAWNS the onboarding agent, so it must not look like the four
+     reference pages beside it, and it is the operator's pinned RIGHT end of the cluster. Deliberately NOT the existing `robot`: that one means "launch an agent" on
      the rail, and reusing it here would say "pick an agent" rather than "ask for help". A speech
      bubble carries the asking, the two eyes carry the agent-ness, and the bubble's round
      silhouette is distinct from `robot`'s squared head at the only size these ever render. */
@@ -128,8 +170,6 @@ const ICONS = {
   wrench: '<path d="M14.6 6.4a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.7-3.7a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.7 3.7z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/>',
   sync: '<path d="M21 12a9 9 0 0 0-9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9 9 0 0 0 6.4-2.6L21 16"/><path d="M21 21v-5h-5"/>',
-  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
-  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   design: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 function icon(name, size = 14) {
@@ -424,7 +464,7 @@ function setTermRenderer(v) {
 }
 
 function saveLayout() {
-  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom })); } catch { /* ignore */ }
+  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
 }
 
 function applyLayout() {
@@ -1841,6 +1881,24 @@ function renderPulseUpdate(m) {
 
 /* ── unified/split zones: tabs + panes per zone ───────────────────────────── */
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
+/* AI-82 — `active` is now FOCUS, not visibility.
+   It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
+   single pane whose id matched. Every existing consumer of `active[z]` still wants "the pane the
+   operator is working in", so the name and the meaning both survive — what changed is that a zone
+   can show more than the focused one. Deliberate: `AI-64` tied *addressable pane* to a single
+   active session, and that seam has produced a bug three separate times, so keeping ONE focused id
+   is the change that touches the fewest of those callers.
+
+   `zones[z].visible` is the ordered list actually on screen (v1: at most two), `frac` their
+   widths. The arithmetic lives in src/core/split.ts, which is the tested specification — the
+   renderer cannot import it (index.html loads plain scripts), so the few lines below mirror it and
+   src/test/split.test.ts asserts the two agree, the same way the busy classifier is guarded. */
+const SPLIT_GAP_PX = 10;      // must equal core's SPLIT_GAP — guarded in split.test.ts
+const MAX_VISIBLE_PANES = 3;  // must equal core's MAX_VISIBLE — guarded there too
+const MIN_PANE_PX = 320;      // must equal core's MIN_PANE_PX — ~30 columns MEASURED; guarded there too
+const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — guarded there too
+const zones = { main: { visible: [], frac: [] }, term: { visible: [], frac: [] } };
+const zoneSplit = (z) => zones[z].visible.length > 1;
 const active = { main: null, term: null };
 let viewSeq = 0;
 
@@ -1865,6 +1923,67 @@ function homePane(id, p, { fresh = false } = {}) {
   registerTab(id, z);
   paintStrip(z);
   panesEl(z).appendChild(p.el);
+  /* A NEW PANE ARRIVING IN A ZONE THAT IS ALREADY SPLIT. Operator-reported: it silently took a
+     slot from a pane already on screen, without ever asking whether there was room for another
+     one. Losing one of the two things you are deliberately watching, with no notice, is the worst
+     of the three possible outcomes — so this is the one place that decides, and it decides by
+     MEASURING (fitsAnother's rule), never by a count.
+
+       room     → JOIN the split, beside the pane the operator is focused in.
+       no room  → take the zone FULL, keeping the split's members as hidden tabs.
+
+     "Full" is deliberately not "replace one of them": a new thing filling the screen reads as a
+     mode change and ⌘\ brings the pair straight back, whereas a pane quietly vanishing out of a
+     split reads as a bug. Either way the operator is TOLD which of the two happened.
+
+     Only `fresh` panes come through here — applySplit() re-homes every pane on every layout
+     change, and a re-home must never re-decide the arrangement. `active[z]` is still the
+     previously-focused pane at this point (each creation path calls setActive AFTER homePane),
+     which is exactly the anchor we want to insert beside. */
+  if (fresh && zoneSplit(z) && !zones[z].visible.includes(id)) {
+    const zEl = document.getElementById(z === 'term' ? 'termzone' : 'viewzone');
+    const zoneW = zEl ? zEl.getBoundingClientRect().width : 0;
+    const nextCount = zones[z].visible.length + 1;
+    const room = nextCount <= MAX_VISIBLE_PANES
+      && (zoneW - SPLIT_GAP_PX * (nextCount - 1)) / nextCount >= MIN_PANE_PX;
+    if (room) {
+      const at = zones[z].visible.indexOf(active[z]);
+      zones[z].visible = at < 0
+        ? [...zones[z].visible, id]
+        : [...zones[z].visible.slice(0, at + 1), id, ...zones[z].visible.slice(at + 1)];
+      zones[z].frac = evenFrac(zones[z].visible.length);
+      toast(t('split.joined'));
+    } else {
+      /* NO ROOM — the new pane takes the RIGHTMOST slot and the split SURVIVES at its current
+         size. Operator's call, and it is the better of the two: taking the whole zone answers
+         "I opened one more terminal" by removing two, which is a bigger change than the request.
+         Replacing one slot is the smallest edit that still puts the new pane in front of them.
+         The original complaint was never that a pane got replaced — it was that the replacement
+         happened "without checking if there was room". The check is what was missing; with it,
+         replacing is the honest last resort rather than a silent policy.
+         RIGHTMOST is by TAB ORDER, not by array position — `visible` is sorted by tabOrder in
+         setVisible, so the last element of the array is not necessarily the pane on the right.
+         The new pane then lands in that slot for free: registerTab pushes it to the end of
+         tabOrder, so it sorts rightmost on the next paint.
+         `frac` is deliberately NOT reset — the pane count is unchanged, so re-evening it would
+         throw away a splitter the operator had dragged, for no reason. */
+      const ord = tabOrder[z];
+      const rightmost = [...zones[z].visible].sort((a, b) => ord.indexOf(a) - ord.indexOf(b)).pop();
+      zones[z].visible = [...zones[z].visible.filter((v) => v !== rightmost), id];
+      toast(t('split.tookRight'));
+    }
+    /* FOCUS MOVES WITH THE DECISION, and this line is load-bearing rather than tidy-up.
+       `setVisible` forces the focused pane visible by collapsing the zone to it — the rule that
+       makes `active` mean focus. At this point `active[z]` is still the PREVIOUS pane, and the
+       rightmost pane we just replaced may well be that one (focus in the right half is the normal
+       case). Leaving it would hand setVisible a focused pane that is no longer in the set, and it
+       would answer by collapsing to a single pane — destroying the arrangement this branch just
+       decided, which is exactly the outcome the operator rejected. Caught by measuring the live
+       window rather than by reading: the eval reported visible=[3] where [1,3] was intended.
+       Set AFTER the insertion above, which needs the old value as its anchor. */
+    active[z] = id;
+    saveLayout();   // the arrangement changed, not just the focus
+  }
   setVisible(z);
   updateEmpty();
   /* A pane landing in a HIDDEN zone must un-hide it, or the operator opens something and
@@ -2167,6 +2286,16 @@ function moveTab(z, dragId, overId, after) {
   let to = list.indexOf(overId);
   if (to < 0) { list.push(dragId); } else { list.splice(after ? to + 1 : to, 0, dragId); }
   paintStrip(z);
+  /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
+     derived from `tabOrder` in setVisible rather than stored separately — had the split kept its
+     own order, this would have been a second list to keep in step and a second way for the two to
+     disagree. So the whole feature here is remembering to re-lay-out; the answer is already
+     correct by construction.
+     Called unconditionally rather than only when split: setVisible is cheap when a zone shows one
+     pane (it clears inline geometry it has already cleared), and gating it on `zoneSplit` would be
+     a condition that silently stops being true the day the caller changes. */
+  setVisible(z);
+  saveLayout();
 }
 
 /* AI-69 — A TERMINAL COMING BACK INTO VIEW MUST BE REPAINTED, and fit() cannot do it.
@@ -2222,23 +2351,149 @@ function liveTerms() {
 }
 
 function setVisible(z) {
-  const act = active[z];
+  /* Drop ids that no longer exist before deciding anything — a pane can die between a split and
+     the next paint, and a stale id would tile a hole. Mirrors core's reconcile(). */
+  zones[z].visible = zones[z].visible.filter((id) => panes.has(id) && zoneOf(panes.get(id)) === z);
+  if (zones[z].visible.length !== zones[z].frac.length) zones[z].frac = evenFrac(zones[z].visible.length);
+  /* The focused pane is always visible. This is what makes `active` mean focus rather than
+     visibility without every old caller having to learn the difference. */
+  if (active[z] !== null && panes.has(active[z]) && !zones[z].visible.includes(active[z])) {
+    zones[z].visible = [active[z]];
+    zones[z].frac = [1];
+  }
+  /* BUG (operator-reported): the split showed panes in the order they were ADDED to the set, so
+     splitting from the second tab put it on the LEFT and the first tab's pane on the right — tabs
+     and panes read in opposite directions. Left-to-right on screen must match left-to-right in
+     the strip, always, whatever order the set was built in. Sorted here, once, rather than at
+     each of the three places that mutate the set. */
+  const ord = tabOrder[z];
+  zones[z].visible.sort((a, b) => ord.indexOf(a) - ord.indexOf(b));
+  const shown = zones[z].visible;
+  const geom = paneBoxes(z);
   for (const [pid, p] of panes) {
     if (zoneOf(p) !== z) continue;
-    const on = pid === act;
+    const at = shown.indexOf(pid);
+    const on = at >= 0;
     const wasHidden = !paneShown(p);
     setPaneShown(p, on);
-    p.tab.classList.toggle('active', on);
+    /* `active` marks the FOCUSED tab; `shown` marks every tab on screen. Two classes because the
+       operator needs to see both — which panes are up, and which one their keystrokes reach. */
+    p.tab.classList.toggle('active', pid === active[z]);
+    p.tab.classList.toggle('shown', on);
+    /* Which pane the keystrokes reach — only meaningful, and only marked, while split. */
+    p.el.classList.toggle('panefocus', on && pid === active[z] && shown.length > 1);
+    if (on && geom) { p.el.style.left = geom[at].left; p.el.style.right = geom[at].right; }
+    else { p.el.style.left = ''; p.el.style.right = ''; }   // '' hands the box back to .pane's own inset
     // Repaint on the hidden → visible transition only; repainting an already-visible pane
     // on every call would burn a frame on each tab click for nothing.
     if (on && wasHidden) repaintTerm(p);
   }
+  document.getElementById(z === 'term' ? 'termzone' : 'work')?.classList.toggle('zsplit', shown.length > 1);
+  /* Geometry changed, so every visible terminal needs refitting and its pty told the truth. One
+     call, already rAF-coalesced — the spec's "resize storm" risk is a DRAG concern and the drag
+     divider is deferred, so v1's geometry only moves on discrete events. */
+  fitTerms();
+}
+
+const evenFrac = (n) => (n <= 0 ? [] : Array.from({ length: n }, () => 1 / n));
+
+/* Mirrors src/core/split.ts boxes(). Kept in step by src/test/split.test.ts, which reads both. */
+function paneBoxes(z) {
+  const { visible, frac } = zones[z];
+  if (visible.length <= 1) return null;
+  const out = [];
+  let acc = 0;
+  for (let i = 0; i < visible.length; i++) {
+    const f = frac[i] ?? 1 / visible.length;
+    const startPct = acc * 100;
+    const endPct = (acc + f) * 100;
+    out.push({
+      left: i === 0 ? `${PANE_EDGE_PX}px` : `calc(${startPct}% + ${SPLIT_GAP_PX / 2}px)`,
+      right: i === visible.length - 1 ? `${PANE_EDGE_PX}px` : `calc(${100 - endPct}% + ${SPLIT_GAP_PX / 2}px)`,
+    });
+    acc += f;
+  }
+  return out;
+}
+
+/**
+ * Open `next` beside the focused pane in its zone — the one gesture, from ⌘\ or the tab menu.
+ *
+ * At capacity the NON-focused half is replaced rather than the gesture refusing: the operator
+ * asked for this pane beside the one they are in, and "nothing happened" is never the answer they
+ * wanted. The focused pane keeps its side so their own work does not jump across the screen.
+ */
+/**
+ * The partner for a split where the operator did NOT name a pane — the next tab in the strip,
+ * wrapping. `null` when the zone has nothing else to split with.
+ *
+ * Shared by the ⌘\ chord AND the context menu, because they are the same gesture asked two ways.
+ * The menu used to have no such notion: it offered "Open to the right" only for a tab that was
+ * NOT the focused one, so right-clicking the pane you were looking at offered nothing to split
+ * with — the "dead menu" the operator reported, back again the moment a zone went full and the
+ * tab under the cursor was the only visible one.
+ */
+function nextTabAfter(z, id) {
+  const order = tabOrder[z].filter((v) => panes.has(v));
+  if (order.length < 2) return null;
+  const at = order.indexOf(id);
+  const next = order[(at + 1) % order.length];
+  return next === id ? null : next;
+}
+
+function splitWithPane(z, next) {
+  if (!panes.has(next) || zoneOf(panes.get(next)) !== z) return;
+  const beside = active[z];
+  if (next === beside) return;
+  const vis = zones[z].visible;
+  if (vis.includes(next)) { setActive(next); return; }   // already up — focus it, do not duplicate
+  /* ROOM IS MEASURED, not counted. A count cap wastes a large monitor and ruins a laptop, and the
+     operator reported the old two-pane cap AS the bug: with three tabs it evicted a pane by a
+     policy that looked arbitrary. So the question is whether one more pane would still leave every
+     pane usable — ~40 columns — in THIS zone, at its current width. Mirrors core's fitsAnother();
+     both sides are read by split.test.ts. */
+  const zoneEl = document.getElementById(z === 'term' ? 'termzone' : 'work');
+  const zoneW = zoneEl ? zoneEl.getBoundingClientRect().width : 0;
+  const nextCount = vis.length + 1;
+  const room = nextCount <= MAX_VISIBLE_PANES
+    && (zoneW - SPLIT_GAP_PX * (nextCount - 1)) / nextCount >= MIN_PANE_PX;
+  if (room) {
+    const at = vis.indexOf(beside);
+    zones[z].visible = at < 0 ? [...vis, next] : [...vis.slice(0, at + 1), next, ...vis.slice(at + 1)];
+  } else {
+    /* Full. Evict the pane FURTHEST from the focused one and keep the focused pane where it sits,
+       so the operator's own work never jumps across the screen. */
+    const keep = vis.indexOf(beside);
+    const drop = keep === 0 ? vis.length - 1 : 0;
+    zones[z].visible = vis.map((v, i) => (i === drop ? next : v));
+    if (vis.length > 1) toast(t('split.noRoom'));
+  }
+  zones[z].frac = evenFrac(zones[z].visible.length);
+  setVisible(z);
+  saveLayout();
+}
+
+/** Leave the split, keeping only the focused pane. */
+function unsplitZone(z) {
+  if (!zoneSplit(z)) return;
+  zones[z].visible = active[z] !== null ? [active[z]] : zones[z].visible.slice(0, 1);
+  zones[z].frac = [1];
+  setVisible(z);
+  saveLayout();
 }
 
 function setActive(id) {
   const p = panes.get(id);
   if (!p) return;
   const z = zoneOf(p);
+  /* Clicking a HIDDEN pane's tab while split swaps it into the half the operator was focused in,
+     rather than collapsing the split. Collapsing would make every tab click destroy the
+     arrangement the operator built, which is the opposite of what a split is for. */
+  const vis = zones[z].visible;
+  if (vis.length > 1 && !vis.includes(id)) {
+    const at = Math.max(0, vis.indexOf(active[z]));
+    zones[z].visible = vis.map((v, i) => (i === at ? id : v));
+  }
   active[z] = id;
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
@@ -2258,8 +2513,14 @@ function setActive(id) {
 
 function ensureActive(z) {
   const ids = [...panes.entries()].filter(([, p]) => zoneOf(p) === z).map(([id]) => id);
-  if (!ids.includes(active[z])) active[z] = ids[ids.length - 1] ?? null;
+  /* A pane that is gone leaves the visible set, and the survivor takes the whole zone — the
+     spec's "close one half → the other takes the full zone". Done by filtering rather than by
+     rebuilding, so the surviving pane keeps its side until it is alone. */
+  zones[z].visible = zones[z].visible.filter((v) => ids.includes(v));
+  zones[z].frac = evenFrac(zones[z].visible.length);
+  if (!ids.includes(active[z])) active[z] = zones[z].visible[0] ?? ids[ids.length - 1] ?? null;
   setVisible(z);
+  saveLayout();
 }
 
 /* ═══ APP UPDATE PILL ═══════════════════════════════════════════════════════
@@ -2418,6 +2679,70 @@ function makeTab(id, name, iconName) {
     setActive(id);
   });
 
+  /* GESTURE 2 — "Open to the right". Same mechanism as ⌘\ (one splitWithPane), a second entry
+     point: the chord is fast once known and invisible until then, a context item is the reverse.
+     The spec's "pick one; do not ship three" is about MECHANISMS — the third candidate, dragging a
+     tab into the right half, needs drop-target hit-testing and widens a drag surface deliberately
+     scoped to reordering within one strip, so it stays deferred. */
+  /* The tab menu. Reported broken because it was only useful on a tab that happened to be in the
+     right state: right-clicking the pane you were LOOKING at offered nothing but "open a second
+     one", which reads as a dead menu. It now always carries actions that apply to the tab under
+     the cursor, and Rename is one of them — AI-70, open since the first external issue on the
+     public repo (#1, 07-27), which asked for exactly this and could not be built then because
+     there was no contextmenu on a tab at all. Splitting created one, so the affordance is a menu
+     row rather than new machinery. */
+  tab.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    const pane = panes.get(id);
+    if (!pane) return;
+    const z = zoneOf(pane);
+    const items = [{ label: t('tab.rename'), value: 'rename' }];
+    /* Split with THIS tab whenever it is not the focused pane; on the FOCUSED tab, split with the
+       next tab in the strip — exactly what ⌘\ does, through the same helper. Operator-reported
+       twice now: gating this on `id !== active[z]` leaves the menu dead on the one tab you are
+       most likely to right-click, and it went dead again the moment a full zone made that tab the
+       only visible one. Omitted only when the zone genuinely has nothing else to split with,
+       which is the one case where offering it would just toast an apology. */
+    const partner = id === active[z] ? nextTabAfter(z, id) : id;
+    if (partner !== null) items.push({ label: t('split.openRight'), value: 'right' });
+    if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
+    items.push({ label: '-', value: '-' }, { label: t('tab.close'), value: 'close' });
+    /* A NATIVE menu, not the app's listModal. That picker carries a filter box because it was
+       built for long searchable lists (sessions, skills, commands), and on four rows the operator
+       read it as over-powered — a search field implies a list worth searching. Native appears at
+       the pointer, needs no styling, is keyboard-navigable, and behaves like every other
+       right-click on the machine. The labels are still ours; main is told what to show. */
+    void window.glassShell.tabMenu(items).then(async (pick) => {
+      if (pick === 'right') { if (partner !== null) splitWithPane(z, partner); }
+      else if (pick === 'unsplit') unsplitZone(z);
+      else if (pick === 'close') void requestClosePane(id);
+      else if (pick === 'rename') {
+        const next = (await inputModal(t('tab.rename'), pane.name || t('pulse.terminal'), []) || '').trim();
+        if (!next || next === pane.name) return;
+        /* TWO RENAMES, and treating them as one is the bug the operator caught.
+           A LIVE CLAUDE SESSION renames ITSELF. Typing the label onto the tab would leave the tab
+           saying one thing while the session registry says another — and a name mismatch is not
+           cosmetic here: the bus addresses sessions BY NAME, `/rename` rewrites the registry
+           entry, and the two disagreeing is the class that produced the earlier crash-adjacent
+           weirdness. So we drive the dance that already works — submit `/rename <name>` into the
+           pane and let the session's own title announcement rename the tab, exactly as it does
+           when the operator types it themselves. The session stays the single source of truth and
+           this adds no second path to the same fact.
+           A PLAIN SHELL has nothing to announce and no registry entry, so its label is ours to
+           set and must survive — that is the half of AI-70 the two v0.7.0 fixes could not cover.
+           `manualName` is therefore set ONLY here, never for a session: setting it on a session
+           would block the forward dance and re-create the mismatch from the other side. */
+        if (pane.isSession && !pane.exited) {
+          submitToPty(id, '/rename ' + next);
+          toast(t('tab.renameSession', { name: next }));
+        } else {
+          pane.manualName = true;
+          renamePane(id, next);
+        }
+      }
+    });
+  });
+
   /* ── drag to reorder, WITHIN ONE STRIP ONLY ──
      Deliberately not a general drag-and-drop surface: a tab cannot cross into the other zone,
      the explorer, or the panel. It moves left or right among its siblings and nothing else,
@@ -2466,6 +2791,84 @@ function makeTab(id, name, iconName) {
 }
 
 let dragTab = null;
+
+/* ═══ AI-82 gesture 3 — DRAG A TAB ONTO A PANE ═══
+   Deferred on the first pass, and the row said why and when: it is "the most discoverable
+   gesture and worth revisiting once the tiling and the interaction sweep are proven, at which
+   point it is additive instead of a risk multiplier". Both are now proven live, so it is additive.
+
+   The drop target is a PANE, not "the right half of the zone" — spatially it means "put this
+   beside THAT", which is the sentence the operator is already thinking, and it needs no invisible
+   half-zone geometry to learn. Dropping onto the pane a tab is already showing is a no-op rather
+   than an error.
+
+   Scoped so it cannot disturb what already works: the tab strip's own reorder drag is untouched
+   (it claims drops on TABS), this claims drops on PANES, and both gate on the app-private
+   `application/x-aios-tab` type plus a same-zone check — the explorer installs its own
+   dragover/drop handlers for file paths, and without the guard a tab dropped there would be read
+   as a path. */
+/**
+ * Clicking INSIDE a pane focuses it — the half of the spec's focus semantics that was missing.
+ *
+ * `active` became "focused rather than the only visible one", but nothing told it when the
+ * operator moved by clicking into the other pane. So the caret went there while the tab highlight
+ * and the pane's focus ring stayed behind, which is worse than no indicator at all: the two marks
+ * that exist to answer "where do my keystrokes land" were pointing at the wrong pane.
+ *
+ * A LIGHT path on purpose. Routing this through setActive() would re-run geometry and refit every
+ * terminal on every click in a terminal — and nothing has moved, so that is a resize push for
+ * nothing (`fit()` is a no-op on an unchanged size, but pushPtyGeom is not). Visibility and
+ * geometry are untouched here; only the two marks change.
+ */
+function focusPane(id) {
+  const p = panes.get(id);
+  if (!p) return;
+  const z = zoneOf(p);
+  if (active[z] === id) return;                       // already focused — a click must cost nothing
+  /* A hidden pane needs the full path: it has to enter the visible set, which IS a geometry
+     change. Only an already-visible pane can take the shortcut. */
+  if (!zones[z].visible.includes(id)) { setActive(id); return; }
+  active[z] = id;
+  const split = zones[z].visible.length > 1;
+  for (const [pid, q] of panes) {
+    if (zoneOf(q) !== z) continue;
+    q.tab.classList.toggle('active', pid === id);
+    q.el.classList.toggle('panefocus', split && pid === id);
+  }
+  paintRunning();   // the RUNNING card marks the focused session too
+}
+
+function attachPaneDropTarget(p, id) {
+  /* mousedown, not click: it fires before focus moves into xterm's textarea, so the marks update
+     in the same frame the caret does rather than one behind it. Capture phase, because xterm
+     stops propagation on its own container for some events and a bubbling listener can miss. */
+  p.el.addEventListener('mousedown', () => focusPane(id), true);
+  const el = p.el;
+  const ok = (ev) => {
+    if (!dragTab) return false;
+    const dp = panes.get(dragTab.id);
+    return !!dp && zoneOf(dp) === zoneOf(p) && dragTab.id !== id;
+  };
+  el.addEventListener('dragover', (ev) => {
+    if (!ok(ev)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+    el.classList.add('panedrop');
+  });
+  el.addEventListener('dragleave', () => el.classList.remove('panedrop'));
+  el.addEventListener('drop', (ev) => {
+    el.classList.remove('panedrop');
+    if (!ok(ev)) return;
+    ev.preventDefault();
+    ev.stopPropagation();          // never let the explorer's path handler see a tab
+    const dropped = dragTab.id;
+    dragTab = null;
+    /* Focus the pane that was dropped ON first, so "beside" means beside THIS one — splitWithPane
+       opens next to whatever is focused, and reusing it keeps one implementation of the rule. */
+    setActive(id);
+    splitWithPane(zoneOf(p), dropped);
+  });
+}
 function clearDropHint() {
   for (const el of document.querySelectorAll('.tab.drop-before, .tab.drop-after')) {
     el.classList.remove('drop-before', 'drop-after');
@@ -2559,6 +2962,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, isSession: paneIsClaude(cmd) };
   panes.set(id, p);
+  attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
   homePane(id, p, { fresh: true });
   // raw tty fills the pane — type straight into the session; drag with the mouse
   // to select, which copies to the clipboard (xterm-native, no composer bar).
@@ -2648,6 +3052,23 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
      what garbled the `claude --resume` picker. A TUI must never be started at a lie. */
   if (cmd) void window.glassShell.ptyRun(id, cmd);
   term.attachCustomKeyEventHandler((e) => {
+    /* ⌘\ — split / unsplit the focused zone. Deliberately NOT in the ⌘⌥G family: this is a
+       workbench gesture, and ⌘\ is what a terminal user already reaches for (iTerm, VS Code).
+       Handled before the chord check because it is a single stroke, not a chord prefix. */
+    if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && !e.altKey && e.code === 'Backslash') {
+      e.preventDefault();
+      const z = active.term !== null && split ? 'term' : 'main';
+      if (zoneSplit(z)) unsplitZone(z);
+      else {
+        /* Split with the NEXT tab in the strip, which is what "open the other one beside this"
+           means when the operator has not named a pane. No second pane → nothing to split, and
+           saying so beats a silent no-op. */
+        const next = nextTabAfter(z, active[z]);
+        if (next === null) toast(t('split.needTwo'));
+        else splitWithPane(z, next);
+      }
+      return false;
+    }
     if (e.type === 'keydown' && handleChord(e)) return false; // ⌘⌥G chords win everywhere
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
     if (e.type !== 'keydown' || !e.metaKey || e.altKey) return true;
@@ -2712,7 +3133,12 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
          DELIVERABILITY — may the bus type into this pane? That needs PROOF, because getting it
            wrong routes someone's message into the wrong session. Only a live registry match
            earns it, and only that name may later be declared ended. */
-    renamePane(id, nm);
+    /* AI-70: a MANUAL name wins. The two fixes that shipped in v0.7.0 both depend on the session
+       announcing a title, so a pane the operator deliberately called `build` would be renamed
+       back to whatever the session says on its next announcement — silently undoing the label
+       they just set. Naming is cosmetic, so an operator's choice simply outranks the announcement;
+       DELIVERABILITY below is untouched, because that needs proof and a label is not proof. */
+    if (!panes.get(id)?.manualName) renamePane(id, nm);
     const hit = ((pulse.lastRunning || {}).running || []).find((a) => a.name === nm);
     if (!hit) return;
     p.isSession = true;
@@ -2829,6 +3255,7 @@ function openBrowserPane(url, label) {
   const tab = makeTab(id, label || 'browser', 'html');
   const paneObj = { kind: 'browser', name: label || 'browser', el, tab, url };
   panes.set(id, paneObj);
+  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
   setActive(id);
 }
@@ -3539,6 +3966,7 @@ async function openViewer(p) {
   const tab = makeTab(id, name, fileIconName(name));
   const paneObj = { kind: 'view', name, el, tab, path: file.path };
   panes.set(id, paneObj);
+  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
 
   const renderable = MD_EXT.test(name) || HTML_EXT.test(name) || IMG_EXT.test(name) || PDF_EXT.test(name);
@@ -4372,10 +4800,10 @@ dragPanel.addEventListener('click', () => {
 });
 // title-bar README + ? (help) buttons
 const dragReadme = document.getElementById('dragReadme');
-dragReadme.innerHTML = icon('book', 15);  // book → Operating Manual, opened in an in-app browser tab (#14)
+dragReadme.innerHTML = icon('book', 15);  // an open book → the ONLINE Operating Manual, in an in-app browser tab (#14)
 dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()));
 const dragHelp = document.getElementById('dragHelp');
-dragHelp.innerHTML = icon('file', 15);  // doc → README
+dragHelp.innerHTML = icon('docText', 15);  // page + i → README.md (this button is NOT the assistant, whatever its id says)
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
 /* ═══ Title-bar hover tips ═══
    NATIVE TOOLTIPS DO NOT FIRE IN THIS CLUSTER, and every button in it had been setting `.title`
@@ -4436,29 +4864,60 @@ function paintCaffeine(st) {
   /* The steam IS the state, not a tint. A coloured glyph in a dark title bar reads as "slightly
      different"; two wisps of steam read as ON from across the room, which is the entire job of a
      control whose failure mode is not knowing which way it is set. */
-  dragCaffeine.innerHTML = icon(on ? 'coffeeOn' : 'coffee', 17);
+  dragCaffeine.innerHTML = icon(on ? 'coffeeOn' : 'coffee', 15);   // 15, like every other glyph in the cluster — 17 was the lone size outlier
   dragCaffeine.classList.toggle('caff-on', on);
   dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
   /* The tooltip names the STATE and its reason, never the action — and when the platform refused
      the request it says so instead of claiming success. */
-  /* JUST THE NAME, normally. The highlight already says on-or-off, so repeating it in words is
-     noise — and the label is platform-free now: it read "Keep this Mac awake", which is simply
-     wrong on the Windows and Linux builds this same code ships to.
-     TWO EXCEPTIONS, and both are cases where the highlight ALONE would mislead:
-       · unsupported — we asked and the platform refused (Linux with no session bus). The cup would
-         look off while the operator believes they turned it on, so this one must say so.
-       · an override in AUTO mode — the cup's state no longer follows your sessions, and nothing
-         else on screen explains why, or how to get back. It names the way back. */
+  /* THE NAME PLUS THE SETTING. The rule here has been "say only what no pixel says", and it is
+     why the override sentence was removed — the dot carries that, and the operator asked the
+     label to stop duplicating it. The MODE is the one thing that passes the same test and was
+     missing: nothing on this button distinguishes `auto` from `manual`. The fill says on/off and
+     the dot says whose hand it is, but whether an idle machine will fall asleep on its own is
+     invisible, and that is the question an operator hovers this control to ask. Operator-raised:
+     *"do you think the tooltip for the coffee should state the setting?"*
+     Still not the action, still not the override, and still platform-free — it read "Keep this
+     Mac awake" once, which is simply wrong on the Windows and Linux builds this ships to.
+     ONE EXCEPTION SURVIVES for a different reason: `unsupported` means we asked and the platform
+     refused (Linux with no session bus), so the cup reads off while the operator believes they
+     turned it on. No pixel can say that either. */
+  /* SHORT, and the length is a constraint rather than a preference — operator-raised: "just be
+     careful they are not massively long". Measured before shortening, the refusal case composed
+     to 90 chars in English and 111 in Spanish, against 16-30 for the normal case. The full
+     explanation ("on Linux this means no session bus") still exists where there is room for it:
+     the [caffeinate] main-process log prints it verbatim on the failing start. A tooltip is not
+     the place to teach D-Bus. Capped in src/test/caffeinate.test.ts, in every locale. */
   let why = '';
   if (st && st.unsupported) why = t('caffeinate.unsupported');
-  else if (st && st.mode === 'auto' && st.override !== null) why = t('caffeinate.overriding');
-  caffTip = t('caffeinate.title') + (why ? ' · ' + why : '');
+  /* THE WORD NAMES WHAT IS IN FORCE, not the setting that is configured — operator-raised:
+     "the coffee tooltip needs a 'Keep awake: override' status dont you think? for when the little
+     dot comes?" Yes, and it fixes a small lie: with an override active the tooltip read
+     "Keep awake: auto" while the cup was pointedly NOT following auto. Naming the configured mode
+     when something else is deciding is the kind of half-truth that makes an operator stop
+     trusting a status.
+     So the dot and the word now say the same thing: dot ⟺ "override". One rule, two carriers,
+     and it holds in both modes — in manual, on IS an override (manual only ever cycles
+     null ↔ true), so the word tracks the dot exactly there too.
+     Replaces the mode rather than appending to it, deliberately: "auto · override · refused by
+     this system" blows the tooltip cap in Spanish, and the operator's other note in the same
+     breath was to keep these short. The mode is one click away in Settings; which authority is
+     holding the machine awake right now is not. */
+  const status = st && st.override !== null && st.override !== undefined
+    ? t('caffeinate.statusOverride')
+    : (st && st.mode === 'manual' ? t('caffeinate.modeManualShort') : t('caffeinate.modeAutoShort'));
+  caffTip = t('caffeinate.title') + ': ' + status + (why ? ' · ' + why : '');
   dragCaffeine.title = caffTip;   // fallback only; attachTip is what actually shows
-  /* An override in auto mode is a THIRD visual state, not just on-or-off: the cup has stopped
-     following sessions. Marked so the operator can see they are overriding and that one more
-     click resumes auto — the question "what brings it back to auto?" was asked because nothing
-     on screen answered it. */
-  dragCaffeine.classList.toggle('caff-override', !!(st && st.mode === 'auto' && st.override !== null));
+  /* THE DOT MEANS "YOUR HAND IS ON IT" — in either mode, which is the operator's own call and
+     makes it one rule instead of two. It was gated on `auto`, on the reasoning that only auto has
+     a rule to override; but from the operator's seat manual-and-on is the SAME situation (they
+     pressed the button, the machine is awake because they said so), and marking the same
+     situation two different ways is what makes a control need explaining.
+     In manual the dot is redundant with the coral fill — manual only ever cycles null ↔ true, so
+     dot-on and on coincide — and that redundancy is the price of the simpler rule. It is not
+     noise: it is never *always* on, only on while the machine is being held awake.
+     In auto it still carries what nothing else can — the cup has stopped following sessions, and
+     one more click resumes auto. */
+  dragCaffeine.classList.toggle('caff-override', !!(st && st.override !== null));
 }
 if (dragCaffeine) {
   /* A base tooltip set BEFORE any state arrives. `paintCaffeine` overwrites it with the state and
@@ -4466,7 +4925,7 @@ if (dragCaffeine) {
      what it is — an unlabelled icon in a title bar is a guess. Reported by the operator: hovering
      showed nothing at all, because the only `title` assignment lived inside the paint. */
   dragCaffeine.title = caffTip;
-  dragCaffeine.innerHTML = icon('coffee', 17);
+  dragCaffeine.innerHTML = icon('coffee', 15);
   attachTip(dragCaffeine, () => caffTip);
   dragCaffeine.addEventListener('click', async () => { paintCaffeine(await window.glassShell.caffeinateToggle()); });
   window.glassShell.onCaffeinate(paintCaffeine);
@@ -4478,17 +4937,17 @@ if (dragCaffeine) {
    the cluster is where an operator looks. */
 const dragKeys = document.getElementById('dragKeys');
 if (dragKeys) {
-  dragKeys.innerHTML = icon('keyboard', 15);
+  dragKeys.innerHTML = icon(IS_MAC ? 'cmdKey' : 'keyboard', 15);  // page + key dots → the shortcuts sheet. The standalone keyboard is retired: it was the only reference that was not a document silhouette, which is what left it looking adrift between the others.
   dragKeys.addEventListener('click', () => openShortcutsTab());
 }
 
 const dragCheat = document.getElementById('dragCheat');
-dragCheat.innerHTML = icon('help', 15);  // ?-in-a-circle → Cheatsheet (Glass parity)
+dragCheat.innerHTML = icon('help', 15);  // ?-in-a-circle → CHEATSHEET.md, restored at the operator's request. It IS the universal help glyph, and that ambiguity is now paid for by silhouette instead: the assistant is a bubble, so the only round thing in the row is this one.
 dragCheat.addEventListener('click', () => openFrameworkDoc('CHEATSHEET.md'));
 // The onboarding agent had no surface anywhere. It belongs beside the docs — a compass,
 // not the robot glyph (that one means "go with agents" in the panel).
 const dragGuide = document.getElementById('dragGuide');
-dragGuide.innerHTML = icon('assistant', 15);
+dragGuide.innerHTML = icon('assistant', 15);  // speech bubble → spawns `onboarding-aios`. THE AIOS ASSISTANT, and the operator's pinned right end: the one control here that hands the work to someone rather than telling you something.
 dragGuide.addEventListener('click', () => void spawnNamed('onboarding-aios'));
 /* Framework status — the Glass extension's quiet indicator: a colored dot + a short
    word in the panel header (NOT a boxed icon button), clickable to run the update when
@@ -4699,6 +5158,9 @@ window.glassShell.onIntent(async (m) => {
     case 'spawnWorker': void spawnWorkerFlow(); return;
     case 'launchPrimary': { const c = await window.glassShell.shellConfig(); launchPrimary(c.primary || 'aios'); return; }
     case 'shortcuts': openShortcutsTab(); return;
+    /* On demand as well as automatically. An announcement you can only ever see once, at a moment
+       you did not choose, is one an operator will close by reflex and never find again. */
+    case 'whatsnew': openWhatsNewTab(); return;
     case 'openToday': { const d = new Date(); window.glassShell.panelSend({ type: 'openDay', date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }); return; }
     case 'designer': openDesignerTab(); return;
     case 'accountSwap': void accountSwapFlow(); return;
@@ -4914,6 +5376,95 @@ function spawnNamed(name, task, cwd, mode) {
    ⌘⌥G chord prefix (that exists to dodge VS Code / Antigravity bindings). One rule,
    two rows: ⌘ opens a SURFACE · ⌘⇧ opens a PICKER. The old chords still work for
    muscle memory, but these are the canonical keys. */
+/* ═══ WHAT'S NEW ═══════════════════════════════════════════════════════════════
+   THE GAP THIS CLOSES. Release notes existed only as GitHub Releases, and the app
+   auto-updates: the pill says "restart to install it", the operator restarts, and nothing
+   whatsoever says what changed. Two terminals side by side shipped behind a chord, and a chord
+   nobody is told about is a feature nobody has. Operator-raised: *"wonder how would users notice
+   the new features?"* — and their own answer settled the shape: *"a tab in editor like when
+   updating chrome, a simple whats new that opens after update."*
+
+   WHY A TAB AND NOT A MODAL OR A BADGE. A modal interrupts and gets dismissed reflexively; a
+   badge waits to be noticed and usually is not. A tab is the one surface an operator can read
+   now, keep for later, or close — and it costs nothing to ignore. It also needs no new
+   machinery: openToolTab is the same mechanism behind the shortcuts sheet.
+
+   THE CONTENT LIVES IN i18n, not in a bundled notes file. That is deliberate on two counts: the
+   app ships in three languages, so English-only notes would be the one untranslated screen in
+   it; and the key SET is fixed (title, sub, three headings and bodies, a link) while the VALUES
+   are rewritten each release. Bounded upkeep, no new artifact to package, and no network. */
+function openWhatsNewTab() {
+  openToolTab('::whatsnew', t('whatsnew.tab'), async (body) => {
+    let v = '';
+    try { v = await window.glassShell.appVersion(); } catch { v = ''; }
+    /* `tool home` — the same wrapper Home uses, so the two front-facing panes share one measure
+       and one rhythm instead of each inventing its own. */
+    const wrap = el('div', 'tool home');
+    body.appendChild(wrap);
+    wrap.appendChild(el('div', 'tbig', t('whatsnew.title', { version: v })));
+    wrap.appendChild(el('div', 'tsub', t('whatsnew.sub')));
+    const grid = el('div', 'wngrid');
+    /* THE ICON IS THE ONE THE FEATURE WEARS. The split card gets the layout glyph, keep-awake
+       gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
+       operator what to look for afterwards. An arbitrary decorative icon here would be a missed
+       chance to connect the words to the surface. */
+    for (const [n, glyph] of [[1, 'layout'], [2, 'coffee'], [3, 'check']]) {
+      const c = el('div', 'wncard');
+      const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
+      c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
+      grid.appendChild(c);
+    }
+    wrap.appendChild(grid);
+    /* The full notes stay on GitHub — this pane is the headlines, not a changelog. openExternal
+       rather than an in-app browser pane: a release page is somewhere they may want to keep, and
+       it carries links out of our sandbox. Bottom-right, with air above it: it is the last thing
+       here and it leaves the app, so it must not read as part of the last card. */
+    const foot = el('div', 'wnfoot');
+    const link = el('button', 'wnlink', t('whatsnew.more'));
+    link.addEventListener('click', () => void window.glassShell.openExternal(
+      'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
+    foot.appendChild(link);
+    wrap.appendChild(foot);
+  });
+}
+
+/**
+ * Open it ONCE, on the first launch after the version changed.
+ *
+ * Three rules, and each one exists because its absence is a bug the operator would meet:
+ *  · A FRESH INSTALL SHOWS NOTHING. No stored version means this is a first run, which belongs to
+ *    onboarding — "what's new" to someone with no old version is a non-sequitur. We stamp and stay
+ *    quiet. (It is also what keeps this out of the smoke run, whose profile is always fresh.)
+ *  · THE STAMP IS WRITTEN BEFORE THE TAB OPENS. If rendering ever throws, the operator gets one
+ *    failed tab, not a tab that reopens on every launch forever.
+ *  · SAME VERSION, NOTHING. The comparison is against the version, so it cannot fire twice for
+ *    one release and it needs no separate "seen" bookkeeping to go stale.
+ */
+async function maybeShowWhatsNew() {
+  let v = '';
+  try { v = await window.glassShell.appVersion(); } catch { return; }
+  if (!v) return;
+  let seen = null;
+  try { seen = localStorage.getItem('whatsNewSeen'); } catch { return; }
+  /* localStorage, NOT .glass/state.json: that file roams with the vault through git, and "have I
+     read this release's notes" is a fact about this machine, not about the vault. Sharing it would
+     mean updating on a second computer silently swallows the announcement. */
+  try { localStorage.setItem('whatsNewSeen', v); } catch { /* private mode — then just do not open */ }
+  if (seen === v) return;                        // same release; nothing has changed since they looked
+  /* NO STAMP AT ALL IS TWO DIFFERENT PEOPLE, and telling them apart is the whole reason
+     PROFILE_WAS_EMPTY exists. Caught by asking the operator's own question before cutting — "the
+     whats new will open automatically after update restart, correct?" — and measuring it:
+       · A FIRST-EVER LAUNCH has an empty profile. Onboarding owns that screen; "what's new" to
+         someone with no old version is a non-sequitur.
+       · AN INSTALL THAT PREDATES THIS FEATURE also has no stamp — because the code that writes it
+         ships in the very release being announced — but its profile is full of prior state. That
+         is the entire audience for this release's notes, and reading their missing key as
+         "new operator" would have skipped every one of them. The feature would have started
+         working one release AFTER the release it was built to announce. */
+  if (!seen && PROFILE_WAS_EMPTY) return;
+  openWhatsNewTab();
+}
+
 function openShortcutsTab() {
   openToolTab('::shortcuts', t('shortcuts.title'), async (body) => {
     const wrap = el('div', 'tool');
@@ -5009,6 +5560,18 @@ const RENDERER_KEYS = [
      separately, since it will mislead the next reader too. */
   { group: 'menu.view', label: 'shortcut.exitMaximized', accel: 'Escape' },      // setZen(false)
   { group: 'menu.view', label: 'shortcut.openPath', accel: 'CmdOrCtrl+Click' },  // attachPathLinks
+  /* AI-82's chords. Operator-reported: "shortcuts page is missing the split shortcut" — and it
+     was missing from BOTH places a keystroke can be discovered. The sheet is built from the
+     native menu's accelerators plus this list, and `⌘\` is neither: it lives only in the
+     renderer's own key handler, so the one gesture the release is named for was invisible to the
+     one surface that exists to answer "what can I press". A chord handled in the renderer has to
+     be added HERE by hand; nothing derives it, which is exactly why it was forgotten.
+     (The PR body for this branch claimed the menu carried `⌘\`. It did not — corrected there.) */
+  { group: 'menu.view', label: 'shortcut.split', accel: 'CmdOrCtrl+\\' },        // splitWithPane()
+  { group: 'menu.view', label: 'shortcut.unsplit', accel: 'CmdOrCtrl+Shift+\\' }, // unsplitZone()
+  /* Found in the same audit rather than reported: ⌘S saves the source editor and appeared in no
+     menu and no sheet. Auditing the whole set beat fixing the one that was noticed. */
+  { group: 'menu.file', label: 'shortcut.save', accel: 'CmdOrCtrl+S' },          // codeedit onSave
 ];
 
 /** `CmdOrCtrl+Shift+T` → `⌘⇧T` on macOS, `Ctrl+Shift+T` elsewhere.
@@ -5194,6 +5757,7 @@ function openToolTab(key, titleText, build, opts) {
     };
   }
   panes.set(id, paneObj);
+  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
   build(body, head);
   setActive(id);
@@ -7060,7 +7624,11 @@ void initLocale().then(async () => {
        prevent. readiness() applies the same markers the doctor does — CLAUDE.md for the framework,
        a real vault dir for the vault — so all three surfaces now agree. */
     const r = await window.glassShell.readiness();
-    if (!r.framework || !r.vault) openSetupTab();
+    if (!r.framework || !r.vault) { openSetupTab(); return; }
+    /* AFTER readiness, and only when the workbench is actually usable. A "what's new" tab in front
+       of an operator whose framework is missing is noise on top of a real problem — Setup owns
+       that screen, and returning above keeps this out of its way. */
+    void maybeShowWhatsNew();
   } catch { /* if we cannot even ask, the Setup tab is still reachable by hand */ }
 });
 
