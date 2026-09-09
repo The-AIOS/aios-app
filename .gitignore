@@ -8,3 +8,8 @@ dist/
 # isolated dev profile (npm run start:isolated) — never committed
 .dev-userdata/
 .dev-virgin/
+# Any throwaway Electron profile. Two exact names were listed and a run using a THIRD
+# (.dev-shot, for screenshots) committed 38 files of GPU/Code cache before a tag. An
+# allowlist of profile names is a list someone has to remember to extend at the exact
+# moment they are thinking about something else.
+.dev-*/
