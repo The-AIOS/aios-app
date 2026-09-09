@@ -5774,7 +5774,14 @@ function openHomeTab() {
    closed and re-created. A mirror that only updates when you rebuild it is a photograph. */
 const TOOL_TAB_ICONS = {
   '::home': 'aios',                                  // the front door wears the app's own mark
-  '::whatsnew': 'sparkles',
+  /* A STAR, not the sparkle it shipped with. Operator-reported: at 12px the sparkle read as an
+     "=" — and rendering both at true size shows why, its horizontal axis dominates and the
+     four-point silhouette collapses toward a short bar. The five-point star survives 12px. Same
+     lesson as the title-bar row: judge a glyph at the size it renders, never at 84px.
+     `star` is also the Frequent-tasks glyph in the panel — accepted rather than overlooked: the
+     two never appear on the same surface, and "new" and "favourite" are not confusable in
+     context. `megaphone` is the semantically tighter answer if that overlap ever bites. */
+  '::whatsnew': 'star',
   '::shortcuts': IS_MAC ? 'cmdKey' : 'keyboard',     // exactly what the title-bar button shows
   '::settings': 'gear',
   '::setup': 'wrench',
