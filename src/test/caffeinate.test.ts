@@ -238,3 +238,31 @@ test('the dot means "your hand is on it" — in BOTH modes, one rule not two', (
   assert.equal(nextOverride({ mode: 'manual', busy: true, override: null }), true,
     'a busy session does not change manual: the button is the only authority');
 });
+
+test('the tooltip names the SETTING — the one thing no pixel on the button says', () => {
+  /* Operator-raised: "do you think the tooltip for the coffee should state the setting?" Yes, and
+     it is the only addition that passes this control's own rule. The rule has been "say only what
+     no pixel says", which is why the override sentence was deliberately REMOVED (the dot carries
+     it, and the operator asked the label to stop duplicating it). The mode is the case the rule
+     was missing: the fill says on/off, the dot says whose hand it is, and nothing at all says
+     whether an idle machine will fall asleep on its own — which is the question you hover this
+     button to ask. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /caffTip = t\('caffeinate\.title'\) \+ ': ' \+ mode/,
+    'the hover text is the control name plus its mode');
+  assert.match(app, /st\.mode === 'manual' \? t\('caffeinate\.modeManualShort'\) : t\('caffeinate\.modeAutoShort'\)/,
+    'and the mode is read from the pushed state, never remembered locally');
+
+  /* The override must NOT come back into the words — that removal was the operator's call. */
+  assert.doesNotMatch(app, /caffTip[^\n]*override/i, 'the dot carries the override; the label must not repeat it');
+
+  /* Short labels, because a tooltip is not the settings picker. The long forms still exist for
+     the picker itself and must not be reused here. */
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  for (const k of ['caffeinate.modeAutoShort', 'caffeinate.modeManualShort']) {
+    assert.ok(en[k], `missing ${k} — the tooltip would render its own key`);
+    assert.ok(en[k].length <= 12, `${k} is a tooltip word, not a sentence: "${en[k]}"`);
+  }
+  assert.ok(en['caffeinate.modeAuto'].length > en['caffeinate.modeAutoShort'].length,
+    'the picker keeps the explaining form; the tooltip gets the short one');
+});

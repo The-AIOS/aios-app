@@ -993,5 +993,7 @@
   "tab.renameSession": "Asked the session to rename itself to “{name}”",
   "split.noRoom": "No room for another — replaced the furthest pane",
   "split.joined": "Joined the split",
-  "split.tookRight": "No room for another pane — opened in the rightmost slot"
+  "split.tookRight": "No room for another pane — opened in the rightmost slot",
+  "caffeinate.modeAutoShort": "auto",
+  "caffeinate.modeManualShort": "manual"
 }

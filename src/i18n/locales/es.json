@@ -993,5 +993,7 @@
   "tab.renameSession": "Le pedí a la sesión que se renombre a «{name}»",
   "split.noRoom": "No cabe otra — reemplacé el panel más lejano",
   "split.joined": "Se unió a la división",
-  "split.tookRight": "No cabe otro panel — se abrió en el espacio de la derecha"
+  "split.tookRight": "No cabe otro panel — se abrió en el espacio de la derecha",
+  "caffeinate.modeAutoShort": "automático",
+  "caffeinate.modeManualShort": "manual"
 }

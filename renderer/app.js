@@ -61,24 +61,26 @@ const ICONS = {
      the sheet is what settled the two calls below):
         mug        cup        state
         wide rect  layout     the window
-        open book  manual     <- a CLOSED book was tried first, per the operator's "manual was
-                                 better as a book". At 15px it is a portrait rect with a band,
-                                 which is the readme page again — the exact collision we were
-                                 removing. An open book is still a book and shares its outline
-                                 with nothing.
-        portrait page + i  readme  <- the operator's reference was a page with an info BADGE
-                                 overlapping its corner. Drawn faithfully it is lovely at 96px
-                                 and a grey blob at 15px: the page's own lines and the badge ring
-                                 merge. A bare info circle reads perfectly but collides with the
-                                 cheatsheet's `?`. Page with the `i` INSIDE keeps both the meaning
-                                 and the portrait silhouette, and survives the size it renders at.
+        closed book  manual   <- FAMILIARITY WON, deliberately. An open book separates better
+                                 at 15px and I argued for it; the operator compared against the
+                                 shipped version and chose the closed book back. That is the
+                                 right call and worth stating so nobody "fixes" it: these two
+                                 buttons have been in the title bar for releases, and a glyph the
+                                 operator already reaches for without looking is worth more than
+                                 a marginal silhouette gain. Muscle memory IS identifiability.
+        page + 3 lines  readme  <- and this is what pays for the pair being two portrait rects:
+                                 the operator's own refinement, three content lines in place of
+                                 the folded corner. The fold is a tiny mark in one corner, so
+                                 fold-vs-band was the collision; three text lines against the
+                                 book's single bottom band differ across the whole interior,
+                                 which is the part you actually see at 15px.
         circle + ?  cheatsheet  restored at the operator's request
         the ⌘ itself  shortcuts  unmistakable, and unlike anything else here
         bubble      assistant  unchanged
      `?` and `i` sit next to each other on purpose now: one is a bare circle, the other is inside
      a page, so the silhouettes differ even though both are a letter in a shape. */
-  bookOpen: '<path d="M12 6.6C10.4 5.2 8.3 4.4 6 4.4H2.8v13.4H6c2.3 0 4.4.8 6 2.2 1.6-1.4 3.7-2.2 6-2.2h3.2V4.4H18c-2.3 0-4.4.8-6 2.2z"/><path d="M12 6.6v13.4"/>',
-  docInfo: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 7.6h.01"/><path d="M12 10.6v6.4"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  docText: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4.4"/>',
   help: '<circle cx="12" cy="12" r="9.2"/><path d="M9.6 9.4a2.6 2.6 0 0 1 5 .9c0 1.7-2.6 2.2-2.6 3.9"/><path d="M12 17.6h.01"/>',
   /* The ⌘ itself (U+2318's shape as strokes, not the character — a font glyph would read as text,
      and would be missing outright on some Linux systems). Only ever shown on macOS: see
@@ -4790,10 +4792,10 @@ dragPanel.addEventListener('click', () => {
 });
 // title-bar README + ? (help) buttons
 const dragReadme = document.getElementById('dragReadme');
-dragReadme.innerHTML = icon('bookOpen', 15);  // an open book → the ONLINE Operating Manual, in an in-app browser tab (#14)
+dragReadme.innerHTML = icon('book', 15);  // an open book → the ONLINE Operating Manual, in an in-app browser tab (#14)
 dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()));
 const dragHelp = document.getElementById('dragHelp');
-dragHelp.innerHTML = icon('docInfo', 15);  // page + i → README.md (this button is NOT the assistant, whatever its id says)
+dragHelp.innerHTML = icon('docText', 15);  // page + i → README.md (this button is NOT the assistant, whatever its id says)
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
 /* ═══ Title-bar hover tips ═══
    NATIVE TOOLTIPS DO NOT FIRE IN THIS CLUSTER, and every button in it had been setting `.title`
@@ -4859,17 +4861,22 @@ function paintCaffeine(st) {
   dragCaffeine.classList.toggle('caff-warn', !!(st && st.unsupported));
   /* The tooltip names the STATE and its reason, never the action — and when the platform refused
      the request it says so instead of claiming success. */
-  /* JUST THE NAME. The highlight says on-or-off and the dot says overriding, so words repeating
-     either are noise — and the label is platform-free now: it read "Keep this Mac awake", which
-     is simply wrong on the Windows and Linux builds this same code ships to.
-     ONE EXCEPTION SURVIVES, and it is the only case where the visual is not merely terse but
-     WRONG: `unsupported` means we asked and the platform refused (Linux with no session bus), so
-     the cup reads off while the operator believes they turned it on. Nothing else on screen can
-     say that. The override used to append a sentence here too and it has been removed — the dot
-     already carries it, which is what the operator asked the label to stop duplicating. */
+  /* THE NAME PLUS THE SETTING. The rule here has been "say only what no pixel says", and it is
+     why the override sentence was removed — the dot carries that, and the operator asked the
+     label to stop duplicating it. The MODE is the one thing that passes the same test and was
+     missing: nothing on this button distinguishes `auto` from `manual`. The fill says on/off and
+     the dot says whose hand it is, but whether an idle machine will fall asleep on its own is
+     invisible, and that is the question an operator hovers this control to ask. Operator-raised:
+     *"do you think the tooltip for the coffee should state the setting?"*
+     Still not the action, still not the override, and still platform-free — it read "Keep this
+     Mac awake" once, which is simply wrong on the Windows and Linux builds this ships to.
+     ONE EXCEPTION SURVIVES for a different reason: `unsupported` means we asked and the platform
+     refused (Linux with no session bus), so the cup reads off while the operator believes they
+     turned it on. No pixel can say that either. */
   let why = '';
   if (st && st.unsupported) why = t('caffeinate.unsupported');
-  caffTip = t('caffeinate.title') + (why ? ' · ' + why : '');
+  const mode = st && st.mode === 'manual' ? t('caffeinate.modeManualShort') : t('caffeinate.modeAutoShort');
+  caffTip = t('caffeinate.title') + ': ' + mode + (why ? ' · ' + why : '');
   dragCaffeine.title = caffTip;   // fallback only; attachTip is what actually shows
   /* THE DOT MEANS "YOUR HAND IS ON IT" — in either mode, which is the operator's own call and
      makes it one rule instead of two. It was gated on `auto`, on the reasoning that only auto has

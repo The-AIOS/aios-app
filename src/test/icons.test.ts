@@ -62,16 +62,24 @@ test('the title-bar row is seven DISTINCT silhouettes, and \u2318 never ships of
      1. THE MANUAL IS AN OPEN BOOK, NOT A CLOSED ONE. A closed book is a portrait rect with a
         band, which at 15px is the readme page again; measured on a contact sheet at 15/26/72px.
         "Restore the closed book, it's simpler" is the tempting wrong move. */
-  assert.ok(ICONS.bookOpen, 'the manual needs the open-book glyph');
-  assert.match(ICONS.bookOpen, /M12 6\.6v13\.4/, 'an open book has a spine — that is what separates it from a page');
-  assert.match(app, /dragReadme\.innerHTML = icon\('bookOpen'/, 'the manual button wears it');
+  assert.ok(ICONS.book, 'the manual wears the familiar closed book');
+  assert.match(app, /dragReadme\.innerHTML = icon\('book', 15\)/, 'the manual button wears it');
 
-  /* 2. THE README PAGE CARRIES ITS `i` INSIDE. A separate badge ring overlapping the corner is
-        what the operator's reference showed; drawn faithfully the page lines and the ring merge
-        into a blob at 15px. A bare info circle reads well and collides with the cheatsheet's `?`. */
-  assert.ok(ICONS.docInfo, 'the readme needs the page-with-i glyph');
-  assert.match(ICONS.docInfo, /<rect /, 'the i must sit in a PAGE — a bare circle collides with the cheatsheet');
-  assert.notEqual(ICONS.docInfo.replace(/\s+/g, ''), (ICONS.help || '').replace(/\s+/g, ''));
+  /* 2. AND THE README PAGE MUST CARRY CONTENT LINES. This is the load-bearing half. Manual and
+        README are both portrait rects, which is a collision an open book would have avoided — I
+        argued for one and the operator chose familiarity, correctly: these glyphs have been in
+        the title bar for releases and a button you hit without looking is worth more than a
+        marginal silhouette gain. What PAYS for the pair is the interior. The shipped README glyph
+        was a page whose only mark was a folded corner — a few px in one corner, against the
+        book's bottom band, which is why the two read alike. Three text lines differ across the
+        whole interior, which is the part you actually see at 15px.
+        So: lines, and never back to the bare folded page. */
+  assert.ok(ICONS.docText, 'the readme needs the page-with-lines glyph');
+  assert.match(app, /dragHelp\.innerHTML = icon\('docText', 15\)/, 'the readme button wears it');
+  const lines = ICONS.docText.match(/h[\d.]+/g) || [];
+  assert.ok(lines.length >= 3,
+    `the readme page needs at least 3 content lines, saw ${lines.length} — a folded corner alone is what made it read as the book`);
+  assert.doesNotMatch(app, /dragHelp\.innerHTML = icon\('file'/, 'the folded-corner page is what the lines replaced');
 
   /* 3. \u2318 IS macOS-ONLY. It means nothing on Windows and is missing from some Linux systems,
         and this row ships to all three. The branch is the whole protection. */

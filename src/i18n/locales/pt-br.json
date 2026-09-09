@@ -993,5 +993,7 @@
   "tab.renameSession": "Pedi à sessão para se renomear como “{name}”",
   "split.noRoom": "Sem espaço para outra — substituí o painel mais distante",
   "split.joined": "Entrou na divisão",
-  "split.tookRight": "Sem espaço para outro painel — abriu no espaço da direita"
+  "split.tookRight": "Sem espaço para outro painel — abriu no espaço da direita",
+  "caffeinate.modeAutoShort": "automático",
+  "caffeinate.modeManualShort": "manual"
 }
