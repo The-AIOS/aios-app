@@ -223,17 +223,26 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
         { label: t('menu.guide'), click: () => intent('spawnNamed', { name: 'onboarding-aios' }) },
         { label: t('menu.installSetup'), click: () => intent('setup') },
         { type: 'separator' },
-        { label: t('menu.shortcuts'), accelerator: 'CmdOrCtrl+/', click: () => intent('shortcuts') },
-        { label: t('menu.cheatsheet'), click: () => intent('cheatsheet') },
-        { type: 'separator' },
+        /* REFERENCE, ORDERED PROSE → TERSE — and in the SAME order as the title-bar icons, so an
+           operator who learned one surface has learned the other. The old arrangement split these
+           four across two groups with the shortcuts sheet and the cheatsheet on one side of a
+           separator and the manual and README on the other, which drew a line where there is no
+           difference: all four answer "tell me something", they just differ in how much they say.
+           Manual (the whole story) → README (the project) → Cheatsheet (an index) → Shortcuts
+           (keys). Nobody needs to remember that order; they only need it to be the same twice. */
         { label: t('menu.manual'), click: () => intent('manual') },
         { label: t('menu.readme'), click: () => intent('readme') },
-        /* "What's new" opens itself once after an update, and it must also live here — an
-           announcement an operator can only ever see at a moment they did not choose is one they
-           will close by reflex and then have no way back to. Same reasoning as the shortcuts
-           sheet having a button as well as the chord. */
+        { label: t('menu.cheatsheet'), click: () => intent('cheatsheet') },
+        { label: t('menu.shortcuts'), accelerator: 'CmdOrCtrl+/', click: () => intent('shortcuts') },
+        { type: 'separator' },
+        /* ITS OWN GROUP, because it is the only item here about THIS BUILD rather than about AIOS
+           in general — and it is the one an operator reaches for at a specific moment ("something
+           changed, what?"), which is exactly when scanning a nine-item list is the wrong ask.
+           It also opens itself once after an update; this is the way back to it. Precedent: VS
+           Code gives Release Notes its own place in Help rather than filing it with the docs. */
         { label: t('menu.whatsnew'), click: () => intent('whatsnew') },
         { type: 'separator' },
+        /* Off the machine entirely, so last. */
         { label: t('menu.commons'), click: () => open('https://the-aios.org') },
         { label: t('menu.github'), click: () => open('https://github.com/The-AIOS/aios') },
       ],

@@ -4881,8 +4881,23 @@ function paintCaffeine(st) {
      the place to teach D-Bus. Capped in src/test/caffeinate.test.ts, in every locale. */
   let why = '';
   if (st && st.unsupported) why = t('caffeinate.unsupported');
-  const mode = st && st.mode === 'manual' ? t('caffeinate.modeManualShort') : t('caffeinate.modeAutoShort');
-  caffTip = t('caffeinate.title') + ': ' + mode + (why ? ' · ' + why : '');
+  /* THE WORD NAMES WHAT IS IN FORCE, not the setting that is configured — operator-raised:
+     "the coffee tooltip needs a 'Keep awake: override' status dont you think? for when the little
+     dot comes?" Yes, and it fixes a small lie: with an override active the tooltip read
+     "Keep awake: auto" while the cup was pointedly NOT following auto. Naming the configured mode
+     when something else is deciding is the kind of half-truth that makes an operator stop
+     trusting a status.
+     So the dot and the word now say the same thing: dot ⟺ "override". One rule, two carriers,
+     and it holds in both modes — in manual, on IS an override (manual only ever cycles
+     null ↔ true), so the word tracks the dot exactly there too.
+     Replaces the mode rather than appending to it, deliberately: "auto · override · refused by
+     this system" blows the tooltip cap in Spanish, and the operator's other note in the same
+     breath was to keep these short. The mode is one click away in Settings; which authority is
+     holding the machine awake right now is not. */
+  const status = st && st.override !== null && st.override !== undefined
+    ? t('caffeinate.statusOverride')
+    : (st && st.mode === 'manual' ? t('caffeinate.modeManualShort') : t('caffeinate.modeAutoShort'));
+  caffTip = t('caffeinate.title') + ': ' + status + (why ? ' · ' + why : '');
   dragCaffeine.title = caffTip;   // fallback only; attachTip is what actually shows
   /* THE DOT MEANS "YOUR HAND IS ON IT" — in either mode, which is the operator's own call and
      makes it one rule instead of two. It was gated on `auto`, on the reasoning that only auto has
@@ -5374,21 +5389,34 @@ function openWhatsNewTab() {
   openToolTab('::whatsnew', t('whatsnew.tab'), async (body) => {
     let v = '';
     try { v = await window.glassShell.appVersion(); } catch { v = ''; }
-    const wrap = el('div', 'tool');
+    /* `tool home` — the same wrapper Home uses, so the two front-facing panes share one measure
+       and one rhythm instead of each inventing its own. */
+    const wrap = el('div', 'tool home');
     body.appendChild(wrap);
     wrap.appendChild(el('div', 'tbig', t('whatsnew.title', { version: v })));
     wrap.appendChild(el('div', 'tsub', t('whatsnew.sub')));
-    for (const n of [1, 2, 3]) {
-      wrap.appendChild(el('div', 'ttitle', t('whatsnew.h' + n)));
-      wrap.appendChild(el('div', 'thint', t('whatsnew.b' + n)));
+    const grid = el('div', 'wngrid');
+    /* THE ICON IS THE ONE THE FEATURE WEARS. The split card gets the layout glyph, keep-awake
+       gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
+       operator what to look for afterwards. An arbitrary decorative icon here would be a missed
+       chance to connect the words to the surface. */
+    for (const [n, glyph] of [[1, 'layout'], [2, 'coffee'], [3, 'check']]) {
+      const c = el('div', 'wncard');
+      const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
+      c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
+      grid.appendChild(c);
     }
+    wrap.appendChild(grid);
     /* The full notes stay on GitHub — this pane is the headlines, not a changelog. openExternal
        rather than an in-app browser pane: a release page is somewhere they may want to keep, and
-       it carries links out of our sandbox. */
-    const link = el('button', 'tcact', t('whatsnew.more'));
+       it carries links out of our sandbox. Bottom-right, with air above it: it is the last thing
+       here and it leaves the app, so it must not read as part of the last card. */
+    const foot = el('div', 'wnfoot');
+    const link = el('button', 'wnlink', t('whatsnew.more'));
     link.addEventListener('click', () => void window.glassShell.openExternal(
       'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
-    wrap.appendChild(link);
+    foot.appendChild(link);
+    wrap.appendChild(foot);
   });
 }
 

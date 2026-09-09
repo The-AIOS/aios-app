@@ -436,6 +436,27 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .hhint { color: var(--subtle); font-size: 12px; margin-top: 4px; }
 
 
+/* ── What's new — Home's card grammar, one column ──────────────────────────────
+   Deliberately MIRRORS .hcard's tokens (surface, line, radius, the edge+depth shadow pair)
+   rather than reusing the class: .hcard is a BUTTON style, cursor and hover included, and these
+   cards do not do anything when clicked. Borrowing the class would promise an action that is not
+   there — the same reason the cheatsheet stopped wearing the help glyph.
+   ONE COLUMN, not Home's two: release notes are paragraphs, and .hhint's 12px two-up cards are
+   built for four-word hints. Three items in a 2-col grid also leaves a hole. */
+.wngrid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 26px; }
+.wncard { background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+          padding: 20px; box-shadow: var(--edge), var(--depth); }
+.wnicon { color: var(--accent); display: inline-flex; margin-bottom: 10px; }
+.wntitle { font-size: 15px; font-weight: 650; }
+.wnbody { color: var(--subtle); font-size: 12.5px; line-height: 1.65; margin-top: 6px; }
+/* The way out sits bottom-right with real air above it: it is the last thing on the pane and it
+   leaves the app, so it must not read as part of the last card. */
+.wnfoot { display: flex; justify-content: flex-end; margin-top: 30px; }
+.wnlink { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+          color: var(--ink); font-family: var(--font); font-size: 12.5px; padding: 8px 14px;
+          cursor: pointer; transition: all .16s; }
+.wnlink:hover { border-color: var(--accent); color: var(--accent); background: var(--surface-2); }
+
 /* ── light theme (The-AIOS light: paper surfaces, same coral) ── */
 body.light {
   --bg: #f4f4f2;

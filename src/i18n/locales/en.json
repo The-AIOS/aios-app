@@ -1010,5 +1010,6 @@
   "whatsnew.b3": "Rename a tab from its right-click menu — a live session renames itself, so the tab and the session can no longer disagree. Opening a new terminal in a split joins it when there is room instead of taking someone else’s pane. And the shortcuts sheet finally lists ⌘\\ and ⌘S.",
   "whatsnew.more": "Full release notes on GitHub →",
   "menu.whatsnew": "What's New",
-  "whatsnew.for": "0.9.3"
+  "whatsnew.for": "0.9.3",
+  "caffeinate.statusOverride": "override"
 }

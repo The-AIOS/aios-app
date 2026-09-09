@@ -684,4 +684,20 @@ test("what's new opens once after an update, and its copy cannot describe the la
     assert.equal(d['whatsnew.for'], pkg.version,
       `${loc}: the what's-new copy says it is for ${d['whatsnew.for']} but the app is ${pkg.version} — rewrite the notes with the version bump`);
   }
+
+  /* THE PANE WEARS HOME'S GRAMMAR, at the operator's request ("look at home for example"), and
+     the way out sits bottom-right with air above it ("should have some good margin top and be
+     bottom right aligned"). Both are explicit instructions, so both are asserted rather than
+     left to the next person's taste. Measured live once: the link's right edge lands flush with
+     the card grid's at 987px, 30px below the last card. */
+  assert.match(app2, /el\('div', 'tool home'\)/, "the pane shares Home's wrapper, not its own measure");
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  const foot = /\.wnfoot \{([^}]*)\}/.exec(css);
+  assert.ok(foot, '.wnfoot must exist — it is what puts the link bottom-right');
+  assert.match(foot![1], /justify-content: flex-end/, 'the link is right-aligned');
+  assert.match(foot![1], /margin-top: (?:[3-9]\d|\d{3})px/, 'with real air above it, not a default gap');
+  /* And the cards must NOT borrow .hcard: that is a button style, and these do nothing when
+     clicked. Borrowing it would promise an action that is not there. */
+  assert.doesNotMatch(app2, /el\('(?:div|button)', 'hcard'[^\n]*whatsnew/, 'informational cards are not buttons');
+  assert.match(css, /\.wncard \{/, 'they have their own card class that mirrors Home\'s tokens');
 });

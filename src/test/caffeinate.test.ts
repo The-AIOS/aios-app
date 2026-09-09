@@ -239,27 +239,37 @@ test('the dot means "your hand is on it" — in BOTH modes, one rule not two', (
     'a busy session does not change manual: the button is the only authority');
 });
 
-test('the tooltip names the SETTING — the one thing no pixel on the button says', () => {
-  /* Operator-raised: "do you think the tooltip for the coffee should state the setting?" Yes, and
-     it is the only addition that passes this control's own rule. The rule has been "say only what
-     no pixel says", which is why the override sentence was deliberately REMOVED (the dot carries
-     it, and the operator asked the label to stop duplicating it). The mode is the case the rule
-     was missing: the fill says on/off, the dot says whose hand it is, and nothing at all says
-     whether an idle machine will fall asleep on its own — which is the question you hover this
-     button to ask. */
+test('the tooltip names WHAT IS IN FORCE — the mode, or "override" when one is active', () => {
+  /* Two operator calls, in sequence, and the second corrected the first. It began as the control
+     name alone; then "do you think the tooltip for the coffee should state the setting?" added the
+     mode; then "the coffee tooltip needs a 'Keep awake: override' status dont you think? for when
+     the little dot comes?" — which is not a third preference but a fix to a small lie: with an
+     override active the hover read "Keep awake: auto" while the cup was pointedly NOT following
+     auto. Naming the configured setting while something else decides is the kind of half-truth
+     that makes an operator stop trusting a status line.
+     The rule the code must keep: THE DOT AND THE WORD SAY THE SAME THING. Both key off
+     `override !== null`, so they can never disagree, and that holds in manual too — manual only
+     ever cycles null ↔ true, so on IS an override there. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /caffTip = t\('caffeinate\.title'\) \+ ': ' \+ mode/,
-    'the hover text is the control name plus its mode');
+  assert.match(app, /caffTip = t\('caffeinate\.title'\) \+ ': ' \+ status/,
+    'the hover text is the control name plus what is in force');
+  assert.match(app, /st\.override !== null[\s\S]{0,80}t\('caffeinate\.statusOverride'\)/,
+    'an active override is what the word must report');
   assert.match(app, /st\.mode === 'manual' \? t\('caffeinate\.modeManualShort'\) : t\('caffeinate\.modeAutoShort'\)/,
-    'and the mode is read from the pushed state, never remembered locally');
+    'and with no override it falls back to the mode, read from the pushed state');
 
-  /* The override must NOT come back into the words — that removal was the operator's call. */
-  assert.doesNotMatch(app, /caffTip[^\n]*override/i, 'the dot carries the override; the label must not repeat it');
+  /* The dot must stay keyed on the SAME condition, or the two carriers drift apart. */
+  assert.match(app, /classList\.toggle\('caff-override', !!\(st && st\.override !== null\)\)/,
+    'dot and word both follow the override, in either mode');
 
-  /* Short labels, because a tooltip is not the settings picker. The long forms still exist for
-     the picker itself and must not be reused here. */
+  /* REPLACES the mode rather than appending to it: "auto · override · refused by this system"
+     blows the length cap in Spanish, and keeping these short was the operator's other note in
+     the same breath. */
+  assert.doesNotMatch(app, /status = [^\n]*modeAutoShort[^\n]*\+[^\n]*statusOverride/,
+    'the word is one status, not a list');
+
   const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
-  for (const k of ['caffeinate.modeAutoShort', 'caffeinate.modeManualShort']) {
+  for (const k of ['caffeinate.modeAutoShort', 'caffeinate.modeManualShort', 'caffeinate.statusOverride']) {
     assert.ok(en[k], `missing ${k} — the tooltip would render its own key`);
     assert.ok(en[k].length <= 12, `${k} is a tooltip word, not a sentence: "${en[k]}"`);
   }
@@ -287,9 +297,13 @@ test('title-bar tooltips stay short — in EVERY locale, worst case included', (
         `${loc}: "${d[k]}" is ${d[k].length} chars — a title-bar tooltip is a label, cap ${PLAIN}`);
     }
     /* The composed worst case: the longer of the two mode words, plus a refusal. */
-    const mode = [d['caffeinate.modeAutoShort'], d['caffeinate.modeManualShort']]
+    /* THREE possible status words now, not two — the override case was added after this cap and
+       is the longest in one locale, which is exactly the kind of thing a cap written against the
+       old shape stops measuring while still passing. */
+    const status = [d['caffeinate.modeAutoShort'], d['caffeinate.modeManualShort'],
+                    d['caffeinate.statusOverride']]
       .reduce((a, b) => (a.length >= b.length ? a : b));
-    const worst = `${d['caffeinate.title']}: ${mode} · ${d['caffeinate.unsupported']}`;
+    const worst = `${d['caffeinate.title']}: ${status} · ${d['caffeinate.unsupported']}`;
     assert.ok(worst.length <= COMPOSED,
       `${loc}: the hover can render ${worst.length} chars — cap ${COMPOSED}. Got "${worst}"`);
   }

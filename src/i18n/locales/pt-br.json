@@ -1010,5 +1010,6 @@
   "whatsnew.b3": "Renomeie uma aba pelo menu de contexto — uma sessão ativa se renomeia, então a aba e a sessão não podem mais divergir. Abrir um terminal novo em uma divisão entra nela quando há espaço, em vez de tirar o painel de outra. E a folha de atalhos agora lista ⌘\\ e ⌘S.",
   "whatsnew.more": "Notas completas no GitHub →",
   "menu.whatsnew": "Novidades",
-  "whatsnew.for": "0.9.3"
+  "whatsnew.for": "0.9.3",
+  "caffeinate.statusOverride": "substituído"
 }
