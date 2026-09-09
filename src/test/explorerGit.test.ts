@@ -314,9 +314,18 @@ test('"Reveal in browser" hands a file to the desktop, through a door as narrow 
   assert.ok(iReveal >= 0 && iBrowser > iReveal, 'the new row sits directly beneath Reveal in Finder');
   assert.ok(menu.indexOf("t('ctx.copyPath')") > iBrowser, 'and above the rest of the menu');
 
+  /* HIDDEN FOR FOLDERS, not offered-then-refused. Measured: `openExternal` on a directory URL
+     hands macOS a folder and the frontmost app becomes Finder — so the row would duplicate
+     "Reveal in Finder" under a name promising a browser. A row that exists to say no is worse
+     than a row that is not there. */
+  assert.match(app2, /if \(ctxBrowserRow\) ctxBrowserRow\.hidden = !!dir;/,
+    'the row must be hidden for a directory target');
+  assert.doesNotMatch(app2, /revealInBrowserDir/,
+    'the folder toast is unreachable now — an unused string is a small lie about the UI');
+
   for (const loc of ['en', 'es', 'pt-br']) {
     const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
-    for (const k of ['ctx.revealInBrowser', 'ctx.revealInBrowserDir', 'ctx.revealInBrowserFailed']) {
+    for (const k of ['ctx.revealInBrowser', 'ctx.revealInBrowserFailed']) {
       assert.ok(d[k], `${loc}: missing ${k}`);
     }
   }

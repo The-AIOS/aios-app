@@ -1013,6 +1013,5 @@
   "whatsnew.for": "0.9.3",
   "caffeinate.statusOverride": "override",
   "ctx.revealInBrowser": "Reveal in browser",
-  "ctx.revealInBrowserDir": "That is a folder — pick a file to open in the browser",
   "ctx.revealInBrowserFailed": "Could not open it outside AIOS — it may be gone, or outside your folders"
 }

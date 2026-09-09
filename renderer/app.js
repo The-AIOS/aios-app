@@ -4380,11 +4380,11 @@ function attachDropZone(elm, onPath, opts = {}) {
 }
 
 /* right-click context menu — built once, reused */
-let ctxEl = null, ctxTarget = null;
+let ctxEl = null, ctxTarget = null, ctxBrowserRow = null;
 function ctxMenu() {
   if (ctxEl) return ctxEl;
   ctxEl = el('div', 'xctx'); ctxEl.hidden = true;
-  const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { fn(ctxTarget); ctxEl.hidden = true; }); ctxEl.appendChild(b); };
+  const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { fn(ctxTarget); ctxEl.hidden = true; }); ctxEl.appendChild(b); return b; };
   item(t('ctx.reveal'), (target) => window.glassShell.revealInOS(target.path));
   /* Sits directly under "Reveal in Finder" because it is the same gesture pointed somewhere else:
      hand this file to the desktop rather than to a pane. The contrast that makes it worth having
@@ -4396,8 +4396,7 @@ function ctxMenu() {
      file:// URL itself. It answers false when it refuses, and that answer is SHOWN — the sibling
      openExternal handler's habit of returning true while dropping the request is precisely the
      shape of bug this row would otherwise inherit. */
-  item(t('ctx.revealInBrowser'), async (target) => {
-    if (target.dir) { toast(t('ctx.revealInBrowserDir')); return; }
+  ctxBrowserRow = item(t('ctx.revealInBrowser'), async (target) => {
     const ok = await window.glassShell.openPathExternal(target.path);
     if (!ok) toast(t('ctx.revealInBrowserFailed'));
   });
@@ -4413,6 +4412,18 @@ function attachCtx(row, path, dir) {
   row.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     const m = ctxMenu(); ctxTarget = { path, dir };
+    /* NOT OFFERED FOR A FOLDER, rather than offered and then refused. The first version showed
+       the row always and toasted "that is a folder" on click — the operator hit it and asked why
+       it was there at all, which is the right question: a menu row that exists to say no is a
+       worse answer than a row that is not there.
+       And the reason folders stay out is mechanical, not taste. `openExternal` asks the OS what
+       handles the URL, and for a DIRECTORY macOS answers Finder — measured: opening
+       `file:///…/aios` moved the frontmost app from AIOS to Finder, never to a browser. So the
+       row would deliver exactly what "Reveal in Finder" one line above already delivers, under a
+       name promising something else. (Pasting the same URL into an already-open Chrome DOES
+       render a listing — but that is Chrome deciding, not the OS routing, and Safari does not
+       do it at all. Two different mechanisms that look alike from outside.) */
+    if (ctxBrowserRow) ctxBrowserRow.hidden = !!dir;
     m.hidden = false;
     // a click point is a zero-size rect — same zoom correction applies
     anchorMenu(m, { left: ev.clientX, bottom: ev.clientY, top: ev.clientY }, { gap: 2, width: 190 });
