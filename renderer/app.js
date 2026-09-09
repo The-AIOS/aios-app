@@ -1669,10 +1669,31 @@ function buildQuotaRow(q) {
    is the one nobody exercises — `capture`, which almost nobody sets and which is precisely the
    branch that protects the work.
 
-   `capture` deliberately does NOT close the pane. The operator who chose "always capture
-   first" asked for the record to be written before anything ends; the session types
-   /aios:close-session, wraps itself up and exits on its own, and its tab then reads (ended)
-   and closes on the next click with no gate. Same as the RUNNING card has always behaved.
+   `capture` CLOSES THE PANE — after the capture, never before. The comment that used to sit
+   here said the opposite, and stated the premise it rested on: *"the session types
+   /aios:close-session, wraps itself up and exits on its own."* **That premise was false and the
+   command had never promised it** (reported as issue #16, on 0.9.3). `/aios:close-session`
+   writes the capture, commits, ends its turn and leaves the session **idle and alive** — its own
+   contract says so, in the sentence that explains why the Close-all button's kill is safe:
+   *"the session self-closes cleanly and returns to idle (which is what lets the button's
+   optional 'kill after' fire safely — only AFTER the capture is done)."* There is no `exit`
+   anywhere in it. So nothing closed the pane, the tab never read `(ended)`, and the picker's
+   own promise — "then closes" — could not be kept.
+
+   TWO THINGS WERE WRONG, and the second is worse than the report.
+   1. No close ever followed the capture.
+   2. It typed the INTERACTIVE command. Interactive `/aios:close-session` stops and asks
+      *"Session label — correct, or adjust?"* and waits, so that session did not merely fail to
+      close: it PARKED on a question nobody knew to answer, which means the record the operator
+      chose this branch to protect was not reliably written either. `--auto` is the mode
+      specified for exactly this caller — infer the label, skip every prompt, return to idle.
+
+   THE MISSING HALF WAS ALREADY IN THE FILE. `closeAllSessions()` never relied on the session
+   exiting: it types `--auto` and hands the names to `watchThenKill()`, which waits for
+   seen-busy → idle (or gone) before closing, never kills mid-capture, and on timeout leaves the
+   session ALONE rather than risk the work. So the correct model sat a hundred lines away and
+   this path simply lacked it. Reused rather than reimplemented — one mechanism, both entry
+   points, which is the same reason both callers route through `endSession` at all.
 
    Returns 'kill' | 'capture' — or null when the operator dismissed the picker, which is the
    caller's cue that nothing happened and focus has to go back where it was. */
@@ -1693,8 +1714,15 @@ async function endSession({ name, pid = null, paneId = null }) {
   };
   const capture = () => {
     const id = pane();
-    if (id !== null) { submitToPty(id, '/aios:close-session'); setActive(id); }
-    else if (pid) void window.glassShell.sessionSignal(pid, 'SIGTERM');
+    if (id !== null) {
+      /* --auto, not the interactive form: this caller has nobody to answer a label prompt. */
+      submitToPty(id, '/aios:close-session --auto');
+      setActive(id);
+      /* Then close it — but only once the capture is actually done. watchThenKill waits for
+         seen-busy → idle, and a session that never shows that cycle inside its window is left
+         open on purpose: an un-closed pane is recoverable, a capture killed halfway is not. */
+      if (name) void watchThenKill([name]);
+    } else if (pid) void window.glassShell.sessionSignal(pid, 'SIGTERM');
     toast(t('session.closing', { name }));
     return 'capture';
   };

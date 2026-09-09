@@ -129,3 +129,59 @@ test('Enter follows focus in confirmModal — a reflex Return must not confirm a
     'Enter must not mean yes regardless of what holds focus');
   assert.match(body, /cancel\.focus\(\);/, 'and the safe option still holds focus');
 });
+
+test('Capture & close actually closes — after the capture, and never during it (#16)', () => {
+  /* Reported on 0.9.3: choosing "Capture & close" wrote the capture and left the pane live and
+     idle forever, so the operator had to reach for the kill a second time. The comment above
+     `endSession` had stated the premise it rested on — *"the session types /aios:close-session,
+     wraps itself up and exits on its own"* — and that premise was false: the command writes the
+     capture, commits, ends its turn and returns to IDLE. Its own contract says so, in the very
+     sentence that explains why Close-all's kill is safe. There is no `exit` in it.
+
+     Two defects, and the second is worse than the report:
+       1. nothing closed the pane;
+       2. it typed the INTERACTIVE command, which stops and asks "Session label — correct?" and
+          waits — so the session parked on a question nobody knew to answer, and the record this
+          branch exists to protect was not reliably written either.
+
+     The missing half was already in the file: closeAllSessions() types `--auto` and defers to
+     watchThenKill(). Reused, not reimplemented. */
+  const fn = app.slice(app.indexOf('async function endSession('));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+
+  /* --auto, because this caller has nobody to answer a prompt. */
+  assert.match(body, /submitToPty\(id, '\/aios:close-session --auto'\)/,
+    'the capture branch must use the non-interactive mode');
+  assert.doesNotMatch(body, /submitToPty\(id, '\/aios:close-session'\)/,
+    'the interactive form parks on the label question — it can never self-complete here');
+
+  /* And it must reach the EXISTING waiter rather than grow a second wait loop. Two copies of
+     "wait for the capture, then close" would drift, and the branch that drifts is this one —
+     the one almost nobody sets. */
+  assert.match(body, /watchThenKill\(\[name\]\)/, 'reuse the proven waiter, one mechanism');
+  assert.doesNotMatch(body, /setInterval|while \(|setTimeout\([^)]*15\d\d/,
+    'endSession must not reimplement the polling that watchThenKill already does');
+
+  /* The properties the reuse DEPENDS ON. If watchThenKill ever stops requiring seen-busy, or
+     starts force-killing on timeout, this branch silently becomes "kill mid-capture" — the exact
+     outcome the operator chose it to avoid. */
+  const w = app.slice(app.indexOf('async function watchThenKill(names) {'));
+  const wb = w.slice(0, w.indexOf('\n}'));
+  assert.match(wb, /seenBusy/, 'it must wait for the capture to START before deciding it ended');
+  assert.match(wb, /deadline/, 'and be bounded');
+  assert.match(wb, /if \(pending\.size\) toast\(/,
+    'on timeout it must REPORT and leave the session alone — an un-closed pane is recoverable, a half-killed capture is not');
+
+  /* NO assertion here forbidding the old premise's wording. The obvious guard —
+     doesNotMatch(app, /exits on its own/) — fired immediately, because the comment that
+     DOCUMENTS this fix quotes the false premise in order to explain it. A guard that forbids a
+     string forbids the explanation of why the string was wrong. The behavioural assertions above
+     are what actually prevent the regression; prose is the reviewer's job. */
+
+  /* And the picker's promise and the behaviour must stay coupled: the issue offered a choice —
+     fix the behaviour or fix the copy. We fixed the behaviour, so the copy may keep promising a
+     close, and this asserts the pair rather than either half alone. */
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  assert.match(en['session.killCaptureHint'], /close/i,
+    'the hint promises a close, so the branch has to perform one');
+});
