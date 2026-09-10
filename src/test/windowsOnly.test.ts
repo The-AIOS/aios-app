@@ -52,16 +52,22 @@ test('B · resolveTier finds an interpreter, and refuses by NAME when it cannot 
   const fn = bus.slice(bus.indexOf('function resolveBash()'));
   const body = fn.slice(0, fn.indexOf('\n}'));
 
-  /* STEP 1 IS "DO NOT TOUCH THE WORKING PATH". Non-Windows returns the bare word, so macOS and
-     Linux behaviour is byte-identical to before this change. */
-  assert.match(body, /if \(process\.platform !== 'win32'\) return 'bash';/,
-    'non-Windows must return the same bare interpreter it always used');
+  /* MAIN LOOKS, CORE CHOOSES — asserted as the seam rather than as the steps.
+     The first version of this test pinned each ordering step inside main and fired the moment the
+     decision moved into src/core/bashResolve.ts, which was the right move: the spec demands the
+     ordering be exercisable off-Windows ("a green CI on Linux is not evidence here"), and a
+     decision that reads the filesystem itself can only be tested on the platform it happens to
+     run on. The ORDER is now asserted properly, with every Windows branch, in
+     src/test/bashResolve.test.ts. What belongs here is that main gathers and delegates. */
+  assert.match(body, /pickBash\(process\.platform, \{/, 'the decision must come from the pure core');
+  assert.match(body, /shell: process\.env\.SHELL/, 'main supplies $SHELL');
+  assert.match(body, /execFileSync\('where', \['bash'\]/, "main supplies Windows' own PATH lookup");
+  assert.match(body, /exists: \(f\) =>/, 'and injects existence, so the ordering is testable off-Windows');
 
-  /* The ordered lookup, each step proving something different. */
-  assert.match(body, /process\.env\.SHELL/, '2 · launched from a bash');
-  assert.match(body, /execFileSync\('where', \['bash'\]/, "3 · on PATH, via Windows' own lookup");
-  assert.match(body, /Git', 'bin', 'bash\.exe'/, '4 · where Git for Windows actually puts it');
-  assert.match(body, /return null;/, '5 · nothing found is a refusal, not a fallback');
+  /* AND THE LOOKUP MUST NOT RUN OFF-WINDOWS. `where` does not exist on macOS or Linux, so
+     probing PATH there would cost a failed subprocess on every tier-carrying request. */
+  assert.match(body, /if \(process\.platform === 'win32'\) \{[\s\S]{0,200}execFileSync\('where'/,
+    'the PATH probe is Windows-only — `where` is not a command elsewhere');
 
   /* NEVER DEFAULT A MODEL. A loud dead letter beats a silent wrong model — that is the whole
      value of the four contract branches, and defaulting on failure would spend it. */

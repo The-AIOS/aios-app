@@ -13,6 +13,7 @@ import {
   triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
+import { pickBash } from '../core/bashResolve';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -376,28 +377,23 @@ function resolveTier(tier: string): { model?: string } | { error: string } {
  * REFUSAL — never a licence to default a model.
  */
 function resolveBash(): string | null {
-  /* 1. Not Windows: do not touch the working path. Byte-identical behaviour to before. */
-  if (process.platform !== 'win32') return 'bash';
-  /* 2. Launched FROM a bash (Git Bash / MSYS): $SHELL names it, and main.ts already reasons
-        about receiving a POSIX path in that case. */
-  const sh = process.env.SHELL;
-  if (sh && /bash/i.test(sh) && fs.existsSync(sh)) return sh;
-  /* 3. On PATH. `where` is the Windows lookup and prints one hit per line. */
-  try {
-    const hit = execFileSync('where', ['bash'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-      .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0];
-    if (hit && fs.existsSync(hit)) return hit;
-  } catch { /* not on PATH — keep looking */ }
-  /* 4. Where Git for Windows actually puts it. */
-  const pf = process.env.ProgramFiles || 'C:\\Program Files';
-  const local = process.env.LOCALAPPDATA || '';
-  for (const c of [
-    path.join(pf, 'Git', 'bin', 'bash.exe'),
-    path.join(pf, 'Git', 'usr', 'bin', 'bash.exe'),
-    local ? path.join(local, 'Programs', 'Git', 'bin', 'bash.exe') : '',
-  ]) if (c && fs.existsSync(c)) return c;
-  /* 5. Nothing. The dead letter that follows is CORRECT behaviour — only its reason improves. */
-  return null;
+  /* THE LOOKING lives here; the CHOOSING lives in src/core/bashResolve.ts, so the ordering can be
+     exercised from any platform. `where bash` is Windows' own PATH lookup and prints one hit per
+     line; everything else is read from the environment. */
+  let pathHit: string | undefined;
+  if (process.platform === 'win32') {
+    try {
+      pathHit = execFileSync('where', ['bash'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0];
+    } catch { /* not on PATH — pickBash falls through to the Git for Windows locations */ }
+  }
+  return pickBash(process.platform, {
+    shell: process.env.SHELL,
+    pathHit,
+    programFiles: process.env.ProgramFiles,
+    localAppData: process.env.LOCALAPPDATA,
+    exists: (f) => { try { return fs.existsSync(f); } catch { return false; } },
+  });
 }
 
 function markUndelivered(fromPath: string, req: BusRequest | null, reason: string): void {
