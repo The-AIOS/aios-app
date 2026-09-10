@@ -13,6 +13,7 @@ import {
   triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
 } from '../core/sendQueue';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
+import { pickBash } from '../core/bashResolve';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -331,8 +332,19 @@ function resolveTier(tier: string): { model?: string } | { error: string } {
   if (!fs.existsSync(hook)) {
     return { error: `cannot resolve tier '${tier}': ${hook} is missing — run /aios:update to sync it, or pass an explicit "model" instead` };
   }
+  /* An interpreter, not the bare word `bash` — see resolveBash(). Refusing by NAME is the point:
+     the old failure surfaced as `spawnSync bash ENOENT`, which reads like the hook is broken when
+     the truth is that this process has no shell. A dead letter that names the missing interpreter
+     tells the operator what to install; `ENOENT` sends them to the wrong file. */
+  const bash = resolveBash();
+  if (!bash) {
+    return { error: `cannot resolve tier '${tier}': no bash interpreter found for this process `
+      + `(checked $SHELL, PATH via 'where bash', and the Git for Windows locations). `
+      + `Install Git for Windows, or pass an explicit "model" instead — resolve-tier is a bash hook `
+      + `and a Node process inherits no shell.` };
+  }
   try {
-    const out = execFileSync('bash', [hook, tier], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+    const out = execFileSync(bash, [hook, tier], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
     const model = out.trim();
     return model ? { model } : {};          // empty + exit 0 = inherit the default
   } catch (e) {
@@ -342,6 +354,46 @@ function resolveTier(tier: string): { model?: string } | { error: string } {
     const why = String(err.stderr ?? '').trim() || err.message || 'resolve-tier failed';
     return { error: `tier '${tier}' rejected (exit ${err.status ?? '?'}): ${why.split('\n').join(' · ')}` };
   }
+}
+
+/**
+ * Where is a `bash` this process can actually run? (AI-146 · canonical issue #116)
+ *
+ * MEASURED ON WINDOWS: a bus request carrying `"tier":"judgment"` was claimed and retired as
+ * `spawnSync bash ENOENT`, while the identical request WITHOUT the field was fulfilled 90s later.
+ * So the field was the defect, not the bus — and `hooks/resolve-tier` itself is fine: from Git
+ * Bash on that same machine it returns Haiku for `fast` and empty+exit-0 for `judgment`, exactly
+ * as documented.
+ *
+ * THE GAP IS NOT A MISSING `.ps1`, and that distinction is the whole fix. Six extensionless bash
+ * hooks ship with no PowerShell sibling — `aios-commit`, `aios-snapshot`, `aios-note-append`,
+ * `pre-commit`, `pre-push`, `resolve-tier` — and a Windows operator runs `aios-commit` daily.
+ * They work because a SESSION has bash. `resolve-tier` is simply the only one whose caller is a
+ * Node process, and Node inherits no shell. So locating a bash HONOURS a prerequisite that
+ * already exists rather than adding one; shipping a third hand-maintained copy of the rung→model
+ * table would be the change that adds something, and it is the drift AI-129 ended.
+ *
+ * Ordered, and each step says what it proves. Returns null when nothing is found, which is a
+ * REFUSAL — never a licence to default a model.
+ */
+function resolveBash(): string | null {
+  /* THE LOOKING lives here; the CHOOSING lives in src/core/bashResolve.ts, so the ordering can be
+     exercised from any platform. `where bash` is Windows' own PATH lookup and prints one hit per
+     line; everything else is read from the environment. */
+  let pathHit: string | undefined;
+  if (process.platform === 'win32') {
+    try {
+      pathHit = execFileSync('where', ['bash'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0];
+    } catch { /* not on PATH — pickBash falls through to the Git for Windows locations */ }
+  }
+  return pickBash(process.platform, {
+    shell: process.env.SHELL,
+    pathHit,
+    programFiles: process.env.ProgramFiles,
+    localAppData: process.env.LOCALAPPDATA,
+    exists: (f) => { try { return fs.existsSync(f); } catch { return false; } },
+  });
 }
 
 function markUndelivered(fromPath: string, req: BusRequest | null, reason: string): void {

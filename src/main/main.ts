@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
+import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
 import * as pty from 'node-pty';
 import { PanelHost } from './panelHost';
 import { installMenu } from './menu';
@@ -79,6 +80,35 @@ function termEnv(cmd?: string, name?: string): Record<string, string> {
   delete env.CLAUDE_CODE_CHILD_SESSION;
   env.CLAUDE_CODE_FORCE_SESSION_PERSIST = '1';
   env.AIOS_GLASS_TERM = '1';
+  /* WINDOWS ONLY — give a session's output a scrollback the operator can actually reach.
+     REPORTED: a Windows operator could not scroll a Claude session at all — she saw one
+     screenful and a long answer was unreadable past it. It fails in Windows Terminal too, so it
+     is not ours; but the reason it cannot be fixed at our terminal layer is worth writing down,
+     because three plausible fixes were built and thrown away before this one.
+     MEASURED, on macOS, before changing anything: a session runs in the ALTERNATE screen with
+     mouse tracking `any`, so it has ZERO scrollback — buffer length equals rows, baseY 0. The
+     terminal holds no history at all. The wheel is encoded as an SGR mouse report (`ESC[<64;1;1M`
+     up, `ESC[<65;1;1M` down, captured live off the terminal's own data stream) and handed to the
+     pty, and CLAUDE scrolls its own view. That is why no keybinding, `scrollSensitivity` or
+     Shift+wheel could ever have fixed it: there is nothing to scroll to, and the scrolling was
+     never ours to do. On macOS the report arrives and Claude scrolls; on Windows it does not.
+     So the fix is to stop needing the report. With the alternate screen off, Claude renders into
+     the NORMAL buffer, output accumulates as ordinary terminal history, and the operator scrolls
+     with the terminal's own 8000-line scrollback — the path that already works on her machine,
+     since her plain terminals scroll fine.
+     MEASURED with the flag on: normal buffer, 104 lines of scrollback, `mouse: "none"`, and the
+     rich TUI intact (152 box-drawing characters — the prompt, the rules, the statusline). Three
+     turns produced 98% unique lines with nothing repeated three times, so Claude's non-altscreen
+     path emits incremental output rather than repainting; the scrollback stays readable.
+     A DEFAULT, NOT A HARDCODE. Only set when the operator has not: this is CLAUDE's env var, not
+     ours, so an operator who wants the alternate screen keeps it by exporting their own value.
+     The neighbouring lines force OUR variables and are right to; this one belongs to someone else.
+     WINDOWS ONLY, and deliberately not Linux — the mechanism is ConPTY, Linux has a real pty like
+     macOS, and there is no evidence of the defect there. Changing a platform we have not measured
+     would be trading a known-good behaviour for a guess. */
+  if (process.platform === 'win32' && !env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN) {
+    env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN = '1';
+  }
   // THE SESSION RITUAL. The `spawn` wrapper exports CLAUDE_AGENT_NAME, which is what
   // makes CLAUDE.md's Mandatory First Action fire in the worker: read the name →
   // identity → agent match (glob agents/**, else fuzzy via _index) → Session Start
@@ -610,6 +640,39 @@ ipcMain.handle('aios:plugins', () => ({
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//.test(url)) void shell.openExternal(url);
   return true;
+});
+/* "Reveal in browser" — hand a LOCAL file to the desktop, outside the app.
+   Deliberately NOT routed through shell:openExternal above, and the reason is worth stating:
+   that handler accepts http(s) ONLY and silently drops everything else **while returning true**,
+   so a renderer passing a file:// URL would be told it worked and nothing would happen. Widening
+   that regex to admit `file:` would also hand the renderer the ability to open ANY path on the
+   machine through one call — the guard is there on purpose.
+   So this is a separate, narrower door: it takes a PATH rather than a URL, refuses anything
+   outside `allowedRoots()` (the framework root plus the operator's own workspace folders — the
+   same containment the explorer, quick-open and "open terminal here" already use), requires the
+   file to exist, and builds the file:// URL HERE. Main never trusts a URL the renderer
+   assembled; it assembles its own from a path it has just validated.
+   Returns false rather than throwing on refusal, so the caller can say so instead of appearing
+   to succeed — which is exactly the failure mode of the handler above. */
+ipcMain.handle('shell:openPathExternal', (_e, p: string) => {
+  try {
+    /* REJECT "nothing" BEFORE RESOLVING IT. `path.resolve('')` returns the process's CWD — which
+       is inside an allowed root and does exist — so an empty or missing argument sailed through
+       both checks and opened the app's own working directory. Caught by testing the refusal
+       cases: `''` and `null` both answered true. An input meaning "no path" must never resolve
+       to a real one, and requiring an ABSOLUTE path is what makes that structural rather than a
+       special case for the two spellings of empty I happened to try. */
+    const raw = typeof p === 'string' ? p.trim() : '';
+    if (!raw || !path.isAbsolute(raw)) return false;
+    const abs = path.resolve(raw);
+    if (!inAllowed(abs)) return false;
+    /* A FILE, not merely something that exists. A directory would hand Finder/Explorer a folder —
+       which is what the row above this one already does, under a name that promises it. */
+    let st; try { st = fs.statSync(abs); } catch { return false; }
+    if (!st.isFile()) return false;
+    void shell.openExternal(pathToFileURL(abs).toString());
+    return true;
+  } catch { return false; }
 });
 // signal any registered session by pid (interrupt/terminate/kill) — works for
 // sessions started outside this window too, where we have no TTY to type into

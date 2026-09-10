@@ -176,6 +176,16 @@ function icon(name, size = 14) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.file}</svg>`;
 }
 function fileIconName(name) {
+  /* THE FRAMEWORK DOCS ARE NAMED, not typed. Operator-reported: opening the Cheatsheet gave a tab
+     wearing the README's icon — true, and correct by the old rule, because both are `.md` and the
+     rule only ever asked what EXTENSION a file has. For these three that is the wrong question:
+     they each have a dedicated button in the title bar, so the tab should carry the same glyph
+     the button that opened it does, and a reader should be able to tell two open docs apart
+     without reading the labels. Matching on basename keeps the decision here rather than adding
+     an icon parameter to every opener — so the explorer tree gets it too, for free. */
+  const base = xBase(String(name)).toUpperCase();
+  if (base === 'CHEATSHEET.MD') return 'help';      // ?-in-a-circle, as in the title bar
+  if (base === 'README.MD') return 'docText';       // page + lines, as in the title bar
   if (/\.pdf$/i.test(name)) return 'file';
   if (/\.md$/i.test(name)) return 'md';
   if (/\.html?$/i.test(name)) return 'html';
@@ -1669,10 +1679,31 @@ function buildQuotaRow(q) {
    is the one nobody exercises — `capture`, which almost nobody sets and which is precisely the
    branch that protects the work.
 
-   `capture` deliberately does NOT close the pane. The operator who chose "always capture
-   first" asked for the record to be written before anything ends; the session types
-   /aios:close-session, wraps itself up and exits on its own, and its tab then reads (ended)
-   and closes on the next click with no gate. Same as the RUNNING card has always behaved.
+   `capture` CLOSES THE PANE — after the capture, never before. The comment that used to sit
+   here said the opposite, and stated the premise it rested on: *"the session types
+   /aios:close-session, wraps itself up and exits on its own."* **That premise was false and the
+   command had never promised it** (reported as issue #16, on 0.9.3). `/aios:close-session`
+   writes the capture, commits, ends its turn and leaves the session **idle and alive** — its own
+   contract says so, in the sentence that explains why the Close-all button's kill is safe:
+   *"the session self-closes cleanly and returns to idle (which is what lets the button's
+   optional 'kill after' fire safely — only AFTER the capture is done)."* There is no `exit`
+   anywhere in it. So nothing closed the pane, the tab never read `(ended)`, and the picker's
+   own promise — "then closes" — could not be kept.
+
+   TWO THINGS WERE WRONG, and the second is worse than the report.
+   1. No close ever followed the capture.
+   2. It typed the INTERACTIVE command. Interactive `/aios:close-session` stops and asks
+      *"Session label — correct, or adjust?"* and waits, so that session did not merely fail to
+      close: it PARKED on a question nobody knew to answer, which means the record the operator
+      chose this branch to protect was not reliably written either. `--auto` is the mode
+      specified for exactly this caller — infer the label, skip every prompt, return to idle.
+
+   THE MISSING HALF WAS ALREADY IN THE FILE. `closeAllSessions()` never relied on the session
+   exiting: it types `--auto` and hands the names to `watchThenKill()`, which waits for
+   seen-busy → idle (or gone) before closing, never kills mid-capture, and on timeout leaves the
+   session ALONE rather than risk the work. So the correct model sat a hundred lines away and
+   this path simply lacked it. Reused rather than reimplemented — one mechanism, both entry
+   points, which is the same reason both callers route through `endSession` at all.
 
    Returns 'kill' | 'capture' — or null when the operator dismissed the picker, which is the
    caller's cue that nothing happened and focus has to go back where it was. */
@@ -1693,8 +1724,15 @@ async function endSession({ name, pid = null, paneId = null }) {
   };
   const capture = () => {
     const id = pane();
-    if (id !== null) { submitToPty(id, '/aios:close-session'); setActive(id); }
-    else if (pid) void window.glassShell.sessionSignal(pid, 'SIGTERM');
+    if (id !== null) {
+      /* --auto, not the interactive form: this caller has nobody to answer a label prompt. */
+      submitToPty(id, '/aios:close-session --auto');
+      setActive(id);
+      /* Then close it — but only once the capture is actually done. watchThenKill waits for
+         seen-busy → idle, and a session that never shows that cycle inside its window is left
+         open on purpose: an un-closed pane is recoverable, a capture killed halfway is not. */
+      if (name) void watchThenKill([name]);
+    } else if (pid) void window.glassShell.sessionSignal(pid, 'SIGTERM');
     toast(t('session.closing', { name }));
     return 'capture';
   };
@@ -4352,12 +4390,33 @@ function attachDropZone(elm, onPath, opts = {}) {
 }
 
 /* right-click context menu — built once, reused */
-let ctxEl = null, ctxTarget = null;
+let ctxEl = null, ctxTarget = null, ctxOutsideRow = null;
 function ctxMenu() {
   if (ctxEl) return ctxEl;
   ctxEl = el('div', 'xctx'); ctxEl.hidden = true;
-  const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { fn(ctxTarget); ctxEl.hidden = true; }); ctxEl.appendChild(b); };
+  const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { fn(ctxTarget); ctxEl.hidden = true; }); ctxEl.appendChild(b); return b; };
   item(t('ctx.reveal'), (target) => window.glassShell.revealInOS(target.path));
+  /* Sits directly under "Reveal in Finder" because it is the same gesture pointed somewhere else:
+     hand this file to the desktop rather than to a pane. The contrast that makes it worth having
+     is with our OWN panes — clicking an .html opens an in-app browser pane, and sometimes what
+     you want is the real browser, with your extensions and your devtools.
+     IT IS NAMED "OUTSIDE AIOS", NOT "IN BROWSER", and the rename came from use: the row shipped
+     as "Reveal in browser" and the operator watched a .md open in their editor and a .pdf in
+     Preview. Neither was a failure — `openExternal` asks the OS what handles that TYPE, and for
+     .html the answer is the browser while for a .pdf it is Preview, which is the better PDF
+     viewer anyway. The behaviour was right and the promise was wrong, so the promise moved.
+     (Forcing a browser regardless of type is a different mechanism — resolve the default browser
+     and launch it — and it is not obviously desirable: it would drag PDFs out of Preview.)
+     Directories stay out: for a folder the OS answer is Finder, which is precisely what the row
+     one line above already does, and two adjacent rows that both open Finder is worse than one.
+     `openPathExternal` takes the PATH; main validates it against the allowed roots and builds the
+     file:// URL itself. It answers false when it refuses, and that answer is SHOWN — the sibling
+     openExternal handler's habit of returning true while dropping the request is precisely the
+     shape of bug this row would otherwise inherit. */
+  ctxOutsideRow = item(t('ctx.openOutside'), async (target) => {
+    const ok = await window.glassShell.openPathExternal(target.path);
+    if (!ok) toast(t('ctx.openOutsideFailed'));
+  });
   item(t('ctx.copyPath'), (target) => { window.glassShell.copyText(target.path); toast(t('ctx.pathCopied')); });
   item(t('ctx.openTerminalHere'), (target) => openTerminalHere(target.path, target.dir));
   item(t('ctx.sendPath'), (target) => sendPathToTerminal(target.path));
@@ -4370,6 +4429,18 @@ function attachCtx(row, path, dir) {
   row.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     const m = ctxMenu(); ctxTarget = { path, dir };
+    /* NOT OFFERED FOR A FOLDER, rather than offered and then refused. The first version showed
+       the row always and toasted "that is a folder" on click — the operator hit it and asked why
+       it was there at all, which is the right question: a menu row that exists to say no is a
+       worse answer than a row that is not there.
+       And the reason folders stay out is mechanical, not taste. `openExternal` asks the OS what
+       handles the URL, and for a DIRECTORY macOS answers Finder — measured: opening
+       `file:///…/aios` moved the frontmost app from AIOS to Finder, never to a browser. So the
+       row would deliver exactly what "Reveal in Finder" one line above already delivers, under a
+       name promising something else. (Pasting the same URL into an already-open Chrome DOES
+       render a listing — but that is Chrome deciding, not the OS routing, and Safari does not
+       do it at all. Two different mechanisms that look alike from outside.) */
+    if (ctxOutsideRow) ctxOutsideRow.hidden = !!dir;
     m.hidden = false;
     // a click point is a zero-size rect — same zoom correction applies
     anchorMenu(m, { left: ev.clientX, bottom: ev.clientY, top: ev.clientY }, { gap: 2, width: 190 });
@@ -5701,6 +5772,23 @@ function openHomeTab() {
    Settings needs it: it MIRRORS Claude's own config, and `build` ran exactly once per pane — so a
    value changed by `/config`, by another session, or by hand was invisible until the tab was
    closed and re-created. A mirror that only updates when you rebuild it is a photograph. */
+const TOOL_TAB_ICONS = {
+  '::home': 'aios',                                  // the front door wears the app's own mark
+  /* A STAR, not the sparkle it shipped with. Operator-reported: at 12px the sparkle read as an
+     "=" — and rendering both at true size shows why, its horizontal axis dominates and the
+     four-point silhouette collapses toward a short bar. The five-point star survives 12px. Same
+     lesson as the title-bar row: judge a glyph at the size it renders, never at 84px.
+     `star` is also the Frequent-tasks glyph in the panel — accepted rather than overlooked: the
+     two never appear on the same surface, and "new" and "favourite" are not confusable in
+     context. `megaphone` is the semantically tighter answer if that overlap ever bites. */
+  '::whatsnew': 'star',
+  '::shortcuts': IS_MAC ? 'cmdKey' : 'keyboard',     // exactly what the title-bar button shows
+  '::settings': 'gear',
+  '::setup': 'wrench',
+  '::plugins': 'plug',
+  '::designer': 'design',
+};
+
 function openToolTab(key, titleText, build, opts) {
   for (const [id, pane] of panes) {
     if (pane.kind === 'view' && pane.path === key) {
@@ -5730,7 +5818,14 @@ function openToolTab(key, titleText, build, opts) {
   const body = document.createElement('div');
   body.className = 'vbody';
   el.append(head, body);
-  const tab = makeTab(id, titleText, 'layout');
+  /* Each tool tab wears ITS OWN glyph. They all rendered `layout` before, so Shortcuts, Settings
+     and Designer were indistinguishable in the strip — the same defect the operator caught on the
+     docs, one layer up.
+     Keyed off the pane KEY rather than passed by each caller: the key is already these panes'
+     identity (it is what openToolTab dedupes on), there is exactly one place to edit when a tool
+     is added, and it needed no surgery at seven call sites. Where a tool has a title-bar button,
+     the tab wears that button's glyph — so the thing you clicked and the tab it produced agree. */
+  const tab = makeTab(id, titleText, (opts && opts.icon) || TOOL_TAB_ICONS[key] || 'layout');
   const paneObj = { kind: 'view', name: titleText, el, tab, path: key };
   /* Preserve the scroll position across a rebuild — and AWAIT the builder first.
      The builder is async (Settings awaits shellConfig, vaultRoot, claudeSetKeys), so restoring
