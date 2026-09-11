@@ -80,15 +80,30 @@ if ($winget) {
 # Install one winget package, but only if the command it provides is missing.
 # Idempotent by CAPABILITY, not by package list: an operator who already has
 # node from nodejs.org must not have a second copy installed over the top.
+# The other ways in, for when winget is missing or its install does not take: install-tool.ps1
+# tries Scoop, Chocolatey and the official checksum-verified download into the user's own folder.
+# winget-or-nothing is what left a real first install finishing gh by hand from CMD.
+function Install-Any {
+  param([string]$Tool)
+  $it = Join-Path $PSScriptRoot 'install-tool.ps1'
+  if (-not (Test-Path $it)) { Warn "$Tool - the fallback installer is missing from this build"; return }
+  & powershell -NoProfile -ExecutionPolicy Bypass -File $it -Tool $Tool | Out-Host
+  $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+}
+
 function Ensure {
   param([string]$Cmd, [string]$Id, [string]$Label)
   if (Have $Cmd) { Skip "$Label already installed"; return }
-  if (-not $winget) { Warn "$Label missing - needs winget"; return }
-  Write-Host "  installing $Label..."
-  winget install --id $Id -e --source winget --accept-package-agreements --accept-source-agreements --silent | Out-Null
-  # winget puts new shims on the MACHINE/USER path, which this process cannot
-  # see; re-read the persisted environment so the next check is honest.
-  $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+  if ($winget) {
+    Write-Host "  installing $Label..."
+    winget install --id $Id -e --source winget --accept-package-agreements --accept-source-agreements --silent | Out-Null
+    # winget puts new shims on the MACHINE/USER path, which this process cannot
+    # see; re-read the persisted environment so the next check is honest.
+    $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+    if (Have $Cmd) { Ok $Label; return }
+    Warn "$Label - winget did not produce a working install, trying the other ways"
+  }
+  Install-Any $Label
   if (Have $Cmd) { Ok $Label } else { Warn "$Label install did not take - continuing, the doctor will flag it" }
 }
 
@@ -143,9 +158,13 @@ if ($obsidian) {
   Write-Host "  installing..."
   winget install --id Obsidian.Obsidian -e --source winget --accept-package-agreements --accept-source-agreements --silent | Out-Null
   $obsidian = Find-Obsidian
-  if ($obsidian) { Ok "installed" } else { Warn "install failed - get it from https://obsidian.md" }
+  if ($obsidian) { Ok "installed" } else {
+    Install-Any 'obsidian'
+    if (Find-Obsidian) { Ok "installed" } else { Warn "install failed - get it from https://obsidian.md" }
+  }
 } else {
-  Warn "not installed - get it from https://obsidian.md"
+  Install-Any 'obsidian'
+  if (Find-Obsidian) { Ok "installed" } else { Warn "not installed - get it from https://obsidian.md" }
 }
 
 # -- 4. Claude Code -----------------------------------------------------------
@@ -206,10 +225,8 @@ $fail = $false
 foreach ($tool in @('git','node','npm','gh','python','uv','claude')) {
   if (Have $tool) { Ok $tool } else { Warn "$tool NOT found by a new terminal"; $fail = $true }
 }
-$obsidian = @(
-  (Join-Path $env:LOCALAPPDATA 'Obsidian\Obsidian.exe'),
-  (Join-Path $env:ProgramFiles 'Obsidian\Obsidian.exe')
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
+# the same lookup the install step used - this copy had drifted to two of its three paths
+$obsidian = Find-Obsidian
 if ($obsidian) { Ok "Obsidian" } else { Warn "Obsidian not installed"; $fail = $true }
 
 $bar = '=' * 58
