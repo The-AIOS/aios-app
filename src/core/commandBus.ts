@@ -168,7 +168,10 @@ export function buildResumeCmd(
   sessionId: string,
   opts: { prompt?: string; taskFile?: string } = {},
 ): string {
-  const parts = [claudeCmd || 'claude', '--resume', sessionId];
+  /* QUOTED, even though resumeTarget already refuses an unsafe id. The id is a FILENAME read
+     off disk, and this string is typed into a live shell — one guard is a policy, two is a
+     boundary. Quoting also keeps the command correct if the id format ever widens. */
+  const parts = [claudeCmd || 'claude', '--resume', shq(sessionId)];
   const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.prompt;
   if (prompt && prompt.trim()) parts.push(shq(prompt));
   return parts.join(' ');

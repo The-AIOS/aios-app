@@ -446,7 +446,7 @@ test('PROTOCOL: the verb module is byte-identical across both fulfillers', () =>
    is RACED for, so if the two surfaces disagreed about which session a name resolves to, the same
    `resume` would reopen different sessions depending on who won — non-determinism that would look
    like a Claude bug, not ours. core/resumeTarget.ts is therefore copied byte-identical as well. */
-const RESUME_SHA = '3a44719d96913178';
+const RESUME_SHA = '1942c31911cb512a';
 
 test('PROTOCOL: the name→session resolution is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/core/resumeTarget.ts', 'utf8');
@@ -459,10 +459,10 @@ test('PROTOCOL: a renamed session resolves by its LATEST name, and never to itse
   const rec = (n: string) => JSON.stringify({ type: 'agent-name', agentName: n });
   assert.equal(latestAgentName([rec('app-walker'), rec('aios-app')].join('\n')), 'aios-app');
   assert.equal(pickResume('w', [
-    { sessionId: 'new', mtimeMs: 9, latestName: 'w' },
-    { sessionId: 'old', mtimeMs: 1, latestName: 'w' },
-  ]), 'new');
-  assert.equal(pickResume('w', [{ sessionId: 'me', mtimeMs: 9, latestName: 'w' }], 'me'), undefined);
+    { sessionId: 'nnnn1111-n1n1-4n1n-8n1n-nnnn11112222', mtimeMs: 9, latestName: 'w' },
+    { sessionId: 'oooo1111-o1o1-4o1o-8o1o-oooo11112222', mtimeMs: 1, latestName: 'w' },
+  ]), 'nnnn1111-n1n1-4n1n-8n1n-nnnn11112222');
+  assert.equal(pickResume('w', [{ sessionId: 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222', mtimeMs: 9, latestName: 'w' }], 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222'), undefined);
 });
 
 test('PROTOCOL: absent means spawn, unrecognised means refuse', () => {

