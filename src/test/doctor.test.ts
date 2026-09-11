@@ -102,11 +102,23 @@ test('account: an existing ~/.claude is NOT signed-in — only oauthAccount is (
   assert.equal(account!.status, 'fail');
   assert.match(account!.repairCmd!, /\/login/, 'switching accounts DOES use /login');
 
-  // first run genuinely complete → passes
+  // first run genuinely complete → accepted
   fs.writeFileSync(claudeJson, JSON.stringify({ oauthAccount: { emailAddress: 'op@example.com' }, hasCompletedOnboarding: true }));
   checks = await aios.setupChecks();
   account = checks.find((c) => c.id === 'account');
-  assert.equal(account!.status, 'pass');
+  /* TWO LAYERS, and this assertion is about the lower one. The account check's own verdict on a
+     complete credential file is `pass`. The BATTERY may then downgrade that pass to a warn when
+     `claude` itself is missing, because this check answers from the credential file alone and
+     cannot vouch for a machine where Claude does not run (see core/setupDiagnose → unverifiable).
+     CI is exactly such a machine — Claude Code is not installed on the runners — so pinning
+     `pass` here made the test assert the presence of an unrelated tool. Accept either verdict,
+     and require the warn to NAME its reason; what must never happen is `fail`, which would mean
+     the check stopped recognising a complete credential file. */
+  assert.notEqual(account!.status, 'fail', 'a complete credential file must be accepted');
+  if (account!.status === 'warn') {
+    assert.equal(account!.blockedBy, 'claude',
+      'the only thing that may hold back a complete credential file is a Claude that cannot run');
+  }
   assert.equal(account!.message, 'op@example.com');
 });
 
