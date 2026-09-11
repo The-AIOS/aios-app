@@ -1380,6 +1380,10 @@ function winRestartNote(): string {
  * served than one watching an unknown command error out.
  */
 function installGitCmd(): string | undefined {
+  /* The installer ladder first: it tries every way this machine allows (see installToolCmd). The
+     single commands below remain only for a build that somehow lacks the bundled script. */
+  const ladder = installToolCmd('git');
+  if (ladder) return ladder;
   if (process.platform === 'darwin') return 'xcode-select --install';
   if (process.platform === 'win32') return 'winget install --id Git.Git -e --source winget';
   return 'if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y git; '
@@ -1394,6 +1398,9 @@ function installGitCmd(): string | undefined {
  * Xcode CLT — "make this Mac capable" in its own words).
  */
 function installNodeCmd(): string | undefined {
+  // the ladder first (Homebrew is only its first rung now); the lines below are the no-script fallback
+  const ladder = installToolCmd('node');
+  if (ladder) return ladder;
   if (process.platform === 'darwin') return 'brew install node';
   if (process.platform === 'win32') return 'winget install --id OpenJS.NodeJS.LTS -e --source winget';
   return 'if command -v apt-get >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y nodejs npm; '
@@ -1439,19 +1446,18 @@ async function ghCheckWin(): Promise<CheckResult> {
   if (out?.includes('AUTHED')) return { id: 'gh', label: t('setupCheck.gh'), status: 'pass', message: t('setupCheck.ghOk'), canRepair: false };
   if (out?.includes('PATOK')) return { id: 'gh', label: t('setupCheck.gh'), status: 'pass', message: t('setupCheck.ghPat'), canRepair: false };
   if (out?.includes('NOAUTH')) return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: t('setupCheck.ghNoAuth'), repairCmd: loginCmd, repairHint: loginCmd, canRepair: false };
-  /* gh genuinely absent. winget is Windows' own package manager and needs no admin rights for
-     a user-scope install — the counterpart of the POSIX branch's rule that a command we offer
-     must actually be able to succeed. Without winget there IS no command this app can honestly
-     run, so it names the download page instead of printing something that will fail. */
-  const hasWinget = !!(await psOnce('if (Get-Command winget -ErrorAction SilentlyContinue) { "YES" }'))?.includes('YES');
-  if (hasWinget) {
-    const install = `winget install --id GitHub.cli -e --source winget; ${loginCmd}`;
-    return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: 'not installed — winget install GitHub.cli' + winRestartNote(), repairCmd: install, repairHint: install, canRepair: false };
+  /* gh genuinely absent. This used to be winget-or-nothing, and winget-then-login in ONE pane:
+     winget installed gh into a PATH that pane could not see, so the login that followed failed
+     with "gh is not recognized", and a real first install ended with gh installed by hand from
+     CMD. The installer ladder tries winget, Scoop, Chocolatey and then the official zip into the
+     user's own folder, and runs the login itself with PATH re-read — see install-tool.ps1. */
+  const install = installToolCmd('gh', loginCmd);
+  if (install) {
+    return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: t('setupCheck.ghNeedsSetup') + winRestartNote(), repairCmd: install, repairHint: install, canRepair: false };
   }
   return {
     id: 'gh', label: t('setupCheck.gh'), status: 'warn',
-    message: "GitHub CLI isn't installed, and this machine has no winget to install it with — get it from cli.github.com.",
-    repairHint: 'https://cli.github.com/', canRepair: false,
+    message: t('setupCheck.ghMissing'), repairHint: 'https://cli.github.com/', canRepair: false,
   };
 }
 
@@ -1719,23 +1725,24 @@ function doctorChecks(): DoctorCheck[] {
         if (out?.includes('AUTHED')) return { id: 'gh', label: t('setupCheck.gh'), status: 'pass', message: t('setupCheck.ghOk'), canRepair: false };
         if (out?.includes('PATOK')) return { id: 'gh', label: t('setupCheck.gh'), status: 'pass', message: t('setupCheck.ghPat'), canRepair: false };
         if (out?.includes('NOAUTH')) return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: t('setupCheck.ghNoAuth'), repairCmd: loginCmd, repairHint: loginCmd, canRepair: false };
-        /* gh genuinely absent. `brew install gh` is only offered when brew can actually WRITE:
-           on a shared Mac, Homebrew belongs to whoever installed it, and a standard user gets
-           "/opt/homebrew/Cellar is not writable" followed by a wall of chown instructions that
-           end in sudo. Offering an impossible command is worse than offering none — it reads as
-           the product being broken. `gh`'s own installer needs no admin rights. */
-        const brewWritable = 'test -w /opt/homebrew/Cellar 2>/dev/null || test -w /usr/local/Cellar 2>/dev/null';
-        const canBrew = !!(await zshOut(`if command -v brew >/dev/null 2>&1 && { ${brewWritable}; }; then echo YES; fi`))?.includes('YES');
-        if (canBrew) {
-          const install = `brew install gh && ${loginCmd}`;
-          return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: t('setupCheck.ghNotInstalled'), repairCmd: install, repairHint: install, canRepair: false };
+        /* gh genuinely absent. This branch used to ask one question — can Homebrew write? — and
+           had nothing to offer when the answer was no. A Mac with no Homebrew was then told its
+           Homebrew "belongs to another account", given no command, and Connect GitHub ran
+           `gh auth login` into "command not found: gh"; a real first install ended with
+           Homebrew installed by hand from brew.sh. The installer ladder answers every case: a
+           writable Homebrew, MacPorts, bootstrapping Homebrew on an admin account, and the
+           official checksum-verified download into ~/.local on an account with no admin rights
+           at all. It then runs the login itself, in the process whose PATH already includes the
+           new gh — see scripts/setup/install-tool.sh. */
+        const install = installToolCmd('gh', loginCmd);
+        if (install) {
+          return { id: 'gh', label: t('setupCheck.gh'), status: 'warn', message: t('setupCheck.ghNeedsSetup'), repairCmd: install, repairHint: install, canRepair: false };
         }
-        /* Brew cannot write, so there is no command this app can honestly run. Say that, and say
-           who can fix it — rather than printing a command that ends in a chown wall and sudo. A
-           dead end named as one costs a minute; a dead end disguised as a button costs trust. */
+        /* A build without the bundled installer: nothing here can install gh, so point at the page
+           (the renderer opens it) rather than print a command that cannot work. */
         return {
           id: 'gh', label: t('setupCheck.gh'), status: 'warn',
-          message: t('setupCheck.ghNoBrew'), repairHint: 'https://cli.github.com/', canRepair: false,
+          message: t('setupCheck.ghMissing'), repairHint: 'https://cli.github.com/', canRepair: false,
         };
       },
     },
@@ -2297,23 +2304,27 @@ fi
  */
 const phase1Invocation = (p: string): string => (process.platform === 'win32' ? psRunHint(p) : p);
 
-export function phase1Script(): string {
-  /* app.asar is an ARCHIVE, not a directory. Node's fs is shimmed to read inside it, so
-     statSync said the script was there and the path looked perfectly good — but the moment it
-     was handed to a real `bash`, the OS answered "Not a directory" and the whole install step
-     did nothing. The one button a newcomer must be able to press.
-     So the script is MATERIALISED to a real file on disk before its path is handed out. Reading
-     it works (that is the shim); executing it does not. Copying costs a few kilobytes and is
-     independent of electron-builder's asarUnpack config, which would otherwise have to stay in
-     sync with this path forever. */
-  // Windows runs the PowerShell provisioner; everything else keeps the bash one.
-  const file = process.platform === 'win32' ? 'phase1-prerequisites.ps1' : 'phase1-prerequisites.sh';
+/**
+ * A script from scripts/setup/ as a REAL path on disk, or '' when this build does not carry it.
+ *
+ * app.asar is an ARCHIVE, not a directory. Node's fs is shimmed to read inside it, so statSync said
+ * the script was there and the path looked perfectly good — but the moment it was handed to a real
+ * `bash`, the OS answered "Not a directory" and the whole install step did nothing. The one button
+ * a newcomer must be able to press.
+ * So the script is MATERIALISED to a real file on disk before its path is handed out. Reading it
+ * works (that is the shim); executing it does not. Copying costs a few kilobytes and is independent
+ * of electron-builder's asarUnpack config, which would otherwise have to stay in sync with this
+ * path forever.
+ * Its SIBLINGS are materialised alongside it: the provisioners call install-tool.* from their own
+ * folder, and a phase-1 script copied to a temp dir on its own would find nothing beside it.
+ */
+function setupScriptPath(file: string): string {
   const dev = path.join(__dirname, '..', '..', 'scripts', 'setup', file);
   const packaged = path.join(process.resourcesPath || '', 'app.asar', 'scripts', 'setup', file);
   const unpacked = packaged.replace('app.asar', 'app.asar.unpacked');
   for (const p of [dev, unpacked]) {
     // a REAL path on disk — usable directly
-    try { if (fs.statSync(p).isFile() && !p.includes('app.asar' + path.sep)) return phase1Invocation(p); } catch { /* next */ }
+    try { if (fs.statSync(p).isFile() && !p.includes('app.asar' + path.sep)) return p; } catch { /* next */ }
   }
   try {
     const body = fs.readFileSync(packaged, 'utf8');       // works: fs is shimmed for asar
@@ -2324,8 +2335,47 @@ export function phase1Script(): string {
     const out = path.join(os.tmpdir(), 'aios-setup', file);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, body, { mode: 0o700 });
-    return phase1Invocation(out);
+    for (const sib of fs.readdirSync(path.dirname(packaged))) {
+      if (sib === file) continue;
+      try { fs.writeFileSync(path.join(path.dirname(out), sib), fs.readFileSync(path.join(path.dirname(packaged), sib), 'utf8'), { mode: 0o700 }); } catch { /* the one asked for is what matters */ }
+    }
+    return out;
   } catch { return ''; }
+}
+
+export function phase1Script(): string {
+  // Windows runs the PowerShell provisioner; everything else keeps the bash one.
+  const p = setupScriptPath(process.platform === 'win32' ? 'phase1-prerequisites.ps1' : 'phase1-prerequisites.sh');
+  return p ? phase1Invocation(p) : '';
+}
+
+/** The tools the installer ladder knows how to install. */
+export type InstallableTool = 'gh' | 'git' | 'node' | 'uv' | 'python' | 'obsidian';
+
+/**
+ * The command that installs one missing tool by trying every way THIS machine allows, or undefined
+ * when the build does not carry the installer.
+ *
+ * Why one script per platform instead of one command per tool: every repair used to be a single
+ * method — `brew install` on a Mac, `winget install` on Windows — and a single method is a dead
+ * end on exactly the machines a newcomer has. Measured on two real first installs: a Mac with no
+ * Homebrew stopped at the GitHub step, and a Windows PC ended with gh installed by hand from CMD.
+ * scripts/setup/install-tool.{sh,ps1} hold the ordered alternatives (package managers already
+ * present, a bootstrappable one, the official checksum-verified download into the user's own
+ * folder, and finally the download page), so every check shares one answer instead of each
+ * inventing its own.
+ *
+ * `then` runs INSIDE the installer, after the tool works: that process has the new PATH, while the
+ * pane that launched it does not. Running a follow-up (a login) in the pane itself is the
+ * "command not found right after installing" failure both reports described.
+ */
+export function installToolCmd(tool: InstallableTool, then?: string): string | undefined {
+  if (process.platform === 'win32') {
+    const script = setupScriptPath('install-tool.ps1');
+    return script ? `${psRunHint(script)} -Tool ${tool}${then ? ` -Then ${psq(then)}` : ''}` : undefined;
+  }
+  const script = setupScriptPath('install-tool.sh');
+  return script ? `bash ${shq(script)} ${tool}${then ? ` --then ${shq(then)}` : ''}` : undefined;
 }
 
 /** The shell the operator actually uses — and the one pty:spawn launches, so probes agree

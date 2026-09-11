@@ -1165,9 +1165,10 @@ test('no operator-visible step-1 copy names a tool they will never type — pros
      button — still read "Homebrew, the toolchain, Obsidian and Claude Code". #94 mode 8: I fixed the
      prose and then interrogated the prose. The class is operator-visible step-1 copy, and it has
      more than one surface.
-     `setupCheck.ghNoBrew` is the ONE justified exception and is asserted as such: it fires only when
-     Homebrew on a shared Mac belongs to another account, which IS the problem — naming it is what
-     makes the message actionable, and removing it would leave the operator stuck with no reason. */
+     There used to be ONE justified exception, `setupCheck.ghNoBrew` ("Homebrew on this Mac belongs to
+     another account"). It is gone: the gh repair now goes through the installer ladder, which has a
+     no-Homebrew, no-admin way in, so there is no longer a Homebrew dead end to explain — and that
+     message had also fired on Macs with no Homebrew at all, where it was simply false. */
   for (const l of LOCALES) {
     const d = LOC(l);
     for (const k of ['setup.phase1Hint', 'setup.phase1', 'onboarding.step.prereqs']) {
@@ -1177,8 +1178,7 @@ test('no operator-visible step-1 copy names a tool they will never type — pros
       }
     }
     const brew = Object.entries(d).filter(([, v]) => String(v).includes('Homebrew')).map(([k]) => k);
-    assert.deepEqual(brew, ['setupCheck.ghNoBrew'],
-      `${l}: Homebrew may appear ONLY in the shared-Mac diagnostic, found ${JSON.stringify(brew)}`);
+    assert.deepEqual(brew, [], `${l}: no operator-visible string names Homebrew, found ${JSON.stringify(brew)}`);
   }
 });
 

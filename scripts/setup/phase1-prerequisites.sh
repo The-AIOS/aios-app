@@ -100,35 +100,55 @@ if [ -n "$BREW" ]; then
   ok "already installed ($BREW)"
 else
   warn "not installed — the official installer will ask for your Mac password."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || die "Homebrew install failed. Nothing else ran."
+  # NOT fatal any more. This used to `die`, which ended Phase 1 on every Mac account without admin
+  # rights — the installer needs one. Each tool below has other ways in (install-tool.sh), most of
+  # them needing no admin at all, so a failed Homebrew is a skipped rung, not a stopped setup.
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+    || warn "Homebrew could not be installed (it needs an admin account) — continuing without it"
   for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
     [ -x "$candidate" ] && BREW="$candidate" && break
   done
-  [ -n "$BREW" ] || die "Homebrew installed but brew was not found where expected."
-  ok "installed ($BREW)"
+  [ -n "$BREW" ] && ok "installed ($BREW)"
 fi
 # on PATH for THIS script, and for every future login shell
-eval "$("$BREW" shellenv)"
-if grep -qs 'brew shellenv' "$ZPROFILE"; then
-  skip "brew already on your PATH in .zprofile"
-else
-  printf '\neval "$(%s shellenv)"\n' "$BREW" >> "$ZPROFILE" && ok "added brew to your PATH (.zprofile)"
+if [ -n "$BREW" ]; then
+  eval "$("$BREW" shellenv)"
+  if grep -qs 'brew shellenv' "$ZPROFILE"; then
+    skip "brew already on your PATH in .zprofile"
+  else
+    printf '\neval "$(%s shellenv)"\n' "$BREW" >> "$ZPROFILE" && ok "added brew to your PATH (.zprofile)"
+  fi
 fi
 
 # ── 3. The toolchain ─────────────────────────────────────────────────────────
+# Homebrew first when it can write; otherwise, or when a brew install fails (another account's
+# Homebrew answers "Cellar is not writable"), the same tool goes through install-tool.sh, which
+# tries every other way this Mac allows — ending in a checksum-verified download into ~/.local.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+install_any() { # tool
+  if [ -f "$HERE/install-tool.sh" ]; then bash "$HERE/install-tool.sh" "$1"
+  else warn "$1: the fallback installer is missing from this build"; return 1; fi
+}
 say "Toolchain (node, git, gh, python, uv)"
 for pkg in node git gh python uv; do
-  if "$BREW" list --formula "$pkg" >/dev/null 2>&1; then skip "$pkg already installed"
-  else printf '  installing %s…\n' "$pkg"; "$BREW" install "$pkg" >/dev/null 2>&1 && ok "$pkg" || warn "$pkg failed — continuing, the doctor will flag it"; fi
+  if [ -n "$BREW" ] && "$BREW" list --formula "$pkg" >/dev/null 2>&1; then skip "$pkg already installed"
+  elif [ -n "$BREW" ] && { printf '  installing %s…\n' "$pkg"; "$BREW" install "$pkg" >/dev/null 2>&1; }; then ok "$pkg"
+  else install_any "$pkg" || warn "$pkg failed — continuing, the doctor will flag it"; fi
 done
+# install-tool.sh wrote these to .zprofile for NEW shells; this script is not one, and the Claude
+# step below needs the node/npm it may have just put there.
+export PATH="$HOME/.local/bin:$HOME/.local/opt/node/bin:$PATH"
 
 # ── 4. Obsidian ──────────────────────────────────────────────────────────────
 # Required on every path: it is how you read the vault, and it is what the
 # bundled Obsidian MCP talks to.
 say "Obsidian"
-if [ -d "/Applications/Obsidian.app" ]; then ok "already installed"
-elif "$BREW" list --cask obsidian >/dev/null 2>&1; then ok "already installed (brew)"
-else printf '  installing…\n'; "$BREW" install --cask obsidian >/dev/null 2>&1 && ok "installed" || warn "install failed — get it from https://obsidian.md"; fi
+# ~/Applications counts: without admin rights /Applications is often not writable, and the
+# fallback installer puts Obsidian in the operator's own Applications folder instead.
+if [ -d "/Applications/Obsidian.app" ] || [ -d "$HOME/Applications/Obsidian.app" ]; then ok "already installed"
+elif [ -n "$BREW" ] && "$BREW" list --cask obsidian >/dev/null 2>&1; then ok "already installed (brew)"
+elif [ -n "$BREW" ] && { printf '  installing…\n'; "$BREW" install --cask obsidian >/dev/null 2>&1; }; then ok "installed"
+else install_any obsidian || warn "install failed — get it from https://obsidian.md"; fi
 
 # ── 5. Claude Code ───────────────────────────────────────────────────────────
 # Deliberately via npm, not the curl installer. npm's global prefix is inside
@@ -213,7 +233,7 @@ for tool in git node npm gh python3 uv claude; do
   if "$LOGIN_SHELL" -lc "command -v $tool" >/dev/null 2>&1; then ok "$tool"
   else warn "$tool NOT found by a login shell"; FAIL=1; fi
 done
-[ -d "/Applications/Obsidian.app" ] && ok "Obsidian" || { warn "Obsidian not in /Applications"; FAIL=1; }
+{ [ -d "/Applications/Obsidian.app" ] || [ -d "$HOME/Applications/Obsidian.app" ]; } && ok "Obsidian" || { warn "Obsidian not in /Applications or ~/Applications"; FAIL=1; }
 
 say "Phase 1 complete"
 if [ "$FAIL" -eq 0 ]; then

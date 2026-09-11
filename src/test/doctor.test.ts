@@ -227,7 +227,8 @@ test('every path in a command is shell-quoted', () => {
   assert.match(src, /function shq\(p: string\): string/);
   assert.doesNotMatch(src, /`bash \$\{script\}`/, 'a bare interpolated path is the bug');
   assert.doesNotMatch(src, /JSON\.stringify\(v\)/, 'double quotes still expand $');
-  assert.equal((src.match(/bash \$\{shq\(script\)\}/g) || []).length, 2);
+  // two in the prereqs checks' hints, one in installToolCmd
+  assert.equal((src.match(/bash \$\{shq\(script\)\}/g) || []).length, 3);
   /* The Windows launcher is the same audit in another dialect: `-File C:\Users\Jane Doe\aios\…`
      breaks exactly where `bash /Users/Jane Doe/aios/…` breaks, and a framework under a OneDrive
      or "My Documents" path is the common case there rather than the exotic one.
@@ -243,4 +244,160 @@ test('every path in a command is shell-quoted', () => {
   // the helper itself must survive a quote in the path
   const shq = (p: string): string => `'${String(p).replace(/'/g, `'\\''`)}'`;
   assert.equal(shq("/tmp/it's here/x.sh"), `'/tmp/it'\\''s here/x.sh'`);
+});
+
+/* ── a missing tool: every way in, on every platform ───────────────────────── */
+
+const LADDER_TOOLS = ['gh', 'git', 'node', 'uv', 'python', 'obsidian'];
+// Rungs that need neither a package manager nor administrator rights. Every tool needs at least one
+// on every platform, or some real machine ends at a dead end: the two reports behind this were a Mac
+// with no Homebrew and a Windows PC where winget's install never reached the terminal.
+const NO_ADMIN = ['release', 'official', 'uvpython', 'flatpak'];
+
+const shLadders = (): Record<string, string[]> => {
+  const sh = fs.readFileSync('scripts/setup/install-tool.sh', 'utf8');
+  const out: Record<string, string[]> = {};
+  for (const m of sh.matchAll(/^\s+(darwin|linux):(\w+)\)\s+echo "([^"]*)" ;;/gm)) out[`${m[1]}:${m[2]}`] = m[3].split(/\s+/).filter(Boolean);
+  return out;
+};
+const psLadders = (): Record<string, string[]> => {
+  const ps = fs.readFileSync('scripts/setup/install-tool.ps1', 'utf8');
+  const out: Record<string, string[]> = {};
+  const start = ps.indexOf('$Ladders = @{');
+  const block = ps.slice(start, ps.indexOf('\n}', start));
+  for (const m of block.matchAll(/^\s+(\w+)\s+=\s+@\(([^)]*)\)/gm)) out[`win32:${m[1]}`] = [...m[2].matchAll(/'(\w+)'/g)].map((x) => x[1]);
+  return out;
+};
+
+test('every tool has several ways in on every OS, and at least one needs no admin and no package manager', () => {
+  const ladders = { ...shLadders(), ...psLadders() };
+  for (const os of ['darwin', 'linux', 'win32']) {
+    for (const tool of LADDER_TOOLS) {
+      const rungs = ladders[`${os}:${tool}`];
+      assert.ok(rungs, `${os}/${tool}: no ladder at all`);
+      assert.ok(rungs.length >= 2, `${os}/${tool}: one way in is a dead end on the machines that lack it (${rungs.join(',')})`);
+      /* git on macOS and Linux has no official user-level binary to download, so its floor is a
+         system tool (the Command Line Tools / the distribution's package manager). Every other tool
+         must have a way in that asks nobody for permission. */
+      if (tool === 'git' && os !== 'win32') continue;
+      assert.ok(rungs.some((r) => NO_ADMIN.includes(r)), `${os}/${tool}: every rung needs admin or a package manager (${rungs.join(',')})`);
+    }
+  }
+});
+
+test('every download is checksum-verified before it is used, on both installers', () => {
+  /* A download rung trades a package manager's signature for our own check, so each fetch must be
+     followed by a verify that FAILS the rung on a mismatch. Verified by hand on both scripts with a
+     corrupted digest: the rung refused, the ladder ended at the download page, nothing was written. */
+  const sh = fs.readFileSync('scripts/setup/install-tool.sh', 'utf8');
+  const i = sh.indexOf('run_release() {');
+  const rel = sh.slice(i, sh.indexOf('\n}\n', i));
+  const shFetches = (rel.match(/fetch "\$url" "\$f"|fetch "https:\/\/nodejs\.org\/dist\/\$ver\/\$name" "\$f"/g) || []).length;
+  assert.ok(shFetches >= 4, `expected the four download sites in run_release, found ${shFetches}`);
+  assert.equal((rel.match(/&& verify "\$f" "\$sum" \|\| return 1/g) || []).length, shFetches, 'a download in install-tool.sh skips verify');
+  assert.match(sh, /verify\(\) \{[\s\S]*?return 1; \}/, 'verify must be able to fail the rung');
+
+  const ps = fs.readFileSync('scripts/setup/install-tool.ps1', 'utf8');
+  const psRel = ps.slice(ps.indexOf('function Run-Release {'), ps.indexOf('# Ordered least invasive first'));
+  const psFetches = (psRel.match(/Fetch (?:\$\S+|"[^"]+") \$f/g) || []).length;
+  assert.ok(psFetches >= 4, `expected four download sites in Run-Release, found ${psFetches}`);
+  assert.equal((psRel.match(/if \(-not \(Verify \$f \$\S+\)\) \{ return \$false \}/g) || []).length, psFetches, 'a download in install-tool.ps1 skips Verify');
+});
+
+test('the doctor offers the ladder for gh, git and node on every platform, never a single-method command', () => {
+  const raw = fs.readFileSync('src/main/aios.ts', 'utf8');
+  const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // gh, both lanes: the installer runs the login itself, where PATH already includes the new gh
+  const posixGh = code.slice(code.indexOf("id: 'gh', severity"), code.indexOf("id: 'personalized'"));
+  assert.match(posixGh, /installToolCmd\('gh', loginCmd\)/);
+  const winGh = code.slice(code.indexOf('async function ghCheckWin'), code.indexOf('function doctorChecks'));
+  assert.match(winGh, /installToolCmd\('gh', loginCmd\)/);
+  // the one-method commands behind the two reports are gone from the gh lanes
+  assert.doesNotMatch(winGh, /winget install --id GitHub\.cli/, 'winget-then-login in one pane is the Windows report');
+  assert.doesNotMatch(posixGh, /brew install gh/, 'brew-or-nothing is the Mac report');
+  assert.doesNotMatch(code, /setupCheck\.ghNoBrew/);
+  // git and node try the ladder before their old single commands
+  for (const [fn, tool] of [['installGitCmd', 'git'], ['installNodeCmd', 'node']]) {
+    const j = code.indexOf(`function ${fn}(`);
+    const body = code.slice(j, code.indexOf('\n}', j));
+    const iLadder = body.indexOf(`installToolCmd('${tool}')`);
+    assert.ok(iLadder > 0 && iLadder < body.indexOf('darwin'), `${fn}: the ladder must come first`);
+  }
+  // and the follow-up command travels INTO the installer, quoted for the shell that receives it
+  assert.match(code, /` -Then \$\{psq\(then\)\}`/);
+  assert.match(code, /` --then \$\{shq\(then\)\}`/);
+});
+
+test('installToolCmd hands out a runnable invocation of a real script on this machine', () => {
+  const cmd = aios.installToolCmd('gh', 'gh auth login --web --git-protocol https');
+  assert.ok(cmd, 'the dev tree carries the installer, so there must be a command');
+  if (process.platform === 'win32') {
+    assert.match(cmd!, /^powershell -NoProfile -ExecutionPolicy Bypass -File '.*install-tool\.ps1' -Tool gh -Then 'gh auth login --web --git-protocol https'$/);
+  } else {
+    assert.match(cmd!, /^bash '.*install-tool\.sh' gh --then 'gh auth login --web --git-protocol https'$/);
+  }
+});
+
+test('both provisioners fall back to the ladder instead of stopping', () => {
+  const sh = fs.readFileSync('scripts/setup/phase1-prerequisites.sh', 'utf8');
+  assert.doesNotMatch(sh, /die "Homebrew install failed/, 'no Homebrew must not end Phase 1: accounts without admin have other ways in');
+  assert.match(sh, /else install_any "\$pkg"/, 'a tool brew could not install goes to install-tool.sh');
+  assert.match(sh, /install_any obsidian/);
+  assert.match(sh, /bash "\$HERE\/install-tool\.sh" "\$1"/);
+  const ps = fs.readFileSync('scripts/setup/phase1-prerequisites.ps1', 'utf8');
+  assert.doesNotMatch(ps, /missing - needs winget"; return/, 'no winget must not end the tool: it has other ways in');
+  assert.match(ps, /Install-Any \$Label/);
+  assert.match(ps, /Install-Any 'obsidian'/);
+  assert.match(ps, /Join-Path \$PSScriptRoot 'install-tool\.ps1'/);
+});
+
+test('the provisioners can find the installer beside them even when copied out of app.asar', () => {
+  const raw = fs.readFileSync('src/main/aios.ts', 'utf8');
+  const fn = raw.slice(raw.indexOf('function setupScriptPath('), raw.indexOf('export function phase1Script('));
+  assert.match(fn, /fs\.readdirSync\(path\.dirname\(packaged\)\)/, 'siblings must be materialised with the script');
+});
+
+test('install-tool.sh parses and plans every tool', { skip: process.platform === 'win32' }, () => {
+  const cp = require('child_process');
+  cp.execFileSync('bash', ['-n', 'scripts/setup/install-tool.sh']);
+  for (const tool of LADDER_TOOLS) {
+    const out: string = cp.execFileSync('bash', ['scripts/setup/install-tool.sh', tool, '--plan'], { encoding: 'utf8', timeout: 20000 });
+    assert.match(out, /^\s+1\. \w+ — /m, `${tool}: no rungs listed`);
+    assert.match(out, /^\s+page: https:\/\//m, `${tool}: no download page to end on`);
+  }
+});
+
+test('install-tool.ps1 parses and plans every tool', { skip: process.platform !== 'win32' }, () => {
+  const cp = require('child_process');
+  const parse: string = cp.execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('scripts/setup/install-tool.ps1',[ref]$null,[ref]$e); if($e){'ERR'}else{'OK'}"], { encoding: 'utf8' });
+  assert.match(parse, /OK/);
+  for (const tool of LADDER_TOOLS) {
+    const out: string = cp.execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/setup/install-tool.ps1', '-Tool', tool, '-Plan'], { encoding: 'utf8', timeout: 60000 });
+    assert.match(out, /^\s+1\. \w+ - /m, `${tool}: no rungs listed`);
+    assert.match(out, /^\s+page: https:\/\//m, `${tool}: no download page to end on`);
+  }
+});
+
+
+test('Connect GitHub never runs `gh auth login` when the check found gh absent with no command', () => {
+  /* The fallback `repairCmd || 'gh auth login …'` exists for a gh that is installed but signed
+     out. When the check returned NO repairCmd because gh is absent and nothing here can install
+     it, the fallback ran anyway — straight into "command not found: gh". It must open the URL
+     the check handed out instead. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const i = app.indexOf("case 'github': {");
+  const block = app.slice(i, app.indexOf("case 'firstrun': {", i));
+  assert.ok(block.includes("const ghUrl = gh && gh.status !== 'pass' && !gh.repairCmd"), 'the URL lane must key off a missing repairCmd');
+  assert.ok(block.includes('if (ghUrl) { void window.glassShell.openExternal(ghUrl); return; }'), 'and open the URL instead of running login');
+});
+
+test('the gh messages exist in every locale and name no tool the operator never types', () => {
+  for (const l of ['en', 'es', 'pt-br']) {
+    const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8'));
+    for (const k of ['setupCheck.ghNeedsSetup', 'setupCheck.ghMissing']) {
+      assert.ok(d[k] && String(d[k]).trim(), `${l}: ${k} missing`);
+      assert.ok(!String(d[k]).includes('Homebrew'), `${l}: ${k} names Homebrew`);
+    }
+  }
 });

@@ -6509,7 +6509,16 @@ function openSetupTab() {
           const gh = by('gh');
           // primary drives gh's own device/web auth flow in a visible pane
           // (installs gh first when it's absent — the repairCmd knows which)
-          mkBtn(acts, t('onboarding.connectGithub'), () => void fixPane('gh', (gh && gh.repairCmd) || 'gh auth login --web --git-protocol https'), { primary: true, title: gh && gh.repairHint });
+          /* When the check found gh absent AND could offer no command (Homebrew owned by another
+             account, or no provisioner on this platform), it says so and hands out a download URL
+             instead. The button used to ignore that and fall back to `gh auth login` anyway, which
+             opened a terminal straight into "command not found: gh" under a banner saying a step
+             just needs another try. It does not: it needs gh. So it opens the URL the check gave. */
+          const ghUrl = gh && gh.status !== 'pass' && !gh.repairCmd && /^https:\/\//.test(gh.repairHint || '') ? gh.repairHint : '';
+          mkBtn(acts, t('onboarding.connectGithub'), () => {
+            if (ghUrl) { void window.glassShell.openExternal(ghUrl); return; }
+            void fixPane('gh', (gh && gh.repairCmd) || 'gh auth login --web --git-protocol https');
+          }, { primary: true, title: gh && gh.repairHint });
           // advanced: the PAT lane — stored via git's credential helper, never echoed
           mkBtn(adv, t('onboarding.usePat'), async () => {
             const pat = await inputModal(t('onboarding.patTitle'), t('onboarding.patPlaceholder'), null, { password: true });
