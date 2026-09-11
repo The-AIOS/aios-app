@@ -19,13 +19,21 @@
  * session lives IN the app grid, never a detached window, and no shell-wrapper
  * marker is involved.
  */
+import { normalizeVerb, type BusVerbResult } from './busVerbs';
 
 import { isSurface, type Surface } from './sendQueue';
 
-export type BusAction = 'spawn' | 'kill' | 'send';
+/* 'unknown' is a PARSED verb the bus refuses, not a parse failure. Absent action still means
+   'spawn' (contract-1 `{name, task}` back-compat), but a verb that was WRITTEN and not recognised
+   is a typo or a newer contract, and guessing 'spawn' for it is the substitution AI-149 exists to
+   prevent: `{"action":"resmue"}` would hand back a fresh something for a request that named a
+   someone. Dead-letter it instead, naming the verb, so the author can see what they wrote. */
+export type BusAction = BusVerbResult;
 
 export interface BusRequest {
   action: BusAction;
+  /** The verb as written, present only when `action` is 'unknown'. */
+  rawAction?: string;
   name: string;                 // sanitized kebab handle
   task?: string;                // spawn: the first prompt
   prompt?: string;              // send: text delivered into the live session
@@ -37,6 +45,10 @@ export interface BusRequest {
   /* how many times this request has been released for a sibling to try; bounded so two
      fulfillers cannot ping-pong it forever. */
   releases?: number;
+  /* resume: what to do when the name has no transcript to reopen. Absent = refuse and say so,
+     which is the honest default — silently spawning would hand back a fresh SOMETHING when the
+     caller asked for the same SOMEONE, and that substitution is the whole point of the verb. */
+  fallback?: 'spawn';
 }
 
 /** kebab-case handle — matches app.js:2568 + Glass's sanitizer exactly. */
@@ -82,10 +94,14 @@ export function parseRequest(raw: string): BusRequest | null {
   try { j = JSON.parse(raw); } catch { return null; }
   const name = sanitizeName(j.name);
   if (!name) return null;
-  const a = typeof j.action === 'string' ? j.action.toLowerCase() : 'spawn';
-  const action: BusAction = a === 'kill' ? 'kill' : a === 'send' ? 'send' : 'spawn';
+  /* The absent/unknown split is the shared protocol, not this surface's choice — core/busVerbs
+     holds it byte-identical with Glass so neither can drift. */
+  const written = typeof j.action === 'string' ? j.action.trim().toLowerCase() : '';
+  const action: BusAction = normalizeVerb(j.action);
   return {
     action,
+    /* Carried ONLY so a dead letter can quote what the author actually wrote. */
+    rawAction: action === 'unknown' ? written : undefined,
     name,
     task: typeof j.task === 'string' ? j.task : undefined,
     prompt: typeof j.prompt === 'string' ? j.prompt : (typeof j.task === 'string' ? j.task : undefined),
@@ -93,6 +109,10 @@ export function parseRequest(raw: string): BusRequest | null {
     tier: whitelistTier(j.tier),
     surface: isSurface(j.surface) ? j.surface : undefined,
     releases: typeof j.releases === 'number' && j.releases >= 0 ? j.releases : 0,
+    /* resume only, and deliberately NOT a boolean: `"fallback":"spawn"` says WHAT to fall back
+       to, so a future second fallback does not need a second field — and an unrecognised value
+       means no fallback rather than a guessed one. */
+    fallback: j.fallback === 'spawn' ? 'spawn' : undefined,
   };
 }
 
@@ -130,6 +150,30 @@ export function taskFileInstruction(file: string): string {
  * An EMPTY resolution is a real answer — `judgment` means "inherit the binary's frontier
  * default" — so an absent `model` must emit no flag at all. Never `--model ""`.
  */
+/**
+ * Reopen an existing session by its id, and deliver a first prompt (AI-149).
+ *
+ * WHY A SEPARATE BUILDER, when this is nearly buildSpawnCmd with a different flag: the two
+ * commands mean opposite things, and the row exists because that difference was being lost.
+ * `--name X` on a fresh process creates *a* session called X; `--resume <id>` reopens *the* one
+ * that already holds the context. The operator's words when they asked for it: "not a new one
+ * named aios-canonical — the same worker, already contextualized." A shared function with a
+ * boolean would make the substitution a one-character mistake.
+ *
+ * No `--model` and no `--name`: a resumed session keeps the model and identity it already had,
+ * and passing either would re-decide something the session has already settled.
+ */
+export function buildResumeCmd(
+  claudeCmd: string,
+  sessionId: string,
+  opts: { prompt?: string; taskFile?: string } = {},
+): string {
+  const parts = [claudeCmd || 'claude', '--resume', sessionId];
+  const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.prompt;
+  if (prompt && prompt.trim()) parts.push(shq(prompt));
+  return parts.join(' ');
+}
+
 export function buildSpawnCmd(
   claudeCmd: string,
   name: string,

@@ -1013,5 +1013,18 @@
   "whatsnew.for": "0.9.4",
   "caffeinate.statusOverride": "substituído",
   "ctx.openOutside": "Abrir fora do AIOS",
-  "ctx.openOutsideFailed": "Não foi possível abrir fora do AIOS — pode não existir mais ou estar fora das suas pastas"
+  "ctx.openOutsideFailed": "Não foi possível abrir fora do AIOS — pode não existir mais ou estar fora das suas pastas",
+  "setup.whyTitle": "Por que esta configuração existe",
+  "setup.whyBody": "Quase todos os apps que você usa vivem no computador de uma empresa: você aluga o produto pronto e não controla nada. O AIOS é o oposto: ele usa a sua própria inteligência, o seu git, o seu shell e o seu cofre, então precisa encontrá-los primeiro. Tudo vive no **seu computador**, com **as suas contas** e **as suas chaves**. É assim que algo que conduz a sua vida e o seu negócio deveria funcionar: é a diferença entre um quarto de hotel e ser dono da sua casa. Com o AIOS, a casa é sua, e isso importa mais conforme os modelos ficam mais fortes.",
+  "setup.blockedBy": "precisa de {tool} primeiro",
+  "setup.trouble": "Está com problemas? Clique aqui",
+  "setup.troubleHint": "Verifica o que está atrapalhando NESTA máquina e dá o próximo passo por você",
+  "setup.troubleWorking": "Verificando…",
+  "setup.troubleAllClear": "Nada está bloqueando você — todas as verificações importantes passam.",
+  "setup.troubleFailed": "Não foi possível executar a verificação. Tente de novo ou use Verificar novamente acima.",
+  "setup.troubleFixing": "Corrigindo {what} — abrindo um terminal para você acompanhar",
+  "setup.troubleOpening": "Nada aqui consegue instalar {what}, então abrindo a página de download",
+  "setup.troubleStuck": "O AIOS não consegue corrigir {what} sozinho nesta máquina.",
+  "setup.troubleCopy": "Copiar um relatório para enviar",
+  "setup.troubleCopied": "Relatório copiado — cole para quem estiver te ajudando"
 }

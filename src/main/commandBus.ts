@@ -4,7 +4,8 @@ import * as os from 'os';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as aios from './aios';
-import { parseRequest, buildSpawnCmd, needsTaskFile, type BusRequest } from '../core/commandBus';
+import { parseRequest, buildSpawnCmd, buildResumeCmd, needsTaskFile, type BusRequest } from '../core/commandBus';
+import { latestAgentName, pickResume, type ResumeCandidate } from '../core/resumeTarget';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
   INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
@@ -289,6 +290,50 @@ function writePayload(name: string, prompt: string): string {
     fs.writeFileSync(file, prompt, { mode: 0o600 });   // arbitrary prompt text: owner-only
     return file;
   } catch { return ''; }
+}
+
+/**
+ * The most recent CLOSED session that answers to this name (AI-149).
+ *
+ * The registry cannot answer this — it holds only live sessions, so the moment a worker exits
+ * its entry is gone. Transcripts persist and carry `agent-name` records, so they are the durable
+ * name→session mapping, and `latestAgentName` takes the LAST record because a session can rename
+ * itself (0.9.3) and answers to its newest name.
+ *
+ * BOUNDED ON PURPOSE. Transcripts are large and there can be hundreds; the bus must not stall
+ * while a resume request reads a history. Newest-first, stop at the first match, and never look
+ * at more than MAX_SCAN files — an operator resuming something they closed today is always well
+ * inside that, and a name so old it falls outside is correctly reported as "nothing to resume"
+ * rather than found slowly.
+ */
+const MAX_RESUME_SCAN = 60;
+function resumeIdFor(name: string, excludeSessionId?: string): string | undefined {
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  let files: { f: string; mtimeMs: number }[] = [];
+  try {
+    for (const d of fs.readdirSync(base)) {
+      let entries: string[] = [];
+      try { entries = fs.readdirSync(path.join(base, d)); } catch { continue; }
+      for (const e of entries) {
+        if (!e.endsWith('.jsonl')) continue;
+        const full = path.join(base, d, e);
+        try { files.push({ f: full, mtimeMs: fs.statSync(full).mtimeMs }); } catch { /* vanished */ }
+      }
+    }
+  } catch { return undefined; }
+  files = files.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, MAX_RESUME_SCAN);
+  for (const { f, mtimeMs } of files) {
+    let text = '';
+    try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    const cand: ResumeCandidate = {
+      sessionId: path.basename(f, '.jsonl'),
+      mtimeMs,
+      latestName: latestAgentName(text),
+    };
+    const hit = pickResume(name, [cand], excludeSessionId);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 /** Read the target's transcript; the counting RULE is pure and lives in core/sendQueue. */
@@ -576,9 +621,53 @@ async function runSend(
   }
 }
 
+/**
+ * Start a fresh session for this request.
+ *
+ * Extracted from runImmediate so `resume` can reach it for its opt-in `"fallback":"spawn"`.
+ * Deliberately a separate CALL rather than a shared flag: the two outcomes are a fresh something
+ * and the same someone, and the whole point of AI-149 is that those must not be one code path
+ * with a boolean deciding which you get.
+ */
+function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest): void {
+    let taskFile: string | undefined;
+    /* On Windows the pane's shell is PowerShell, but buildSpawnCmd (shared pure core, POSIX
+       quoting) can only quote the inline prompt the POSIX way — which mangles an apostrophe in
+       PowerShell and corrupts the worker's first prompt. So route EVERY task through a temp file
+       on win32: the command becomes `claude --name X 'Read <file>…'` (no apostrophes to mangle)
+       and the worker reads the task verbatim. On POSIX, only long/multiline tasks spill, as before. */
+    if (needsTaskFile(req.task) || (process.platform === 'win32' && req.task)) {
+      taskFile = path.join(os.tmpdir(), `aios-spawn-task-${req.name}.md`);
+      try { fs.writeFileSync(taskFile, req.task as string); } catch { taskFile = undefined; }
+    }
+    // No task → a bootstrap prompt, so the worker runs its Session Start Ritual on turn
+    // one instead of sitting idle (mirrors the `spawn` wrapper).
+    /* An explicit `model` wins over `tier`, matching the `spawn` wrapper
+       (`[ -n "$model" ] && spawn_model="$model"`) — so a caller pinning an id is never
+       second-guessed, and only a bare `tier` is resolved. */
+    let model = req.model;
+    if (!model && req.tier) {
+      const r = resolveTier(req.tier);
+      if ('error' in r) { markUndelivered(heldPath, req, r.error); return; }
+      model = r.model;                    // may be undefined — that is `judgment`
+    }
+    const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
+      task: req.task || 'Start session', model, taskFile,
+    });
+    emit(win(), 'terminal', { name: req.name, cmd });
+    log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+}
+
 /** spawn / kill act immediately once claimed — nothing about the target can refuse them. */
 function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest): void {
   try {
+    if (req.action === 'unknown') {
+      /* Refuse a verb we do not implement rather than defaulting it to spawn — see BusAction. */
+      markUndelivered(heldPath, req,
+        `unknown action '${req.rawAction ?? ''}' — this surface implements spawn, kill, send and `
+        + `resume. Omit "action" entirely for a plain spawn.`);
+      return;
+    }
     if (req.action === 'kill') {
       // Registry pid → SIGTERM reaches resumed/external sessions too; closeByName also
       // tears down the app pane if this session owns one.
@@ -586,37 +675,56 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
       if (t) { try { process.kill(t.pid, 'SIGTERM'); } catch { /* already gone */ } }
       emit(win(), 'closeByName', { name: req.name });
       log(`kill '${req.name}'${t ? ` (pid ${t.pid})` : ' (no live pid; pane close only)'}`);
+    } else if (req.action === 'resume') {
+      /* ALREADY AWAKE → reveal and deliver, never reopen. The caller asked for a specific
+         someone; that someone is already running, so resuming would create a SECOND process for
+         one identity — the duplication this verb exists to avoid, arrived at from the other
+         side. The prompt still has to land, so this routes through the same send path a
+         `{"action":"send"}` would take. */
+      const live = targetByName(req.name);
+      if (live) {
+        emit(win(), 'focusByName', { name: req.name });
+        log(`resume '${req.name}' — already running, revealing and delivering`);
+        if (req.prompt) void runSend(win, heldPath, { ...req, action: 'send' }, Date.now());
+        else try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+        return;
+      }
+      const sid = resumeIdFor(req.name, process.env.CLAUDE_CODE_SESSION_ID);
+      if (!sid) {
+        /* NO TRANSCRIPT. Falling back to a spawn unasked would hand back a fresh something when
+           the caller asked for the same someone — so the default is to refuse and SAY the name
+           that could not be found, which is what makes the dead letter actionable. */
+        if (req.fallback !== 'spawn') {
+          markUndelivered(heldPath, req,
+            `resume '${req.name}': no transcript found for that name — nothing to resume `
+            + `(it may never have run, or its history is older than the ${MAX_RESUME_SCAN} most `
+            + `recent sessions). Pass "fallback":"spawn" to start a fresh one instead.`);
+          return;
+        }
+        log(`resume '${req.name}' — no transcript; falling back to spawn as asked`);
+      } else {
+        let taskFile: string | undefined;
+        /* Same Windows quoting rule as spawn: PowerShell mangles POSIX-quoted apostrophes, so
+           every prompt goes through a file there. */
+        if (needsTaskFile(req.prompt) || (process.platform === 'win32' && req.prompt)) {
+          taskFile = path.join(os.tmpdir(), `aios-resume-task-${req.name}.md`);
+          try { fs.writeFileSync(taskFile, req.prompt as string); } catch { taskFile = undefined; }
+        }
+        const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile });
+        emit(win(), 'terminal', { name: req.name, cmd });
+        log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${taskFile ? ' (via file)' : ''}`);
+        try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+        return;
+      }
+      runSpawn(win, heldPath, req);
     } else if (targetByName(req.name)) {
       emit(win(), 'focusByName', { name: req.name });   // reveal, never duplicate
       log(`'${req.name}' already running — revealed`);
     } else {
-      let taskFile: string | undefined;
-      /* On Windows the pane's shell is PowerShell, but buildSpawnCmd (shared pure core, POSIX
-         quoting) can only quote the inline prompt the POSIX way — which mangles an apostrophe in
-         PowerShell and corrupts the worker's first prompt. So route EVERY task through a temp file
-         on win32: the command becomes `claude --name X 'Read <file>…'` (no apostrophes to mangle)
-         and the worker reads the task verbatim. On POSIX, only long/multiline tasks spill, as before. */
-      if (needsTaskFile(req.task) || (process.platform === 'win32' && req.task)) {
-        taskFile = path.join(os.tmpdir(), `aios-spawn-task-${req.name}.md`);
-        try { fs.writeFileSync(taskFile, req.task as string); } catch { taskFile = undefined; }
-      }
-      // No task → a bootstrap prompt, so the worker runs its Session Start Ritual on turn
-      // one instead of sitting idle (mirrors the `spawn` wrapper).
-      /* An explicit `model` wins over `tier`, matching the `spawn` wrapper
-         (`[ -n "$model" ] && spawn_model="$model"`) — so a caller pinning an id is never
-         second-guessed, and only a bare `tier` is resolved. */
-      let model = req.model;
-      if (!model && req.tier) {
-        const r = resolveTier(req.tier);
-        if ('error' in r) { markUndelivered(heldPath, req, r.error); return; }
-        model = r.model;                    // may be undefined — that is `judgment`
-      }
-      const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
-        task: req.task || 'Start session', model, taskFile,
-      });
-      emit(win(), 'terminal', { name: req.name, cmd });
-      log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+      runSpawn(win, heldPath, req);
     }
+    /* One cleanup for every branch that did NOT already return — kill, spawn, and resume's
+       opt-in fallback. The branches that return have unlinked their own held file first. */
     try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
   } catch (e) {
     markUndelivered(heldPath, req, `${req.action} failed: ${e instanceof Error ? e.message : String(e)}`);

@@ -1013,5 +1013,18 @@
   "whatsnew.for": "0.9.4",
   "caffeinate.statusOverride": "override",
   "ctx.openOutside": "Open outside AIOS",
-  "ctx.openOutsideFailed": "Could not open it outside AIOS — it may be gone, or outside your folders"
+  "ctx.openOutsideFailed": "Could not open it outside AIOS — it may be gone, or outside your folders",
+  "setup.whyTitle": "Why this setup exists",
+  "setup.whyBody": "Almost every app you use lives on a company's computer — you rent the finished product and control nothing. The AIOS is the opposite: it drives your own intelligence, your git, your shell and your vault, so it has to find them first. Everything lives on **your machine**, with **your accounts** and **your keys**. That's how something running your life and business should work — the difference between a hotel room and owning your home. With the AIOS, the house is yours, and that matters more as the models get stronger.",
+  "setup.blockedBy": "needs {tool} first",
+  "setup.trouble": "Having issues? Click here",
+  "setup.troubleHint": "Checks what is in the way on THIS machine and takes the next step for you",
+  "setup.troubleWorking": "Looking…",
+  "setup.troubleAllClear": "Nothing is blocking you — every check that matters is passing.",
+  "setup.troubleFailed": "Could not run the check. Try again, or use Re-check above.",
+  "setup.troubleFixing": "Fixing {what} — opening a terminal so you can watch it",
+  "setup.troubleOpening": "Nothing here can install {what}, so opening its download page",
+  "setup.troubleStuck": "AIOS cannot fix {what} on this machine by itself.",
+  "setup.troubleCopy": "Copy a report to send",
+  "setup.troubleCopied": "Report copied — paste it to whoever is helping you"
 }

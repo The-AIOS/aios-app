@@ -20,8 +20,11 @@ import {
 const target = (over: Partial<SendTarget> = {}): SendTarget =>
   ({ name: 'designer', pid: 4242, status: 'idle', sessionId: 'sess-1', ...over });
 
-test('this build declares contract 2 and the app surface', () => {
-  assert.equal(INBOX_CONTRACT, 2);
+test('this build declares contract 3 and the app surface', () => {
+  /* 3 since AI-149: the `resume` verb, and the rule that an unrecognised action is refused
+     rather than degraded to spawn. Bumped in BOTH repos in one push — a surface claiming a
+     contract it does not implement is how a reading agent gets lied to. */
+  assert.equal(INBOX_CONTRACT, 3);
   assert.equal(MY_SURFACE, 'app');
 });
 

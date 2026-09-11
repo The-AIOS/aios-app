@@ -653,6 +653,28 @@ function el(tag, cls, text) {
   if (text !== undefined) n.textContent = text;
   return n;
 }
+/**
+ * Render a locale string that marks emphasis as `**bold**`, as DOM nodes.
+ *
+ * The emphasis is authored in PLAIN TEXT and built here, rather than shipped as `<strong>` inside
+ * the string. Prose like this gets translated, and a tag in a translator's hands can come back
+ * dropped, unbalanced, or wrapped around the wrong words — a failure that renders as raw markup
+ * or swallows the sentence. A `**` pair that goes missing degrades to literal asterisks and
+ * nothing else breaks. It also keeps multi-sentence prose away from innerHTML entirely.
+ */
+function emphasized(node, text) {
+  for (const part of String(text == null ? '' : text).split(/(\*\*[^*]+\*\*)/)) {
+    if (!part) continue;
+    if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+      const b = document.createElement('strong');
+      b.textContent = part.slice(2, -2);
+      node.appendChild(b);
+    } else {
+      node.appendChild(document.createTextNode(part));
+    }
+  }
+  return node;
+}
 function fmtMem(mb) {
   if (!mb || mb < 1) return '';
   return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb + ' MB';
@@ -6362,6 +6384,23 @@ function openSetupTab() {
       + t('setup.onboardingSub', { n: '…' }) + '</div>';
     const subEl = brand.querySelector('.tsub');
     wrap.appendChild(brand);
+    /* WHY THIS SCREEN EXISTS AT ALL — said once, before anything can go wrong.
+       A normal app ships everything it needs inside its own bundle and therefore has no setup to
+       fail. AIOS deliberately does not: it drives YOUR Claude Code, YOUR git, YOUR shell, YOUR
+       vault. That is the entire point — it is your system, not our sandbox — and it is also the
+       only reason these steps exist. An operator who has not been told that reads a red box as
+       "this app is broken"; one who has been told reads it as "it is adopting my machine", which
+       is both true and survivable. Costs one paragraph, and it is the paragraph that makes the
+       red states legible rather than alarming. */
+    const why = el('div', 'setup-why');
+    why.appendChild(el('div', 'setup-why-t', t('setup.whyTitle')));
+    /* ONE paragraph. It carried a second one explaining how to read a red box, and reading it in
+       place the note was simply too long for the top of a screen someone wants to get past — so
+       the closer went. Nothing was lost: a red row already explains itself where it appears
+       ("not found — install below", plus the blocked-by chip), which is the right place for it
+       anyway. This note argues why the setup exists; the rows handle what to do about one. */
+    why.appendChild(emphasized(el('div', 'setup-why-b'), t('setup.whyBody')));
+    wrap.appendChild(why);
     const list = el('div', 'steps');
     wrap.appendChild(list);
 
@@ -6574,13 +6613,17 @@ function openSetupTab() {
         const m = el('span', 'srmsg', c.message);
         m.title = c.message + (c.repairHint ? '\n→ ' + c.repairHint : '');
         r.appendChild(m);
-        // the wiring step: one gated button per canonical script, on its own row
-        if (s.id === 'wiring' && c.status !== 'pass' && (c.repairCmd || c.repairHint)) {
-          const b = el('button', 'vbtn', t('health.fix'));
-          b.title = c.repairCmd || c.repairHint;
-          b.addEventListener('click', () => void fixPane(c.id, c.repairCmd || c.repairHint));
-          r.appendChild(b);
-        }
+        /* A row whose remedy was WITHHELD says what is in the way. The doctor drops a command
+           that would invoke a missing tool (see setupChecks), which is right — but a red row
+           with no explanation and no button reads as a dead end, and this is the one case where
+           naming the obstacle IS the next action: fix what it names and this row follows. */
+        if (c.blockedBy) r.appendChild(el('span', 'srblocked', t('setup.blockedBy', { tool: c.blockedBy })));
+        /* The per-row Fix button used to be gated on `s.id === 'wiring'` — a step id that has not
+           existed since the seven-step flow collapsed to four, so it could never render and every
+           red row was inert. It is not resurrected here: the step-level primary action is the one
+           route this flow offers deliberately (two buttons with no stated relationship is the
+           choice an operator has no basis for making), and the triage entry below is the answer
+           for when that primary is not enough. */
         rows.appendChild(r);
       }
       bd.appendChild(rows);
@@ -6624,6 +6667,65 @@ function openSetupTab() {
       return box;
     }
 
+    /* ── "Having issues?" — diagnose-first, into the SAME stepper ────────────────────────────
+       Not a separate diagnostics screen. A screen that restates what the stepper already shows
+       adds a place to look and removes no friction; the operator clicking this is not asking to
+       be informed, they are asking to be unblocked. So it resolves to the next ACTION and takes
+       it — in the common case the operator never learns a diagnosis ran at all.
+
+       WHY DIAGNOSING DOES NOT MEAN WE COULD HAVE FIXED IT ALREADY. Two different unknowns.
+       WHAT is missing, we know in advance — that is what the checks above are. WHICH ROUTE works
+       on THIS machine, we cannot: no admin rights, a Homebrew owned by another account, no
+       winget, a profile that aborts halfway. `install-tool --plan` is the only thing that can
+       answer that, it must run here, and it is why the installer is check-then-act at every rung
+       rather than a plan followed by a fix. What survives every rung genuinely is not ours —
+       it needs a password, an admin, or a human decision — and naming THAT precisely is the last
+       honest thing this button can do. */
+    function troubleEl() {
+      const box = el('div', 'setup-trouble');
+      const b = el('button', 'vbtn', t('setup.trouble'));
+      b.title = t('setup.troubleHint');
+      const out = el('div', 'setup-trouble-out');
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        const was = b.textContent;
+        b.textContent = t('setup.troubleWorking');
+        out.replaceChildren();
+        let tri = null;
+        try { tri = await window.glassShell.doctorTriage(); } catch { tri = null; }
+        b.disabled = false; b.textContent = was;
+        if (!tri) { out.appendChild(el('div', 'step-note', t('setup.troubleFailed'))); return; }
+        if (!tri.items.length) { out.appendChild(el('div', 'step-note', t('setup.troubleAllClear'))); return; }
+        const first = tri.items[0];
+        /* ONE action, for the FIRST thing in the way. Presenting all of them would hand back a
+           list to triage — the work this button exists to do. The rest follow on the next run,
+           because fixing the first usually changes what the others report. */
+        if (first.kind === 'run') {
+          out.appendChild(el('div', 'step-note',
+            t('setup.troubleFixing', { what: first.checkId }) + (first.via ? ' · ' + first.via : '')));
+          void fixPane(first.checkId, first.cmd);
+          return;
+        }
+        if (first.kind === 'open') {
+          out.appendChild(el('div', 'step-note', t('setup.troubleOpening', { what: first.checkId })));
+          void window.glassShell.openExternal(first.url);
+          return;
+        }
+        /* SUPPORT. Nothing here can act — so say so plainly and hand over something sendable
+           rather than a spinner or a cheerful retry. */
+        out.appendChild(el('div', 'step-note', t('setup.troubleStuck', { what: first.checkId })));
+        const copy = el('button', 'vbtn', t('setup.troubleCopy'));
+        copy.addEventListener('click', () => {
+          void window.glassShell.copyText(tri.report);
+          toast(t('setup.troubleCopied'));
+        });
+        out.appendChild(copy);
+      });
+      box.appendChild(b);
+      box.appendChild(out);
+      return box;
+    }
+
     function onboardingDoneEl() {
       // end signed-in and running: land on Home with the pulse live
       const d = el('div', 'onboarding-done');
@@ -6664,6 +6766,7 @@ function openSetupTab() {
       if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
       st.steps.forEach((s, i) => list.appendChild(stepEl(s, i)));
       if (st.current >= st.steps.length) list.appendChild(onboardingDoneEl());
+      else list.appendChild(troubleEl());
       prevDone = new Set(st.steps.filter((s) => s.done).map((s) => s.id));
     }
 

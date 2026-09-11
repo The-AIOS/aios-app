@@ -122,8 +122,17 @@ test('parseRequest: send falls back to task when prompt absent', () => {
   assert.equal(s?.prompt, 'nudge');
 });
 
-test('parseRequest: unknown action degrades to spawn', () => {
-  assert.equal(parseRequest('{"action":"frobnicate","name":"x"}')?.action, 'spawn');
+test('parseRequest: an unknown action is REFUSED; only an absent one means spawn', () => {
+  /* CONTRACT CHANGE (AI-149). This used to degrade any unrecognised verb to 'spawn'. Adding
+     `resume` made that degrade dangerous rather than forgiving: the two verbs hand back
+     different things — a fresh something vs the same someone — so a typo'd `"resmue"` would
+     silently spawn a duplicate of a session the caller asked to reopen. The back-compat case
+     the old rule actually existed for is a request with NO action at all (contract-1
+     `{name, task}`), and that is preserved exactly. */
+  const r = parseRequest('{"action":"frobnicate","name":"x"}');
+  assert.equal(r?.action, 'unknown');
+  assert.equal(r?.rawAction, 'frobnicate', 'the dead letter quotes what was written');
+  assert.equal(parseRequest('{"name":"x","task":"go"}')?.action, 'spawn', 'contract-1 still spawns');
 });
 
 test('parseRequest: bad JSON / no name / empty → null (log-and-ignore)', () => {

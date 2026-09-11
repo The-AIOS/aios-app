@@ -416,6 +416,21 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .step-advbody { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; align-items: flex-start; }
 .step-note { font-size: 11.5px; color: var(--subtle); line-height: 1.5; }
 .step-cmd { font-family: var(--mono); font-size: 10.5px; color: var(--subtle); user-select: text; }
+
+/* The "why this screen exists" note — deliberately quiet. It is context, not an alert: styling it
+   as a warning would make the calm state look like a problem, which is the opposite of its job. */
+.setup-why { margin: 10px 0 14px; padding: 10px 12px; border-radius: 8px;
+  background: var(--panel, rgba(127,127,127,.06)); border: 1px solid var(--line, rgba(127,127,127,.18)); }
+.setup-why-t { font-size: 11.5px; font-weight: 600; margin-bottom: 3px; }
+.setup-why-b { font-size: 11.5px; color: var(--subtle); line-height: 1.55; }
+
+/* Named obstacle on a row whose remedy was withheld. Amber, not red: the row is already red, and
+   this is the reason rather than a second failure. */
+.srblocked { font-size: 10.5px; color: var(--warn, #c98a00); white-space: nowrap; margin-left: 6px; }
+
+.setup-trouble { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line, rgba(127,127,127,.18));
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.setup-trouble-out { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .step.just-done { animation: step-done .6s ease; }
 @keyframes step-done {
   0% { border-color: var(--st-ok); box-shadow: var(--edge), 0 0 0 1px var(--st-ok); }

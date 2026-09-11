@@ -8,6 +8,7 @@ import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
+import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
 import { isInboxEntityDismissed, dismissInboxEntity, pruneInboxDismissals, type InboxDismissals } from '../core/inbox';
@@ -1200,6 +1201,12 @@ export interface CheckResult {
   repairCmd?: string;
   /** True → repairCheck(id) can run the headless repair + prove it. */
   canRepair: boolean;
+  /**
+   * Set when this check's own remedy was WITHHELD because it would invoke a tool that is itself
+   * missing (see setupChecks). Names that tool. A row carrying it has no runnable action by
+   * design — fix what it names first.
+   */
+  blockedBy?: string;
 }
 
 interface DoctorCheck {
@@ -1529,12 +1536,19 @@ function doctorChecks(): DoctorCheck[] {
            `npm install -g @anthropic-ai/claude-code`, for the same reason the POSIX branch
            prefers the native installer: it needs neither node nor npm — which is precisely why
            the node check is only a warning — and the setup pane it runs in IS a PowerShell. */
+        /* The LADDER first, for the reason every other tool got one (#18): a single route is a
+           dead end on exactly the machines newcomers bring. Claude has two — Anthropic's own
+           installer (no admin, no Node) and npm — and the ladder also does the PATH write the
+           installer deliberately skips, which is what used to leave an operator who had just
+           installed Claude being told Claude was still missing. The single commands below remain
+           only for a build that somehow lacks the bundled script. */
+        const ladder = installToolCmd('claude');
         return {
           id: 'claude', label: t('setupCheck.claude'), status: 'fail',
           message: t('setupCheck.claudeMissing') + winRestartNote(),
-          repairCmd: process.platform === 'win32'
+          repairCmd: ladder || (process.platform === 'win32'
             ? `irm https://claude.ai/install.ps1 | iex\n${pathFixSnippet()}`
-            : `curl -fsSL https://claude.ai/install.sh | bash\n${pathFixSnippet()}`,
+            : `curl -fsSL https://claude.ai/install.sh | bash\n${pathFixSnippet()}`),
           repairHint: t('setupCheck.claudeInstallHint'), canRepair: false,
         };
       },
@@ -1764,9 +1778,102 @@ function doctorChecks(): DoctorCheck[] {
   ];
 }
 
-/** Run every doctor check (display order). The setup wizard shows all of them. */
-export function setupChecks(): Promise<CheckResult[]> {
-  return Promise.all(doctorChecks().map((c) => c.run()));
+/**
+ * Run every doctor check (display order), then WITHHOLD any remedy that cannot run here.
+ *
+ * The withholding is the generalized form of the first external setup fix (#18). That report was
+ * "Connect GitHub" running `gh auth login` on a machine with no `gh` — the operator got
+ * `command not found` under a banner saying the step just needed another try. It was corrected
+ * for `gh` at the call site; the same mistake is available to every other check, and the login
+ * step's `claude /login` is the identical shape one step along (ordering hides it in the stepper,
+ * but the Health card is not ordered and shows the same rows every day).
+ *
+ * Doing it HERE rather than in the renderer is what makes the rule hold: every surface reads
+ * these results, so a command withheld here cannot be offered by any of them, and a surface added
+ * later inherits the rule instead of having to remember it. The check keeps saying what is wrong;
+ * it just stops handing out an action that would fail — `blockedBy` names the tool in the way,
+ * which is the sentence an operator can actually act on.
+ */
+export async function setupChecks(): Promise<CheckResult[]> {
+  const all = await Promise.all(doctorChecks().map((c) => c.run()));
+  /* A PASS that cannot be trusted is downgraded BEFORE anything reads it. `account` answers from
+     the credential file alone, so with Claude missing or off PATH it reported "signed in" and the
+     step drew a green tick on a machine where nothing could run — a false green, which is worse
+     than a red row because it sends the operator nowhere. It becomes a warn naming what is in the
+     way, which also stops the step counting as done. */
+  for (const { id, needs } of unverifiable(all)) {
+    const c = all.find((x) => x.id === id);
+    if (!c) continue;
+    c.status = 'warn';
+    c.blockedBy = needs;
+  }
+  for (const c of all) {
+    const verdict = isRunnable(c.repairCmd, all);
+    if (verdict.ok) continue;
+    c.blockedBy = verdict.missing;
+    /* Drop the command AND the hint that quotes it: the hint is rendered as the button's tooltip
+       and as a `$ …` line, so leaving it would keep telling the operator to type the thing we
+       just decided must not run. */
+    c.repairCmd = undefined;
+    if (c.repairHint && !/^https:\/\//.test(c.repairHint)) c.repairHint = undefined;
+    c.canRepair = false;
+  }
+  return all;
+}
+
+/* ── Setup triage — what "Having issues?" actually does ──────────────────────
+   Deliberately NOT a report screen. A surface that restates what the stepper already shows adds
+   a place to look and removes no friction; the operator who clicks it is not asking to be
+   informed, they are asking to be unblocked. So it resolves to the single next ACTION, and in
+   the common case that action is the fix itself — most operators never learn a diagnosis ran.
+
+   The plans are what make that possible without guessing. `install-tool --plan` is non-mutating
+   and machine-specific, so it can answer "which route works HERE" — the one question the checks
+   cannot answer in advance, and the reason detection alone was never enough. */
+
+/** Which installable tool proves each check, for checks a ladder can actually fix. */
+const CHECK_TOOL: Readonly<Record<string, InstallableTool>> = {
+  git: 'git', gh: 'gh', node: 'node', claude: 'claude',
+};
+
+/** Run one ladder in PLAN mode. Never mutates; failure is silent and simply yields no plan. */
+export async function toolPlan(tool: InstallableTool): Promise<ToolPlan | undefined> {
+  const script = setupScriptPath(process.platform === 'win32' ? 'install-tool.ps1' : 'install-tool.sh');
+  if (!script) return undefined;
+  const [bin, args] = process.platform === 'win32'
+    ? ['powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Tool', tool, '-Plan']]
+    : ['bash', [script, tool, '--plan']];
+  return new Promise((resolve) => {
+    execFile(bin, args, { timeout: 20000 }, (err, stdout) => {
+      if (err && !stdout) { resolve(undefined); return; }
+      const plan = parsePlan(tool, String(stdout || ''));
+      resolve(plan.rungs.length ? plan : undefined);
+    });
+  });
+}
+
+/**
+ * One battery + one plan per failing tool → the next action, and the text to send when there
+ * isn't one. Plans are only computed for checks that are actually failing: a plan for a passing
+ * tool answers a question nobody asked, and each one spawns a shell.
+ */
+/* `appVersion` is passed in rather than read: this module is deliberately electron-free
+   (that is what lets the tests run it headlessly), so it never reaches for `app`. */
+export async function setupTriage(appVersion: string): Promise<{ items: Triage['items']; supportOnly: boolean; report: string }> {
+  const checks = await setupChecks();
+  const plans: Record<string, ToolPlan> = {};
+  await Promise.all(checks.filter((c) => c.status !== 'pass' && CHECK_TOOL[c.id]).map(async (c) => {
+    const plan = await toolPlan(CHECK_TOOL[c.id]);
+    if (plan) plans[c.id] = plan;
+  }));
+  const t = triage(checks, plans);
+  return {
+    items: t.items,
+    supportOnly: t.supportOnly,
+    report: diagnosticsReport(checks, plans, {
+      app: appVersion, platform: process.platform, arch: process.arch,
+    }),
+  };
 }
 
 /** The repair loop: run the check's fix, then RE-RUN the same check as proof.
@@ -2350,7 +2457,7 @@ export function phase1Script(): string {
 }
 
 /** The tools the installer ladder knows how to install. */
-export type InstallableTool = 'gh' | 'git' | 'node' | 'uv' | 'python' | 'obsidian';
+export type InstallableTool = 'gh' | 'git' | 'node' | 'uv' | 'python' | 'obsidian' | 'claude';
 
 /**
  * The command that installs one missing tool by trying every way THIS machine allows, or undefined

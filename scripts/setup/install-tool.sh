@@ -53,8 +53,8 @@ skip() { printf '  \033[90m•\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 
 case "$TOOL" in
-  gh|git|node|uv|python|obsidian) ;;
-  *) echo "usage: install-tool.sh <gh|git|node|uv|python|obsidian> [--then \"<command>\"]" >&2; exit 2 ;;
+  gh|git|node|uv|python|obsidian|claude) ;;
+  *) echo "usage: install-tool.sh <gh|git|node|uv|python|obsidian|claude> [--then \"<command>\"]" >&2; exit 2 ;;
 esac
 
 # ── where am I ───────────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ page_for() {
     uv) echo "https://docs.astral.sh/uv/getting-started/installation/" ;;
     python) echo "https://www.python.org/downloads/" ;;
     obsidian) echo "https://obsidian.md/download" ;;
+    claude) echo "https://claude.com/claude-code" ;;
   esac
 }
 
@@ -202,6 +203,12 @@ avail() {
     flatpak) [ "$OS" = linux ] && command -v flatpak >/dev/null 2>&1 ;;
     snap) [ "$OS" = linux ] && command -v snap >/dev/null 2>&1 && is_admin ;;
     official) can_download ;;
+    # Anthropic's own installer needs neither node nor admin — which is exactly why the node
+    # check is only a warning. It is the first rung for the same reason.
+    anthropic) can_download ;;
+    # npm is the documented alternative, and the only one left on a machine that cannot reach
+    # the installer but already has a toolchain.
+    npmglobal) works npm ;;
     uvpython) works uv || can_download ;;
     release)
       can_download || return 1
@@ -273,6 +280,18 @@ run_snap() { $SUDO snap install obsidian --classic; }
 run_official() { # uv's own installer: user-level, no admin
   fetch_stdout https://astral.sh/uv/install.sh | sh || return 1
   export PATH="$HOME/.local/bin:$PATH"
+}
+
+run_anthropic() { # Claude Code's own installer: user-level, no admin, no node
+  fetch_stdout https://claude.ai/install.sh | bash || return 1
+  # The installer deliberately does not touch PATH. Leaving that to the operator is what made
+  # "install Claude" finish with the app still reporting Claude missing, so the ladder does it —
+  # add_path is idempotent and persists for new terminals as well as this process.
+  add_path "$HOME/.local/bin"
+}
+
+run_npmglobal() {
+  npm install -g @anthropic-ai/claude-code || return 1
 }
 
 run_uvpython() {
@@ -349,12 +368,14 @@ ladder() {
     darwin:uv)       echo "official brew" ;;
     darwin:python)   echo "clt brew uvpython macports homebrew" ;;
     darwin:obsidian) echo "brew release homebrew" ;;
+    darwin:claude)   echo "anthropic npmglobal" ;;
     linux:gh)        echo "brew pkg release" ;;
     linux:git)       echo "pkg brew" ;;
     linux:node)      echo "brew pkg release" ;;
     linux:uv)        echo "official brew pkg" ;;
     linux:python)    echo "pkg brew uvpython" ;;
     linux:obsidian)  echo "flatpak release snap" ;;
+    linux:claude)    echo "anthropic npmglobal" ;;
     *)               echo "" ;;
   esac
 }
@@ -371,6 +392,8 @@ describe() {
     official) echo "the official installer, into your home folder (no admin)" ;;
     uvpython) echo "uv's managed Python, into your home folder (no admin)" ;;
     release) echo "the official download, checksum-verified, into your home folder (no admin)" ;;
+    anthropic) echo "Anthropic's own installer, into your home folder (no admin, no Node)" ;;
+    npmglobal) echo "npm, using the Node you already have" ;;
   esac
 }
 
