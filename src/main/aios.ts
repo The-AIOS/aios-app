@@ -1876,6 +1876,22 @@ export async function setupTriage(appVersion: string): Promise<{ items: Triage['
   };
 }
 
+/**
+ * ONE check's own verdict, with none of the battery's cross-checking applied.
+ *
+ * `setupChecks` deliberately post-processes: it withholds a remedy that would invoke a missing
+ * tool, and downgrades a pass it cannot vouch for. Both decisions read OTHER checks, so they
+ * belong to the battery, not to any single check. That makes "what does this check say about its
+ * own subject" a genuinely different question from "what should the operator be shown", and the
+ * tests for each need to ask the one they mean — otherwise an assertion about the account check's
+ * choice of login command quietly depends on whether Claude happens to be installed on the box
+ * running it, which is how this suite went red on Linux and Windows while passing on macOS.
+ */
+export async function rawCheck(id: string): Promise<CheckResult | null> {
+  const c = doctorChecks().find((x) => x.id === id);
+  return c ? c.run() : null;
+}
+
 /** The repair loop: run the check's fix, then RE-RUN the same check as proof.
  *  Returns the re-checked result (never the optimistic assumption); a failed
  *  repair simply comes back still-warn/fail — the row stays honest. */
