@@ -88,7 +88,7 @@ Drop a \`*.json\` file in this directory and a trusted AIOS surface fulfils it *
 
 Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`spawn-kill\` (they read as "launch/kill an autonomous agent"), and an agent cannot author its own autonomy grant. So an agent *requests*, and a surface the human already trusts acts. **Request, don't spawn.**
 
-## Three verbs
+## Four verbs
 
 **spawn** (the default — no \`action\` key) — launch a named session:
 
@@ -106,6 +106,35 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
 **kill** — close that session (shell + claude + respawn loop):
 
     { "action": "kill", "name": "designer" }
+
+**resume** (contract 3) — reopen a session you already had, as the SAME someone:
+
+    { "action": "resume", "name": "designer", "prompt": "pick up the hero work" }
+
+- \`spawn\` gives you a fresh **something**; \`resume\` gives you back the same **someone** — its
+  memory of the work, the corrections it absorbed, the shape of the thing you were building.
+  Reach for it whenever a closed session has context worth more than a clean start.
+- The name is resolved from the transcripts on disk (\`~/.claude/projects/*/*.jsonl\`), not the
+  live session registry — the registry only holds RUNNING sessions, and a closed one is the only
+  kind this verb is for. A session that renamed itself resolves by its **latest** name.
+- **Already running?** It is revealed and your \`prompt\` is delivered into it, exactly as
+  \`send\` would. Resuming a live session would give one identity two processes.
+- **Nothing to resume?** A dead letter naming the session — never a silent spawn. Only the newest
+  sessions are scanned, so a very old name reports the miss rather than being found slowly.
+  Add \`"fallback": "spawn"\` to opt into starting a fresh one instead:
+
+      { "action": "resume", "name": "designer", "prompt": "…", "fallback": "spawn" }
+
+- No \`--name\` and no \`--model\` are passed: a resumed session keeps the identity and the model
+  it already had.
+
+### An absent action is spawn; an unrecognised one is refused
+
+Omit \`action\` entirely and you get a spawn — contract-1 \`{ name, task }\` requests still work
+untouched. But an action that is *written* and not one of the four above is **dead-lettered
+naming what you wrote**, never quietly run as a spawn. Contract 2 did degrade it; since
+\`resume\` arrived the two outcomes differ, so a typo'd \`"resmue"\` would have handed back a
+brand-new session in place of the one you asked to reopen.
 
 The filename is arbitrary (must end in \`.json\`) — use a distinct one so concurrent requests never collide.
 

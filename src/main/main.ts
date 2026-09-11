@@ -798,6 +798,8 @@ ipcMain.handle('onboarding:storePat', (_e, pat: string) => aios.storeGitHubPat(S
 // doctor: headless repair + re-run-the-same-check proof (see aios.repairCheck)
 ipcMain.handle('doctor:repair', (_e, id: string) => aios.repairCheck(String(id)));
 ipcMain.handle('doctor:health', () => aios.computeHealth());
+// "Having issues?" — one battery + a plan per failing tool → the next ACTION, not a report.
+ipcMain.handle('doctor:triage', () => aios.setupTriage(app.getVersion()));
 
 // connectors: read canonical's manifests, classify against the live registration, and register
 // through `claude mcp add` — never by editing ~/.claude.json, which running sessions also write.

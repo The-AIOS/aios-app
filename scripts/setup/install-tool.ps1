@@ -31,7 +31,7 @@
 # -Arch x64|arm64 picks the download for another machine.
 # -----------------------------------------------------------------------------
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('gh', 'git', 'node', 'uv', 'python', 'obsidian')][string]$Tool,
+  [Parameter(Mandatory = $true)][ValidateSet('gh', 'git', 'node', 'uv', 'python', 'obsidian', 'claude')][string]$Tool,
   [string]$Then = '',
   [switch]$Plan,
   [string]$Only = '',
@@ -65,9 +65,9 @@ $script:SessionPaths = @()
 $Pages = @{
   gh = 'https://cli.github.com/'; git = 'https://git-scm.com/download/win'; node = 'https://nodejs.org/en/download'
   uv = 'https://docs.astral.sh/uv/getting-started/installation/'; python = 'https://www.python.org/downloads/windows/'
-  obsidian = 'https://obsidian.md/download'
+  obsidian = 'https://obsidian.md/download'; claude = 'https://claude.com/claude-code'
 }
-$Cmd = @{ gh = 'gh'; git = 'git'; node = 'node'; uv = 'uv'; python = 'python'; obsidian = '' }
+$Cmd = @{ gh = 'gh'; git = 'git'; node = 'node'; uv = 'uv'; python = 'python'; obsidian = ''; claude = 'claude' }
 
 # -- is the tool REALLY here ---------------------------------------------------
 # Same guard as phase1-prerequisites.ps1: %LOCALAPPDATA%\Microsoft\WindowsApps holds App Execution
@@ -172,6 +172,12 @@ function Avail {
     'official' { return $true }
     'uvpython' { return $true }
     'release'  { return $true }
+    # Anthropic's own installer needs neither Node nor admin — which is why the node check is
+    # only a warning, and why this is the first rung.
+    'anthropic' { return $true }
+    # npm is the documented alternative, and the only one left on a machine that cannot reach
+    # the installer but already has a toolchain.
+    'npmglobal' { return (Have 'npm') }
   }
   return $false
 }
@@ -185,6 +191,8 @@ function Describe {
     'official' { 'the official installer, for your user only (no admin)' }
     'uvpython' { "uv's managed Python, for your user only (no admin)" }
     'release'  { 'the official download, checksum-verified, for your user only (no admin)' }
+    'anthropic' { "Anthropic's own installer, for your user only (no admin, no Node)" }
+    'npmglobal' { 'npm, using the Node you already have' }
   }
 }
 
@@ -205,6 +213,18 @@ function Run-Rung {
       # uv's own installer: user-level, writes %USERPROFILE%\.local\bin and the user PATH itself
       powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex" | Out-Host
       Add-UserPath (Join-Path $HOME '.local\bin')
+      return $true
+    }
+    'anthropic' {
+      # Claude Code's own installer: user-level, no admin, no Node. It deliberately does not
+      # touch PATH — leaving that to the operator is what made "install Claude" finish with the
+      # app still reporting Claude missing, so the ladder does it. Add-UserPath is idempotent.
+      powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex" | Out-Host
+      Add-UserPath (Join-Path $HOME '.local\bin')
+      return $true
+    }
+    'npmglobal' {
+      npm install -g @anthropic-ai/claude-code | Out-Host
       return $true
     }
     'uvpython' {
@@ -297,6 +317,7 @@ $Ladders = @{
   uv       = @('official', 'winget', 'scoop', 'choco')
   python   = @('winget', 'scoop', 'choco', 'uvpython')
   obsidian = @('winget', 'scoop', 'choco', 'release')
+  claude   = @('anthropic', 'npmglobal')
 }
 $Rungs = if ($Only) { @($Only) } else { $Ladders[$Tool] }
 

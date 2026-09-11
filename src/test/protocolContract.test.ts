@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { normalizeVerb, BUS_VERBS } from '../core/busVerbs';
+import { latestAgentName, pickResume } from '../core/resumeTarget';
 import { TIMINGS, decideAfterVerifyMiss, maxAttemptsFor, claimVerdict, triedBy, withTried, fulfillerId,
   surfaceForAncestry, parsePresence, processTreeRoot, type MissAction } from '../core/sendQueue';
 
@@ -413,4 +415,93 @@ test('a DEV App must not overwrite the real presence record', () => {
   const guard = fn![0].indexOf('app.isPackaged');
   const write = fn![0].indexOf('writeFileSync');
   assert.ok(guard > 0 && write > guard, 'the guard must precede the write, not follow it');
+});
+
+/* Where this surface reads the verb, and where it acts on it. The App parses in core and
+   dispatches in main; Glass does both in extension.ts. Only these bindings differ. */
+const VERB_PARSER = 'src/core/commandBus.ts';
+const DISPATCHER = 'src/main/commandBus.ts';
+const DISPATCH_FN = 'function runImmediate';
+const LAUNCH = 'runSpawn(win, heldPath, req)';
+
+/* ── THE VERB CONTRACT (AI-149) ──────────────────────────────────────────────
+   Same shape as the decision table above, for the same reason: the App and Glass are two
+   independent fulfillers, and the thing that must never diverge is what a request's `action`
+   means. `core/busVerbs.ts` is copied byte-identical into both repos and both dispatchers
+   delegate to it, so this hashes the MODULE rather than a restatement of it.
+
+   WHEN THIS FAILS: you changed the verb set or the absent/unknown rule. That is allowed — it is a
+   PROTOCOL change. Make the identical edit in the sibling repo, update VERBS_SHA in BOTH, and
+   update the spawn-inbox README, in one push. */
+const VERBS_SHA = '34d75cf2620c94ba';
+
+test('PROTOCOL: the verb module is byte-identical across both fulfillers', () => {
+  const src = fs.readFileSync('src/core/busVerbs.ts', 'utf8');
+  const sha = crypto.createHash('sha256').update(src).digest('hex').slice(0, 16);
+  assert.equal(sha, VERBS_SHA,
+    'core/busVerbs.ts changed. This is a PROTOCOL change: make the same edit in the sibling repo, update VERBS_SHA in BOTH, and update the spawn-inbox README — in one push.');
+});
+
+/* The RESOLUTION rule is protocol too, for a reason that is easy to miss: an unaddressed request
+   is RACED for, so if the two surfaces disagreed about which session a name resolves to, the same
+   `resume` would reopen different sessions depending on who won — non-determinism that would look
+   like a Claude bug, not ours. core/resumeTarget.ts is therefore copied byte-identical as well. */
+const RESUME_SHA = '1942c31911cb512a';
+
+test('PROTOCOL: the name→session resolution is byte-identical across both fulfillers', () => {
+  const src = fs.readFileSync('src/core/resumeTarget.ts', 'utf8');
+  const sha = crypto.createHash('sha256').update(src).digest('hex').slice(0, 16);
+  assert.equal(sha, RESUME_SHA,
+    'core/resumeTarget.ts changed. This is a PROTOCOL change: make the same edit in the sibling repo, update RESUME_SHA in BOTH, and update the spawn-inbox README — in one push.');
+});
+
+test('PROTOCOL: a renamed session resolves by its LATEST name, and never to itself', () => {
+  const rec = (n: string) => JSON.stringify({ type: 'agent-name', agentName: n });
+  assert.equal(latestAgentName([rec('app-walker'), rec('aios-app')].join('\n')), 'aios-app');
+  assert.equal(pickResume('w', [
+    { sessionId: 'nnnn1111-n1n1-4n1n-8n1n-nnnn11112222', mtimeMs: 9, latestName: 'w' },
+    { sessionId: 'oooo1111-o1o1-4o1o-8o1o-oooo11112222', mtimeMs: 1, latestName: 'w' },
+  ]), 'nnnn1111-n1n1-4n1n-8n1n-nnnn11112222');
+  assert.equal(pickResume('w', [{ sessionId: 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222', mtimeMs: 9, latestName: 'w' }], 'mmmm1111-m1m1-4m1m-8m1m-mmmm11112222'), undefined);
+});
+
+test('PROTOCOL: absent means spawn, unrecognised means refuse', () => {
+  /* The two halves of the one rule that resume made load-bearing. Absent is contract-1
+     back-compat (`{name, task}` requests still exist); unrecognised is a typo, and answering a
+     typo'd `"resmue"` with a spawn hands back a fresh something for a request that named a
+     someone — the exact substitution resume exists to prevent. */
+  assert.equal(normalizeVerb(undefined), 'spawn', 'contract-1 {name, task}');
+  assert.equal(normalizeVerb(''), 'spawn');
+  assert.equal(normalizeVerb('   '), 'spawn');
+  assert.equal(normalizeVerb(42), 'spawn', 'a non-string action is no action at all');
+  for (const v of BUS_VERBS) {
+    assert.equal(normalizeVerb(v), v);
+    assert.equal(normalizeVerb(`  ${v.toUpperCase()} `), v, 'case and space are not significant');
+  }
+  assert.equal(normalizeVerb('resmue'), 'unknown', 'a typo must never be guessed into a verb');
+  assert.equal(normalizeVerb('frobnicate'), 'unknown');
+  assert.equal(normalizeVerb('re sume'), 'unknown');
+});
+
+test('PROTOCOL: this surface refuses an unknown verb before launching anything', () => {
+  /* Each surface implements the dispatch itself, so this reads the source rather than the
+     module: the shared rule is only worth having if the local dispatcher actually consults it
+     and stops. */
+  const strip = (f: string) => fs.readFileSync(f, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const parser = strip(VERB_PARSER);
+  assert.doesNotMatch(parser, /back-compat with plain/, 'the comment stripper did not strip');
+  assert.match(parser, /function |=>/, 'the comment stripper ate the code');
+  assert.match(parser, /normalizeVerb\(/, 'the verb must be read through the shared rule, not restated');
+  /* Scoped to the dispatch function's own body: searching the whole file would match
+     the launcher's DEFINITION (and its import), both of which legitimately precede the check. */
+  const whole = strip(DISPATCHER);
+  const body = whole.slice(whole.indexOf(DISPATCH_FN));
+  assert.ok(whole.includes(DISPATCH_FN), 'the dispatch function must exist — this guard reads the wrong file otherwise');
+  const refusal = body.indexOf("=== 'unknown'");
+  assert.ok(refusal > 0, 'the dispatcher must handle the unknown verb explicitly');
+  const launch = body.indexOf(LAUNCH);
+  assert.ok(launch > 0, 'the launcher must be called from the dispatcher — this guard proves nothing otherwise');
+  assert.ok(refusal < launch, 'the refusal must come before any launcher runs');
 });

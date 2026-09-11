@@ -208,7 +208,15 @@ export function verifyVerdict(before: number, now: number): VerifyVerdict {
    all four. It is ADDITIVE — a request with no `surface` behaves exactly as contract 1.
    ══════════════════════════════════════════════════════════════════════════════ */
 
-export const INBOX_CONTRACT = 2;
+/* Contract 3 (AI-149) adds the `resume` verb and — the part that needs a version number — changes
+   what an UNRECOGNISED action means. Contract 2 degraded any unknown verb to `spawn`; contract 3
+   refuses it. That matters across versions: a contract-2 fulfiller handed `{"action":"resume"}`
+   would SPAWN A DUPLICATE of the session the caller asked to reopen. Both surfaces ship this in
+   lockstep, so the mixed window is a single update apart — and while it lasts, the README's
+   contract stamp is how a reading agent can tell which rule the fulfiller on this machine
+   follows, and `"surface"` is how it can insist on one. Still ADDITIVE for every contract-1/2
+   request: absent `action` means spawn, exactly as before. */
+export const INBOX_CONTRACT = 3;
 
 /* ── Protocol TIMINGS — these are CONTRACT, not local tuning ──────────────────
    Every fulfiller must use the same four numbers, because they decide *cross-process

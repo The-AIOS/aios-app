@@ -80,6 +80,12 @@ contextBridge.exposeInMainWorld('glassShell', {
   // doctor: run a check's headless repair, then re-run the same check as proof
   doctorRepair: (id: string): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean } | null> => ipcRenderer.invoke('doctor:repair', id),
   // the Health card's rows (framework · vault · account · skills · claude · gh)
+  /* "Having issues?" — the triage entry. Returns the next ACTION per failing check (run a
+     command / open the vendor page / send a report), never a screen of findings. */
+  doctorTriage: (): Promise<{
+    items: { checkId: string; kind: 'run' | 'open' | 'support'; cmd?: string; url?: string; via?: string; message?: string }[];
+    supportOnly: boolean; report: string;
+  }> => ipcRenderer.invoke('doctor:triage'),
   doctorHealth: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('doctor:health'),
   // Connectors card: list / connect / disconnect / add one the framework does not bundle
   connectorsList: (): Promise<{ rows: ConnRow[]; foreign: { id: string }[]; other: { id: string; custom: boolean; tracked: boolean }[] }> => ipcRenderer.invoke('connectors:list'),

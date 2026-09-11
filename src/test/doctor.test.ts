@@ -72,42 +72,67 @@ test('every check reports the CheckResult shape with a valid status', async () =
 });
 
 test('account: an existing ~/.claude is NOT signed-in — only oauthAccount is (the false-positive fix)', async () => {
+  /* ASKS THE CHECK, NOT THE BATTERY. These assertions are about the account check's own verdict —
+     whether a bare directory reads as signed-in, and which login command it chooses. The battery
+     layers policy on top that reads OTHER checks (it withholds a remedy naming a missing tool,
+     and downgrades a pass it cannot vouch for), so going through setupChecks() made every one of
+     these depend on whether Claude happens to be installed on the machine running the test. It
+     does not exist on the CI runners, which is why this passed on macOS and failed on Linux and
+     Windows. The battery's own behaviour is asserted separately, below. */
+  const account = async () => (await aios.rawCheck('account'))!;
+
   // fixture: claude home dir exists, claude.json exists, but NO oauthAccount
-  let checks = await aios.setupChecks();
-  let account = checks.find((c) => c.id === 'account');
-  assert.ok(account, 'account check present');
-  assert.equal(account!.status, 'fail', 'dir-exists must no longer read as signed-in');
+  let a = await account();
+  assert.ok(a, 'account check present');
+  assert.equal(a.status, 'fail', 'dir-exists must no longer read as signed-in');
   /* A FIRST RUN gets plain `claude`, not `claude /login`. The slash command on a machine that has
      never been set up asks for the login twice: it runs the browser round trip, then Claude's own
      first-run sequence begins with its login screen again. The operator authorises, immediately
      sees the same question, and reasonably doubts it worked — reported from a real run. `/login`
      is right only where onboarding is done and they are genuinely switching accounts. */
-  assert.ok(account!.repairCmd, 'offers a fix');
-  assert.doesNotMatch(account!.repairCmd!, /\/login/, 'a first run must not use the slash command');
+  assert.ok(a.repairCmd, 'offers a fix');
+  assert.doesNotMatch(a.repairCmd!, /\/login/, 'a first run must not use the slash command');
+
   /* An account on file is NOT a finished first run. Claude Code records those separately, and an
      operator who authorises in the browser then closes the terminal leaves onboarding incomplete —
      so the NEXT session opens on the onboarding screen again. Observed exactly that: login,
      GitHub, then the setup session asking to log in a second time, which reads as the app
      forgetting what it just did. Signed-in-but-unfinished must therefore still hold the step. */
   fs.writeFileSync(claudeJson, JSON.stringify({ oauthAccount: { emailAddress: 'op@example.com' } }));
-  checks = await aios.setupChecks();
-  account = checks.find((c) => c.id === 'account');
-  assert.equal(account!.status, 'fail', 'signed in, but the first run is unfinished');
-  assert.match(account!.message, /op@example\.com/, 'and it says who is signed in, so the state is legible');
+  a = await account();
+  assert.equal(a.status, 'fail', 'signed in, but the first run is unfinished');
+  assert.match(a.message, /op@example\.com/, 'and it says who is signed in, so the state is legible');
 
   /* Onboarded but signed OUT is the account-switch case, and THERE /login is correct. */
   fs.writeFileSync(claudeJson, JSON.stringify({ hasCompletedOnboarding: true }));
-  checks = await aios.setupChecks();
-  account = checks.find((c) => c.id === 'account');
-  assert.equal(account!.status, 'fail');
-  assert.match(account!.repairCmd!, /\/login/, 'switching accounts DOES use /login');
+  a = await account();
+  assert.equal(a.status, 'fail');
+  assert.match(a.repairCmd!, /\/login/, 'switching accounts DOES use /login');
 
-  // first run genuinely complete → passes
+  // first run genuinely complete → the check itself passes
   fs.writeFileSync(claudeJson, JSON.stringify({ oauthAccount: { emailAddress: 'op@example.com' }, hasCompletedOnboarding: true }));
-  checks = await aios.setupChecks();
-  account = checks.find((c) => c.id === 'account');
-  assert.equal(account!.status, 'pass');
-  assert.equal(account!.message, 'op@example.com');
+  a = await account();
+  assert.equal(a.status, 'pass');
+  assert.equal(a.message, 'op@example.com');
+});
+
+test('the BATTERY then applies what no single check can see', async () => {
+  /* The other half of the split above. A complete credential file makes the account check pass,
+     but the battery may still hold it back — because that check answers from the file alone and
+     cannot vouch for a machine where Claude does not run. Whichever machine this runs on, one of
+     the two states must hold, and a warn must name its reason. */
+  fs.writeFileSync(claudeJson, JSON.stringify({ oauthAccount: { emailAddress: 'op@example.com' }, hasCompletedOnboarding: true }));
+  const all = await aios.setupChecks();
+  const acct = all.find((c) => c.id === 'account')!;
+  const claude = all.find((c) => c.id === 'claude')!;
+  assert.equal((await aios.rawCheck('account'))!.status, 'pass', 'the check itself is satisfied');
+  if (claude.status === 'fail') {
+    assert.equal(acct.status, 'warn', 'a pass the battery cannot vouch for must stop being a pass');
+    assert.equal(acct.blockedBy, 'claude', 'and must name what is in the way');
+    assert.equal(acct.repairCmd, undefined, 'its remedy would invoke the very tool that is missing');
+  } else {
+    assert.equal(acct.status, 'pass', 'with Claude working, nothing holds it back');
+  }
 });
 
 test('skills: the repair loop — warn → run fix → the SAME check re-runs and proves it', async () => {
@@ -248,11 +273,22 @@ test('every path in a command is shell-quoted', () => {
 
 /* ── a missing tool: every way in, on every platform ───────────────────────── */
 
-const LADDER_TOOLS = ['gh', 'git', 'node', 'uv', 'python', 'obsidian'];
+/* DERIVED, never restated. This was a hardcoded list, and when `claude` joined the ladder the
+   list did not — so every test below silently stopped covering the one tool AIOS cannot run
+   without, while still reporting green. The app's own `InstallableTool` is the single statement of
+   what it can install, so reading it means a tool added there cannot skip these tests. */
+const LADDER_TOOLS: string[] = (() => {
+  const src = fs.readFileSync('src/main/aios.ts', 'utf8');
+  const m = /export type InstallableTool =([^;]+);/.exec(src);
+  assert.ok(m, 'InstallableTool must exist — this list is derived from it');
+  const tools = [...m[1].matchAll(/'([a-z0-9-]+)'/g)].map((x) => x[1]);
+  assert.ok(tools.length >= 6, `expected the full tool set, parsed ${tools.join(',')}`);
+  return tools;
+})();
 // Rungs that need neither a package manager nor administrator rights. Every tool needs at least one
 // on every platform, or some real machine ends at a dead end: the two reports behind this were a Mac
 // with no Homebrew and a Windows PC where winget's install never reached the terminal.
-const NO_ADMIN = ['release', 'official', 'uvpython', 'flatpak'];
+const NO_ADMIN = ['release', 'official', 'uvpython', 'flatpak', 'anthropic'];
 
 const shLadders = (): Record<string, string[]> => {
   const sh = fs.readFileSync('scripts/setup/install-tool.sh', 'utf8');
