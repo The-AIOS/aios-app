@@ -92,8 +92,10 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   autoUpdater.on('update-downloaded', (info) => emit('ready', { version: info.version }));
   autoUpdater.on('error', (err) => emit('error', { message: String(err?.message ?? err) }));
 
-  // Manual "check now" + "restart & install" for a future UI button. Both are
-  // safe no-ops today (no renderer wires them yet) — scaffolding, not surface.
+  // Manual "check now" + "restart & install". `updater:check` IS wired: the app menu's
+  // "Check for updates" sends the `checkUpdates` intent, which the renderer answers with a
+  // toast for every outcome — found / up-to-date / dev build / failed. `quitAndInstall`
+  // remains scaffolding with no caller yet.
   ipcMain.handle('updater:check', () => autoUpdater.checkForUpdatesAndNotify());
   ipcMain.handle('updater:quitAndInstall', () => { autoUpdater.quitAndInstall(); });
 
