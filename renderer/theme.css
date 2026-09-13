@@ -488,7 +488,17 @@ body.light {
   --line: rgba(0,0,0,.08);
   --line-strong: rgba(0,0,0,.16);
   --ink: #1c1c20;
-  --subtle: #71717a;
+  /* Muted text, and it is NOT a free choice: 71 rules paint small text (8.5-11.5px)
+     with this token, so whatever it is, it is the readability floor of the whole app.
+     #71717a measured 3.97-4.83:1 against the light surfaces -- under the 4.5:1 AA
+     minimum on every zone except pure white, and that minimum assumes body text, not
+     9.5px letterspaced strip labels like .zlabel (EDITOR / RUN), which measured 3.97:1
+     and were reported as unreadable. The dark theme's own --subtle (#93939c) sits at
+     5.69-6.57:1, so light had ~30% less contrast for the same role -- the palette was
+     tuned in dark and the light value was never re-derived. This value restores parity
+     rather than inventing a target: 5.62-6.83:1, the dark theme's band. Still far
+     quieter than --ink (14.0:1), so the hierarchy the token exists for is unchanged. */
+  --subtle: #5a5a62;
   --edge: inset 0 1px 0 rgba(255,255,255,.7);
   --depth: 0 10px 26px -18px rgba(0,0,0,.25);
 }
