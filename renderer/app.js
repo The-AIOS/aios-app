@@ -5436,7 +5436,7 @@ const RITUAL_BOOTSTRAP = 'Start session';
    both from the same string, so they cannot drift. */
 const ritual = (name, slash) => ({ name, cmd: CLAUDE + ' --name ' + name + ' ' + shq(slash) });
 
-function spawnNamed(name, task, cwd, mode) {
+function spawnNamed(name, task, cwd, mode, model) {
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!handle) return;
   const hit = byName(handle);
@@ -5455,8 +5455,12 @@ function spawnNamed(name, task, cwd, mode) {
      INHERITED whatever Claude Code defaults to, which is a dependency we do not control and would
      never notice changing. Stating it removes that. An operator who has set a mode in Settings
      keeps theirs; the default is only a default. */
+  /* `--model` travels the same way as `--permission-mode`: only when a caller asks for one, so
+     every other session keeps the operator's own default. Passed per-session and never written
+     to settings.json — a suggestion that silently re-pins someone's model is not a suggestion. */
   void createPane({ name: handle, cwd: cwd || undefined,
     cmd: CLAUDE + (mode ? ' --permission-mode ' + mode : '')
+      + (model ? ' --model ' + shq(model) : '')
       + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
 }
 
@@ -6409,6 +6413,17 @@ function openSetupTab() {
 
     let prevDone = null;   // step ids done on the previous paint → animate fresh completions once
     let painting = false;
+    /* THE ONE CONVERSATION WORTH THE BEST MODEL, and the only place it is worth saying so.
+       The setup session interviews the operator and writes the context every future session
+       reads — a weaker model there is not a slower answer, it is a thinner vault, permanently,
+       for the sake of one conversation's cost. So the final step names the strongest model this
+       machine offers and offers to run that conversation on it.
+       SUGGESTED, NEVER IMPOSED, and never written to settings.json: the primary button keeps
+       using the operator's own default, and the app cannot know which models their plan
+       includes. Silent when they are already on the top of the list — a recommendation that
+       fires when it has nothing to recommend is how a tip becomes wallpaper. */
+    let modelTop = null;     // strongest entry of modelOptions() — that list is capability-ordered
+    let modelPinned = '';    // what the operator pinned in Claude's settings, if anything
 
     // every Onboarding fix runs where the operator can SEE it; the doctor re-verifies
     // when that terminal exits (and on the quiet poll below)
@@ -6421,7 +6436,7 @@ function openSetupTab() {
     /* One place that knows how to hand over. The brief tells the session where it was called
        from, which is what stops SETUP.md's step 1 from routing an app operator toward installing
        an IDE and the Glass extension — a surface they already have. */
-    const spawnSetupSession = async () => {
+    const spawnSetupSession = async (model) => {
       /* Trust the directory the session will open in, so no dialog stands between the operator's
          click and Claude reading the instruction. Narrow by design: their own vault, at the moment
          they ask for it. */
@@ -6458,7 +6473,7 @@ function openSetupTab() {
          interview closes on "Welcome to The AIOS" and anything firing after that goodbye is the
          post-setup defect Front A just removed three instances of. Asking for it here would
          re-add a fourth from a different repo. */
-      + 'Work through it with me interactively.', cwd, 'auto');
+      + 'Work through it with me interactively.', cwd, 'auto', model);
     };
 
 
@@ -6582,6 +6597,9 @@ function openSetupTab() {
              offered to someone whose framework and vault are both still missing. There is exactly
              one sensible action on this step, so it is the only one shown. */
           mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
+          if (modelTop && modelPinned !== modelTop.value) {
+            mkBtn(adv, t('setup.modelUse', { model: modelTop.label }), () => void spawnSetupSession(modelTop.value));
+          }
           break;
         }
       }
@@ -6596,6 +6614,11 @@ function openSetupTab() {
          is what wiped the explorer button (#92). Absent key → nothing renders. */
       const note = t('onboarding.note.' + s.id);
       if (note && note !== 'onboarding.note.' + s.id) bd.appendChild(el('div', 'step-note', note));
+      // the model suggestion rides the same slot: one line, on the step it applies to, and only
+      // when the operator is not already on the strongest model this machine lists
+      if (s.id === 'firstrun' && modelTop && modelPinned !== modelTop.value) {
+        bd.appendChild(el('div', 'step-note', t('setup.modelTip', { model: modelTop.label })));
+      }
       /* THE HANDOVER STEP SHOWS NO CHECK ROWS. Everywhere else they are the point: each row is a
          thing the operator can see and fix. Here they are a list of what the guided conversation is
          ABOUT to do, and they contradicted the copy directly above them — the paragraph promises
@@ -6762,6 +6785,14 @@ function openSetupTab() {
       let st = null;
       try { st = await window.glassShell.onboardingState(); } catch { st = null; } finally { painting = false; }
       if (!st || !document.body.contains(wrap)) return;
+      try {
+        const [opts, cc] = await Promise.all([
+          window.glassShell.modelOptions().catch(() => []),
+          window.glassShell.claudeConfig().catch(() => ({ model: '' })),
+        ]);
+        modelTop = (Array.isArray(opts) && opts[0] && opts[0].value) ? opts[0] : null;
+        modelPinned = (cc && cc.model) || '';
+      } catch { modelTop = null; }
       list.replaceChildren();
       if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
       st.steps.forEach((s, i) => list.appendChild(stepEl(s, i)));

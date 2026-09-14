@@ -404,6 +404,8 @@
   "setup.phase1Note": "Paso 1 de 2. Esto instala las herramientas; una sesión de Claude hace el AIOS en sí cuando Claude ya funcione.",
   "setup.phase2": "Configurar mi AIOS",
   "setup.phase2Hint": "Abre una conversación guiada — en palabras normales, sin instalar nada a mano, y te pregunta antes de cambiar algo",
+  "setup.modelTip": "Esta conversación escribe el contexto que leerán todas tus sesiones futuras, así que es la que más merece tu mejor modelo. {model} es el más capaz disponible aquí — puedes usarlo solo para esto, sin cambiar tu modelo por defecto.",
+  "setup.modelUse": "Usar {model} para esta conversación",
   "setup.phase2Note": "Paso 2 de 2. Una sesión de Claude sigue desde aquí — te preguntará antes de cambiar algo.",
   "setup.phase1Missing": "Falta el script de instalación en esta versión — reinstala la app.",
   "setup.installClaude": "Instalar Claude Code",
