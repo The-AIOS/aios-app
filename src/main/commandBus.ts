@@ -121,7 +121,7 @@ const PARSE_GRACE_MS = 2_000;
  * operator would see requests never served, with nothing pointing at the cause. A test seam
  * must not be reachable in production.
  */
-function inboxDir(): string {
+export function inboxDir(): string {
   const override = (process.env.AIOS_BUS_DIR || '').trim();
   if (override && !app.isPackaged) return path.resolve(override);
   if (override) log(`ignoring AIOS_BUS_DIR in a packaged build — the real inbox is not overridable`);

@@ -691,7 +691,7 @@ function fmtAgo(ts) {
 
 function renderPulse(msg) {
   if (msg.type === 'state') renderPulseState(msg);
-  else if (msg.type === 'running') renderPulseRunning(msg);
+  else if (msg.type === 'running') { renderPulseRunning(msg); refreshWaited(); paintTabStates(msg); }   // #23 elapsed + #24.2b tab state, on the same 2s pulse
   else if (msg.type === 'month') renderPulseMonth(msg.data);
   else if (msg.type === 'updateStatus') renderPulseUpdate(msg);
   else if (msg.type === 'calendarDirty') { if (pulse.calCur) pulse.send({ type: 'navMonth', year: pulse.calCur.year, month: pulse.calCur.month }); }
@@ -757,6 +757,32 @@ function renderPulseState(m) {
    nudge · the framework-update badge. Dismissal (×) is STATEFUL: it hides an
    item until it changes again (persisted in .glass/state.json; the signature
    comparison lives in main — src/core/inbox.ts). */
+const INBOX_CAP = 6;
+
+/* HOW LONG IT HAS BEEN WAITING (#23). Rendered here rather than baked into the label in main,
+   because a duration computed at push time is wrong the moment it is drawn: `postState` fires
+   from file watchers, so a session blocked at 09:00 would still read "just now" at 09:40. The
+   row carries `since` (the registry's own statusUpdatedAt) and this counts up from it on the
+   same 2s pulse that already reports sessions — no new timer, and correct across a restart
+   because the timestamp is the registry's, not ours. */
+function waitedFor(since) {
+  const secs = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  if (secs < 60) return t('waited.now');
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return t('waited.min', { n: mins });
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return t('waited.hour', { n: hrs });
+  return t('waited.day', { n: Math.floor(hrs / 24) });
+}
+
+/** Refresh only the elapsed text. A full re-render every 2s would fight hover and focus. */
+function refreshWaited() {
+  for (const node of document.querySelectorAll('[data-since]')) {
+    const v = Number(node.dataset.since);
+    if (v > 0) node.textContent = waitedFor(v);
+  }
+}
+
 function inboxRows() {
   const rows = [...(pulse.lastInbox || [])];
   if (pulse.lastInboxUpdate) rows.push(pulse.lastInboxUpdate);
@@ -766,7 +792,10 @@ function inboxAction(item) {
   if (item.kind === 'session') { pulse.cmd('aios.revealAgent', item.name); return; }
   if (item.kind === 'suggestion') { void pickSuggestion(); return; }
   if (item.kind === 'nudge') { pulse.send({ type: 'nudgeRun', kind: item.nudgeKind, command: item.command }); return; }
-  if (item.kind === 'update') pulse.cmd('aios.updateFramework');
+  if (item.kind === 'update') { pulse.cmd('aios.updateFramework'); return; }
+  /* Surface only: open the .undelivered file so the operator can read the original request and
+     the reason. Handling stays with /today and /close-day, which already do it properly. */
+  if (item.kind === 'deadletter' && item.path) pulse.cmd('aios.openOutput', item.path);
 }
 function renderInboxCard() {
   const I = document.getElementById('pInbox');
@@ -774,16 +803,40 @@ function renderInboxCard() {
   const rows = inboxRows();
   I.replaceChildren();
   if (!rows.length) { I.style.display = 'none'; return; }
-  I.style.display = '';
+  /* EXPLICIT 'block', never ''. `#pInbox` carries `display: none` in the stylesheet (so the card
+     cannot flash before its first render), and `style.display = ''` DELETES the inline rule
+     rather than setting a value — the element then falls back to the stylesheet and stays
+     hidden. Hiding worked; showing was a silent no-op, so this card could never appear on any
+     version. Everything it carries — a session blocked on a permission, go-with-agents
+     suggestions, the ritual nudge, the framework-update row — was computed correctly and shown
+     to nobody. `#pNudge` reveals itself with an explicit 'block' and works; the two rules sat
+     twelve lines apart in the same stylesheet. */
+  I.style.display = 'block';
   I.appendChild(pulseTitle(I, 'pInbox', t('pulse.inbox'), rows.length));
-  for (const item of rows) {
+  /* The COUNT above stays honest at rows.length even when the list is clipped — the operator is
+     told how many are waiting, then shown as many as the panel can carry without becoming a
+     scroll nobody reaches the end of. Severity decides what survives the cut, not arrival order:
+     `inboxItems()` emits dead letters first, so dropped work is never what gets hidden. */
+  const shown = pulse.inboxExpanded ? rows : rows.slice(0, INBOX_CAP);
+  for (const item of shown) {
     const r = el('div', 'pinrow');
-    const dot = el('span', 'pindot ' + (item.kind === 'session' ? 'st-input' : item.kind === 'update' ? 'st-warn' : 'st-idle'));
+    const dot = el('span', 'pindot ' + (item.kind === 'session' ? 'st-input' : (item.kind === 'update' || item.kind === 'deadletter') ? 'st-warn' : 'st-idle'));
     r.appendChild(dot);
     r.appendChild(el('span', 'pinico', item.icon || ''));
     const tx = el('span', 'pintext');
     tx.appendChild(el('span', 'pinlab', item.label));
-    if (item.detail) tx.appendChild(el('span', 'pindet', item.detail));
+    if (item.detail || item.since) {
+      const d = el('span', 'pindet');
+      if (item.detail) d.appendChild(document.createTextNode(item.detail));
+      if (item.since) {
+        // separated so the elapsed half can be rewritten on its own, leaving the reason alone
+        if (item.detail) d.appendChild(document.createTextNode(' \u00b7 '));
+        const w = el('span', 'pinwait', waitedFor(item.since));
+        w.dataset.since = String(item.since);
+        d.appendChild(w);
+      }
+      tx.appendChild(d);
+    }
     r.appendChild(tx);
     const x = el('button', 'pinx', '×');
     x.title = t('inbox.dismissTitle');
@@ -799,6 +852,12 @@ function renderInboxCard() {
     r.addEventListener('click', () => inboxAction(item));
     feedMark(r, 'inbox', item.key + '|' + item.sig);
     I.appendChild(r);
+  }
+  if (rows.length > INBOX_CAP) {
+    const hidden = rows.length - shown.length;
+    const more = el('button', 'pinmore', hidden > 0 ? t('inbox.more', { n: hidden }) : t('inbox.less'));
+    more.addEventListener('click', () => { pulse.inboxExpanded = !pulse.inboxExpanded; renderInboxCard(); });
+    I.appendChild(more);   // deliberately NOT feedMark'ed: chrome, not an item
   }
   feedPrime('inbox');
 }
@@ -1417,6 +1476,48 @@ function statusInfo(raw) {
   if (/wait|input|prompt|\bask\b|attention|approv|permission|block/.test(st)) return { cls: 'input', label: t('status.needsInput'), title: t('status.needsInputTitle') };
   if (/error|fail|crash/.test(st)) return { cls: 'error', label: st, title: t('status.errorTitle') };
   return { cls: 'idle', label: t('status.ready'), title: t('status.readyTitle') };
+}
+
+/* PAINT SESSION STATE ONTO THE TABS (#24.2b).
+   Reuses statusInfo() rather than re-deriving it: the tab and the side panel disagreeing about
+   what a session is doing would be worse than neither showing it. Four states plus a marker —
+
+     working      amber, pulsing   busy
+     needs you    blue,  pulsing   waiting
+     error        red              error / fail / crash
+     idle & seen  GREEN            everything else
+
+   IDLE STAYS GREEN. The issue proposed moving it to grey, but its only stated reason was a
+   collision with green GROUP colours — and groups are a separate, deferred item, so that reason
+   does not apply yet while its cost does: this codebase already reserves grey for plain
+   terminals ("a registered, alive session is NEVER the grey unknown dot"), and `--st-idle` is
+   literally defined as "alive & ready (calm green)". Recolouring idle would make a healthy
+   session indistinguishable from a bare shell — the one distinction the grey rule exists for.
+   Revisit when the group stripe actually ships.
+
+   FINISHED-UNSEEN is a MARKER, not a sixth colour: a ring around whichever dot is already
+   there. A new hue would have to compete with four meanings the operator has already learned,
+   and unread is orthogonal to all of them — a session can be idle-and-unread or error-and-unread. */
+function paintTabStates(m) {
+  const byName = new Map((m.running || []).map((a) => [a.name, a]));
+  const unread = new Set(m.unread || []);
+  for (const [, p] of panes) {
+    if (p.kind !== 'term' || !p.tab) continue;
+    const dot = p.tab.querySelector('.tdot');
+    if (!dot) continue;
+    const entry = p.confirmedName ? byName.get(p.confirmedName) : undefined;
+    if (!entry) {
+      /* A plain terminal, or a pane whose session has ended. Grey is exactly what that means
+         here, and it is the only thing grey means. */
+      dot.className = 'tdot plain';
+      dot.title = t('status.terminal');
+      continue;
+    }
+    const info = statusInfo(entry.status);
+    const seen = unread.has(entry.name);
+    dot.className = 'tdot ' + info.cls + (seen ? ' unread' : '');
+    dot.title = seen ? info.title + ' · ' + t('status.unseen') : info.title;
+  }
 }
 
 /* ═══ live-run theater — narrate work honestly (no fabricated tool counts) ═══
@@ -2453,6 +2554,28 @@ function setVisible(z) {
      call, already rAF-coalesced — the spec's "resize storm" risk is a DRAG concern and the drag
      divider is deferred, so v1's geometry only moves on discrete events. */
   fitTerms();
+  reportOnScreen();
+}
+
+/* WHICH SESSIONS ARE ON SCREEN (#22). The unread-results counter clears when the operator can
+   SEE a session, and only the renderer knows that — main has the window's focus state but no
+   idea which panes are tiled. Reported as a SET, not the focused tab: while split, both halves
+   are in front of the operator, and badging a result they are looking at is the bug this
+   avoids. Main pairs it with real window focus, so a report that arrives while the App is in
+   the background correctly marks nothing as seen. */
+let lastOnScreen = '';
+function reportOnScreen() {
+  const names = [];
+  for (const z of Object.keys(zones)) {
+    for (const id of zones[z].visible) {
+      const p = panes.get(id);
+      if (p && p.kind === 'term' && p.isSession && p.name) names.push(p.name);
+    }
+  }
+  const key = names.slice().sort().join('\u0000');
+  if (key === lastOnScreen) return;          // setVisible runs on every tab click; this changes rarely
+  lastOnScreen = key;
+  pulse.send({ type: 'paneVisible', names });
 }
 
 const evenFrac = (n) => (n <= 0 ? [] : Array.from({ length: n }, () => 1 / n));
@@ -2730,10 +2853,14 @@ const TITLE_DEBUG = false;  // flip on to log the tty titles panes actually emit
 function makeTab(id, name, iconName) {
   const tab = document.createElement('button');
   tab.className = 'tab';
+  /* #24.2b — session state ON THE TAB, not only in the side panel. Its own element rather than
+     a border or a tint on the existing icon, because group colour is a separate axis that will
+     land as a stripe and the two must never share a pixel. */
+  const dot = document.createElement('span'); dot.className = 'tdot';
   const ic = document.createElement('span'); ic.className = 'ticon'; ic.innerHTML = icon(iconName, 12);
   const nm = document.createElement('span'); nm.className = 'tname'; nm.textContent = name;
   const tx = document.createElement('span'); tx.className = 'tx'; tx.title = t('tab.close'); tx.textContent = '×';
-  tab.append(ic, nm, tx);
+  tab.append(dot, ic, nm, tx);
   tab.addEventListener('click', (e) => {
     if (e.target === tx) { void requestClosePane(id); return; }
     setActive(id);
@@ -3658,6 +3785,29 @@ window.addEventListener('keydown', (e) => {
   if (!findHost()) return;                        // a terminal is active — leave ⌘F alone
   e.preventDefault();
   openFind();
+}, true);
+
+/* ── JUMP TO THE NEXT WAITING SESSION — ⌘⇧J (#23) ─────────────────────────────
+   Tabs deliberately never re-sort themselves on a state change (spatial memory beats sorting),
+   which is exactly why walking them is the thing this replaces. Cycles OLDEST-FIRST and
+   remembers nothing: `pulse.lastInbox` is already ordered by how long each has been blocked, so
+   pressing it repeatedly walks the queue in the order you should actually answer it. Starting
+   after the pane you are on is what makes the second press go somewhere — otherwise it would
+   land on the same session forever. Silent no-op would read as a broken key, so an empty queue
+   says so out loud. */
+function jumpToNextWaiting() {
+  const waiting = (pulse.lastInbox || []).filter((i) => i.kind === 'session' && i.name).map((i) => i.name);
+  if (!waiting.length) { toast(t('jump.none')); return; }
+  const cur = panes.get(active.term)?.name || panes.get(active.main)?.name || '';
+  const at = waiting.indexOf(cur);
+  pulse.cmd('aios.revealAgent', waiting[(at + 1) % waiting.length]);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return;
+  if ((e.key || '').toLowerCase() !== 'j') return;
+  e.preventDefault();
+  jumpToNextWaiting();
 }, true);
 
 /* ── EDITOR ZOOM — ⌘+ / ⌘− / ⌘0 ────────────────────────────────────────────────
@@ -5662,6 +5812,9 @@ const RENDERER_KEYS = [
      (The PR body for this branch claimed the menu carried `⌘\`. It did not — corrected there.) */
   { group: 'menu.view', label: 'shortcut.split', accel: 'CmdOrCtrl+\\' },        // splitWithPane()
   { group: 'menu.view', label: 'shortcut.unsplit', accel: 'CmdOrCtrl+Shift+\\' }, // unsplitZone()
+  /* #23. Renderer-owned like the split chords above, so it has to be listed here BY HAND —
+     nothing derives this sheet from the key handlers, which is how ⌘\\ went missing before. */
+  { group: 'menu.view', label: 'shortcut.nextWaiting', accel: 'CmdOrCtrl+Shift+J' }, // jumpToNextWaiting()
   /* Found in the same audit rather than reported: ⌘S saves the source editor and appeared in no
      menu and no sheet. Auditing the whole set beat fixing the one that was noticed. */
   { group: 'menu.file', label: 'shortcut.save', accel: 'CmdOrCtrl+S' },          // codeedit onSave
@@ -6092,6 +6245,19 @@ function openSettingsTab() {
     row(wrap, t('settings.secondaryHints'), mkToggle('showHints', cfg.showHints), t('settings.secondaryHintsHint'));
     row(wrap, t('settings.ritualNudges'), mkToggle('showNudges', cfg.showNudges), t('settings.ritualNudgesHint'));
     row(wrap, t('settings.showMemory'), mkToggle('showMemory', cfg.showMemory !== false), t('settings.showMemoryHint'));
+
+    /* #22 — how a session blocked on you reaches you OUTSIDE the panel. Same shape as
+       killBehavior above. Three rungs rather than a toggle because the two useful answers to
+       "tell me less" are different: some operators want the count without the interruption.
+       Unread results are badge-only at every rung — a finished job is not worth a banner. */
+    const notifySel = document.createElement('select');
+    notifySel.className = 'tinput';
+    for (const [l, v] of [[t('notify.levelBanner'), 'banner'], [t('notify.levelBadge'), 'badge'], [t('notify.levelOff'), 'off']]) {
+      const o = document.createElement('option'); o.textContent = l; o.value = v; notifySel.appendChild(o);
+    }
+    notifySel.value = cfg.attention || 'banner';
+    notifySel.addEventListener('change', async () => { await window.glassShell.setSetting('attention', notifySel.value); toast(t('settings.saved')); });
+    row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
 
     // Calendar week numbers — repaints the calendar on the SETTING change (not just fs events)
     const wkToggle = document.createElement('input');

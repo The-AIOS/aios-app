@@ -44,9 +44,16 @@ function todayIso(): string {
 }
 
 let root = '';
+/* Isolated bus directory. inboxItems() now reads dead letters from disk, and its default is
+   the real ~/.aios/spawn-inbox — so without this every assertion below would depend on
+   whether the machine running the suite happens to have an undelivered request sitting
+   around. Same failure as the account doctor test that passed on macOS and failed on CI. */
+let bus = '';
 
 before(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-inbox-fixture-'));
+  bus = path.join(root, 'spawn-inbox');
+  fs.mkdirSync(bus, { recursive: true });
   process.env.GLASS_FRAMEWORK_PATH = root;
   const w = (rel: string, content: string) => {
     const p = path.join(root, rel);
@@ -70,7 +77,7 @@ const running = (status: string): aios.RunningAgent[] => [
 ];
 
 test('inboxItems: session-on-input + suggestion + evening nudge consolidate into one battery', () => {
-  const items = aios.inboxItems(running('waiting for input'), 20, 4); // 8pm Thursday → close-day nudge
+  const items = aios.inboxItems(running('waiting for input'), 20, 4, bus); // 8pm Thursday → close-day nudge
   const kinds = items.map((i) => i.kind);
   assert.ok(kinds.includes('session'), 'blocked session surfaces: ' + JSON.stringify(kinds));
   assert.ok(kinds.includes('suggestion'), 'open go-with-agents task surfaces');
@@ -83,21 +90,21 @@ test('inboxItems: session-on-input + suggestion + evening nudge consolidate into
 });
 
 test('inboxItems: a busy session does not need the operator', () => {
-  const items = aios.inboxItems(running('busy'), 14, 4);
+  const items = aios.inboxItems(running('busy'), 14, 4, bus);
   assert.ok(!items.some((i) => i.kind === 'session'), 'busy is not blocked');
 });
 
 test('dismissal hides an item until it changes again (persisted in .glass/state.json)', () => {
-  let items = aios.inboxItems(running('waiting for input'), 14, 4);
+  let items = aios.inboxItems(running('waiting for input'), 14, 4, bus);
   const sess = items.find((i) => i.kind === 'session')!;
   aios.dismissInboxItem(sess.key, sess.sig);
-  items = aios.inboxItems(running('waiting for input'), 14, 4);
+  items = aios.inboxItems(running('waiting for input'), 14, 4, bus);
   assert.ok(!items.some((i) => i.key === sess.key), 'dismissed while unchanged');
   // the state roams via .glass/state.json
   const st = JSON.parse(fs.readFileSync(path.join(root, '.glass', 'state.json'), 'utf8'));
   assert.equal(st['aios.inbox.dismissed.v1'][sess.key], 'waiting for input');
   // the session's status changes → the dismissal auto-expires
-  items = aios.inboxItems(running('needs permission approval'), 14, 4);
+  items = aios.inboxItems(running('needs permission approval'), 14, 4, bus);
   const back = items.find((i) => i.key === sess.key);
   assert.ok(back, 'changed signature resurfaces the item');
   assert.equal(back!.sig, 'needs permission approval');
@@ -106,7 +113,7 @@ test('dismissal hides an item until it changes again (persisted in .glass/state.
 test('prune: dismissals whose item disappeared are dropped; update key survives', () => {
   aios.dismissInboxItem('session:ghost-of-a-session', 'gone');
   aios.dismissInboxItem('update', 'abc1234def');
-  aios.inboxItems([], 14, 4); // ghost key has no live item → pruned on this pass
+  aios.inboxItems([], 14, 4, bus); // ghost key has no live item → pruned on this pass
   const st = JSON.parse(fs.readFileSync(path.join(root, '.glass', 'state.json'), 'utf8'));
   const dismissed = st['aios.inbox.dismissed.v1'];
   assert.ok(!('session:ghost-of-a-session' in dismissed), 'dead key pruned');

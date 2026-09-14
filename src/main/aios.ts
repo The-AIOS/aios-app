@@ -10,6 +10,7 @@ import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
+import { normalizeNotifyLevel, type NotifyLevel } from '../core/attention';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
 import { isInboxEntityDismissed, dismissInboxEntity, pruneInboxDismissals, type InboxDismissals } from '../core/inbox';
 import personaPersonal from './personas/personal-family.json';
@@ -370,7 +371,14 @@ export function countNotes(kind: 'declared' | 'observed' | 'projects'): number {
 
 // ── running sessions (Claude Code's own registry) ───────────────────────────
 
-export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; }
+/* `status` is one of Claude Code's four registry values — busy | shell | idle | waiting —
+   verified against the 2.1.270 binary's own union, not inferred from what happened to be on
+   disk. `waitingFor` rides ALONGSIDE status 'waiting' and is absent otherwise (the writer
+   returns `{status:'waiting', waitingFor:<what>}` or `{status:'busy'|'idle', waitingFor:undefined}`),
+   which is why it is invisible on a machine whose sessions are all idle — that absence is the
+   field working, not the field missing. `statusUpdatedAt` is when the CURRENT status was
+   entered, so it answers "blocked longest" without us having to remember anything. */
+export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; }
 
 export function listRunningAgents(): RunningAgent[] {
   const dir = path.join(os.homedir(), '.claude', 'sessions');
@@ -378,7 +386,7 @@ export function listRunningAgents(): RunningAgent[] {
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
   const out: RunningAgent[] = [];
   for (const f of files) {
-    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number };
+    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number };
     try { d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     const pid = Number(d?.pid ?? path.basename(f, '.json'));
     if (!Number.isInteger(pid) || pid <= 0 || !isAlive(pid)) continue;
@@ -390,6 +398,8 @@ export function listRunningAgents(): RunningAgent[] {
       cwd: String(d?.cwd ?? ''),
       startedAt: Number(d?.startedAt) || 0,
       updatedAt: Number(d?.updatedAt) || 0,
+      ...(typeof d?.waitingFor === 'string' && d.waitingFor.trim() ? { waitingFor: d.waitingFor.trim() } : {}),
+      ...(Number(d?.statusUpdatedAt) > 0 ? { statusUpdatedAt: Number(d.statusUpdatedAt) } : {}),
     });
   }
   const seen = new Set<number>();
@@ -1074,7 +1084,7 @@ export function dailyNotePath(iso: string): string | undefined {
 
 // ── shell settings (.glass/shell.json — synced beside state.json) ───────────
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1091,6 +1101,10 @@ export function shellSettings(): ShellSettings {
     claudeCmd: typeof raw.claudeCmd === 'string' && raw.claudeCmd.trim() ? raw.claudeCmd.trim() : 'claude',
     showHints: raw.showHints !== false,
     showNudges: raw.showNudges !== false,
+    /* How a session blocked on the operator reaches them outside the panel: off | badge |
+       banner. Defaults to banner — the whole point of the counter is that you find out
+       without looking, and an operator who prefers silence can say so. */
+    attention: normalizeNotifyLevel(raw.attention),
     showMemory: raw.showMemory !== false,     // default on (Sessions card shows process-tree RAM)
     theme: raw.theme === 'light' ? 'light' : 'dark',
     termFontSize: Number(raw.termFontSize) || 12.5,
@@ -2892,7 +2906,7 @@ const INBOX_DISMISS_KEY = 'aios.inbox.dismissed.v1';
 
 export interface InboxItem {
   key: string;
-  kind: 'session' | 'suggestion' | 'nudge' | 'update';
+  kind: 'session' | 'suggestion' | 'nudge' | 'update' | 'deadletter';
   icon: string;
   label: string;
   detail?: string;
@@ -2903,6 +2917,10 @@ export interface InboxItem {
   /** nudge items: the slash command a click runs. */
   command?: string;
   nudgeKind?: string;
+  /** deadletter items: the `.undelivered` file itself, opened when the row is clicked. */
+  path?: string;
+  /** session items: when the CURRENT status was entered — the renderer counts up from it. */
+  since?: number;
 }
 
 export function inboxDismissals(): InboxDismissals {
@@ -2918,19 +2936,92 @@ export function dismissInboxItem(key: string, sig: string): void {
 // The same "waiting on the operator" signal the renderer's blue dot uses.
 const NEEDS_INPUT_RE = /wait|input|prompt|\bask\b|attention|approv|permission|block/;
 
-/** The synchronous inbox battery (sessions · suggestions · nudge), already
- *  filtered by dismissals. `running`/`hour`/`weekday` are injectable so tests
- *  never depend on this machine's live sessions or the wall clock. */
+const DEAD_SUFFIX = '.json.undelivered';
+
+/** `~/.aios/spawn-inbox/` as every SHIPPED build resolves it. The `AIOS_BUS_DIR` override
+ *  lives in commandBus and is ignored in a packaged build, so this default is correct for
+ *  every operator; panelHost passes the authoritative directory in so a dev override still
+ *  agrees with the bus that is actually being watched. */
+export function defaultBusDir(): string {
+  return path.join(os.homedir(), '.aios', 'spawn-inbox');
+}
+
+/**
+ * Dead letters — bus requests that were never delivered, which nobody was ever told about.
+ *
+ * SURFACE ONLY, deliberately. `/today` and `/close-day` already handle these properly: they
+ * tell a `bus-dead-letter:` from a `bus-unclaimed:`, check whether the target surface is even
+ * alive, ask the operator once, and delete the file. Re-implementing any of that here would be
+ * a second, worse copy. The card's whole job is that the operator LEARNS the work was dropped
+ * on the day it was dropped, instead of at the next ritual — a dead letter is work an agent
+ * asked for and did not get, and today it is silent until someone runs a command.
+ *
+ * An unreadable or truncated file still produces a row: "something was dropped and I cannot
+ * read what" is strictly better than showing nothing, which is the failure being fixed.
+ */
+export function deadLetterItems(dir: string = defaultBusDir()): InboxItem[] {
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith(DEAD_SUFFIX)); } catch { return []; }
+  const out: InboxItem[] = [];
+  for (const f of names.sort()) {
+    const full = path.join(dir, f);
+    let body: Record<string, unknown> = {};
+    try { body = JSON.parse(fs.readFileSync(full, 'utf8')) as Record<string, unknown>; } catch { /* still worth a row */ }
+    const u = (body._undelivered ?? {}) as { reason?: string; at?: number };
+    const name = typeof body.name === 'string' && body.name ? body.name : f.slice(0, -DEAD_SUFFIX.length);
+    const action = typeof body.action === 'string' && body.action ? body.action : 'spawn';
+    const reason = typeof u.reason === 'string' ? u.reason : '';
+    out.push({
+      key: 'dead:' + f,
+      kind: 'deadletter',
+      icon: '\u26a0\ufe0f',
+      label: t('inbox.deadLetter', { action, name }),
+      detail: reason,
+      /* reason AND timestamp: the same name failing again, for a new reason or at a new time,
+         is news the operator has not seen — so a dismissal must not swallow it. */
+      sig: `${reason}|${u.at ?? ''}`,
+      name,
+      path: full,
+    });
+  }
+  return out;
+}
+
+/** The synchronous inbox battery (dead letters · sessions · suggestions · nudge), already
+ *  filtered by dismissals. `running`/`hour`/`weekday`/`busDir` are injectable so tests
+ *  never depend on this machine's live sessions, wall clock, or bus directory. */
 export function inboxItems(
   running: RunningAgent[] = listRunningAgents(),
   hour = new Date().getHours(),
   weekday = new Date().getDay(),
+  busDir: string = defaultBusDir(),
 ): InboxItem[] {
   const all: InboxItem[] = [];
-  // 1 · sessions blocked on the operator
-  for (const a of running) {
-    if (!NEEDS_INPUT_RE.test((a.status || '').toLowerCase())) continue;
-    all.push({ key: 'session:' + a.name, kind: 'session', icon: '💬', label: t('inbox.sessionNeedsInput', { name: a.name }), detail: a.status, sig: a.status, name: a.name });
+  // 0 · work that was dropped on the floor — the only row here that reports a FAILURE
+  all.push(...deadLetterItems(busDir));
+  /* 1 · sessions blocked on the operator, OLDEST FIRST (#23). Colour tells you THAT something
+     is waiting; it cannot tell you which to handle first, and tab order deliberately never
+     re-sorts (spatial memory outranks sorting), so this list is the only place the answer can
+     live. `statusUpdatedAt` is when the CURRENT status was entered, which is exactly "how long
+     has it been blocked" — no bookkeeping of our own, so it survives a restart of this app. */
+  const blocked = running
+    .filter((a) => NEEDS_INPUT_RE.test((a.status || '').toLowerCase()))
+    .sort((x, y) => (x.statusUpdatedAt ?? x.updatedAt ?? 0) - (y.statusUpdatedAt ?? y.updatedAt ?? 0));
+  for (const a of blocked) {
+    all.push({
+      key: 'session:' + a.name,
+      kind: 'session',
+      icon: '\u{1f4ac}',
+      label: t('inbox.sessionNeedsInput', { name: a.name }),
+      /* WHAT it waits for, not merely THAT it waits: 'input needed' versus a named dialog is
+         the difference between answering in two seconds and having to go and look. */
+      detail: a.waitingFor || a.status,
+      /* The signature still keys on status, so an unchanged block stays dismissed — but a NEW
+         thing to be blocked on is new news and must resurface. */
+      sig: a.waitingFor ? `${a.status} \u00b7 ${a.waitingFor}` : a.status,
+      name: a.name,
+      ...(a.statusUpdatedAt ? { since: a.statusUpdatedAt } : {}),
+    });
   }
   // 2 · open go-with-agents suggestions from today's note (per-item dismissal;
   //     the raw line is the signature — edit the task, it resurfaces)

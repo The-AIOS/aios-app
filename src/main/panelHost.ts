@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BrowserWindow, WebContents } from 'electron';
 import * as aios from './aios';
+import { inboxDir } from './commandBus';
+import { Attention } from './attention';
 
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
@@ -102,6 +104,7 @@ export class PanelHost {
   }
 
   dispose(): void {
+    this.attention.dispose();
     if (this.timer) clearInterval(this.timer);
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.updTimer) clearInterval(this.updTimer);
@@ -141,7 +144,7 @@ export class PanelHost {
       observed: aios.countNotes('observed'),
       projects: aios.countNotes('projects'),
       goAgents: aios.countAgentSuggestions(),
-      inbox: aios.inboxItems(),
+      inbox: aios.inboxItems(undefined, undefined, undefined, inboxDir()),
       learnings: aios.recentLearnings(),
       nudge: aios.shellSettings().showNudges
         ? (() => { const now = new Date(); return aios.nudgeState(now.getHours(), now.getDay(), aios.listRunningAgents().length); })()
@@ -151,8 +154,25 @@ export class PanelHost {
     });
   }
 
+  /** Dock badge + banner for sessions blocked on the operator (#22). Driven by the same
+   *  2s poll that already lists the sessions, so it costs one function call, not a timer. */
+  private attention = new Attention({
+    appVisible: () => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      /* isFocused AND not minimized: a selected pane inside a window sitting behind the
+         browser is not something the operator has seen. */
+      return !!w && !w.isDestroyed() && w.isFocused() && !w.isMinimized();
+    },
+    reveal: (pid) => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
+      this.intent('focusTerminal', { pid });
+    },
+  });
+
   postRunning(): void {
     const running = aios.listRunningAgents();
+    const unread = this.attention.tick(running, aios.shellSettings().attention);
     const rl = aios.rateLimit();
     const fwReal = aios.frameworkRoot() ?? '';
     const projOf = (cwd: string): string => {
@@ -164,6 +184,9 @@ export class PanelHost {
     const mem = aios.shellSettings().showMemory ? aios.sessionMemoryMB(running.map((a) => a.pid)) : {};
     this.post({
       type: 'running',
+      /* finished-while-unseen, for the tab's unread marker (#24.2b). Same state the Dock badge
+         counts — one derivation, so the two can never disagree about what you have seen. */
+      unread,
       running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
@@ -208,6 +231,12 @@ export class PanelHost {
       case 'recheck':
         this.postState();
         this.refreshUpdateStatus(true);
+        return;
+      case 'paneVisible':
+        /* Which pane the operator is looking at. Only ever a HINT: the Attention module pairs
+           it with real window focus, so this arriving while the App is in the background
+           correctly marks nothing as seen. */
+        this.attention.setOnScreen(Array.isArray(msg.names) ? (msg.names as unknown[]).map(String) : []);
         return;
       case 'navMonth':
         this.post({ type: 'month', data: aios.getMonthData(Number(msg.year), Number(msg.month)) });
