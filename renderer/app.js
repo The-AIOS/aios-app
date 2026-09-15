@@ -1411,6 +1411,8 @@ function paintTabStates(m) {
     if (nmClear && p.exited) nmClear.classList.remove('shimverb');
     const entry = p.sessionId
       ? byKey.get(p.sessionId)
+      /* name-ok: guarded by nameCount === 1 immediately above — the fallback fires only when
+         the name is unambiguous, which is the one case a name IS an identity. */
       : (p.confirmedName && nameCount.get(p.confirmedName) === 1
           ? running.find((a) => a.name === p.confirmedName)
           : undefined);
@@ -1556,6 +1558,8 @@ function renderPulseRunning(m) {
   // Terminals = plain-shell panes only. A pane whose name matches a live registry
   // session is a claude SESSION (already shown in the Sessions section above), not a
   // terminal — exclude it here so sessions don't double-show as terminals (#2).
+  /* name-ok: a set-membership test ("is this pane's name any live session's?"), not a
+     resolution — it never picks one session, so duplicates cannot mislead it. */
   const terms = [...panes.entries()].filter(([, p]) => p.kind === 'term' && !sessions.some((a) => a.name === p.name));
   const R = document.getElementById('pRun');
   R.replaceChildren();
@@ -1611,6 +1615,8 @@ async function closeAllSessions(sessions) {
   // OFF: run /close-day, and kill the terminals (never the primary). Firing at
   // everything with no confirmation is exactly the mistake this replaces.
   const items = sessions.map((a) => ({
+    /* name-ok: the PRIMARY session is defined by name in USER.md — a name is its actual
+       identity here, not a proxy for one. */
     label: a.name + (a.name === primary ? ' · ' + t('pulse.primaryTag') : ''),
     desc: statusInfo(a.status).label,
     dot: 'st-' + (statusInfo(a.status).cls === 'busy' ? 'busy' : statusInfo(a.status).cls === 'input' ? 'input' : 'idle'),
@@ -3229,6 +3235,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
        DELIVERABILITY below is untouched, because that needs proof and a label is not proof. */
     if (!panes.get(id)?.manualName) renamePane(id, nm);
     const running = ((pulse.lastRunning || {}).running || []);
+    /* name-ok: the FIRST guess only. When the name turns out to be ambiguous the block below
+       replaces it with the process tree's exact answer, which is the authority. */
     const hit = running.find((a) => a.name === nm);
     if (!hit) return;
     p.isSession = true;
@@ -3243,6 +3251,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
        Operator-reported 2026-09-14. So ask the process tree, which knows exactly: the pty is a
        login shell whose descendant is the real `claude`, and the registry is keyed by that pid.
        Only for duplicates — the common case stays a local lookup with no `ps` call. */
+    /* name-ok: counting how many share the name IS the ambiguity question. */
     if (running.filter((a) => a.name === nm).length > 1) {
       void window.glassShell.sessionUnder([id]).then((map) => {
         const real = map && map[id];
@@ -3719,6 +3728,8 @@ function jumpToNextWaiting() {
     .sort((x, y) => (x.statusUpdatedAt ?? x.updatedAt ?? 0) - (y.statusUpdatedAt ?? y.updatedAt ?? 0));
   if (!waiting.length) { toast(t('jump.none')); return; }
   const cur = panes.get(active.term) || panes.get(active.main);
+  /* name-ok: identity first (a.key === sessionId); the name is only the fallback for a pane that
+     has no sessionId yet, and landing one position off in a cycle is self-correcting. */
   const at = cur ? waiting.findIndex((a) => (a.key && a.key === cur.sessionId) || a.name === cur.name) : -1;
   const next = waiting[(at + 1) % waiting.length];
   pulse.cmd('aios.revealAgent', next.name, next.id || '');

@@ -127,3 +127,37 @@ test('every caller that knows the session id passes it', () => {
   assert.match(host, /'focusByName', \{ name: String\(args\[0\] \?\? ''\), id: String\(args\[1\] \?\? ''\) \}/,
     'and main forwards it on every *ByName intent');
 });
+
+test('NO session lookup keys on the name unless it SAYS why — the sweep, not the site', () => {
+  /* THE MECHANISM FOR A CLASS FIXED FIVE TIMES IN ONE DAY, one site at a time, each time
+     believing it was the last: the tab dot, `theater` (the panel's working-time), `feedMark`
+     (the row's entry animation), the tab-name shimmer, and `byName` (reveal · close · interrupt ·
+     the bus's own send). Every one was "resolve a session by `name`", and names are not unique —
+     nothing enforces it, the registry is one file per PID, so `spawn ingest` twice yields two
+     live sessions called `ingest`.
+
+     Fixing them one at a time cost three rounds of operator testing, because each fix made the
+     NEXT one visible: correcting the dot exposed the shimmer, correcting the shimmer exposed the
+     entry animation. A lookup keyed on a non-unique field is never one site.
+
+     So this sweeps the FILE rather than asserting about whichever site was reported — a list of
+     known sites is exactly what let four of the five hide. Name-keying is sometimes right (an
+     ambiguity COUNT, a set-membership test, a deliberate fallback when the name is unambiguous),
+     so a legitimate site declares itself with `name-ok:` and a reason. The marker is the point:
+     it forces the question to be answered at the site instead of assumed. */
+  const src = app();
+  const lines = src.split('\n');
+  const offenders: string[] = [];
+  lines.forEach((line, i) => {
+    if (!/\ba\.name === /.test(line)) return;
+    const code = line.trim();
+    if (code.startsWith('*') || code.startsWith('//') || code.startsWith('`')) return;  // prose about the bug
+    const window = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+    if (/name-ok:/.test(window)) return;                                                // declared, with a reason
+    offenders.push(`line ${i + 1}: ${code.slice(0, 100)}`);
+  });
+  assert.deepEqual(offenders, [],
+    'a session resolved by NAME with no `name-ok:` reason above it. Two live sessions can share '
+    + 'one, so this acts on whichever comes first. Resolve by sessionId (or a.key) — or, if the '
+    + 'name really is the right key here, say so with `name-ok: <why>`:\n  ' + offenders.join('\n  '));
+});
