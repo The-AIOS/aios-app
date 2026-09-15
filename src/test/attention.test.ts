@@ -328,7 +328,19 @@ test('WINDOWS: the taskbar surfaces are driven, cleared on dispose, and platform
   /* Windows drops a toast whose id does not match the Start Menu shortcut, silently. */
   const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
   assert.match(main, /app\.setAppUserModelId\(APP_ID\)/, 'toasts need an AppUserModelID on Windows');
-  assert.match(main, /pkg\.build\?\.appId/, 'read from package.json — the installer writes that same id');
+  /* THE ID IN THE CODE MUST EQUAL THE ONE THE INSTALLER WRITES. electron-builder rewrites
+     package.json when it packages and drops the `build` block, so this cannot be read at runtime
+     — the first version tried, got undefined in the shipped app, and fell through to a literal
+     that happened to be right. Change build.appId and Windows would drop every toast, silently,
+     with the packaged app announcing the old id. So the literal is checked against the source of
+     truth here, where a mismatch is loud. */
+  const declared = /const APP_ID = '([^']+)'/.exec(main);
+  assert.ok(declared, 'APP_ID must be a literal — a runtime read does not survive packaging');
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')) as
+    { build?: { appId?: string } };
+  assert.equal(declared[1], pkg.build?.appId,
+    'APP_ID and build.appId disagree — the installer writes build.appId onto the Start Menu '
+    + 'shortcut, and Windows drops any toast whose id does not match it');
 });
 
 test('clicking a banner focuses the WAITING SESSION, in the shape the renderer can resolve', () => {

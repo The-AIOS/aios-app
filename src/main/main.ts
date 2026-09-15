@@ -978,15 +978,17 @@ let mainWin: BrowserWindow | undefined;
    cannot see, because both racers believe they are the only App.
    The smoke run is exempt: it launches deliberately alongside a developer's own App, and a lock
    there would make the gate exit 0 having tested nothing. */
-/* The installer writes this same id onto the Start Menu shortcut, so it is read rather than
-   retyped: two copies of an id that must match is one copy too many. */
-const APP_ID: string = ((): string => {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')) as
-      { build?: { appId?: string } };
-    return pkg.build?.appId || 'com.the-aios.app';
-  } catch { return 'com.the-aios.app'; }
-})();
+/* MUST EQUAL `build.appId` in package.json — asserted by a test, because it cannot be read.
+   It was read at first, which was wrong in the way that matters: electron-builder REWRITES
+   package.json when it packages and drops the whole `build` block, so in the shipped app the
+   lookup returned undefined and silently fell through to this literal. It worked only because
+   the literal was already correct. Change `build.appId` and the packaged app would have gone on
+   announcing the old id while the installer wrote the new one onto the shortcut — and a
+   mismatched id makes Windows DROP every toast, with nothing logged.
+   A literal plus a test is the honest shape: one place a human edits, and a loud failure when
+   the two disagree. A runtime read that works in dev and not in the package is worse than
+   either, because it looks like it cannot drift. */
+const APP_ID = 'com.the-aios.app';
 
 if (!SMOKE && !app.requestSingleInstanceLock()) {
   app.quit();
