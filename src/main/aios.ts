@@ -10,6 +10,7 @@ import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
+import { pickGit } from '../core/gitResolve';
 import { normalizeNotifyLevel, sessionKey, type NotifyLevel } from '../core/attention';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
 import personaPersonal from './personas/personal-family.json';
@@ -245,7 +246,7 @@ export function personalization(): PersonalizationEvidence & { ok: boolean; miss
   const root = frameworkRoot();
   if (root) {
     try {
-      const url = execFileSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 4000 }).trim();
+      const url = execFileSync(gitBin(), ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 4000 }).trim();
       remote = !!url && !/[/:]The-AIOS\/aios(\.git)?$/i.test(url);
     } catch { remote = false; }
   }
@@ -1084,6 +1085,28 @@ export function readFrameworkStatus(): FrameworkStatus | undefined {
   return { repo: kv.repo ?? '', hash: kv.hash ?? '', synced: kv.synced ?? '' };
 }
 
+/* THE GIT BINARY, resolved once and remembered. A packaged app's PATH finds the Xcode shim,
+   which exists and fails until its licence is accepted — see core/gitResolve.ts. Memoised
+   because this runs on every explorer refresh, not just at boot. */
+let GIT_BIN: string | undefined;
+export function gitBin(): string {
+  if (GIT_BIN) return GIT_BIN;
+  let pathHit: string | undefined;
+  try {
+    pathHit = execFileSync(process.platform === 'win32' ? 'where' : 'which', ['git'],
+      { encoding: 'utf8', timeout: 3000 }).split('\n')[0].trim() || undefined;
+  } catch { /* nothing on PATH */ }
+  GIT_BIN = pickGit({
+    platform: process.platform,
+    pathHit,
+    works: (p) => {
+      try { execFileSync(p, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); return true; }
+      catch { return false; }
+    },
+  });
+  return GIT_BIN;
+}
+
 export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown'> {
   const status = readFrameworkStatus();
   if (!status || !status.repo || !status.hash) return Promise.resolve('unknown');
@@ -1097,7 +1120,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
   return new Promise((resolve) => {
     // SSH remotes need an agent the GUI process may not have — public repo, use https
     const url = status.repo.replace(/^git@github\.com:/, 'https://github.com/');
-    execFile('git', ['ls-remote', url, 'HEAD'], { timeout: 8000 }, (err, stdout) => {
+    execFile(gitBin(), ['ls-remote', url, 'HEAD'], { timeout: 8000 }, (err, stdout) => {
       if (err || !stdout) return resolve('unknown');
       const remote = stdout.trim().split(/\s+/)[0];
       if (!remote) return resolve('unknown');
@@ -2017,7 +2040,7 @@ export function storeGitHubPat(pat: string): boolean {
   if (!token || /\s/.test(token)) return false;
   try {
     let helper = '';
-    try { helper = execFileSync('git', ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
+    try { helper = execFileSync(gitBin(), ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
     if (!helper) {
       // no helper anywhere → give git one (Keychain on macOS, plain store elsewhere)
       /* Windows has an OS credential vault too, and Git for Windows ships the helper for it, so
@@ -2025,9 +2048,9 @@ export function storeGitHubPat(pat: string): boolean {
          would write the PAT to ~/.git-credentials in PLAIN TEXT — acceptable as a last resort on
          a Linux box with no vault, never the default on a machine that has one. */
       const fallback = process.platform === 'win32' ? 'manager' : 'store';
-      execFileSync('git', ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
+      execFileSync(gitBin(), ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
     }
-    execFileSync('git', ['credential', 'approve'], {
+    execFileSync(gitBin(), ['credential', 'approve'], {
       input: `protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}\n\n`,
       encoding: 'utf8', timeout: 8000,
     });
@@ -3222,7 +3245,7 @@ function gitStatusOne(repoRoot: string): Map<string, string> {
   if (cached && now - cached.at < 2000) return cached.files;
   const files = new Map<string, string>();
   let out = '';
-  try { out = execFileSync('git', ['-C', repoRoot, 'status', '--porcelain'], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+  try { out = execFileSync(gitBin(), ['-C', repoRoot, 'status', '--porcelain'], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
   catch { gitCache.set(repoRoot, { at: now, files }); return files; }
   for (const line of out.split('\n')) {
     if (line.length < 4) continue;
@@ -3264,7 +3287,7 @@ export function gitDirtyLines(absFile: string): Array<[number, number]> {
   if (!root) { diffCache.set(absFile, { at: now, ranges }); return ranges; }
   const rel = path.relative(root, absFile);
   const run = (args: string[]): string => {
-    try { return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+    try { return execFileSync(gitBin(), ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
     catch { return ''; }
   };
   // untracked → every line is new

@@ -15,7 +15,7 @@
  * `mcps/google-workspace-mcp/README.md:32`.
  */
 import { execFile, execFileSync } from 'child_process';
-import { claudeLocation as aiosClaudeLocation } from './aios';
+import { claudeLocation as aiosClaudeLocation , gitBin } from './aios';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -184,7 +184,7 @@ export function manifestDir(framework: string | undefined, id: string):
 function isTracked(framework: string, dir: string): boolean {
   const rel = path.relative(framework, dir);
   try {
-    execFileSync('git', ['-C', framework, 'ls-files', '--error-unmatch', '--', rel],
+    execFileSync(gitBin(), ['-C', framework, 'ls-files', '--error-unmatch', '--', rel],
       { stdio: 'ignore', timeout: 4000 });
     return true;
   } catch { return false; }
