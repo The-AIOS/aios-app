@@ -4,7 +4,7 @@ import { BrowserWindow, WebContents } from 'electron';
 import * as aios from './aios';
 import { t } from '../i18n';
 import { Attention } from './attention';
-import { sessionKey } from '../core/attention';
+import { sessionKey, type NotifyLevel } from '../core/attention';
 
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
@@ -160,6 +160,11 @@ export class PanelHost {
     /* macOS refused every banner. Point at the one place that can fix it — the operator's own
        System Settings — rather than leaving the setting looking broken. */
     notifyBlocked: () => this.intent('toast', { text: t('notify.osBlocked') }),
+    /* Persisted beside the settings it explains, in `.glass/shell.json`. Not a user setting and
+       never rendered as one — it is the last thing the OS actually told us, kept so Settings can
+       answer in a later run than the one that measured it. */
+    loadRefused: () => aios.shellFlag('attentionOsRefused') === true,
+    saveRefused: (v: boolean) => aios.setShellSetting('attentionOsRefused', v),
     reveal: (pid) => {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
@@ -170,6 +175,9 @@ export class PanelHost {
   /** Has macOS refused to show a banner this run? Settings asks, so the control can explain
    *  itself instead of looking broken. */
   attentionRefused(): boolean { return this.attention.osRefused(); }
+
+  /** The operator just chose a banner level — confirm it works, or learn that it does not. */
+  attentionProbe(level: NotifyLevel): void { this.attention.probe(level); }
 
   postRunning(): void {
     const running = aios.listRunningAgents();

@@ -1268,6 +1268,23 @@ export function applyLocale(): Locale {
   return setLocale(resolvedLocale());
 }
 
+/**
+ * Read ONE raw key out of `.glass/shell.json`, untyped and undefaulted.
+ *
+ * `shellSettings()` is the typed view of the operator's SETTINGS; this is for the handful of
+ * facts the App observes and stores in the same file without them being settings — today just
+ * the last notification refusal. Keeping them out of the typed view is deliberate: anything in
+ * there is a control somebody has to render, and this must never appear as one.
+ */
+export function shellFlag(key: string): unknown {
+  const r = frameworkRoot();
+  if (!r) return undefined;
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')) as Record<string, unknown>;
+    return raw[key];
+  } catch { return undefined; }
+}
+
 export function setShellSetting(key: string, value: unknown): void {
   const r = frameworkRoot();
   if (!r) return;

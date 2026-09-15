@@ -17,6 +17,54 @@ import {
   BLOCKED_STATUS_RE, isBlockedStatus,
   EMPTY_ATTENTION, NOTIFY_DEFAULT, type AttentionSession, type AttentionState,
 } from '../core/attention';
+/* TYPE-ONLY, so it is erased at compile time and never pulls `electron` in at require time —
+   the runtime copy comes from loadAttention() below, with the loader stubbed. */
+import type { Attention as AttentionClass, AttentionHooks } from '../main/attention';
+import type { RunningAgent } from '../main/aios';
+
+/**
+ * Load `main/attention` with `electron` and `../i18n` stubbed, so the class can be DRIVEN.
+ *
+ * The file needs a display to do its job, which is why this suite historically read it as text.
+ * But its interesting behaviour is the bookkeeping around the OS's answer — what is remembered,
+ * what is written down, what a later run sees — and none of that needs a display, only a
+ * Notification that lets the test decide the verdict. Swapping two modules in the loader buys
+ * assertions about the thing itself instead of assertions about how it is spelled.
+ */
+function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass; fakeNotification: { last?: FakeNotification } } {
+  const Module = require('module') as { _load(req: string, parent: unknown, isMain: boolean): unknown };
+  const holder: { last?: FakeNotification } = {};
+
+  class Fake {
+    private handlers = new Map<string, ((...a: unknown[]) => void)[]>();
+    constructor(_opts: unknown) { holder.last = this as unknown as FakeNotification; }
+    on(ev: string, fn: (...a: unknown[]) => void): this {
+      this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), fn]); return this;
+    }
+    show(): void { /* the TEST decides the outcome, by emitting */ }
+    emit(ev: string, ...args: unknown[]): void { for (const fn of this.handlers.get(ev) ?? []) fn(...args); }
+  }
+  const electronStub = {
+    app: { setBadgeCount: () => { } },
+    Notification: Object.assign(Fake, { isSupported: () => true }),
+  };
+
+  const orig = Module._load;
+  Module._load = function (this: unknown, req: string, parent: unknown, isMain: boolean): unknown {
+    if (req === 'electron') return electronStub;
+    return orig.call(this, req, parent, isMain);
+  } as typeof Module._load;
+  try {
+    /* Resolved fresh so the stub is what the module closes over, whatever ran before it. */
+    const id = require.resolve('../main/attention');
+    delete require.cache[id];
+    const mod = require('../main/attention') as { Attention: new (h: AttentionHooks) => AttentionClass };
+    delete require.cache[id];   // never leave a stubbed copy for another suite
+    return { Attention: mod.Attention, fakeNotification: holder };
+  } finally { Module._load = orig; }
+}
+
+interface FakeNotification { emit(ev: string, ...args: unknown[]): void }
 
 /* `id` defaults to the name because most cases here have one session per name; the duplicate
    tests pass it explicitly, which is the whole reason the field exists. */
@@ -162,12 +210,41 @@ test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
      that knows: it receives the `failed` event. A toast alone was not enough, because a toast is
      an EVENT and this is a STATE — it stays true until the operator changes it, and the moment
      they go looking is when they open Settings, not the moment it failed. */
+  /* EXERCISED, NOT PATTERN-MATCHED. This assertion used to read the source for the literal
+     `osRefused(): boolean { return this.refused; }`, and that is worse than it looks: it pinned
+     a one-line implementation while proving nothing about behaviour, so it broke the moment the
+     line was rewritten AND it stayed green through the bug that actually shipped — a refusal
+     held only in memory, invisible to the next run, which the operator reported as "no amber
+     line". A guard that cannot fail for the real defect but does fail for a refactor is worse
+     than none: it spends its credibility in the wrong direction. Driving the class through a
+     stubbed `electron` costs a loader shim and tests the thing itself. */
+  const { Attention, fakeNotification } = loadAttention();
+  const saved: boolean[] = [];
+  let stored = false;
+  const mk = () => new Attention({
+    reveal: () => { }, notifyBlocked: () => { },
+    loadRefused: () => stored,
+    saveRefused: (v: boolean) => { saved.push(v); stored = v; },
+  });
+
+  const a = mk();
+  assert.equal(a.osRefused(), false, 'nothing measured yet — never claim a refusal we have not seen');
+
+  a.tick([{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-1' } as RunningAgent], 'banner');
+  fakeNotification.last?.emit('failed', {}, 'UNErrorDomain error 1');
+  assert.equal(a.osRefused(), true, 'set from the OS report, never inferred from a permissions guess');
+  assert.deepEqual(saved, [true], 'and WRITTEN DOWN — the next run must not have to rediscover it');
+
+  /* The bug the old guard could not see: a relaunch. */
+  assert.equal(mk().osRefused(), true,
+    'a fresh run reads the last measurement — Settings is usually opened in a later run than the one that failed');
+
+  fakeNotification.last?.emit('show', {});
+  assert.equal(a.osRefused(), false,
+    'cleared when a banner lands — permission can be granted mid-run, so the state must not stick');
+  assert.deepEqual(saved, [true, false], 'the grant is persisted too, or the warning outlives the problem');
+
   const glue = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'attention.ts'), 'utf8');
-  assert.match(glue, /osRefused\(\): boolean \{ return this\.refused; \}/, 'the refusal is readable');
-  assert.match(glue, /n\.on\('failed'[\s\S]{0,200}?this\.refused = true;/,
-    'set from the OS report, never inferred from a permissions guess');
-  assert.match(glue, /n\.on\('show'[\s\S]{0,120}?this\.refused = false;/,
-    'and cleared when a banner lands — permission can be granted mid-run, so the state must not stick');
   assert.match(glue, /if \(!this\.toldAboutPermission\)/, 'the toast fires once, never a nag');
 
   const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');

@@ -472,6 +472,24 @@ test('PROTOCOL: the attention counters are byte-identical across both surfaces',
     + 'same sessions disagreeing about what you have already seen.');
 });
 
+/* PRESENCE is shared for the reason the two implementations proved by both getting it wrong:
+   they write to ONE directory, on one machine, answering one question an agent gates on — "is a
+   fulfiller alive, and which pid". Each enforced ownership only where a process LEAVES, so the
+   record named whoever wrote last rather than whoever was running, and a second instance that
+   started late and quit early deleted the record out from under the one still serving. Both
+   comments claimed the case was covered. A rule about who may own a shared record cannot live
+   in two places and stay the same rule. core/presence.ts is copied byte-identical. */
+const PRESENCE_SHA = '303e7d68bf76a85f';
+
+test('PROTOCOL: presence ownership is byte-identical across both surfaces', () => {
+  const src = fs.readFileSync('src/core/presence.ts', 'utf8');
+  const sha = crypto.createHash('sha256').update(src).digest('hex').slice(0, 16);
+  assert.equal(sha, PRESENCE_SHA,
+    'core/presence.ts changed. This is a shared CONTRACT: make the same edit in the sibling repo '
+    + 'and update PRESENCE_SHA in BOTH, in one push. Diverging here means one surface deleting a '
+    + 'record the other is still serving, and every agent concluding no surface exists.');
+});
+
 test('PROTOCOL: a renamed session resolves by its LATEST name, and never to itself', () => {
   const rec = (n: string) => JSON.stringify({ type: 'agent-name', agentName: n });
   assert.equal(latestAgentName([rec('app-walker'), rec('aios-app')].join('\n')), 'aios-app');

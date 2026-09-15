@@ -13,6 +13,7 @@ import {
   shouldReleaseForSibling, countUserTurnsContaining, verifyVerdict, isDeliverable, maxAttemptsFor,
   triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
 } from '../core/sendQueue';
+import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presence';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 import { pickBash } from '../core/bashResolve';
 
@@ -158,6 +159,60 @@ function ppidOf(pid: number): number {
   } catch { return 0; }
 }
 
+/** Absolute path of this surface's presence record. */
+function presenceFile(): string {
+  return path.join(os.homedir(), '.aios', 'surfaces', `${MY_SURFACE}.json`);
+}
+
+/**
+ * Is this pid running? Signal 0 performs the permission + existence checks and delivers nothing.
+ * EPERM means the process EXISTS and is not ours to signal, which is still alive — only ESRCH is
+ * proof of absence, so anything other than ESRCH must read as alive or the protocol evicts a live
+ * surface on a technicality.
+ */
+function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try { process.kill(pid, 0); return true; } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code !== 'ESRCH';
+  }
+}
+
+/** Raw contents of the presence record, or undefined if it is absent or unreadable. */
+function readPresence(): string | undefined {
+  try { return fs.readFileSync(presenceFile(), 'utf8'); } catch { return undefined; }
+}
+
+/**
+ * Re-claim the record when it names nobody alive — the backstop that makes presence EVENTUALLY
+ * TRUE under every ordering, rather than correct under the orderings we happened to think of.
+ *
+ * Three ways the file ends up naming no live surface while this App runs, and announce/retract
+ * can only ever address the first two:
+ *   · a second instance announced over us and then quit, retracting the record it owned;
+ *   · we deferred to an incumbent on startup and that incumbent has since exited;
+ *   · anyone crashed, was SIGKILLed or lost power — `before-quit` never fires, so a dead pid sits
+ *     in the file forever (the three-week `glass.json` in announce's note above).
+ * Each is a different ordering of the same two-writer race, and a rule that fixes one re-opens
+ * another. Asking "does this name someone alive" needs no ordering at all.
+ *
+ * Deliberately passive while the record is healthy: if it names a LIVE pid — ours or another
+ * instance's — it is left exactly as it is. Two running Apps therefore settle rather than
+ * ping-pong ownership every tick, and the one holding it keeps holding it until it exits.
+ */
+function healPresence(appVersion: string): void {
+  if (!app.isPackaged) return;
+  try {
+    const rec = parsePresenceRecord(readPresence());
+    const root = processTreeRoot(process.pid, ppidOf);
+    if (presenceVerdict(rec, root, pidAlive) === 'leave') return;   // healthy — someone alive owns it
+    if (rec?.pid === root && readPresence() !== undefined) return;  // already ours; do not churn the file
+    fs.mkdirSync(path.dirname(presenceFile()), { recursive: true });
+    const body = { surface: MY_SURFACE, pid: root, at: Date.now(), version: appVersion };
+    fs.writeFileSync(presenceFile(), JSON.stringify(body, null, 2) + '\n');
+    log(`presence re-claimed: ${MY_SURFACE} root pid ${root} (record named ${rec?.pid === undefined ? 'nobody' : `dead pid ${rec.pid}`})`);
+  } catch { /* non-fatal — the next tick tries again */ }
+}
+
 /**
  * Announce this surface so a REQUESTER can derive where it is running.
  *
@@ -166,11 +221,22 @@ function ppidOf(pid: number): number {
  * surface it already lives in walks its own process ancestry and compares against these pids; no
  * process-name matching, so it keeps working whichever IDE hosts Glass.
  *
- * Written every startup, and now REMOVED on a clean exit (see retractPresence). The liveness
- * check remains the real defence and nothing here weakens it: a crash, a SIGKILL or a power cut
- * all skip the cleanup, so a reader that trusts the file's existence is still wrong. This only
- * stops the directory misleading a human reading it by eye — on this machine a `glass.json`
- * advertising a pid dead since 2026-08-14 sat beside a live `app.json` for three weeks.
+ * Written every startup, and REMOVED on a clean exit (see retractPresence). The liveness check
+ * remains the real defence and nothing here weakens it: a crash, a SIGKILL or a power cut all
+ * skip the cleanup, so a reader that trusts the file's existence is still wrong. This only stops
+ * the directory misleading a human reading it by eye — on this machine a `glass.json` advertising
+ * a pid dead since 2026-08-14 sat beside a live `app.json` for three weeks.
+ *
+ * DEFERS TO A LIVE INCUMBENT rather than clobbering it, and that is the half this protocol was
+ * missing. Ownership was checked only on retract, but ANNOUNCE is what assigns ownership — and it
+ * assigned it to whoever wrote last, not to whoever is alive. Measured on the test account
+ * 2026-09-15: instance A announced at 12:54, a second bundle B announced over it at 12:55:40,
+ * B quit ten seconds later, and its retract correctly saw its OWN pid in the file and unlinked it.
+ * A was still running and still fulfilling spawns at 12:58 with no record naming it, so every
+ * agent following CLAUDE.md's liveness rule concluded no surface existed and refused to spawn.
+ * An ownership check on one side of a two-sided protocol cannot hold: whichever side is checked,
+ * the other assigns. So the incumbent is left alone while it is alive, and healPresence below
+ * closes the remaining orderings (and the crash case, which has no retract at all).
  */
 function announcePresence(appVersion: string): void {
   /* PACKAGED BUILDS ONLY, and this is not tidiness — it prevents a dev instance from corrupting
@@ -192,6 +258,11 @@ function announcePresence(appVersion: string): void {
        today (its main process has ppid 1), but deriving it removes a fact about our own process
        layout from a file whose whole job is to be matched against someone else's ancestry. */
     const root = processTreeRoot(process.pid, ppidOf);
+    const rec = parsePresenceRecord(readPresence());
+    if (presenceVerdict(rec, root, pidAlive) === 'leave') {
+      log(`presence left to pid ${rec?.pid} — it is still running, and ours (${root}) must not displace a live surface`);
+      return;
+    }
     const body = { surface: MY_SURFACE, pid: root, at: Date.now(), version: appVersion };
     fs.writeFileSync(path.join(dir, `${MY_SURFACE}.json`), JSON.stringify(body, null, 2) + '\n');
     log(`announced presence: ${MY_SURFACE} root pid ${root}${root === process.pid ? '' : ` (self ${process.pid})`}`);
@@ -213,10 +284,10 @@ function announcePresence(appVersion: string): void {
  */
 function retractPresence(): void {
   try {
-    const f = path.join(os.homedir(), '.aios', 'surfaces', `${MY_SURFACE}.json`);
+    const f = presenceFile();
     const mine = processTreeRoot(process.pid, ppidOf);
-    const body = JSON.parse(fs.readFileSync(f, 'utf8')) as { pid?: number };
-    if (body.pid !== mine) { log(`presence left in place — ${f} names pid ${body.pid}, not ours (${mine})`); return; }
+    const body = parsePresenceRecord(readPresence());
+    if (!mayRetract(body, mine)) { log(`presence left in place — ${f} names pid ${body?.pid}, not ours (${mine})`); return; }
     fs.unlinkSync(f);
     log(`presence retracted: ${MY_SURFACE}`);
   } catch { /* absent, unreadable, or already gone — all fine */ }
@@ -883,6 +954,10 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   // On boot and every 5 min: a dead letter must not be able to sit unseen.
   surfaceDeadLetters(getWin);
   setInterval(() => surfaceDeadLetters(getWin), 5 * 60 * 1000);
+  /* Far more often than the dead-letter sweep: the window this closes is the one in which an
+     agent asks "is a surface alive?" and is told no while this App is running. A stat and a
+     small parse; it writes only when the record already names nobody alive. */
+  setInterval(() => healPresence(appVersion), 20 * 1000);
   recheck = (p: string) => { if (fs.existsSync(p)) consume(getWin, p); };
   try {
     // Only `*.json` is a request — `.holding` and `.undelivered` sit deliberately OUTSIDE
