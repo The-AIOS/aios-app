@@ -32,38 +32,45 @@ test('the tab reuses statusInfo() rather than deriving state a second time', () 
     'a tab and the side panel disagreeing about what a session is doing is worse than neither showing it');
 });
 
-test('GREEN MEANS ALIVE and GREY MEANS DEAD — the tab says what the panel says', () => {
-  /* Corrected 2026-09-14 after the operator noticed terminals reading grey on their tab and
-     green in the panel. The panel is the older convention and it is the right one: `.pdot` bare
-     is grey, `.pdot.idle` is green, so a LIVE plain terminal is green over there. The note we
-     had both been repeating — "grey is reserved for plain terminals" — was reading statusInfo's
-     UNKNOWN case as though it were about terminals. Grey has always meant dead. */
+test('A SESSION IS GREEN, A TERMINAL IS GREY — and the tab says what the panel says', () => {
+  /* Settled by the operator after seeing both: "what's a dead terminal? they are never dead,
+     and never moving — this is why I believe we should use grey for terminals in both panel and
+     tab." Green on a session means alive and ready to be asked something; a shell is neither, so
+     lending it the same green made every pane look alike. Grey is the absence of state, which is
+     exactly what a terminal has. The side panel was changed to match, not the other way round. */
   const c = css();
-  assert.match(c, /--st-idle:\s*#3ec77a/, 'the palette itself calls this "alive & ready (calm green)"');
+  assert.match(c, /--st-idle:\s*#3ec77a/, 'the palette calls this "alive & ready (calm green)"');
   assert.match(c, /\.tab \.tdot\.idle\s*\{\s*--sc: var\(--st-idle\);/,
-    'alive and idle is green — for a session AND for a plain terminal. The issue proposed moving '
-    + 'idle to grey, but its only reason was a clash with green GROUP colours, and groups are '
-    + 'deferred: the reason does not apply yet while the cost does.');
-  assert.match(c, /\.tab \.tdot\.dead\s*\{[^}]*--subtle/, 'grey is the ENDED pane');
-  assert.match(c, /\.tab \.tdot\.off\s*\{ display: none; \}/,
-    'and a file tab gets no dot at all — it has no state to report');
-  assert.ok(!/\.tab \.tdot\.idle\s*\{[^}]*--subtle/.test(c),
-    'recolouring idle to grey would make a healthy session indistinguishable from a dead one');
+    'an alive, idle SESSION is green. The issue proposed moving idle to grey, but its only reason '
+    + 'was a clash with green GROUP colours, and groups are deferred: the reason does not apply '
+    + 'yet while the cost does.');
+  assert.match(c, /\.tab \.tdot\.plain \{ --sc: var\(--subtle\); \}/, 'a terminal is grey');
+  assert.match(app(), /r\.appendChild\(el\('span', 'pdot'\)\);/,
+    'and the panel row agrees — it used to add `idle`, painting live terminals green over there '
+    + 'while the tab showed grey, which is the disagreement that surfaced this');
+});
+
+test('a tab dot is hidden until it has been painted', () => {
+  /* It defaulted to visible-and-green, so every newly opened tab — a file, Settings, anything —
+     flashed a green dot for the two seconds until the next poll told it it had no state at all.
+     "a green dot came, then vanished. this happens for any element in editor." */
+  const c = css();
+  assert.match(c, /\.tab \.tdot \{ display: none;/, 'hidden by default');
+  assert.match(c, /\.tab \.tdot\.plain, \.tab \.tdot\.idle, \.tab \.tdot\.busy,\s*\n\.tab \.tdot\.input, \.tab \.tdot\.error \{ display: inline-block; \}/,
+    'shown only once a real state has been set');
+  assert.match(app(), /if \(p\.kind !== 'term'\) \{ dot\.className = 'tdot off'; dot\.title = ''; continue; \}/,
+    'and a file tab is explicitly cleared rather than left at whatever it was born with');
 });
 
 test('nothing but the pulse animates box-shadow on a tab dot', () => {
   /* The finished-unseen RING was drawn with box-shadow, and so is the pulse — two rules
-     animating one property on one element. Operator-reported: "sometimes it pulsates properly,
-     sometimes it has the outer circle", and some tabs ended with the ring and others with a
-     halo, depending which rule won the frame. The ring is gone; unread now lives in the badge
-     alone. If it ever needs a tab marker, a bolder tab NAME is the place — a weight change
-     competes with neither the status dot nor the group stripe still to come. */
+     animating one property on one element. Reported as "sometimes it pulsates properly,
+     sometimes it has the outer circle". The ring is gone with the counter that fed it. */
   const c = css();
   assert.ok(!/\.tab \.tdot\.unread/.test(c), 'no ring rule survives');
-  assert.ok(!/--st-unread|--st-unseen|--st-new/.test(c), 'and it was never solved with a new hue');
   const shadows = (c.match(/\.tab \.tdot[^{]*\{[^}]*box-shadow/g) || []);
   assert.deepEqual(shadows, [], 'the ONLY box-shadow on this element comes from @keyframes tpulse');
-  assert.match(c, /@keyframes tpulse \{[^}]*var\(--sc\)/, 'which pulses in the dot\'s own colour');
+  assert.match(c, /@keyframes tpulse \{[^}]*var\(--sc\)/, "which pulses in the dot's own colour");
 });
 
 test('busy and needs-you pulse, and in their OWN colour', () => {
@@ -74,50 +81,10 @@ test('busy and needs-you pulse, and in their OWN colour', () => {
     'its own keyframe because the panel\'s ppulse hardcodes amber — which haloes a blue dot amber');
 });
 
-test('the unread set is computed ONCE and shared with the Dock badge', () => {
-  const host = fs.readFileSync(path.join(ROOT, 'src', 'main', 'panelHost.ts'), 'utf8');
-  assert.match(host, /const unread = this\.attention\.tick\(running, aios\.shellSettings\(\)\.attention\);/,
-    'the tab marker and the badge count are the same state');
-  assert.match(host, /^\s+unread,$/m, 'and it rides the running message the tabs already receive');
-  const src = app();
-  assert.ok(!/busy['"]?\s*&&[^\n]*idle[^\n]*unread/.test(src),
-    'the renderer must not re-derive unread from status transitions — two derivations of "what '
-    + 'have you seen" is how a badge and a tab come to disagree');
-});
-
-test('the tab resolves a session by IDENTITY — two sessions can share one name', () => {
-  /* OPERATOR-REPORTED 2026-09-14, and the reason this test exists: two `ingest` sessions, one
-     working and one idle, made BOTH tabs run the working animation. The side panel was correct
-     because it renders a ROW PER ENTRY; the tabs were a LOOKUP keyed on name, and `new Map()`
-     keeps only the last entry for a duplicate key, so both panes resolved to the same session.
-
-     Nothing enforces unique names — the registry is one file per PID. And the renderer already
-     knew this: "The name was never the identity. `sessionId` is." sits ~100 lines above where
-     the name-keyed lookup was reintroduced. */
-  const src = app();
-  assert.ok(!/new Map\(\(m\.running \|\| \[\]\)\.map\(\(a\) => \[a\.name, a\]\)\)/.test(src),
-    'a Map keyed on name silently merges two sessions that share one');
-  assert.match(src, /const byKey = new Map\(running\.filter\(\(a\) => a\.key\)\.map\(\(a\) => \[a\.key, a\]\)\)/,
-    'keyed on the session identity the host now sends');
-  assert.match(src, /p\.sessionId\s*\n?\s*\? byKey\.get\(p\.sessionId\)/,
-    'and a pane resolves through its own sessionId first');
-  assert.match(src, /nameCount\.get\(p\.confirmedName\) === 1/,
-    'the name fallback (for panes predating sessionId) fires ONLY when the name is unambiguous — '
-    + 'with a duplicate, guessing is the bug and showing no state is the honest answer');
-  assert.match(src, /unread\.has\(entry\.key\)/, 'the unread marker is keyed the same way');
-});
-
-test('what the renderer reports as on-screen is ids, never names', () => {
-  const src = app();
-  assert.match(src, /p\.isSession && p\.sessionId\) ids\.push\(p\.sessionId\)/,
-    'a name here would mark the wrong session as seen');
-  assert.match(src, /pulse\.send\(\{ type: 'paneVisible', ids \}\)/);
-});
-
-test('a pane with no live session shows alive-or-dead, never a stale state', () => {
-  assert.match(app(), /if \(!entry\) \{[\s\S]{0,700}?dot\.className = 'tdot ' \+ \(p\.exited \? 'dead' : 'idle'\);/,
-    'a tab left showing "working" for a session that no longer exists is worse than showing '
-    + 'nothing — and a LIVE terminal is green, matching the panel rather than contradicting it');
+test('a pane with no live session shows a terminal, never a stale state', () => {
+  assert.match(app(), /if \(!entry\) \{[\s\S]{0,700}?dot\.className = 'tdot plain';/,
+    'a tab left showing "working" for a session that no longer exists is worse than showing that '
+    + 'it is just a shell');
 });
 
 test('a name alone never decides a DESTRUCTIVE action on a duplicate', () => {
@@ -153,7 +120,6 @@ test('a name alone never decides a DESTRUCTIVE action on a duplicate', () => {
 
 test('every caller that knows the session id passes it', () => {
   const src = app();
-  assert.match(src, /pulse\.cmd\('aios\.revealAgent', item\.name, item\.id \|\| ''\)/, 'the inbox row');
   assert.match(src, /pulse\.cmd\('aios\.revealAgent', next\.name, next\.id \|\| ''\)/, 'the jump chord');
   assert.ok(!/const hit = byName\(a\.name\);/.test(src),
     'the sessions list holds the running entry, so it has no excuse to look up by name alone');

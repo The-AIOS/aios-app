@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BrowserWindow, WebContents } from 'electron';
 import * as aios from './aios';
-import { inboxDir } from './commandBus';
 import { Attention } from './attention';
 import { sessionKey } from '../core/attention';
 
@@ -145,7 +144,6 @@ export class PanelHost {
       observed: aios.countNotes('observed'),
       projects: aios.countNotes('projects'),
       goAgents: aios.countAgentSuggestions(),
-      inbox: aios.inboxItems(undefined, undefined, undefined, inboxDir()),
       learnings: aios.recentLearnings(),
       nudge: aios.shellSettings().showNudges
         ? (() => { const now = new Date(); return aios.nudgeState(now.getHours(), now.getDay(), aios.listRunningAgents().length); })()
@@ -158,12 +156,6 @@ export class PanelHost {
   /** Dock badge + banner for sessions blocked on the operator (#22). Driven by the same
    *  2s poll that already lists the sessions, so it costs one function call, not a timer. */
   private attention = new Attention({
-    appVisible: () => {
-      const w = BrowserWindow.fromWebContents(this.wc);
-      /* isFocused AND not minimized: a selected pane inside a window sitting behind the
-         browser is not something the operator has seen. */
-      return !!w && !w.isDestroyed() && w.isFocused() && !w.isMinimized();
-    },
     reveal: (pid) => {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
@@ -173,7 +165,7 @@ export class PanelHost {
 
   postRunning(): void {
     const running = aios.listRunningAgents();
-    const unread = this.attention.tick(running, aios.shellSettings().attention);
+    this.attention.tick(running, aios.shellSettings().attention);
     const rl = aios.rateLimit();
     const fwReal = aios.frameworkRoot() ?? '';
     const projOf = (cwd: string): string => {
@@ -185,10 +177,6 @@ export class PanelHost {
     const mem = aios.shellSettings().showMemory ? aios.sessionMemoryMB(running.map((a) => a.pid)) : {};
     this.post({
       type: 'running',
-      /* finished-while-unseen, for the tab's unread marker (#24.2b), as session KEYS rather
-         than names — two live sessions can share a name, and a name here would mark the wrong
-         tab. Same state the Dock badge counts: one derivation, so the two can never disagree. */
-      unread,
       running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
@@ -215,10 +203,7 @@ export class PanelHost {
   postUpdateStatus(): void {
     this.updAt = Date.now();
     void aios.checkForUpdates().then((state) =>
-      // inboxUpdate: the framework-update row of the "Needs you" card — null
-      // when up-to-date/unknown OR while dismissed (sig = local hash, so the
-      // dismissal auto-expires the moment /aios:update moves the hash)
-      this.post({ type: 'updateStatus', state, framework: aios.readFrameworkStatus() ?? null, inboxUpdate: aios.updateInboxItem(state) }));
+      this.post({ type: 'updateStatus', state, framework: aios.readFrameworkStatus() ?? null }));
   }
 
   /** Messages FROM the panel — same protocol the extension speaks. */
@@ -234,12 +219,6 @@ export class PanelHost {
         this.postState();
         this.refreshUpdateStatus(true);
         return;
-      case 'paneVisible':
-        /* Which pane the operator is looking at. Only ever a HINT: the Attention module pairs
-           it with real window focus, so this arriving while the App is in the background
-           correctly marks nothing as seen. */
-        this.attention.setOnScreen(Array.isArray(msg.ids) ? (msg.ids as unknown[]).map(String) : []);
-        return;
       case 'navMonth':
         this.post({ type: 'month', data: aios.getMonthData(Number(msg.year), Number(msg.month)) });
         return;
@@ -254,12 +233,6 @@ export class PanelHost {
         this.intent('primary', { slash: normalized });
         return;
       }
-      case 'inboxDismiss':
-        // stateful dismissal: hides the item until its signature changes again
-        aios.dismissInboxItem(String(msg.key ?? ''), String(msg.sig ?? ''));
-        this.postState();
-        if (String(msg.key) === 'update') this.postUpdateStatus();
-        return;
       case 'newTerminal':
         this.intent('terminal', { name: 'terminal' });
         return;

@@ -239,10 +239,14 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
    is a separate axis and the two must not share a pixel. Same four meanings as the side panel's
    dot, so a tab and the panel can never tell the operator different things — including GREY FOR
    DEAD and GREEN FOR ALIVE, which is what `.pdot` already does over there. */
-.tab .tdot { --sc: var(--st-idle); width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
-             background: var(--sc); }
-.tab .tdot.off   { display: none; }                 /* a file tab has no state to show */
-.tab .tdot.dead  { --sc: color-mix(in srgb, var(--subtle) 60%, transparent); }  /* ended */
+.tab .tdot { display: none; --sc: var(--st-idle); width: 6px; height: 6px; border-radius: 50%;
+             flex: 0 0 auto; background: var(--sc); }
+/* HIDDEN BY DEFAULT, shown only once painted. It used to default to visible-and-green, so every
+   newly opened tab — a file, Settings, anything — flashed a green dot for the two seconds until
+   the next poll told it it had no state at all. */
+.tab .tdot.plain, .tab .tdot.idle, .tab .tdot.busy,
+.tab .tdot.input, .tab .tdot.error { display: inline-block; }
+.tab .tdot.plain { --sc: var(--subtle); }           /* a terminal — no state to report */
 .tab .tdot.idle  { --sc: var(--st-idle); }          /* alive — green, like the panel */
 .tab .tdot.busy  { --sc: var(--st-busy); animation: tpulse 2s ease-out infinite; }
 .tab .tdot.input { --sc: var(--st-input); animation: tpulse 2s ease-out infinite; }
@@ -650,29 +654,6 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 /* "Needs you" inbox — one card, everything waiting on the operator. Rows carry
    a status dot (--sc via .st-*: blue = session on input, gold = update, calm
    green = the rest) and a hover-reveal stateful dismiss (×). */
-#pInbox { display: none; }
-.pinrow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 7px; cursor: pointer;
-          color: var(--ink); font-size: 12px; }
-.pinrow:hover { background: var(--surface-2); }
-.pindot { --sc: var(--st-idle); width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--sc);
-          box-shadow: 0 0 6px color-mix(in srgb, var(--sc) 40%, transparent); }
-.pinico { flex: 0 0 auto; font-size: 11px; }
-.pintext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.pinlab { line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.pindet { color: var(--subtle); font-size: 10px; font-family: var(--mono);
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pinx { flex: 0 0 auto; background: transparent; border: 0; color: var(--subtle); cursor: pointer; padding: 0 4px;
-        border-radius: 4px; font-size: 13px; line-height: 1; opacity: 0; transition: opacity .12s; }
-.pinrow:hover .pinx, .pinrow:focus-within .pinx { opacity: 1; }
-.pinx:hover { color: var(--ink); background: var(--surface); }
-/* "+N more" / "Show less" — chrome, not an item: it borrows the row's geometry but never its
-   dot/icon columns, so a clipped list still reads as one list rather than gaining a fake entry. */
-.pinmore { display: block; width: 100%; text-align: left; background: transparent; border: 0;
-           color: var(--subtle); cursor: pointer; font-size: 11px; font-family: inherit;
-           padding: 4px 6px 2px 21px; border-radius: 7px; }
-.pinmore:hover { color: var(--ink); background: var(--surface-2); }
-/* the elapsed half of a blocked row — same muted weight as the reason it sits beside */
-.pinwait { font-variant-numeric: tabular-nums; }
 
 /* quota */
 #pQuota { display: none; }
@@ -856,7 +837,6 @@ body.no-hints .xsectsub { display: none; }
 .pcheck { flex: 0 0 auto; width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 4px;
           display: inline-flex; align-items: center; justify-content: center; color: #fff; }
 .pcheck.ticked { background: var(--accent); border-color: var(--accent); }
-.prow .pindot { flex: 0 0 auto; }
 .mgo:disabled { opacity: .45; cursor: default; }
 /* #19 a session with notes shows its note button ALWAYS (not hover-only) + a count */
 .runact.note.has { opacity: 1 !important; visibility: visible !important; color: var(--st-warn); position: relative; }

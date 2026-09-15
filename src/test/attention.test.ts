@@ -1,6 +1,12 @@
 /**
- * The two attention counters (#22). Every test below is one line of the issue's own
- * acceptance criteria, which is why they read as scenarios rather than as unit assertions.
+ * The attention counter (#22) — sessions blocked on the operator.
+ *
+ * ONE counter, not two. The design also carried "finished while you were away", which sounds
+ * useful and is not: a Dock badge reading 4 beside two waiting sessions cannot be read, because
+ * the halves clear by different acts and neither is visible in the total. The operator ran it
+ * and said exactly that. The question underneath — *how do you clear a finished one* — has no
+ * good answer, because a result you have not read is not something you can act on. So the badge
+ * counts what you can act on, and clears when you act.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,170 +15,84 @@ import {
   EMPTY_ATTENTION, NOTIFY_DEFAULT, type AttentionSession, type AttentionState,
 } from '../core/attention';
 
-/* `id` defaults to the name, because most tests here have one session per name and reading
-   `S('writer','waiting')` is clearer than threading an id through every case. The duplicate-name
-   tests pass an explicit id — which is the whole point of the parameter existing. */
+/* `id` defaults to the name because most cases here have one session per name; the duplicate
+   tests pass it explicitly, which is the whole reason the field exists. */
 const S = (name: string, status: string, waitingFor?: string, id?: string): AttentionSession =>
   ({ id: id ?? name, name, status, ...(waitingFor ? { waitingFor } : {}) });
 
-/** Run a sequence of observations, as the 2s poll would. */
-function run(steps: { sessions: AttentionSession[]; visible?: string[]; deliver?: boolean }[]) {
+function run(steps: { sessions: AttentionSession[]; deliver?: boolean }[]) {
   let state: AttentionState = EMPTY_ATTENTION;
   const ticks = [];
   for (const s of steps) {
-    const t = attentionTick(state, s.sessions, s.visible ?? []);
+    const t = attentionTick(state, s.sessions);
     state = s.deliver === false ? t.state : markNotified(t.state, t.pending.map((p) => p.id));
     ticks.push(t);
   }
   return ticks;
 }
 
-test('a block banners exactly once on entry, not once per poll', () => {
+test('the badge counts blocked sessions, and only those', () => {
+  const t = run([{ sessions: [S('a', 'waiting', 'permission'), S('b', 'busy'), S('c', 'idle'), S('d', 'shell')] }]);
+  assert.equal(t[0].badge, 1, 'busy, idle and a shell are not waiting on anybody');
+  assert.deepEqual(t[0].blocks.map((b) => b.name), ['a']);
+});
+
+test('answering is what clears it — and it is the only thing that does', () => {
+  const t = run([
+    { sessions: [S('writer', 'waiting', 'input needed')] },
+    { sessions: [S('writer', 'waiting', 'input needed')] },   // still sitting there
+    { sessions: [S('writer', 'busy')] },                      // answered
+  ]);
+  assert.equal(t[1].badge, 1, 'time passing does not resolve a question');
+  assert.equal(t[2].badge, 0);
+});
+
+test('a block banners once on entry, not once per poll', () => {
   const blocked = [S('writer', 'waiting', 'input needed')];
   const t = run([{ sessions: blocked }, { sessions: blocked }, { sessions: blocked }]);
   assert.deepEqual(t[0].pending.map((p) => p.name), ['writer'], 'entering the state speaks');
   assert.deepEqual(t[1].pending, [], 'the same unresolved block is not news again');
-  assert.deepEqual(t[2].pending, [], 'and still is not, however long it sits there');
-  assert.equal(t[2].badge, 1, 'but it keeps its badge for as long as it blocks');
+  assert.deepEqual(t[2].pending, [], 'and still is not, however long it sits');
+  assert.equal(t[2].badge, 1, 'but it keeps its badge while it blocks');
 });
 
-test('looking at a permission does NOT clear it — only answering does', () => {
-  const blocked = [S('writer', 'waiting', 'input needed')];
-  const t = run([
-    { sessions: blocked },
-    { sessions: blocked, visible: ['writer'] },   // staring right at it
-    { sessions: [S('writer', 'busy')] },        // answered
-  ]);
-  assert.equal(t[1].badge, 1, 'viewing a block is not resolving it');
-  assert.equal(t[2].badge, 0, 'leaving waiting is what clears it');
-});
-
-test('a second block on the same session, after the first was resolved, banners again', () => {
+test('a second block on the same session, once the first was answered, speaks again', () => {
   const t = run([
     { sessions: [S('writer', 'waiting', 'permission')] },
-    { sessions: [S('writer', 'busy')] },                    // answered → forget it
-    { sessions: [S('writer', 'waiting', 'another one')] },  // blocks again
+    { sessions: [S('writer', 'busy')] },
+    { sessions: [S('writer', 'waiting', 'another one')] },
   ]);
-  assert.deepEqual(t[0].pending.map((p) => p.name), ['writer']);
-  assert.deepEqual(t[1].pending, []);
   assert.deepEqual(t[2].pending.map((p) => p.name), ['writer'], 'a NEW block is new news');
 });
 
 test('a banner the OS refused is retried, never silently marked as shown', () => {
   const blocked = [S('writer', 'waiting', 'input needed')];
   let state = EMPTY_ATTENTION;
-  const first = attentionTick(state, blocked, []);
+  const first = attentionTick(state, blocked);
   assert.deepEqual(first.pending.map((p) => p.name), ['writer']);
-  state = first.state;                                  // notifier THREW — nothing marked
-  const second = attentionTick(state, blocked, []);
+  state = first.state;                                   // notifier failed — nothing marked
+  const second = attentionTick(state, blocked);
   assert.deepEqual(second.pending.map((p) => p.name), ['writer'],
-    'a failed notification leaves the block pending — detected is not accepted');
-  state = markNotified(second.state, ['writer']);       // this time it landed
-  assert.deepEqual(attentionTick(state, blocked, []).pending, [], 'and now it rests');
+    'detected is not accepted: a failed notification leaves the block pending');
+  state = markNotified(second.state, ['writer']);
+  assert.deepEqual(attentionTick(state, blocked).pending, [], 'and now it rests');
 });
 
-test('finishing while hidden is unread; looking at it clears it', () => {
+test('a session that ends takes its count with it', () => {
   const t = run([
-    { sessions: [S('writer', 'busy')], visible: [] },
-    { sessions: [S('writer', 'idle')], visible: [] },       // finished in the background
-    { sessions: [S('writer', 'idle')], visible: ['writer'] },   // operator switches to it
+    { sessions: [S('a', 'waiting', 'q'), S('b', 'waiting', 'q')] },
+    { sessions: [S('a', 'waiting', 'q')] },
   ]);
-  assert.deepEqual(t[1].unread, ['writer'], 'a result nobody saw is unread');
-  assert.equal(t[1].badge, 1);
-  assert.deepEqual(t[2].unread, [], 'becoming visible IS reading it');
-  assert.equal(t[2].badge, 0);
+  assert.equal(t[0].badge, 2);
+  assert.equal(t[1].badge, 1, 'a session that no longer exists cannot still be waiting on you');
 });
 
-test('finishing in full view was never unread', () => {
-  const t = run([
-    { sessions: [S('writer', 'busy')], visible: ['writer'] },
-    { sessions: [S('writer', 'idle')], visible: ['writer'] },
-  ]);
-  assert.deepEqual(t[1].unread, [], 'you watched it finish');
-  assert.equal(t[1].badge, 0);
-});
-
-test('an unread result never banners — you find out when you look', () => {
-  const t = run([
-    { sessions: [S('writer', 'busy')] },
-    { sessions: [S('writer', 'idle')] },
-  ]);
-  assert.equal(t[1].badge, 1, 'it counts');
-  assert.deepEqual(t[1].pending, [], 'and it stays silent — pending is blocks only');
-});
-
-test('a plain shell going idle is not a result anyone is waiting to read', () => {
-  const t = run([
-    { sessions: [S('term', 'shell')] },
-    { sessions: [S('term', 'idle')] },
-  ]);
-  assert.deepEqual(t[1].unread, [], 'only work that was BUSY can finish');
-  assert.equal(t[1].badge, 0);
-});
-
-test('the badge is both counters at once, and a closed session takes its count with it', () => {
-  const t = run([
-    { sessions: [S('a', 'busy'), S('b', 'busy')] },
-    { sessions: [S('a', 'waiting', 'permission'), S('b', 'idle')] },   // one blocks, one finishes unseen
-    { sessions: [S('a', 'waiting', 'permission')] },                    // b is gone
-  ]);
-  assert.equal(t[1].badge, 2, 'one block + one unread');
-  assert.equal(t[2].badge, 1, 'a session that no longer exists cannot still be waiting on you');
-  assert.deepEqual(t[2].unread, [], 'and its unread mark goes with it');
-});
-
-test('the App being in the background makes every pane invisible', () => {
-  const t = run([
-    { sessions: [S('writer', 'busy')], visible: ['writer'] },
-    { sessions: [S('writer', 'idle')], visible: [] },   // pane still selected, App behind Chrome
-  ]);
-  assert.deepEqual(t[1].unread, ['writer'],
-    'a focused pane with the App in the background does not count as seen');
-});
-
-test('a split shows two panes at once — both count as seen', () => {
-  const t = run([
-    { sessions: [S('a', 'busy'), S('b', 'busy')], visible: ['a', 'b'] },
-    { sessions: [S('a', 'idle'), S('b', 'idle')], visible: ['a', 'b'] },
-  ]);
-  assert.deepEqual(t[1].unread, [],
-    'with two panes tiled the operator is looking at both — counting the unfocused half as unread '
-    + 'would badge a result that is on screen in front of them');
-  assert.equal(t[1].badge, 0);
-});
-
-test('a session finishing in the HIDDEN half of a split is still unread', () => {
-  const t = run([
-    { sessions: [S('a', 'busy'), S('b', 'busy')], visible: ['a'] },
-    { sessions: [S('a', 'busy'), S('b', 'idle')], visible: ['a'] },
-  ]);
-  assert.deepEqual(t[1].unread, ['b'], 'on screen is the test, not merely open');
-});
-
-test('TWO SESSIONS, ONE NAME: they are counted separately, never collapsed', () => {
-  /* Operator-reported 2026-09-14: two `ingest` sessions, one working and one idle, made BOTH
-     tabs animate. Nothing enforces unique names — the registry is one file per PID, so
-     `spawn ingest` twice gives two live sessions called `ingest`. Everything here used to be
-     keyed on name, which silently merged them. */
-  const t = run([
-    { sessions: [S('ingest', 'busy', undefined, 'sid-a'), S('ingest', 'busy', undefined, 'sid-b')] },
-    { sessions: [S('ingest', 'waiting', 'permission', 'sid-a'), S('ingest', 'idle', undefined, 'sid-b')] },
-  ]);
-  assert.equal(t[1].blocks.length, 1, 'only ONE of them is blocked');
-  assert.equal(t[1].blocks[0].id, 'sid-a', 'and we know which');
-  assert.deepEqual(t[1].unread, ['sid-b'], 'the other finished unseen — a different state entirely');
-  assert.equal(t[1].badge, 2, 'one block + one unread, from two sessions sharing a name');
-});
-
-test('looking at one of two same-named sessions clears only THAT one', () => {
-  const t = run([
-    { sessions: [S('ingest', 'busy', undefined, 'sid-a'), S('ingest', 'busy', undefined, 'sid-b')] },
-    { sessions: [S('ingest', 'idle', undefined, 'sid-a'), S('ingest', 'idle', undefined, 'sid-b')],
-      visible: ['sid-a'] },
-  ]);
-  assert.deepEqual(t[1].unread, ['sid-b'],
-    'seeing one pane must not mark its namesake as read — that is the same collision from the '
-    + 'other direction, and it would silently hide a finished result');
+test('TWO SESSIONS, ONE NAME: counted separately, never collapsed', () => {
+  /* Nothing enforces unique names — the registry is one file per PID, so `spawn ingest` twice
+     gives two live sessions called `ingest`. Keyed on name they merged silently. */
+  const t = run([{ sessions: [S('ingest', 'waiting', 'q1', 'sid-a'), S('ingest', 'idle', undefined, 'sid-b')] }]);
+  assert.equal(t[0].badge, 1, 'only one of them is blocked');
+  assert.equal(t[0].blocks[0].id, 'sid-a', 'and we know which');
 });
 
 test('a banner for one namesake does not silence the other', () => {
@@ -181,8 +101,7 @@ test('a banner for one namesake does not silence the other', () => {
     { sessions: [S('ingest', 'waiting', 'q1', 'sid-a'), S('ingest', 'waiting', 'q2', 'sid-b')] },
   ]);
   assert.deepEqual(t[0].pending.map((p) => p.id), ['sid-a']);
-  assert.deepEqual(t[1].pending.map((p) => p.id), ['sid-b'],
-    'the second one blocking is its own news, even under a shared name');
+  assert.deepEqual(t[1].pending.map((p) => p.id), ['sid-b'], 'the second blocking is its own news');
 });
 
 test('sessionKey prefers sessionId and falls back to the pid, never to the name', () => {
@@ -195,10 +114,8 @@ test('sessionKey prefers sessionId and falls back to the pid, never to the name'
 test('levels: off shows nothing, badge never banners, banner does both', () => {
   assert.equal(badgeText(3, 'off'), '', 'off is genuinely off — no badge either');
   assert.equal(badgeText(3, 'badge'), '3');
-  assert.equal(badgeText(3, 'banner'), '3');
   assert.equal(badgeText(0, 'banner'), '', 'zero clears the badge rather than showing a 0');
-  assert.equal(mayBanner('off'), false);
-  assert.equal(mayBanner('badge'), false, 'badge-only is the whole point of the middle rung');
+  assert.equal(mayBanner('badge'), false, 'badge-only is the point of the middle rung');
   assert.equal(mayBanner('banner'), true);
 });
 

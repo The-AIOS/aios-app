@@ -30,16 +30,12 @@ import { t } from '../i18n';
 const MAX_BANNER_TRIES = 3;
 
 export interface AttentionHooks {
-  /** true when the App has system focus and is not minimized. */
-  appVisible(): boolean;
   /** Bring the App forward and focus the pane running `pid`. */
   reveal(pid: number): void;
 }
 
 export class Attention {
   private state: AttentionState = EMPTY_ATTENTION;
-  /** Session IDS the renderer says are on screen — meaningless alone; see visibleIds(). */
-  private onScreen: string[] = [];
   private badge = '';
   /** Failed banner attempts per block — bounded, so an OS that will not show notifications is
    *  not retried every two seconds for the life of the process. */
@@ -47,26 +43,12 @@ export class Attention {
 
   constructor(private hooks: AttentionHooks) {}
 
-  /** The renderer tells us which session panes are tiled on screen — by ID, never by name.
-   *  Two live sessions can share a name (`spawn ingest` twice), and a name would mark the
-   *  wrong one as seen. */
-  setOnScreen(ids: readonly string[]): void {
-    this.onScreen = [...new Set(ids.map((n) => String(n ?? '').trim()).filter(Boolean))];
-  }
-
-  /** On screen AND the window actually in front. Behind another app, nothing is visible. */
-  private visibleIds(): string[] {
-    return this.hooks.appVisible() ? this.onScreen : [];
-  }
-
-  /** One observation. Called from the same 2s poll that already lists the sessions.
-   *  Returns the finished-unseen names so the tab strip can mark them (#24.2b) — the counter
-   *  and the tab marker are the SAME state, so deriving it twice would let them disagree. */
-  tick(running: readonly RunningAgent[], level: NotifyLevel): string[] {
+  /** One observation. Called from the same 2s poll that already lists the sessions. */
+  tick(running: readonly RunningAgent[], level: NotifyLevel): void {
     const sessions = running.map((a) => ({
       id: sessionKey(a), name: a.name, status: a.status, waitingFor: a.waitingFor,
     }));
-    const r = attentionTick(this.state, sessions, this.visibleIds());
+    const r = attentionTick(this.state, sessions);
     this.state = r.state;
 
     const want = badgeText(r.badge, level);
@@ -77,8 +59,8 @@ export class Attention {
       try { app.setBadgeCount(r.badge > 0 && level !== 'off' ? r.badge : 0); } catch { /* headless / unsupported */ }
     }
 
-    if (!mayBanner(level) || !r.pending.length) return r.unread;
-    if (!Notification.isSupported()) return r.unread;
+    if (!mayBanner(level) || !r.pending.length) return;
+    if (!Notification.isSupported()) return;
 
     for (const s of r.pending) {
       /* Resolve the pane by IDENTITY, not by name: with two sessions called `ingest`, a
@@ -115,7 +97,6 @@ export class Attention {
         n.show();
       } catch { /* constructor threw → stays pending, and the next tick tries again */ }
     }
-    return r.unread;
   }
 
   /** Clear the badge when the App is going away, so the Dock does not keep a stale number. */

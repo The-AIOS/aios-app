@@ -12,7 +12,6 @@ import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type To
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
 import { normalizeNotifyLevel, sessionKey, type NotifyLevel } from '../core/attention';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
-import { isInboxEntityDismissed, dismissInboxEntity, pruneInboxDismissals, type InboxDismissals } from '../core/inbox';
 import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
 import { FOLDER_SORT_KEY, MASTER_SORT_KEY, normalizeSortMode, setFolderSort, type FolderSortMap, type SortMode } from '../core/sort';
@@ -618,6 +617,17 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
   try { md = fs.readFileSync(note as string, 'utf8'); } catch { return null; }
   const isClosed = /close[\s-]?of[\s-]?day|^#{1,4}.*\bclose\b.*\bday\b/im.test(md);
   if (hour >= 17 && !isClosed) {
+    /* NOT ALWAYS CLOSE-DAY. This branch owned every evening hour, so from 17:00 until the day
+       was closed the whisper said the same sentence — and a nudge that never varies stops being
+       read at all, which is the one failure mode a nudge cannot survive. Operator-reported.
+       The note itself knows better: `suggestedRitual` reads what today actually still wants, so
+       offer that first and keep close-day as what it really is — the last thing, once nothing
+       more specific is outstanding, and not before the evening is genuinely under way. */
+    const r = suggestedRitual(md);
+    if (r && hour < 20) {
+      const label = r.desc ? r.desc.charAt(0).toUpperCase() + r.desc.slice(1) : '';
+      return { kind: 'plan', icon: '💡', cmdLabel: t('nudge.runCmd', { short: r.short }), label, command: r.command };
+    }
     return { kind: 'close', icon: '🌙', label: t('nudge.closeDay'), command: '/aios:close-day' };
   }
   if ((weekday === 1 || weekday === 2) && hour >= 6 && hour < 17 && !weeklyPlanExists()) {
@@ -2962,180 +2972,6 @@ export function listAgentSuggestions(): AgentSuggestion[] {
 // it changes again (the dismissal stores the item's change signature and
 // auto-expires the moment the live signature differs). Persisted in
 // `.glass/state.json`, so it roams with the vault like the sort prefs.
-
-const INBOX_DISMISS_KEY = 'aios.inbox.dismissed.v1';
-
-export interface InboxItem {
-  key: string;
-  kind: 'session' | 'suggestion' | 'nudge' | 'update' | 'deadletter';
-  icon: string;
-  label: string;
-  detail?: string;
-  /** Change signature — dismissal hides the item until this changes again. */
-  sig: string;
-  /** session items: the registry name (the renderer focuses/resumes by it). */
-  name?: string;
-  /** nudge items: the slash command a click runs. */
-  command?: string;
-  nudgeKind?: string;
-  /** deadletter items: the `.undelivered` file itself, opened when the row is clicked. */
-  path?: string;
-  /** session items: when the CURRENT status was entered — the renderer counts up from it. */
-  since?: number;
-  /** session items: the sessionId, so a click reveals THIS one and not its namesake. */
-  id?: string;
-  /** suggestion items: the agent to run it as. */
-  agent?: string;
-  /** suggestion items: a URL the command takes as its argument. */
-  url?: string;
-}
-
-export function inboxDismissals(): InboxDismissals {
-  const raw = glassState()[INBOX_DISMISS_KEY];
-  return raw && typeof raw === 'object' ? (raw as InboxDismissals) : {};
-}
-
-export function dismissInboxItem(key: string, sig: string): void {
-  if (!key) return;
-  setGlassState(INBOX_DISMISS_KEY, dismissInboxEntity(inboxDismissals(), key, sig));
-}
-
-// The same "waiting on the operator" signal the renderer's blue dot uses.
-const NEEDS_INPUT_RE = /wait|input|prompt|\bask\b|attention|approv|permission|block/;
-
-const DEAD_SUFFIX = '.json.undelivered';
-
-/** `~/.aios/spawn-inbox/` as every SHIPPED build resolves it. The `AIOS_BUS_DIR` override
- *  lives in commandBus and is ignored in a packaged build, so this default is correct for
- *  every operator; panelHost passes the authoritative directory in so a dev override still
- *  agrees with the bus that is actually being watched. */
-export function defaultBusDir(): string {
-  return path.join(os.homedir(), '.aios', 'spawn-inbox');
-}
-
-/**
- * Dead letters — bus requests that were never delivered, which nobody was ever told about.
- *
- * SURFACE ONLY, deliberately. `/today` and `/close-day` already handle these properly: they
- * tell a `bus-dead-letter:` from a `bus-unclaimed:`, check whether the target surface is even
- * alive, ask the operator once, and delete the file. Re-implementing any of that here would be
- * a second, worse copy. The card's whole job is that the operator LEARNS the work was dropped
- * on the day it was dropped, instead of at the next ritual — a dead letter is work an agent
- * asked for and did not get, and today it is silent until someone runs a command.
- *
- * An unreadable or truncated file still produces a row: "something was dropped and I cannot
- * read what" is strictly better than showing nothing, which is the failure being fixed.
- */
-export function deadLetterItems(dir: string = defaultBusDir()): InboxItem[] {
-  let names: string[] = [];
-  try { names = fs.readdirSync(dir).filter((f) => f.endsWith(DEAD_SUFFIX)); } catch { return []; }
-  const out: InboxItem[] = [];
-  for (const f of names.sort()) {
-    const full = path.join(dir, f);
-    let body: Record<string, unknown> = {};
-    try { body = JSON.parse(fs.readFileSync(full, 'utf8')) as Record<string, unknown>; } catch { /* still worth a row */ }
-    const u = (body._undelivered ?? {}) as { reason?: string; at?: number };
-    const name = typeof body.name === 'string' && body.name ? body.name : f.slice(0, -DEAD_SUFFIX.length);
-    const action = typeof body.action === 'string' && body.action ? body.action : 'spawn';
-    const reason = typeof u.reason === 'string' ? u.reason : '';
-    out.push({
-      key: 'dead:' + f,
-      kind: 'deadletter',
-      icon: '\u26a0\ufe0f',
-      label: t('inbox.deadLetter', { action, name }),
-      detail: reason,
-      /* reason AND timestamp: the same name failing again, for a new reason or at a new time,
-         is news the operator has not seen — so a dismissal must not swallow it. */
-      sig: `${reason}|${u.at ?? ''}`,
-      name,
-      path: full,
-    });
-  }
-  return out;
-}
-
-/** The synchronous inbox battery (dead letters · sessions · suggestions · nudge), already
- *  filtered by dismissals. `running`/`hour`/`weekday`/`busDir` are injectable so tests
- *  never depend on this machine's live sessions, wall clock, or bus directory. */
-export function inboxItems(
-  running: RunningAgent[] = listRunningAgents(),
-  hour = new Date().getHours(),
-  weekday = new Date().getDay(),
-  busDir: string = defaultBusDir(),
-): InboxItem[] {
-  const all: InboxItem[] = [];
-  // 0 · work that was dropped on the floor — the only row here that reports a FAILURE
-  all.push(...deadLetterItems(busDir));
-  /* 1 · sessions blocked on the operator, OLDEST FIRST (#23). Colour tells you THAT something
-     is waiting; it cannot tell you which to handle first, and tab order deliberately never
-     re-sorts (spatial memory outranks sorting), so this list is the only place the answer can
-     live. `statusUpdatedAt` is when the CURRENT status was entered, which is exactly "how long
-     has it been blocked" — no bookkeeping of our own, so it survives a restart of this app. */
-  const blocked = running
-    .filter((a) => NEEDS_INPUT_RE.test((a.status || '').toLowerCase()))
-    .sort((x, y) => (x.statusUpdatedAt ?? x.updatedAt ?? 0) - (y.statusUpdatedAt ?? y.updatedAt ?? 0));
-  for (const a of blocked) {
-    all.push({
-      /* Keyed by IDENTITY, not name. Two live sessions can share a name, and a name key would
-         collapse them into ONE row — and, worse, make one dismissal hide both. */
-      key: 'session:' + sessionKey(a),
-      kind: 'session',
-      icon: '\u{1f4ac}',
-      label: t('inbox.sessionNeedsInput', { name: a.name }),
-      /* WHAT it waits for, not merely THAT it waits: 'input needed' versus a named dialog is
-         the difference between answering in two seconds and having to go and look. */
-      detail: a.waitingFor || a.status,
-      /* The signature still keys on status, so an unchanged block stays dismissed — but a NEW
-         thing to be blocked on is new news and must resurface. */
-      sig: a.waitingFor ? `${a.status} \u00b7 ${a.waitingFor}` : a.status,
-      name: a.name,
-      ...(a.sessionId ? { id: a.sessionId } : {}),
-      ...(a.statusUpdatedAt ? { since: a.statusUpdatedAt } : {}),
-    });
-  }
-  // 2 · open go-with-agents suggestions from today's note (per-item dismissal;
-  //     the raw line is the signature — edit the task, it resurfaces)
-  for (const s of listAgentSuggestions().slice(0, 4)) {
-    all.push({
-      key: 'suggestion:' + taskIdentity(s.raw),
-      kind: 'suggestion',
-      icon: '🤖',
-      /* The parser leaves the routing suffix on the task text — "…  (→ agent: [[x]])" — which
-         then repeated whatever the detail line said and pushed every row to three lines. The
-         target belongs in the ACTION, not twice in the label. */
-      label: s.task.replace(/\s*\(?\u2192\s*(?:agent|command)\s*:.*$/i, '').trim() || s.task,
-      detail: s.agent ? '→ ' + s.agent : s.command,
-      sig: s.raw,
-      /* Carried so a click runs THIS one. The row already IS the choice — sending the operator
-         to a list to pick it again is a step that asks them to repeat themselves. */
-      ...(s.agent ? { agent: s.agent } : {}),
-      ...(s.command ? { command: s.command } : {}),
-      ...(s.url ? { url: s.url } : {}),
-    });
-  }
-  // 3 · the active nudge (the standalone whisper hides while the inbox shows it)
-  if (shellSettings().showNudges) {
-    const n = nudgeState(hour, weekday, running.length);
-    if (n) all.push({ key: 'nudge:' + n.kind, kind: 'nudge', icon: n.icon, label: (n.cmdLabel ? n.cmdLabel + ' — ' : '') + (n.label || ''), sig: n.kind + '|' + (n.label || ''), command: n.command, nudgeKind: n.kind });
-  }
-  const dismissed = inboxDismissals();
-  const items = all.filter((i) => !isInboxEntityDismissed(dismissed, i.key, i.sig));
-  // prune dismissals whose item no longer exists ('update' is always live-able —
-  // it is composed async by panelHost, so its key is kept)
-  const pruned = pruneInboxDismissals(dismissed, all.map((i) => i.key).concat('update'));
-  if (JSON.stringify(pruned) !== JSON.stringify(dismissed)) setGlassState(INBOX_DISMISS_KEY, pruned);
-  return items;
-}
-
-/** The framework-update inbox row — composed by panelHost AFTER its async
- *  checkForUpdates(). The signature is the LOCAL hash: running the update
- *  moves the hash, which auto-expires the dismissal. */
-export function updateInboxItem(state: 'up-to-date' | 'available' | 'unknown'): InboxItem | null {
-  if (state !== 'available') return null;
-  const hash = readFrameworkStatus()?.hash || '';
-  const item: InboxItem = { key: 'update', kind: 'update', icon: '↓', label: t('inbox.updateAvailable'), detail: t('inbox.updateDetail'), sig: hash };
-  return isInboxEntityDismissed(inboxDismissals(), item.key, item.sig) ? null : item;
-}
 
 // ── starter packs (persona → a preseeded Home) ──────────────────────────────
 //

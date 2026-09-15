@@ -6,13 +6,16 @@
  *                  permission prompt does not resolve it, so viewing must not clear it.
  *                  Surfaces as the Dock badge AND (at the top level) one banner, on entry.
  *
- *   UNREAD RESULTS enter on busy → idle while the session was NOT visible; clear the moment
- *                  it becomes visible. Nobody needs a banner for work that finished — you
- *                  find out when you look. Badge only, no sound, at every level.
+ * ONE COUNTER, NOT TWO — and the second one was removed after an operator ran it. The original
+ * design also counted "finished while you were away", which sounds useful and is not: a Dock
+ * number reading 4 beside two waiting sessions cannot be read, because the two halves clear by
+ * different acts and neither is visible in the total. "I have a badge showing 4 but then I only
+ * have 2 sessions waiting for input" — and the deeper question underneath it, *how do you clear
+ * a finished one*, has no good answer: a result you have not read is not a thing you can DO
+ * something about, so it does not belong in a number that means "act on me".
  *
- * Merging them into one number was the tempting simplification and it is wrong: one clears by
- * answering and the other by looking, so a single counter would either nag after you answered
- * or go quiet before you read the result.
+ * So the badge counts exactly one thing: sessions blocked on the operator. It clears when they
+ * answer, which is the only act that clears it, and the number is legible without a legend.
  *
  * THREE STATES, NOT TWO. The issue that asked for this was explicit: keep *detected*,
  * *notification pending* and *notification accepted* apart, because a notifier that fails may
@@ -26,7 +29,7 @@
  * human, which is exactly the kind of thing that must be testable without a display.
  */
 
-/** off = nothing · badge = Dock badge only · banner = badge + one macOS notification per block. */
+/** off = nothing · badge = Dock badge only · banner = badge + one notification per block. */
 export type NotifyLevel = 'off' | 'badge' | 'banner';
 
 export const NOTIFY_LEVELS: readonly NotifyLevel[] = ['off', 'badge', 'banner'] as const;
@@ -70,21 +73,15 @@ export function sessionKey(r: { sessionId?: string; pid?: number }): string {
 export interface AttentionState {
   /** Blocks already announced, BY ID. Not the badge — bookkeeping, advanced only on delivery. */
   notified: string[];
-  /** Finished while nobody was looking, BY ID. */
-  unread: string[];
-  /** Last status seen per session id — how a TRANSITION is told from a repeated observation. */
-  seen: Record<string, string>;
 }
 
-export const EMPTY_ATTENTION: AttentionState = { notified: [], unread: [], seen: {} };
+export const EMPTY_ATTENTION: AttentionState = { notified: [] };
 
 export interface AttentionTick {
   /** Carry this into the next tick. */
   state: AttentionState;
   /** Sessions blocked right now — derived, never remembered. */
   blocks: AttentionSession[];
-  /** Finished-unseen session IDS. Resolve to names for display at the call site. */
-  unread: string[];
   /** Blocks entered and not yet announced. Notify these, then markNotified() what succeeded. */
   pending: AttentionSession[];
   /** What the Dock should show. 0 means clear the badge. */
@@ -94,48 +91,21 @@ export interface AttentionTick {
 const isBlocked = (s: AttentionSession): boolean => s.status === 'waiting';
 
 /**
- * Advance the counters by one observation.
- *
- * `visible` is every session the operator can actually SEE — the App focused AND that pane on
- * screen — given as IDS, not names. A focused pane behind another window is not visible, which
- * is why this is passed in rather than inferred from a tab id. It is a SET rather than one id
- * because this app splits: with two panes tiled, both are on screen, and treating only the
- * focused one as seen would leave a result the operator is looking at counted as unread.
+ * Advance the counter by one observation. Blocks are derived fresh every tick and never
+ * remembered, so the badge cannot drift; only the announced-set is carried.
  */
 export function attentionTick(
   prev: AttentionState,
   sessions: readonly AttentionSession[],
-  visible: readonly string[],
 ): AttentionTick {
-  const vis = new Set(visible);
-  const live = new Set(sessions.map((s) => s.id));
   const blocks = sessions.filter(isBlocked);
   const blocked = new Set(blocks.map((s) => s.id));
 
-  // ── unread: busy → idle while unseen ──────────────────────────────────────
-  const unread = new Set(prev.unread.filter((k) => live.has(k)));
-  for (const s of sessions) {
-    const was = prev.seen[s.id];
-    /* 'shell' is a plain terminal, not an agent finishing work — a shell going idle is not a
-       result anyone is waiting to read. Only an agent that was actually working can produce one. */
-    if (was === 'busy' && s.status === 'idle' && !vis.has(s.id)) unread.add(s.id);
-  }
-  for (const v of vis) unread.delete(v);        // looking at it IS reading it
-
-  // ── notified: forget a session once it is no longer blocked, so the NEXT block speaks ──
+  // forget a session once it is no longer blocked, so the NEXT block speaks
   const notified = prev.notified.filter((k) => blocked.has(k));
   const pending = blocks.filter((s) => !notified.includes(s.id));
 
-  const seen: Record<string, string> = {};
-  for (const s of sessions) seen[s.id] = s.status;
-
-  return {
-    state: { notified, unread: [...unread], seen },
-    blocks,
-    unread: [...unread],
-    pending,
-    badge: blocks.length + unread.size,
-  };
+  return { state: { notified }, blocks, pending, badge: blocks.length };
 }
 
 /** Record that these blocks were announced, BY ID. Call ONLY for banners the OS accepted. */

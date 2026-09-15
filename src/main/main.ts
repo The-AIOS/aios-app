@@ -1101,7 +1101,6 @@ app.whenReady().then(() => {
       const rendererOk = await win.webContents.executeJavaScript('window.__workbenchOk === true').catch(() => false);
       let panelOk = false;
       let themeOk = false;
-      let inboxOk = false;
       try {
         // gates 5/6: the NATIVE pulse must have consumed real state + the calendar
         // must render + the light theme must repaint the window
@@ -1119,32 +1118,6 @@ app.whenReady().then(() => {
         themeOk = bgBefore !== bgAfter;
         console.log(`shell-smoke: pulse — ready=${pulseReady}, calCells=${calCells}, sessions=${sessions}, actionBtns=${actionBtns}, themeRepaints=${themeOk}, bg=${bgBefore}→${bgAfter}`);
       } catch (err) { console.error('shell-smoke: pulse gate error', err); }
-      /* GATE: A CARD WITH ROWS IS ACTUALLY ON SCREEN.
-         This exists because of a bug no unit test could have caught. `#pInbox` — the NEEDS YOU
-         card — carried `display: none` in the stylesheet and was revealed with
-         `style.display = ''`, which DELETES the inline declaration rather than setting one, so
-         the element fell back to the stylesheet and stayed hidden. Every function ran, every
-         value was computed correctly, and the card was shown to nobody on every version ever
-         shipped. The operator's report was "I have no idea where's the NEEDS YOU card".
-         The only instrument that can see this is COMPUTED style in a real renderer, so the gate
-         lives here rather than in the suite. Stated as an invariant — visible IFF it has rows —
-         so it is meaningful on a vault whose inbox happens to be empty, instead of only on one
-         that happens to have something waiting. */
-      try {
-        const card = await win.webContents.executeJavaScript(`(() => {
-          const el = document.getElementById('pInbox');
-          if (!el) return { ok: false, why: 'no #pInbox' };
-          const rows = el.querySelectorAll('.pinrow').length;
-          const shown = getComputedStyle(el).display !== 'none';
-          return { ok: rows > 0 ? shown : true, rows, shown,
-                   why: rows > 0 && !shown ? 'has rows and is NOT displayed' : '' };
-        })()`).catch((e: unknown) => ({ ok: false, rows: -1, shown: false, why: String(e) }));
-        const dots = await win.webContents.executeJavaScript(
-          "document.querySelectorAll('.tab .tdot').length").catch(() => -1);
-        inboxOk = !!card.ok;
-        if (!inboxOk) console.error(`shell-smoke: inbox card FAIL — ${card.why}`);
-        console.log(`shell-smoke: inbox — rows=${card.rows}, displayed=${card.shown}, tabDots=${dots}`);
-      } catch (err) { console.error('shell-smoke: inbox gate error', err); }
       /* gate 7: SETUP MUST HAVE CONTENT. This is the first screen a newcomer ever sees, and it
          shipped rendering its title and nothing else — a `const` called above its own
          declaration threw inside the pane builder, so the step list, every button and the
@@ -1294,10 +1267,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && inboxOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + inbox + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, inbox=${inboxOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

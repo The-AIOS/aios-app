@@ -110,10 +110,23 @@ const NO_PUSH: Readonly<Record<string, string>> = {
  * the prompt to re-read the map above rather than a chore.
  */
 const DISPLAYED = [
-  'countAgentSuggestions', 'countNotes', 'discoverAgents', 'discoverCommands', 'discoverSkills',
-  'frequentTaskCount', 'inboxItems', 'listRunningAgents', 'nudgeState', 'operatorName',
-  'primaryName', 'readCollabSpaces', 'readCompanies', 'readFrameworkStatus', 'recentLearnings',
-  'recentOutputs', 'recentReports', 'shellSettings',
+  'countAgentSuggestions',
+  'countNotes',
+  'discoverAgents',
+  'discoverCommands',
+  'discoverSkills',
+  'frequentTaskCount',
+  'listRunningAgents',
+  'nudgeState',
+  'operatorName',
+  'primaryName',
+  'readCollabSpaces',
+  'readCompanies',
+  'readFrameworkStatus',
+  'recentLearnings',
+  'recentOutputs',
+  'recentReports',
+  'shellSettings',
 ];
 
 test('every state-mutating IPC handler either posts state or is exempted with a reason', () => {

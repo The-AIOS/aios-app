@@ -541,8 +541,6 @@ function applySplit() {
 /* ═══ the pulse renderer — nudge · quota · sessions · calendar · learned · outputs ═══ */
 const pulse = {
   nudgeDismissed: new Set(),
-  lastInbox: [],        // "Needs you": sync items (sessions · suggestions · nudge)
-  lastInboxUpdate: null, // "Needs you": the async framework-update row
   calCur: null,
   calView: (() => { try { return localStorage.getItem('calView') === 'week' ? 'week' : 'month'; } catch { return 'month'; } })(),
   weekIdx: -1,
@@ -559,7 +557,6 @@ const pulse = {
    — fine expanded, useless collapsed, where eleven identical dots identify nothing. Keys
    are the card ids, so the icon travels with the card through reordering and collapse. */
 const CARD_ICONS = {
-  pInbox: 'inbox',       // needs you
   pDaily: 'note',        // today's note
   pCal: 'calendar',
   pQuick: 'bolt',        // quick actions — NOT rocket, that is the Designer's glyph
@@ -691,7 +688,7 @@ function fmtAgo(ts) {
 
 function renderPulse(msg) {
   if (msg.type === 'state') renderPulseState(msg);
-  else if (msg.type === 'running') { renderPulseRunning(msg); refreshWaited(); paintTabStates(msg); }   // #23 elapsed + #24.2b tab state, on the same 2s pulse
+  else if (msg.type === 'running') { renderPulseRunning(msg); paintTabStates(msg); }   // #24.2b tab state, on the same 2s pulse
   else if (msg.type === 'month') renderPulseMonth(msg.data);
   else if (msg.type === 'updateStatus') renderPulseUpdate(msg);
   else if (msg.type === 'calendarDirty') { if (pulse.calCur) pulse.send({ type: 'navMonth', year: pulse.calCur.year, month: pulse.calCur.month }); }
@@ -703,14 +700,14 @@ function renderPulseState(m) {
   // secondary hints (the small .pbkey subtitles under each card) — gate on the
   // setting, live on every state (a Settings toggle re-emits state via postState)
   document.body.classList.toggle('no-hints', m.showHints === false);
-  // "Needs you" inbox — consolidated attention (sessions on input · suggestions ·
-  // nudge · update badge) with stateful dismissal persisted in .glass/state.json
-  pulse.lastInbox = m.inbox || [];
-  renderInboxCard();
-  // nudge — grey glass whisper (hidden while the inbox card carries the nudge)
-  const inboxHasNudge = pulse.lastInbox.some((i) => i.kind === 'nudge');
+  /* The nudge — a grey-glass whisper directly above "Ask AIOS anything you need", which is
+     where Glass puts it and where it belongs: it is a suggestion, not a queue. It used to be
+     SUPPRESSED whenever the "Needs you" card carried a copy of it; that card is gone (every one
+     of its rows already had a truer home — the update pill above the greeting, the Go With
+     Agents button, the panel and tab dots, and `/today`/`/close-day` for dead letters, which
+     also RESOLVE them rather than only reporting), so the whisper is simply itself again. */
   const n = document.getElementById('pNudge');
-  if (m.nudge && !inboxHasNudge && !pulse.nudgeDismissed.has(m.nudge.kind)) {
+  if (m.nudge && !pulse.nudgeDismissed.has(m.nudge.kind)) {
     n.replaceChildren();
     const x = el('span', 'nx', '×');
     x.addEventListener('click', (e) => { e.stopPropagation(); pulse.nudgeDismissed.add(m.nudge.kind); n.style.display = 'none'; });
@@ -718,7 +715,7 @@ function renderPulseState(m) {
     n.appendChild(el('span', 'nico', m.nudge.icon));
     if (m.nudge.cmdLabel) { n.appendChild(el('b', '', m.nudge.cmdLabel + ' ')); }
     n.appendChild(document.createTextNode(m.nudge.label || ''));
-    n.onclick = () => { pulse.send({ type: 'nudgeRun', kind: m.nudge.kind, command: m.nudge.command }); };
+    n.onclick = () => { if (m.nudge.command) void runWhere(m.nudge.command, m.nudge.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]); };
     n.style.display = 'block';
     feedMark(n, 'nudge', m.nudge.kind + '|' + (m.nudge.label || ''));
   } else n.style.display = 'none';
@@ -750,143 +747,6 @@ function renderPulseState(m) {
   renderActionCards(m);
   feedPrime('nudge', 'learn', 'out', 'rep'); // boot render isn't "new" — animate only from here on
   if (pulse.lastRunning) renderPulseRunning(pulse.lastRunning);
-}
-
-/* ═══ "Needs you" — ONE card for everything waiting on the operator ═══
-   Sessions blocked on input · open go-with-agents suggestions · the active
-   nudge · the framework-update badge. Dismissal (×) is STATEFUL: it hides an
-   item until it changes again (persisted in .glass/state.json; the signature
-   comparison lives in main — src/core/inbox.ts). */
-const INBOX_CAP = 6;
-
-/* HOW LONG IT HAS BEEN WAITING (#23). Rendered here rather than baked into the label in main,
-   because a duration computed at push time is wrong the moment it is drawn: `postState` fires
-   from file watchers, so a session blocked at 09:00 would still read "just now" at 09:40. The
-   row carries `since` (the registry's own statusUpdatedAt) and this counts up from it on the
-   same 2s pulse that already reports sessions — no new timer, and correct across a restart
-   because the timestamp is the registry's, not ours. */
-function waitedFor(since) {
-  const secs = Math.max(0, Math.floor((Date.now() - since) / 1000));
-  if (secs < 60) return t('waited.now');
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return t('waited.min', { n: mins });
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return t('waited.hour', { n: hrs });
-  return t('waited.day', { n: Math.floor(hrs / 24) });
-}
-
-/** Refresh only the elapsed text. A full re-render every 2s would fight hover and focus. */
-function refreshWaited() {
-  for (const node of document.querySelectorAll('[data-since]')) {
-    const v = Number(node.dataset.since);
-    if (v > 0) node.textContent = waitedFor(v);
-  }
-}
-
-function inboxRows() {
-  const rows = [...(pulse.lastInbox || [])];
-  if (pulse.lastInboxUpdate) rows.push(pulse.lastInboxUpdate);
-  return rows;
-}
-/* A ROW IS ALREADY THE CHOICE. Every one of these used to hand the operator back to a picker
-   to choose the thing they had just clicked: a suggestion reopened the go-with-agents list, and
-   the nudge skipped the other way and fired straight into the primary session with no say in
-   where. Both are now the same shape — this row, and `runWhere` for the one question worth
-   asking, which is WHERE to run it. */
-function inboxAction(item) {
-  if (item.kind === 'session') { pulse.cmd('aios.revealAgent', item.name, item.id || ''); return; }
-  if (item.kind === 'suggestion') {
-    if (item.agent) void runWhere('/aios:agent ' + item.agent + ' — ' + item.label, item.agent);
-    else if (item.command) void runWhere(item.command + (item.url ? ' ' + item.url : ''),
-                                         item.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]);
-    return;
-  }
-  if (item.kind === 'nudge') {
-    if (item.command) void runWhere(item.command, item.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]);
-    return;
-  }
-  if (item.kind === 'update') { pulse.cmd('aios.updateFramework'); return; }
-  /* Surface only: REVEAL the .undelivered file rather than trying to open it in the viewer —
-     the viewer routes on extension and has nothing for `.undelivered`, which is why clicking
-     one produced a "can't open" toast and nothing else. Handling stays with /today and
-     /close-day, which already do it properly. */
-  if (item.kind === 'deadletter' && item.path) void window.glassShell.revealInOS(item.path);
-}
-function renderInboxCard() {
-  const I = document.getElementById('pInbox');
-  if (!I) return;
-  const rows = inboxRows();
-  I.replaceChildren();
-  if (!rows.length) { I.style.display = 'none'; return; }
-  /* EXPLICIT 'block', never ''. `#pInbox` carries `display: none` in the stylesheet (so the card
-     cannot flash before its first render), and `style.display = ''` DELETES the inline rule
-     rather than setting a value — the element then falls back to the stylesheet and stays
-     hidden. Hiding worked; showing was a silent no-op, so this card could never appear on any
-     version. Everything it carries — a session blocked on a permission, go-with-agents
-     suggestions, the ritual nudge, the framework-update row — was computed correctly and shown
-     to nobody. `#pNudge` reveals itself with an explicit 'block' and works; the two rules sat
-     twelve lines apart in the same stylesheet. */
-  I.style.display = 'block';
-  /* NO COUNT on this header. Every other pulse card shows one honestly because nothing clips;
-     this is the only card that clips, so its number is either redundant (all rows visible) or
-     reads as wrong (7 above six rows). `+N more` carries the only count that matters. */
-  I.appendChild(pulseTitle(I, 'pInbox', t('pulse.inbox')));
-  /* The COUNT above stays honest at rows.length even when the list is clipped — the operator is
-     told how many are waiting, then shown as many as the panel can carry without becoming a
-     scroll nobody reaches the end of. Severity decides what survives the cut, not arrival order:
-     `inboxItems()` emits dead letters first, so dropped work is never what gets hidden. */
-  const shown = pulse.inboxExpanded ? rows : rows.slice(0, INBOX_CAP);
-  for (const item of shown) {
-    const r = el('div', 'pinrow');
-    /* A dot only where it carries STATE. A suggestion and a nudge have none — they were each
-       given a green one purely because the row had a slot for it, which is decoration teaching
-       the operator that the colour means nothing. The icon already says what kind of row it is. */
-    const st = item.kind === 'session' ? 'st-input'
-      : (item.kind === 'update' || item.kind === 'deadletter') ? 'st-warn' : '';
-    if (st) r.appendChild(el('span', 'pindot ' + st));
-    r.appendChild(el('span', 'pinico', item.icon || ''));
-    const tx = el('span', 'pintext');
-    tx.appendChild(el('span', 'pinlab', item.label));
-    /* The grey line earns its place only when it carries something the label cannot: a dead
-       letter's REASON, or what a session is blocked on and for how long. On a suggestion it
-       merely repeated the routing already visible in the label, which is what made these rows
-       three lines tall. */
-    const wantsDetail = item.kind === 'deadletter' || item.kind === 'session' || item.kind === 'update';
-    if ((item.detail && wantsDetail) || item.since) {
-      const d = el('span', 'pindet');
-      if (item.detail && wantsDetail) d.appendChild(document.createTextNode(item.detail));
-      if (item.since) {
-        // separated so the elapsed half can be rewritten on its own, leaving the reason alone
-        if (item.detail && wantsDetail) d.appendChild(document.createTextNode(' \u00b7 '));
-        const w = el('span', 'pinwait', waitedFor(item.since));
-        w.dataset.since = String(item.since);
-        d.appendChild(w);
-      }
-      tx.appendChild(d);
-    }
-    r.appendChild(tx);
-    const x = el('button', 'pinx', '×');
-    x.title = t('inbox.dismissTitle');
-    x.addEventListener('click', (e) => {
-      e.stopPropagation();
-      pulse.send({ type: 'inboxDismiss', key: item.key, sig: item.sig });
-      // optimistic: drop locally now; main re-posts the filtered truth right after
-      if (item.kind === 'update') pulse.lastInboxUpdate = null;
-      else pulse.lastInbox = (pulse.lastInbox || []).filter((i) => i.key !== item.key);
-      renderInboxCard();
-    });
-    r.appendChild(x);
-    r.addEventListener('click', () => inboxAction(item));
-    feedMark(r, 'inbox', item.key + '|' + item.sig);
-    I.appendChild(r);
-  }
-  if (rows.length > INBOX_CAP) {
-    const hidden = rows.length - shown.length;
-    const more = el('button', 'pinmore', hidden > 0 ? t('inbox.more', { n: hidden }) : t('inbox.less'));
-    more.addEventListener('click', () => { pulse.inboxExpanded = !pulse.inboxExpanded; renderInboxCard(); });
-    I.appendChild(more);   // deliberately NOT feedMark'ed: chrome, not an item
-  }
-  feedPrime('inbox');
 }
 
 /* ── panel action button — the extension's `.btn` (label · key · count) ─────── */
@@ -1539,7 +1399,6 @@ function paintTabStates(m) {
      is unambiguous. With a duplicate, guessing is exactly the bug; showing no state is honest. */
   const nameCount = new Map();
   for (const a of running) nameCount.set(a.name, (nameCount.get(a.name) || 0) + 1);
-  const unread = new Set(m.unread || []);
   for (const [, p] of panes) {
     if (!p.tab) continue;
     const dot = p.tab.querySelector('.tdot');
@@ -1554,14 +1413,13 @@ function paintTabStates(m) {
           ? running.find((a) => a.name === p.confirmedName)
           : undefined);
     if (!entry) {
-      /* No registry entry: a plain terminal, or a pane whose session ended. GREY MEANS DEAD,
-         GREEN MEANS ALIVE — which is what the side panel already does (`.pdot` bare is grey, a
-         live terminal gets `.pdot.idle`, green). A tab disagreeing with the panel about the same
-         pane is the thing worth avoiding. The note we had both been carrying — "grey is reserved
-         for plain terminals" — was reading statusInfo's UNKNOWN case as if it were about
-         terminals; it never was. */
-      dot.className = 'tdot ' + (p.exited ? 'dead' : 'idle');
-      dot.title = p.exited ? t('status.ended') : t('status.terminal');
+      /* A PLAIN TERMINAL IS GREY — on the tab and in the side panel, which now agree.
+         Operator's call, and the reasoning settles it: "what's a dead terminal? they are never
+         dead, and never moving". Green on a session means alive and ready to be asked something;
+         a shell is neither, so lending it the same green made every pane look alike. Grey is the
+         absence of state, which is exactly what a terminal has. */
+      dot.className = 'tdot plain';
+      dot.title = t('status.terminal');
       continue;
     }
     const info = statusInfo(entry.status);
@@ -1570,7 +1428,7 @@ function paintTabStates(m) {
        won the frame. Unread now lives in the badge alone; if it needs a tab marker later, a
        bolder tab NAME would not compete with the dot or with the group stripe to come. */
     dot.className = 'tdot ' + info.cls;
-    dot.title = unread.has(entry.key) ? info.title + ' · ' + t('status.unseen') : info.title;
+    dot.title = info.title;
   }
 }
 
@@ -1578,16 +1436,19 @@ function paintTabStates(m) {
    Registry grade (all sessions, zero new plumbing): shimmer "Working" verb +
    live elapsed, tracked from status flips on the 2s poll. Pty grade (only the
    terminals THIS window spawned): a one-line ticker tails the latest output. */
-const theater = new Map(); // session name → { busySince, lastDur }
+/* Keyed by session IDENTITY, not name. Two sessions may share one, and keyed on the name both
+   shared a single timer — the operator saw the working-text animation run on BOTH tabs while
+   only one was busy. Same collision class as the tab dot, in the panel's own display. */
+const theater = new Map(); // session key → { busySince, lastDur }
 function trackTheater(sessions) {
   const now = Date.now();
   for (const a of sessions) {
     const busy = statusInfo(a.status).cls === 'busy';
-    const st = theater.get(a.name) || { busySince: 0, lastDur: 0 };
+    const st = theater.get(a.key || a.name) || { busySince: 0, lastDur: 0 };
     // first seen already busy → the registry's updatedAt is when the status flipped
     if (busy && !st.busySince) st.busySince = a.updatedAt || a.startedAt || now;
     else if (!busy && st.busySince) { st.lastDur = Math.max(0, now - st.busySince); st.busySince = 0; }
-    theater.set(a.name, st);
+    theater.set(a.key || a.name, st);
   }
 }
 function fmtDur(ms) {
@@ -1933,7 +1794,7 @@ function sessionRow(a) {
   const dot = el('span', 'pdot ' + s.cls); dot.title = s.title;
   r.appendChild(dot);
   r.appendChild(el('span', 'rname', a.name));
-  const stt = theater.get(a.name) || { busySince: 0, lastDur: 0 };
+  const stt = theater.get(a.key || a.name) || { busySince: 0, lastDur: 0 };
   const ownPane = (() => { const hit = byName(a.name, a.id); return hit && !panes.get(hit[0]).exited ? { id: hit[0], p: panes.get(hit[0]) } : null; })();
   if (s.cls === 'busy') {
     // live-run theater: shimmer verb + honest elapsed; pty ticker when we own the stream
@@ -1995,7 +1856,9 @@ function sessionRow(a) {
 }
 function terminalRow(tid, p) {
   const r = el('div', 'prow2'); r.tabIndex = 0;
-  r.appendChild(el('span', 'pdot' + (p.exited ? '' : ' idle')));
+  /* Grey, like the tab. A terminal has no state to report — green here and grey there was the
+     inconsistency the operator caught, and grey is the half that is right. */
+  r.appendChild(el('span', 'pdot'));
   r.appendChild(el('span', 'rname', p.name || t('pulse.terminal')));
   if (p.exited) r.appendChild(el('span', 'pst', t('pulse.ended')));
   else if (p.lastLine) r.appendChild(buildTicker('term-' + tid, p.lastLine)); // pty-grade: live output tail
@@ -2088,10 +1951,10 @@ function paintCalendar() {
 
 function renderPulseUpdate(m) {
   updateRailStatus(m.state, m.framework || null);
-  // the framework-update row of the "Needs you" inbox (null while dismissed)
-  if ('inboxUpdate' in m) { pulse.lastInboxUpdate = m.inboxUpdate || null; renderInboxCard(); }
-  // The framework status lives ONLY in the panel header now (updateRailStatus above) —
-  // the old footer badge duplicated it at the bottom of the panel.
+  /* The framework status lives ONLY in the panel header (updateRailStatus above). The old footer
+     badge duplicated it at the bottom, and the "Needs you" card duplicated it a third time —
+     which is the argument that retired the card: the operator already had the update pill sitting
+     above the greeting. */
 }
 
 /* ── unified/split zones: tabs + panes per zone ───────────────────────────── */
@@ -2608,31 +2471,6 @@ function setVisible(z) {
      call, already rAF-coalesced — the spec's "resize storm" risk is a DRAG concern and the drag
      divider is deferred, so v1's geometry only moves on discrete events. */
   fitTerms();
-  reportOnScreen();
-}
-
-/* WHICH SESSIONS ARE ON SCREEN (#22). The unread-results counter clears when the operator can
-   SEE a session, and only the renderer knows that — main has the window's focus state but no
-   idea which panes are tiled. Reported as a SET, not the focused tab: while split, both halves
-   are in front of the operator, and badging a result they are looking at is the bug this
-   avoids. Main pairs it with real window focus, so a report that arrives while the App is in
-   the background correctly marks nothing as seen. */
-let lastOnScreen = '';
-function reportOnScreen() {
-  /* IDS, not names. A name would mark the wrong session as seen when two share one. A pane with
-     no sessionId yet is simply not reported — that over-counts unread rather than wrongly
-     clearing it, which is the safe direction to fail for "have you read this". */
-  const ids = [];
-  for (const z of Object.keys(zones)) {
-    for (const id of zones[z].visible) {
-      const p = panes.get(id);
-      if (p && p.kind === 'term' && p.isSession && p.sessionId) ids.push(p.sessionId);
-    }
-  }
-  const key = ids.slice().sort().join('\u0000');
-  if (key === lastOnScreen) return;          // setVisible runs on every tab click; this changes rarely
-  lastOnScreen = key;
-  pulse.send({ type: 'paneVisible', ids });
 }
 
 const evenFrac = (n) => (n <= 0 ? [] : Array.from({ length: n }, () => 1 / n));
@@ -3861,19 +3699,20 @@ window.addEventListener('keydown', (e) => {
 
 /* ── JUMP TO THE NEXT WAITING SESSION — ⌘⇧J (#23) ─────────────────────────────
    Tabs deliberately never re-sort themselves on a state change (spatial memory beats sorting),
-   which is exactly why walking them is the thing this replaces. Cycles OLDEST-FIRST and
-   remembers nothing: `pulse.lastInbox` is already ordered by how long each has been blocked, so
-   pressing it repeatedly walks the queue in the order you should actually answer it. Starting
-   after the pane you are on is what makes the second press go somewhere — otherwise it would
-   land on the same session forever. Silent no-op would read as a broken key, so an empty queue
-   says so out loud. */
+   which is exactly why walking them is the thing this replaces. Reads the running list straight
+   and orders it OLDEST BLOCKED FIRST — `statusUpdatedAt` is when the current status was entered,
+   so it is "how long has this been waiting" with no bookkeeping of our own, and it survives a
+   restart because the timestamp is the registry's. Pressing repeatedly therefore walks the queue
+   in the order it should actually be answered. Starting AFTER the current pane is what makes a
+   second press go somewhere. Silence would read as a broken key, so an empty queue says so. */
 function jumpToNextWaiting() {
-  /* Walks the ITEMS, not their names: two blocked sessions can share one, and a name list would
-     both mis-place the cursor and reveal whichever matched first. */
-  const waiting = (pulse.lastInbox || []).filter((i) => i.kind === 'session' && i.name);
+  const running = (pulse.lastRunning && pulse.lastRunning.running) || [];
+  const waiting = running
+    .filter((a) => statusInfo(a.status).cls === 'input')
+    .sort((x, y) => (x.statusUpdatedAt ?? x.updatedAt ?? 0) - (y.statusUpdatedAt ?? y.updatedAt ?? 0));
   if (!waiting.length) { toast(t('jump.none')); return; }
   const cur = panes.get(active.term) || panes.get(active.main);
-  const at = cur ? waiting.findIndex((i) => (i.id && i.id === cur.sessionId) || (!i.id && i.name === cur.name)) : -1;
+  const at = cur ? waiting.findIndex((a) => (a.key && a.key === cur.sessionId) || a.name === cur.name) : -1;
   const next = waiting[(at + 1) % waiting.length];
   pulse.cmd('aios.revealAgent', next.name, next.id || '');
 }
