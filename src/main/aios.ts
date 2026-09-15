@@ -2045,10 +2045,22 @@ export const claudeDir = () => process.env.GLASS_CLAUDE_HOME || path.join(os.hom
 const claudeSettingsPath = () => path.join(claudeDir(), 'settings.json');
 const claudeJsonPath = () => process.env.GLASS_CLAUDE_JSON || path.join(os.homedir(), '.claude.json');
 
+/* ORDERED BY CAPABILITY, STRONGEST FIRST — and that order is now load-bearing, not cosmetic.
+   The setup step recommends `MODEL_OPTIONS[0]` by name as "the most capable one available here",
+   so a list that is merely OFFERED stale is a small annoyance while a list that is RECOMMENDED
+   stale is the app confidently pointing a newcomer at a superseded model for the one
+   conversation that writes the context every future session reads.
+   Refreshed to the 5 family 2026-09-14, verified against the ids the installed `claude` binary
+   actually advertises (2.1.270 carries claude-opus-5, claude-opus-5[1m], claude-sonnet-5) rather
+   than from memory. It had been a generation behind — topping out at Opus 4.8 while the operator
+   was running Opus 5.
+   STILL A HARDCODED LIST, and it will go stale again: nothing here derives from the binary. That
+   is the real fix and it is not this one. Until then, this list is a release-time checklist item. */
 export const MODEL_OPTIONS = [
-  { label: 'Opus 4.8 — 1M context', value: 'claude-opus-4-8[1m]' },
-  { label: 'Opus 4.8', value: 'claude-opus-4-8' },
-  { label: 'Sonnet 4.6', value: 'claude-sonnet-4-6' },
+  { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
+  { label: 'Opus 5', value: 'claude-opus-5' },
+  { label: 'Sonnet 5 — 1M context', value: 'claude-sonnet-5[1m]' },
+  { label: 'Sonnet 5', value: 'claude-sonnet-5' },
   { label: 'Haiku 4.5', value: 'claude-haiku-4-5' },
   { label: 'Default (clear the override)', value: '' },
 ];
