@@ -714,6 +714,7 @@
   "notify.levelBadge": "Badge only",
   "notify.levelOff": "Off",
   "notify.osBlocked": "Your system is not allowing notifications from AIOS. Turn them on for AIOS in your operating system's notification settings, and sessions blocked on you will reach you.",
+  "notify.overlayDesc": "{n} waiting on you",
   "status.ended": "Ended",
   "pane.ambiguous": "Two sessions are called “{name}” — open the one you mean and try from its tab",
   "status.terminal": "Terminal",

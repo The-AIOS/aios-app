@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { BrowserWindow, WebContents } from 'electron';
+import { BrowserWindow, WebContents, nativeImage } from 'electron';
 import * as aios from './aios';
 import { t } from '../i18n';
 import { Attention } from './attention';
@@ -160,6 +160,31 @@ export class PanelHost {
     /* macOS refused every banner. Point at the one place that can fix it — the operator's own
        System Settings — rather than leaving the setting looking broken. */
     notifyBlocked: () => this.intent('toast', { text: t('notify.osBlocked') }),
+    /* WINDOWS ONLY, guarded by PLATFORM rather than by feature-detection: `setOverlayIcon` is on
+       the BrowserWindow type everywhere and is documented Windows-only, so a truthy check would
+       say yes on macOS and then do nothing — a call that reads as wired and is not.
+       A failed draw leaves the overlay CLEARED rather than stale: no signal beats a wrong count. */
+    setOverlay: (text, description) => {
+      if (process.platform !== 'win32') return;
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (!w || w.isDestroyed()) return;
+      if (!text) { try { w.setOverlayIcon(null, ''); } catch { /* unsupported */ } return; }
+      void this.drawOverlay(text).then((dataUrl) => {
+        if (!dataUrl || w.isDestroyed()) return;
+        try { w.setOverlayIcon(nativeImage.createFromDataURL(dataUrl), description); }
+        catch { /* unsupported */ }
+      }).catch(() => { /* leave it cleared */ });
+    },
+    flash: (on) => {
+      if (process.platform !== 'win32') return;
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (!w || w.isDestroyed()) return;
+      try { w.flashFrame(on); } catch { /* unsupported */ }
+    },
+    isFocused: () => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      return !!w && !w.isDestroyed() && w.isFocused();
+    },
     reveal: (target) => {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
@@ -167,6 +192,38 @@ export class PanelHost {
       this.intent('focusTerminal', { name: target.name, id: target.sessionId ?? '' });
     },
   });
+
+  /**
+   * A 32px taskbar overlay glyph carrying `text`, as a data URL — drawn in the RENDERER because
+   * main has no 2D canvas, and a numbered 16px badge is not something to hand-encode as a PNG.
+   *
+   * Bounded by a timeout. A renderer that never answers must not leave an overlay update pending
+   * forever, and a missed overlay is a far smaller failure than a stuck one. It reads the theme's
+   * own attention colour, so the taskbar agrees with the dot in the panel instead of inventing a
+   * second blue.
+   */
+  private drawOverlay(text: string): Promise<string | null> {
+    const label = JSON.stringify(text);
+    const size = text.length > 1 ? 17 : 21;
+    const js = [
+      '(() => { try {',
+      '  const c = document.createElement("canvas"); c.width = 32; c.height = 32;',
+      '  const x = c.getContext("2d");',
+      '  const css = getComputedStyle(document.documentElement);',
+      '  x.fillStyle = (css.getPropertyValue("--st-input") || "#6cb0ff").trim();',
+      '  x.beginPath(); x.arc(16, 16, 16, 0, Math.PI * 2); x.fill();',
+      '  x.fillStyle = "#fff";',
+      '  x.font = "600 ' + size + 'px -apple-system, Segoe UI, sans-serif";',
+      '  x.textAlign = "center"; x.textBaseline = "middle";',
+      '  x.fillText(' + label + ', 16, 17);',
+      '  return c.toDataURL("image/png");',
+      '} catch { return null; } })()',
+    ].join('\n');
+    return Promise.race([
+      this.wc.executeJavaScript(js).then((v) => (typeof v === 'string' ? v : null)),
+      new Promise<string | null>((r) => setTimeout(() => r(null), 2000)),
+    ]).catch(() => null);
+  }
 
   postRunning(): void {
     const running = aios.listRunningAgents();

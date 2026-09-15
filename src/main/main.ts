@@ -978,6 +978,16 @@ let mainWin: BrowserWindow | undefined;
    cannot see, because both racers believe they are the only App.
    The smoke run is exempt: it launches deliberately alongside a developer's own App, and a lock
    there would make the gate exit 0 having tested nothing. */
+/* The installer writes this same id onto the Start Menu shortcut, so it is read rather than
+   retyped: two copies of an id that must match is one copy too many. */
+const APP_ID: string = ((): string => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')) as
+      { build?: { appId?: string } };
+    return pkg.build?.appId || 'com.the-aios.app';
+  } catch { return 'com.the-aios.app'; }
+})();
+
 if (!SMOKE && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -990,6 +1000,18 @@ if (!SMOKE && !app.requestSingleInstanceLock()) {
     w.show();
     w.focus();
   });
+}
+
+/* WINDOWS WILL NOT ATTRIBUTE A TOAST WITHOUT THIS, and the failure is silent: notifications
+   simply never appear, with nothing logged and nothing to click. Windows keys toasts to an
+   Application User Model ID, which must match the one on the Start Menu shortcut the installer
+   creates — electron-builder's NSIS target writes `build.appId` there, so this reads the same
+   value from package.json rather than restating it. Without the call Electron derives an id from
+   the executable path, which does not match the shortcut, and the toast is dropped.
+   Harmless and a no-op off Windows; called before whenReady because the id must be set before
+   anything is shown. */
+if (process.platform === 'win32') {
+  try { app.setAppUserModelId(APP_ID); } catch { /* older Electron — the default id stands */ }
 }
 
 app.whenReady().then(() => {

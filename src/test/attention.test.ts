@@ -19,7 +19,7 @@ import {
 } from '../core/attention';
 /* TYPE-ONLY, so it is erased at compile time and never pulls `electron` in at require time —
    the runtime copy comes from loadAttention() below, with the loader stubbed. */
-import type { Attention as AttentionClass, AttentionHooks } from '../main/attention';
+import type { Attention as AttentionClass, AttentionHooks, overlayText as OverlayTextFn, shouldFlash as ShouldFlashFn } from '../main/attention';
 import type { RunningAgent } from '../main/aios';
 
 /**
@@ -31,7 +31,7 @@ import type { RunningAgent } from '../main/aios';
  * Notification that lets the test decide the verdict. Swapping two modules in the loader buys
  * assertions about the thing itself instead of assertions about how it is spelled.
  */
-function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass; lastBanner: () => FakeNotification | undefined; clearBanner: () => void } {
+function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass; overlayText: typeof OverlayTextFn; shouldFlash: typeof ShouldFlashFn; lastBanner: () => FakeNotification | undefined; clearBanner: () => void } {
   const Module = require('module') as { _load(req: string, parent: unknown, isMain: boolean): unknown };
   const holder: { last?: FakeNotification } = {};
 
@@ -58,10 +58,13 @@ function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass
     /* Resolved fresh so the stub is what the module closes over, whatever ran before it. */
     const id = require.resolve('../main/attention');
     delete require.cache[id];
-    const mod = require('../main/attention') as { Attention: new (h: AttentionHooks) => AttentionClass };
+    const mod = require('../main/attention') as { Attention: new (h: AttentionHooks) => AttentionClass;
+      overlayText: typeof OverlayTextFn; shouldFlash: typeof ShouldFlashFn };
     delete require.cache[id];   // never leave a stubbed copy for another suite
     return {
       Attention: mod.Attention,
+      overlayText: mod.overlayText,
+      shouldFlash: mod.shouldFlash,
       /* Read through a CALL, never a property: a test that assigns `holder.last = undefined` to
          reset between cases narrows the property to `undefined` for the rest of the function, and
          the next `.emit()` fails to compile on a value that is perfectly fine at runtime. */
@@ -72,6 +75,11 @@ function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass
 }
 
 interface FakeNotification { emit(ev: string, ...args: unknown[]): void }
+
+/* The Windows taskbar surfaces, silenced. Every case that is not ABOUT them supplies these, so a
+   new hook cannot be added without every caller acknowledging it — which is the point of the
+   interface being explicit rather than optional. */
+const NOOP_WIN = { setOverlay: () => { }, flash: () => { }, isFocused: () => true };
 
 /* `id` defaults to the name because most cases here have one session per name; the duplicate
    tests pass it explicitly, which is the whole reason the field exists. */
@@ -223,7 +231,7 @@ test('ONE banner per block, whatever the OS reports back — including nothing a
   const { Attention, lastBanner } = loadAttention();
   const blocked = [{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-1' } as RunningAgent];
   let banners = 0;
-  const a = new Attention({ reveal: () => { }, notifyBlocked: () => { } });
+  const a = new Attention({ ...NOOP_WIN, reveal: () => { }, notifyBlocked: () => { } });
 
   /* THE SILENT OS: tick repeatedly and never emit anything back. */
   for (let i = 0; i < 20; i++) {
@@ -235,7 +243,7 @@ test('ONE banner per block, whatever the OS reports back — including nothing a
     'twenty ticks, one notification — silence must not read as "not yet delivered"');
 
   /* A REFUSAL IS DIFFERENT: it is a real answer, so it earns a bounded retry. */
-  const b = new Attention({ reveal: () => { }, notifyBlocked: () => { } });
+  const b = new Attention({ ...NOOP_WIN, reveal: () => { }, notifyBlocked: () => { } });
   let tries = 0;
   for (let i = 0; i < 20; i++) {
     const before = lastBanner();
@@ -246,7 +254,7 @@ test('ONE banner per block, whatever the OS reports back — including nothing a
   assert.equal(tries, 3, 'three attempts, then it stops — not once, and not forever');
 
   /* AND A SUCCESS IS FINAL. */
-  const c = new Attention({ reveal: () => { }, notifyBlocked: () => { } });
+  const c = new Attention({ ...NOOP_WIN, reveal: () => { }, notifyBlocked: () => { } });
   let shown = 0;
   for (let i = 0; i < 20; i++) {
     const before = lastBanner();
@@ -255,6 +263,72 @@ test('ONE banner per block, whatever the OS reports back — including nothing a
     if (now !== before) { shown++; now?.emit('show', {}); }
   }
   assert.equal(shown, 1, 'a delivered banner is never sent twice');
+});
+
+test('WINDOWS: the count reaches a taskbar that has no badge, and the flash is bounded', () => {
+  /* `app.setBadgeCount` is a silent no-op on Windows, so every count this feature produces
+     reached a Windows operator NOWHERE. The taskbar equivalents are an overlay glyph and
+     flashing the button. Neither API can be exercised on the machine this was written on, which
+     is exactly why the DECISIONS are separated from the calls: an untestable API wrapped around
+     an untested decision is two unknowns, and only one of them has to stay unknown. */
+  const { overlayText, shouldFlash } = loadAttention();
+
+  assert.equal(overlayText(0, 'banner'), '', 'nothing waiting → the overlay is cleared, not blank-drawn');
+  assert.equal(overlayText(3, 'banner'), '3');
+  assert.equal(overlayText(3, 'badge'), '3', 'the count is not a banner — badge level still shows it');
+  assert.equal(overlayText(3, 'off'), '', 'off means off on every surface');
+  assert.equal(overlayText(9, 'banner'), '9');
+  assert.equal(overlayText(10, 'banner'), '9+', 'two characters is all a 16px overlay can hold');
+  assert.equal(overlayText(999, 'banner'), '9+');
+
+  /* Flashing at someone already looking at the app is shouting in a quiet room — and on Windows
+     the flash persists until the window is ACTIVATED, so one raised while focused could never
+     clear itself. */
+  assert.equal(shouldFlash(1, false, 'banner'), true, 'something new, and they are looking elsewhere');
+  assert.equal(shouldFlash(1, true, 'banner'), false, 'focused — they can already see it');
+  assert.equal(shouldFlash(0, false, 'banner'), false, 'nothing NEW; an hour-old block must not re-flash');
+  assert.equal(shouldFlash(1, false, 'off'), false);
+  assert.equal(shouldFlash(1, false, 'badge'), true, 'a badge-level operator still gets the taskbar cue');
+});
+
+test('WINDOWS: the taskbar surfaces are driven, cleared on dispose, and platform-guarded', () => {
+  const { Attention } = loadAttention();
+  const calls: string[] = [];
+  const a = new Attention({
+    ...NOOP_WIN, reveal: () => { }, notifyBlocked: () => { },
+    setOverlay: (text: string) => { calls.push('overlay:' + text); },
+    flash: (on: boolean) => { calls.push('flash:' + String(on)); },
+    isFocused: () => false,
+  });
+
+  a.tick([{ name: 'ingest', status: 'waiting', pid: 1, sessionId: 's1' } as RunningAgent], 'badge');
+  assert.ok(calls.includes('overlay:1'), 'the count reaches the overlay');
+  assert.ok(calls.includes('flash:true'), 'and an unfocused window is flashed');
+
+  /* ONLY ON A CHANGE. Redrawing an overlay every two seconds is the class of defect AI-157 was;
+     the flash is worse, because re-raising it restarts the attention cycle. */
+  const n = calls.length;
+  a.tick([{ name: 'ingest', status: 'waiting', pid: 1, sessionId: 's1' } as RunningAgent], 'badge');
+  assert.equal(calls.length, n, 'an unchanged tick touches neither surface');
+
+  a.dispose();
+  assert.equal(calls.at(-2), 'overlay:', 'a taskbar overlay outlives its window unless cleared');
+  assert.equal(calls.at(-1), 'flash:false', 'and a flashing button nothing can stop is worse than no signal');
+
+  /* The calls themselves are guarded by PLATFORM, not by feature-detection: setOverlayIcon is on
+     the BrowserWindow type everywhere and documented Windows-only, so a truthy check says yes on
+     macOS and then does nothing — a call that reads as wired and is not. */
+  const host = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'panelHost.ts'), 'utf8');
+  for (const fn of ['setOverlay', 'flash']) {
+    const i = host.indexOf(fn + ': (');
+    assert.notEqual(i, -1, fn + ' must be wired');
+    assert.match(host.slice(i, i + 220), /process\.platform !== 'win32'\) return;/,
+      fn + ' must be platform-guarded');
+  }
+  /* Windows drops a toast whose id does not match the Start Menu shortcut, silently. */
+  const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
+  assert.match(main, /app\.setAppUserModelId\(APP_ID\)/, 'toasts need an AppUserModelID on Windows');
+  assert.match(main, /pkg\.build\?\.appId/, 'read from package.json — the installer writes that same id');
 });
 
 test('clicking a banner focuses the WAITING SESSION, in the shape the renderer can resolve', () => {
@@ -267,7 +341,7 @@ test('clicking a banner focuses the WAITING SESSION, in the shape the renderer c
      behind a second bug that was explicitly scoped out. */
   const { Attention, lastBanner } = loadAttention();
   const revealed: { name: string; sessionId?: string }[] = [];
-  const a = new Attention({ reveal: (t) => revealed.push(t), notifyBlocked: () => { } });
+  const a = new Attention({ ...NOOP_WIN, reveal: (t) => { revealed.push(t); }, notifyBlocked: () => { } });
 
   a.tick([{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-abc' } as RunningAgent], 'banner');
   lastBanner()?.emit('click', {});

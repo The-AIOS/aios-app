@@ -714,6 +714,7 @@
   "notify.levelBadge": "Somente contador",
   "notify.levelOff": "Desativado",
   "notify.osBlocked": "Seu sistema não está permitindo notificações do AIOS. Ative-as para o AIOS nas configurações de notificações do seu sistema operacional, e as sessões bloqueadas vão conseguir avisar você.",
+  "notify.overlayDesc": "{n} esperando por você",
   "status.ended": "Encerrada",
   "pane.ambiguous": "Há duas sessões chamadas “{name}” — abra a que você quer e tente pela aba dela",
   "status.terminal": "Terminal",
