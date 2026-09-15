@@ -211,91 +211,71 @@ test('the shared predicate accepts what Claude Code actually writes', () => {
   }
 });
 
-test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
-  /* The operator chose "badge + notification", got nothing, and had to find macOS System
-     Settings unaided — nothing in the App said the OS was refusing. The App is the only party
-     that knows: it receives the `failed` event. A toast alone was not enough, because a toast is
-     an EVENT and this is a STATE — it stays true until the operator changes it, and the moment
-     they go looking is when they open Settings, not the moment it failed. */
-  /* EXERCISED, NOT PATTERN-MATCHED. This assertion used to read the source for the literal
-     `osRefused(): boolean { return this.refused; }`, and that is worse than it looks: it pinned
-     a one-line implementation while proving nothing about behaviour, so it broke the moment the
-     line was rewritten AND it stayed green through the bug that actually shipped — a refusal
-     held only in memory, invisible to the next run, which the operator reported as "no amber
-     line". A guard that cannot fail for the real defect but does fail for a refactor is worse
-     than none: it spends its credibility in the wrong direction. Driving the class through a
-     stubbed `electron` costs a loader shim and tests the thing itself. */
+test('ONE banner per block, whatever the OS reports back — including nothing at all', () => {
+  /* The bound used to live entirely inside the `failed` handler, which assumed the OS always
+     answers. Operator-reported 2026-09-15: with notifications revoked in system settings, a
+     signed build got neither `show` nor `failed`. Two things followed, and only the first was
+     noticed — no banner and no explanation; but the block also stayed PENDING, so the 2s poll
+     built a fresh notification every tick for as long as that session stayed blocked.
+     A retry budget keyed on a verdict cannot bound the case where no verdict arrives. So the
+     block is marked when we ASK, which is the only thing we actually observe, and un-marked only
+     if the OS comes back to say it failed. */
   const { Attention, lastBanner } = loadAttention();
-  const saved: boolean[] = [];
-  let stored = false;
-  const mk = () => new Attention({
-    reveal: () => { }, notifyBlocked: () => { },
-    loadRefused: () => stored,
-    saveRefused: (v: boolean) => { saved.push(v); stored = v; },
-  });
+  const blocked = [{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-1' } as RunningAgent];
+  let banners = 0;
+  const a = new Attention({ reveal: () => { }, notifyBlocked: () => { } });
 
-  const a = mk();
-  assert.equal(a.osRefused(), false, 'nothing measured yet — never claim a refusal we have not seen');
+  /* THE SILENT OS: tick repeatedly and never emit anything back. */
+  for (let i = 0; i < 20; i++) {
+    const before = lastBanner();
+    a.tick(blocked, 'banner');
+    if (lastBanner() !== before) banners++;
+  }
+  assert.equal(banners, 1,
+    'twenty ticks, one notification — silence must not read as "not yet delivered"');
 
-  a.tick([{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-1' } as RunningAgent], 'banner');
-  lastBanner()?.emit('failed', {}, 'UNErrorDomain error 1');
-  assert.equal(a.osRefused(), true, 'set from the OS report, never inferred from a permissions guess');
-  assert.deepEqual(saved, [true], 'and WRITTEN DOWN — the next run must not have to rediscover it');
+  /* A REFUSAL IS DIFFERENT: it is a real answer, so it earns a bounded retry. */
+  const b = new Attention({ reveal: () => { }, notifyBlocked: () => { } });
+  let tries = 0;
+  for (let i = 0; i < 20; i++) {
+    const before = lastBanner();
+    b.tick(blocked, 'banner');
+    const now = lastBanner();
+    if (now !== before) { tries++; now?.emit('failed', {}, 'UNErrorDomain error 1'); }
+  }
+  assert.equal(tries, 3, 'three attempts, then it stops — not once, and not forever');
 
-  /* The bug the old guard could not see: a relaunch. */
-  assert.equal(mk().osRefused(), true,
-    'a fresh run reads the last measurement — Settings is usually opened in a later run than the one that failed');
-
-  lastBanner()?.emit('show', {});
-  assert.equal(a.osRefused(), false,
-    'cleared when a banner lands — permission can be granted mid-run, so the state must not stick');
-  assert.deepEqual(saved, [true, false], 'the grant is persisted too, or the warning outlives the problem');
-
-  const glue = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'attention.ts'), 'utf8');
-  assert.match(glue, /if \(!this\.toldAboutPermission\)/, 'the toast fires once, never a nag');
+  /* AND A SUCCESS IS FINAL. */
+  const c = new Attention({ reveal: () => { }, notifyBlocked: () => { } });
+  let shown = 0;
+  for (let i = 0; i < 20; i++) {
+    const before = lastBanner();
+    c.tick(blocked, 'banner');
+    const now = lastBanner();
+    if (now !== before) { shown++; now?.emit('show', {}); }
+  }
+  assert.equal(shown, 1, 'a delivered banner is never sent twice');
 });
 
-test('the Settings re-check probes ONLY while we are still reporting a refusal', () => {
-  /* Persisting the refusal introduces one way to be wrong that the in-memory version could not
-     be: the operator fixes the permission, opens Settings, and is told they are still blocked by
-     a line whose entire job is to be trusted. Nothing else clears it — the state clears on a
-     successful banner, and no banner is guaranteed to happen.
-     Re-measuring on open closes that. Gating it on the refused state is what makes it free:
-     while genuinely blocked the probe is invisible because the OS refuses it, so the common case
-     shows nothing, and exactly one banner is ever raised — the one saying the problem is over.
-     Ungated, this would fire a banner every time Settings is opened for any reason. */
-  const { Attention, lastBanner, clearBanner } = loadAttention();
-  let stored = false;
-  const mk = () => new Attention({
-    reveal: () => { }, notifyBlocked: () => { },
-    loadRefused: () => stored,
-    saveRefused: (v: boolean) => { stored = v; },
-  });
+test('the permission requirement is stated in the SETTING, not left to be discovered', () => {
+  /* Three rounds of testing on a signed build produced no runtime warning of any kind, because
+     both the in-app warning and the toast hung off a `failed` event the OS never sent. A warning
+     that cannot be shown to fire is worse than none: it reads as a feature and is a blank.
+     So the requirement is stated where the choice is made, unconditionally, in prose that does
+     not depend on detecting anything — and the text stays platform-neutral, because this ships
+     to three of them and naming one makes it wrong on the other two. */
+  const en = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'i18n', 'locales', 'en.json'), 'utf8')) as Record<string, string>;
 
-  const healthy = mk();
-  clearBanner();
-  healthy.recheck('banner');
-  assert.equal(lastBanner(), undefined,
-    'not refused → nothing is sent, so opening Settings never raises a banner on its own');
-
-  stored = true;
-  const blocked = mk();
-  blocked.recheck('banner');
-  assert.notEqual(lastBanner(), undefined, 'refused → re-measure, because it may be over');
-
-  lastBanner()?.emit('show', {});
-  assert.equal(blocked.osRefused(), false, 'the permission was granted since — the warning clears');
-  assert.equal(stored, false, 'and the correction is persisted, or it returns on the next run');
-
-  /* A level with no banners cannot be measured by sending one. */
-  const off = mk();
-  clearBanner();
-  stored = true;
-  off.recheck('badge');
-  assert.equal(lastBanner(), undefined, 'badge-only: nothing to probe');
-
-  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
-  assert.match(app, /window\.glassShell\.attentionRefused\(\)/,
-    'and Settings asks, so the control explains itself instead of looking broken');
-  assert.match(app, /t\('notify\.osBlocked'\)/, 'in words that name the place to fix it');
+  for (const key of ['settings.attentionHint', 'whatsnew.b2']) {
+    const copy = en[key];
+    assert.ok(copy, `${key} must exist`);
+    assert.match(copy, /permission/i, `${key}: say that permission is required`);
+    assert.match(copy, /operating system/i, `${key}: name where it is granted`);
+    assert.doesNotMatch(copy, /\bmacOS\b|\bWindows\b|\bDock\b|System Settings/,
+      `${key}: platform-neutral — this ships to three platforms`);
+  }
+  /* The hint no longer points at push settings that are not in this panel. */
+  assert.doesNotMatch(en['settings.attentionHint'], /phone/i,
+    'the hint described phone push settings that do not exist in this panel');
 });

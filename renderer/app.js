@@ -6240,37 +6240,11 @@ function openSettingsTab() {
       const o = document.createElement('option'); o.textContent = l; o.value = v; notifySel.appendChild(o);
     }
     notifySel.value = cfg.attention || 'banner';
-    const attnRow = row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
-    /* IF macOS IS REFUSING, SAY SO HERE — beside the control, not only as a toast at the moment
-       of failure. The operator reported choosing "badge + notification", getting nothing, and
-       having to find System Settings unaided: the App is the only party that knows the OS
-       refused, and Settings is where someone goes when a setting looks broken.
-       RE-READ AFTER EVERY CHANGE, not only on open. Selecting a banner level makes main send one
-       confirmation banner, and its verdict lands a beat later — rendering only on open meant the
-       operator had to close and reopen Settings to see the answer to the choice they just made,
-       which is precisely the reading of "nothing happened" this line exists to prevent. */
-    const paintAttnWarn = () => {
-      void window.glassShell.attentionRefused().then((refused) => {
-        if (!attnRow || !attnRow.isConnected) return;
-        const had = attnRow.querySelector('.twarn');
-        if (!refused) { if (had) had.remove(); return; }
-        if (had) return;
-        attnRow.appendChild(el('div', 'thint twarn', t('notify.osBlocked')));
-      }).catch(() => { /* older main — the toast still covers it */ });
-    };
+    row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
     notifySel.addEventListener('change', async () => {
       await window.glassShell.setSetting('attention', notifySel.value);
       toast(t('settings.saved'));
-      /* The OS answers asynchronously (measured: ~7ms for a refusal, longer when it succeeds),
-         so read once the verdict can have arrived rather than racing it. */
-      setTimeout(paintAttnWarn, 1200);
     });
-    /* Ask main to re-measure BEFORE we read, in case the operator fixed the permission since we
-       last looked. It only probes when we are still reporting a refusal, so a Settings open in
-       the normal case sends nothing at all. */
-    void Promise.resolve(window.glassShell.attentionRecheck?.()).catch(() => { });
-    paintAttnWarn();
-    setTimeout(paintAttnWarn, 1200);   // and again once the OS verdict can have landed
 
     // Calendar week numbers — repaints the calendar on the SETTING change (not just fs events)
     const wkToggle = document.createElement('input');

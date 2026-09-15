@@ -942,8 +942,6 @@ ipcMain.handle('session:under', (_e, paneIds: number[]) => {
 });
 /* Settings asks whether macOS has refused a banner, so the alerts control can say why it looks
    like it is doing nothing rather than leaving the operator to find System Settings unaided. */
-ipcMain.handle('attention:refused', () => host?.attentionRefused() ?? false);
-ipcMain.handle('attention:recheck', () => { host?.attentionRecheck(); });
 ipcMain.handle('claude:permissionModes', () => aios.permissionModes());
 ipcMain.handle('shell:frameworkPath', () => aios.frameworkPathSetting());
 ipcMain.handle('shell:setFrameworkPath', (_e, v: string) => { aios.setFrameworkPath(String(v ?? '')); return aios.frameworkPathSetting(); });
@@ -959,11 +957,6 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
      auto not follow sessions, with nothing on screen explaining why. Applies immediately rather
      than waiting for the next 2s tick, so the button reflects the new mode as the select closes. */
   if (key === 'caffeinate') caffeine.modeChanged();
-  /* CONFIRM THE CHOICE IMMEDIATELY. Choosing "banner" and receiving nothing is indistinguishable
-     from a broken app, and the operator hit exactly that: banners never arrived and nothing said
-     macOS was refusing. One banner here either proves it works or flips the refusal state, which
-     puts the amber line under this very control before the Settings panel is closed. */
-  if (key === 'attention') host?.attentionProbe(aios.shellSettings().attention);
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
     installMenu(() => mainWin);  // the native menu can't re-render itself — rebuild it

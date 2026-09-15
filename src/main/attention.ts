@@ -34,10 +34,6 @@ export interface AttentionHooks {
   reveal(pid: number): void;
   /** Tell the operator something they have to act on outside this app. Fired at most once. */
   notifyBlocked(): void;
-  /** Last observed refusal, from the previous run. */
-  loadRefused(): boolean;
-  /** Remember the refusal across runs — see the note on `refused`. */
-  saveRefused(v: boolean): void;
 }
 
 export class Attention {
@@ -48,74 +44,6 @@ export class Attention {
   private failures = new Map<string, number>();
   /** Said once, ever: the OS is refusing, and only the operator can change that. */
   private toldAboutPermission = false;
-  /* THE REFUSAL IS A STATE, NOT AN EVENT — which is what the toast alone got wrong. A toast
-     fires once and is gone; "macOS is denying notifications" stays true until the operator
-     changes it, and the moment they go looking is when they open Settings, not the moment it
-     failed. So it is also readable, and Settings renders it beside the control it explains.
-     AND IT OUTLIVES THE RUN, which the first version got wrong in a way that made it read as
-     simply broken. It was in-memory, so it could only be true if a session happened to block
-     while the OS was refusing IN THIS RUN — and Settings is usually opened in a later one.
-     Reported 2026-09-15: "no amber line, i closed and opened settings, turned on and off the
-     notifications permission, nothing." Every part of the chain was wired; the state was just
-     empty, because a relaunch had cleared the only evidence we had. A fact about the operator's
-     SYSTEM has no business living in the lifetime of one process — it stays true until a banner
-     actually succeeds, and only a successful `show` clears it. */
-  private refused: boolean | undefined;
-
-  /** True while macOS is refusing banners — last measured, not guessed. */
-  osRefused(): boolean {
-    if (this.refused === undefined) {
-      try { this.refused = this.hooks.loadRefused(); } catch { this.refused = false; }
-    }
-    return this.refused;
-  }
-
-  /** Record an outcome once, and only when it CHANGES — this writes to disk. */
-  private setRefused(v: boolean): void {
-    if (this.osRefused() === v) return;
-    this.refused = v;
-    try { this.hooks.saveRefused(v); } catch { /* unwritable — in-memory still holds for this run */ }
-  }
-
-  /**
-   * Show one banner on purpose, because the operator just chose to receive banners.
-   *
-   * The one moment a notification is SELF-EXPLANATORY rather than noise: they picked the level
-   * in Settings and the banner is the answer. It is also the only proactive probe available —
-   * Electron exposes no way to ask macOS whether we are authorized, and the honest alternatives
-   * are worse (reading Apple's private notification database, or inferring from silence). So the
-   * amber line appears the moment the setting is chosen and cannot be delivered, instead of
-   * waiting for some session to block later and hoping the operator is in Settings when it does.
-   */
-  /**
-   * Re-measure ONLY if we currently believe we are blocked. Called when Settings opens.
-   *
-   * This is what keeps a PERSISTED state from going stale in the one direction that matters.
-   * The warning clears on any successful banner, but nothing guarantees one happens: an operator
-   * who fixes the permission and then simply opens Settings would be told they are still blocked,
-   * by a line whose whole purpose is to be trusted.
-   *
-   * Gating on the refused state is what makes it free. While we are genuinely blocked the probe
-   * is invisible BY CONSTRUCTION — the OS refuses it, which is the measurement — so the common
-   * case costs nothing and shows nothing. Exactly one banner is ever raised: the one that
-   * announces the problem is over. Probing unconditionally here would instead fire a banner every
-   * time Settings is opened for any reason, which is how a confirmation becomes noise.
-   */
-  recheck(level: NotifyLevel): void {
-    if (!this.osRefused()) return;
-    this.probe(level);
-  }
-
-  probe(level: NotifyLevel): void {
-    if (!mayBanner(level) || !Notification.isSupported()) return;
-    try {
-      const n = new Notification({ title: t('notify.probeTitle'), body: t('notify.probeBody'), silent: true });
-      n.on('show', () => this.setRefused(false));
-      n.on('failed', () => this.setRefused(true));
-      n.show();
-    } catch { /* constructor threw — nothing measured, so nothing claimed */ }
-  }
-
   constructor(private hooks: AttentionHooks) {}
 
   /** One observation. Called from the same 2s poll that already lists the sessions. */
@@ -157,20 +85,16 @@ export class Attention {
            `failed: UNErrorDomain error 1` (notifications not allowed) while this counted each
            one as delivered. That is the detected/pending/accepted collapse the request warned
            about, reached from the one direction a try/catch cannot see. */
-        n.on('show', () => {
-          this.setRefused(false);   // granted since — the state must not stick
-          this.failures.delete(s.id);
-          this.state = markNotified(this.state, [s.id]);
-        });
+        n.on('show', () => { this.failures.delete(s.id); });
         n.on('failed', () => {
-          this.setRefused(true);
           const tries = (this.failures.get(s.id) ?? 0) + 1;
           this.failures.set(s.id, tries);
-          /* Bounded: after three refusals the OS is not changing its mind this run, and
-             retrying every two seconds forever is its own bug. Give up on the BANNER only —
-             the block keeps its place in the badge, so nothing vanishes quietly. */
-          if (tries >= MAX_BANNER_TRIES) {
-            this.state = markNotified(this.state, [s.id]);
+          /* Retry, but only up to the bound — after three refusals the OS is not changing its
+             mind this run. Give up on the BANNER only: the block keeps its place in the badge,
+             so nothing vanishes quietly. */
+          if (tries < MAX_BANNER_TRIES) {
+            this.state = { notified: this.state.notified.filter((k) => k !== s.id) };
+          } else {
             /* AND SAY SO. Giving up silently is how an operator concludes the feature is broken:
                they set it to "badge + notification", nothing ever appears, and nothing anywhere
                explains that macOS is refusing. Reported exactly that — the banners only worked
@@ -182,6 +106,15 @@ export class Attention {
             }
           }
         });
+        /* MARKED ON THE ATTEMPT, and only un-marked if the OS comes back to say it failed.
+           This was the other way round, on the reasoning that `show()` does not throw and a
+           refusal arrives asynchronously — true, and it assumed one of the two events ALWAYS
+           arrives. Operator-reported 2026-09-15: with notifications revoked in system settings,
+           a signed build got neither. Nothing appeared, and nothing said why — but the block
+           also stayed `pending`, so this loop built a fresh notification every two seconds, for
+           as long as that session stayed blocked. Silence is not a verdict we can wait on.
+           Marking here is the honest reading: what we can observe is that we ASKED. */
+        this.state = markNotified(this.state, [s.id]);
         n.show();
       } catch { /* constructor threw → stays pending, and the next tick tries again */ }
     }
