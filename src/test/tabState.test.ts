@@ -107,3 +107,45 @@ test('a pane whose session ended falls back to plain, not to a stale state', () 
   assert.match(app(), /if \(!entry\) \{[\s\S]{0,400}?dot\.className = 'tdot plain';/,
     'a tab left showing "working" for a session that no longer exists is worse than showing nothing');
 });
+
+test('a name alone never decides a DESTRUCTIVE action on a duplicate', () => {
+  /* `byName` used `.find()`, which returns the first match — so with two `ingest` panes, close,
+     interrupt and the bus's own `send` all acted on whichever came first. Navigation landing on
+     the wrong pane is visible and one keystroke from corrected; the other three are not:
+     closing throws away a session, interrupting throws away work in flight, and a `send`
+     delivers a brief to the wrong session while telling the sender it worked. That last one is
+     the same class this file already carries a comment about — "how a brief ended up executing
+     at a bash prompt". */
+  const src = app();
+  assert.match(src, /const byName = \(name, id\) => \{/, 'identity first');
+  assert.match(src, /p\.kind === 'term' && p\.sessionId === id/, 'resolved by sessionId when known');
+  assert.match(src, /const ambiguous = \(name\) =>/, 'and a way to know a name cannot decide');
+
+  for (const [intent, why] of [
+    ["closeByName", 'closing the wrong session is not recoverable'],
+    ["escByName", 'interrupting the wrong session throws away work in flight'],
+  ] as const) {
+    const block = src.slice(src.indexOf(`case '${intent}':`), src.indexOf(`case '${intent}':`) + 400);
+    assert.match(block, /if \(!m\.id && ambiguous\(m\.name\)\)/, `${intent} refuses an ambiguous name — ${why}`);
+  }
+
+  const send = src.slice(src.indexOf("case 'sendByName':"), src.indexOf("case 'escByName':"));
+  assert.match(send, /if \(!m\.id && ambiguous\(m\.name\)\) \{[\s\S]*?busSendResult\(m\.name, false,/,
+    'a bus send REPORTS the refusal rather than guessing — delivering to the wrong session is '
+    + 'worse than not delivering, because the sender is told it worked');
+
+  /* Navigation is the deliberate exception, and it is stated so nobody "fixes" it later. */
+  const focus = src.slice(src.indexOf("case 'focusByName':"), src.indexOf("case 'closeByName':"));
+  assert.ok(!focus.includes('ambiguous('), 'focus still resolves rather than refusing — a dead control is worse');
+});
+
+test('every caller that knows the session id passes it', () => {
+  const src = app();
+  assert.match(src, /pulse\.cmd\('aios\.revealAgent', item\.name, item\.id \|\| ''\)/, 'the inbox row');
+  assert.match(src, /pulse\.cmd\('aios\.revealAgent', next\.name, next\.id \|\| ''\)/, 'the jump chord');
+  assert.ok(!/const hit = byName\(a\.name\);/.test(src),
+    'the sessions list holds the running entry, so it has no excuse to look up by name alone');
+  const host = fs.readFileSync(path.join(ROOT, 'src', 'main', 'panelHost.ts'), 'utf8');
+  assert.match(host, /'focusByName', \{ name: String\(args\[0\] \?\? ''\), id: String\(args\[1\] \?\? ''\) \}/,
+    'and main forwards it on every *ByName intent');
+});

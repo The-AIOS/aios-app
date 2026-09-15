@@ -2921,6 +2921,8 @@ export interface InboxItem {
   path?: string;
   /** session items: when the CURRENT status was entered — the renderer counts up from it. */
   since?: number;
+  /** session items: the sessionId, so a click reveals THIS one and not its namesake. */
+  id?: string;
 }
 
 export function inboxDismissals(): InboxDismissals {
@@ -3022,6 +3024,7 @@ export function inboxItems(
          thing to be blocked on is new news and must resurface. */
       sig: a.waitingFor ? `${a.status} \u00b7 ${a.waitingFor}` : a.status,
       name: a.name,
+      ...(a.sessionId ? { id: a.sessionId } : {}),
       ...(a.statusUpdatedAt ? { since: a.statusUpdatedAt } : {}),
     });
   }

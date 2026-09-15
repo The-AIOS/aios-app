@@ -789,7 +789,7 @@ function inboxRows() {
   return rows;
 }
 function inboxAction(item) {
-  if (item.kind === 'session') { pulse.cmd('aios.revealAgent', item.name); return; }
+  if (item.kind === 'session') { pulse.cmd('aios.revealAgent', item.name, item.id || ''); return; }
   if (item.kind === 'suggestion') { void pickSuggestion(); return; }
   if (item.kind === 'nudge') { pulse.send({ type: 'nudgeRun', kind: item.nudgeKind, command: item.command }); return; }
   if (item.kind === 'update') { pulse.cmd('aios.updateFramework'); return; }
@@ -1722,7 +1722,7 @@ async function closeAllSessions(sessions) {
   const doKill = chosen.some((c) => c.kind === 'kill');
   // 1. broadcast the non-interactive capture — each session wraps ITSELF up (race-safe)
   for (const a of picked) {
-    const hit = byName(a.name);
+    const hit = byName(a.name, a.id);
     if (hit && !panes.get(hit[0]).exited) submitToPty(hit[0], '/aios:close-session --auto');
     else if (a.pid) void window.glassShell.sessionSignal(a.pid, 'SIGTERM');
   }
@@ -1896,7 +1896,7 @@ function sessionRow(a) {
   r.appendChild(dot);
   r.appendChild(el('span', 'rname', a.name));
   const stt = theater.get(a.name) || { busySince: 0, lastDur: 0 };
-  const ownPane = (() => { const hit = byName(a.name); return hit && !panes.get(hit[0]).exited ? { id: hit[0], p: panes.get(hit[0]) } : null; })();
+  const ownPane = (() => { const hit = byName(a.name, a.id); return hit && !panes.get(hit[0]).exited ? { id: hit[0], p: panes.get(hit[0]) } : null; })();
   if (s.cls === 'busy') {
     // live-run theater: shimmer verb + honest elapsed; pty ticker when we own the stream
     const pst = el('span', 'pst');
@@ -1917,7 +1917,7 @@ function sessionRow(a) {
   if (mem) r.appendChild(el('span', 'rmem', mem));
   // open: reveal the in-window pane, OR resume the session INTO the app (so external sessions actually load)
   const open = () => {
-    const hit = byName(a.name);
+    const hit = byName(a.name, a.id);
     if (hit && !panes.get(hit[0]).exited) { setActive(hit[0]); return; }
     const cmd = a.id ? `${CLAUDE} --resume ${shq(a.id)}` : `${CLAUDE} --resume`;
     void createPane({ name: a.name, cmd });
@@ -1937,13 +1937,13 @@ function sessionRow(a) {
   const nb = actBtn('note', t('session.notes'), 'note' + (nCount ? ' has' : ''), () => void openSessionNotes(a.name));
   if (nCount && nb) { const bdg = el('span', 'notebadge', String(nCount)); nb.appendChild(bdg); }
   if (s.cls === 'busy') actBtn('stop', t('session.interrupt'), '', () => {
-    const hit = byName(a.name);
+    const hit = byName(a.name, a.id);
     if (hit) window.glassShell.ptyWrite(hit[0], '\x1b');
     else if (a.pid) { void window.glassShell.sessionSignal(a.pid, 'SIGINT'); toast(t('session.interrupted', { name: a.name })); }
   });
   // Close session: type /close-session if in-window, else graceful SIGTERM
   actBtn('logout', t('session.close'), '', () => {
-    const hit = byName(a.name);
+    const hit = byName(a.name, a.id);
     if (hit) { submitToPty(hit[0], '/aios:close-session'); setActive(hit[0]); }
     else if (a.pid) { void window.glassShell.sessionSignal(a.pid, 'SIGTERM'); toast(t('session.closing', { name: a.name })); }
   });
@@ -3815,11 +3815,14 @@ window.addEventListener('keydown', (e) => {
    land on the same session forever. Silent no-op would read as a broken key, so an empty queue
    says so out loud. */
 function jumpToNextWaiting() {
-  const waiting = (pulse.lastInbox || []).filter((i) => i.kind === 'session' && i.name).map((i) => i.name);
+  /* Walks the ITEMS, not their names: two blocked sessions can share one, and a name list would
+     both mis-place the cursor and reveal whichever matched first. */
+  const waiting = (pulse.lastInbox || []).filter((i) => i.kind === 'session' && i.name);
   if (!waiting.length) { toast(t('jump.none')); return; }
-  const cur = panes.get(active.term)?.name || panes.get(active.main)?.name || '';
-  const at = waiting.indexOf(cur);
-  pulse.cmd('aios.revealAgent', waiting[(at + 1) % waiting.length]);
+  const cur = panes.get(active.term) || panes.get(active.main);
+  const at = cur ? waiting.findIndex((i) => (i.id && i.id === cur.sessionId) || (!i.id && i.name === cur.name)) : -1;
+  const next = waiting[(at + 1) % waiting.length];
+  pulse.cmd('aios.revealAgent', next.name, next.id || '');
 }
 
 window.addEventListener('keydown', (e) => {
@@ -5410,7 +5413,26 @@ dragX(document.getElementById('hsplit'), (ev) => {
 });
 
 /* ── shell intents ────────────────────────────────────────────────────────── */
-const byName = (name) => [...panes.entries()].find(([, p]) => p.kind === 'term' && p.name === name);
+/* RESOLVE A PANE BY IDENTITY FIRST, NAME SECOND.
+   `.find()` on a name returns the FIRST match, and names are not unique — nothing enforces it,
+   the registry is one file per PID, so `spawn ingest` twice gives two live `ingest` sessions.
+   Every caller below (reveal · close · interrupt · and the bus's own `send`) therefore acted on
+   whichever pane happened to come first. For navigation that is merely wrong; for a `send` it
+   means a message typed into the WRONG session, which is the class this file already has a
+   comment about ("how a brief ended up executing at a bash prompt").
+   `id` is the session's `sessionId` when the caller knows it. When it does not, `ambiguous()`
+   lets the destructive callers refuse rather than guess. */
+const byName = (name, id) => {
+  if (id) {
+    const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && p.sessionId === id);
+    if (hit) return hit;
+  }
+  return [...panes.entries()].find(([, p]) => p.kind === 'term' && p.name === name);
+};
+
+/** More than one pane answers to this name — so a name alone cannot say which is meant. */
+const ambiguous = (name) =>
+  [...panes.values()].filter((p) => p.kind === 'term' && p.name === name).length > 1;
 
 window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
@@ -5432,13 +5454,18 @@ window.glassShell.onIntent(async (m) => {
     case 'primary': void runInPrimary(m.slash); return;
     case 'focusTerminal':
     case 'focusByName': {
-      const hit = byName(m.name);
+      /* Navigation, so an ambiguous name still focuses the first match rather than refusing —
+         landing on the wrong pane is visible and one keystroke from corrected, whereas refusing
+         to navigate at all is a dead control. */
+      const hit = byName(m.name, m.id);
       if (hit) setActive(hit[0]);
       else toast(`"${m.name ?? m.pid}" isn't a pane in this window`);
       return;
     }
     case 'closeByName': {
-      const hit = byName(m.name);
+      const hit = byName(m.name, m.id);
+      // Closing the wrong session is not recoverable by a keystroke. Refuse rather than guess.
+      if (!m.id && ambiguous(m.name)) { toast(t('pane.ambiguous', { name: m.name })); return; }
       if (hit) closePane(hit[0]);
       return;
     }
@@ -5461,7 +5488,16 @@ window.glassShell.onIntent(async (m) => {
          how a brief ended up executing at a bash prompt. Report the outcome back so the bus can
          retire the request immediately instead of burning its release budget waiting for a
          verification that can never succeed. */
-      const hit = byName(m.name);
+      /* AMBIGUITY IS A REFUSAL, not a coin flip. A bus request carries a NAME, so when two live
+         sessions share one this surface genuinely cannot know which was meant — and delivering
+         to the wrong session is worse than not delivering, because the sender is told it worked.
+         Reporting false dead-letters it with the reason, which is the outcome the bus is built
+         to handle. */
+      if (!m.id && ambiguous(m.name)) {
+        window.glassShell.busSendResult(m.name, false, `two live sessions are called "${m.name}" — cannot tell which was meant`);
+        return;
+      }
+      const hit = byName(m.name, m.id);
       const p = hit ? panes.get(hit[0]) : null;
       if (!p || p.exited) { window.glassShell.busSendResult(m.name, false, 'no pane by that name in this surface'); return; }
       if (!p.isSession) { window.glassShell.busSendResult(m.name, false, 'that pane is no longer running the session (its Claude exited; it is a shell now)'); return; }
@@ -5471,7 +5507,9 @@ window.glassShell.onIntent(async (m) => {
       return;
     }
     case 'escByName': {
-      const hit = byName(m.name);
+      // Interrupting the wrong session throws away its work in flight. Refuse rather than guess.
+      if (!m.id && ambiguous(m.name)) { toast(t('pane.ambiguous', { name: m.name })); return; }
+      const hit = byName(m.name, m.id);
       if (hit) window.glassShell.ptyWrite(hit[0], '');
       return;
     }

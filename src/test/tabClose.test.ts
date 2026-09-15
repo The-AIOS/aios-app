@@ -70,8 +70,15 @@ test('every HAND-DRIVEN close is gated — “only programmatic callers are exem
   assert.match(app, /close\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); void requestClosePane\(tid\); \}\);/,
     'the Terminals row trash button');
   // and the programmatic ones are untouched — a modal with no hand waiting hangs the caller
-  assert.match(app, /case 'closeByName': \{\s*\n\s*const hit = byName\(m\.name\);\s*\n\s*if \(hit\) closePane\(hit\[0\]\);/,
-    'the command bus kill must never raise a dialog');
+  /* Asserted as the INVARIANT rather than the literal shape: the bus kill closes through
+     `closePane` and never `requestClosePane`, because a modal with no hand waiting hangs the
+     caller. Pinning the whole statement made this fail the moment an ambiguity guard was added
+     beside it — and a test that fails on unrelated edits teaches people to edit the test
+     instead of reading it. (A toast is not a dialog; nothing waits on it.) */
+  const closeByName = app.slice(app.indexOf("case 'closeByName':"), app.indexOf("case 'closeTerminal':"));
+  assert.ok(closeByName.includes('closePane(hit[0])'), 'the command bus kill closes the pane directly');
+  assert.ok(!closeByName.includes('requestClosePane'),
+    'the command bus kill must never raise a dialog — nothing is there to answer it');
 });
 
 test('the gate lives in the click handler, never inside closePane', () => {

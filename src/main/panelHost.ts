@@ -320,10 +320,14 @@ export class PanelHost {
       case 'aios.launchPrimary': { const p = aios.primaryName(); term(p, `${aios.shellSettings().claudeCmd} --name ${p}`); return; }
       case 'aios.resume': term('resume', 'claude --resume'); return;
       case 'aios.askAios': this.intent('ask'); return;
-      case 'aios.revealAgent': this.intent('focusByName', { name: String(args[0] ?? '') }); return;
-      case 'aios.closeAgent': this.intent('closeByName', { name: String(args[0] ?? '') }); return;
-      case 'aios.closeSessionAgent': this.intent('sendByName', { name: String(args[0] ?? ''), text: '/aios:close-session' }); return;
-      case 'aios.interruptAgent': this.intent('escByName', { name: String(args[0] ?? '') }); return;
+      /* Each of these carries an optional sessionId as args[1]. Two live sessions can share a
+         name, so a name alone cannot say which was meant — the renderer prefers the id, and the
+         destructive ones (close · interrupt · send) REFUSE an ambiguous name rather than act on
+         whichever pane came first. */
+      case 'aios.revealAgent': this.intent('focusByName', { name: String(args[0] ?? ''), id: String(args[1] ?? '') }); return;
+      case 'aios.closeAgent': this.intent('closeByName', { name: String(args[0] ?? ''), id: String(args[1] ?? '') }); return;
+      case 'aios.closeSessionAgent': this.intent('sendByName', { name: String(args[0] ?? ''), id: String(args[1] ?? ''), text: '/aios:close-session' }); return;
+      case 'aios.interruptAgent': this.intent('escByName', { name: String(args[0] ?? ''), id: String(args[1] ?? '') }); return;
       case 'aios.openLearning': this.intent('openFile', { path: String(args[0] ?? ''), mode: 'markdown', line: Number(args[1] ?? 0) }); return;
       case 'aios.openOutput': this.intent('openFile', { path: String(args[0] ?? ''), mode: 'auto' }); return;
       default:
