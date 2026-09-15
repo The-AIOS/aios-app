@@ -200,7 +200,7 @@ test('the bus keeps a DURABLE trail — one shared file, attributable, capped, a
   assert.ok(max && pathFn && appendFn, 'the trail helpers must be findable in the compiled output');
 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'buslog-'));
-  const append = new Function('fs', 'path', 'os', 'sendQueue_1', `
+  const append = new Function('fs', 'path', 'os', 'surface_1', `
     ${max![0]} ${pathFn![0]} ${appendFn![0]}
     return { busLogAppend, busLogPath };`)(
     fs, path, { ...os, homedir: () => home }, { MY_SURFACE: 'app' },

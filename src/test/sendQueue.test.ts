@@ -10,8 +10,9 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { TIMINGS } from '../core/sendQueue';
+import { MY_SURFACE } from '../main/surface';
 import {
-  INBOX_CONTRACT, MY_SURFACE, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor,
+  INBOX_CONTRACT, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor,
   isHoldPath, isBusy, isDeliverable, decideSend, safeNeedle, isSurface, claimVerdict,
   canAdoptHold, parseClaim, shouldReleaseForSibling, shouldWriteDoc,
   countUserTurnsContaining, verifyVerdict, type SendTarget,
@@ -61,7 +62,7 @@ test('ONLY an idle target is delivered into — "not busy" is not "ready"', () =
   // the rule that must never soften: expiry reports undeliverable, it does not force it
   const expired = decideSend(target({ status: 'busy' }), 5000, 1000);
   assert.equal(expired.do, 'undeliverable');
-  assert.match((expired as { reason: string }).reason, /never went idle/);
+  assert.match((expired as { reason: string }).reason, /never became deliverable within/);
   // "delivered anyway on timeout" was a guaranteed silent loss
   assert.notEqual(expired.do, 'deliver');
 });

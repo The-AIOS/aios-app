@@ -86,11 +86,16 @@ export function decideSend(
     return { do: 'deliver', pid: target.pid };
   }
   if (heldForMs < maxHoldMs) {
-    return { do: 'hold', reason: `'${target.name}' is ${target.status || 'not idle'}` };
+    /* NAME THE STATUS in the reason, and say when it is one we do not characterise. An
+       uncharacterised status is exactly what wants surfacing in the log, so it can be measured
+       and promoted into DELIVERABLE_STATUSES instead of guessed at forever. */
+    const status = (target.status || '(none)').trim();
+    const known = isBusy(status) ? '' : ' — status not yet characterised, holding to be safe';
+    return { do: 'hold', reason: `'${target.name}' is ${status}${known}` };
   }
   return {
     do: 'undeliverable',
-    reason: `'${target.name}' never went idle in ${Math.round(maxHoldMs / 60000)} min (last status '${target.status}') — not delivering into a session that is not ready, it would be dropped silently`,
+    reason: `'${target.name}' never became deliverable within ${Math.round(maxHoldMs / 60000)} min (last status: ${(target.status || '(none)').trim()}) — not delivering into a non-idle session, which would be dropped silently`,
   };
 }
 
@@ -247,8 +252,10 @@ export type Surface = 'glass' | 'app';
 
 export const isSurface = (v: unknown): v is Surface => v === 'glass' || v === 'app';
 
-/** This build's identity as a fulfiller. */
-export const MY_SURFACE: Surface = 'app';
+/* MY_SURFACE IS NOT HERE, AND THAT IS THE POINT. It is the one value in this file that MUST
+   differ between the two fulfillers, so keeping it here made the file un-pinnable — and an
+   unpinned file is one the two surfaces can silently disagree in. Each surface declares its own
+   (`src/main/surface.ts` in the App; a local const in Glass's extension host). */
 
 /** Who holds a claimed request — embedded in the held file, so the claim is
  *  self-describing and any `.undelivered` artifact carries forensics. */
