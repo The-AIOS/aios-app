@@ -786,6 +786,19 @@ function refreshSalutes() {
   }
 }
 setInterval(refreshSalutes, 60 * 1000);
+
+/* PAUSE EVERY ANIMATION WHEN THE WINDOW IS NOT IN FRONT (AI-157).
+   Compositing is serialised by WindowServer, so one window repainting forever queues every other
+   window's input behind it — the operator's report was typing lagging in EVERY app, with ⌘H
+   dropping WindowServer from ~32% to 0.1% instantly. Electron's backgroundThrottling does not
+   cover a window that is VISIBLE but unfocused, which is most of the time this app is open.
+   The class is the whole mechanism; `animation-play-state: paused` in the stylesheet does the
+   rest, and it covers animations we did not write. */
+const markFocus = () => document.body.classList.toggle('unfocused', !document.hasFocus());
+window.addEventListener('focus', markFocus);
+window.addEventListener('blur', markFocus);
+document.addEventListener('visibilitychange', markFocus);
+markFocus();
 window.addEventListener('focus', refreshSalutes);
 /* Connectors re-reads on focus. It polled every five minutes and otherwise only on boot or the ↻,
    so connecting something in a session — which is now the DEFAULT path for anything not one-click —

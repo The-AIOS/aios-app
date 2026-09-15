@@ -62,25 +62,65 @@ test('a tab dot is hidden until it has been painted', () => {
     'and a file tab is explicitly cleared rather than left at whatever it was born with');
 });
 
-test('nothing but the pulse animates box-shadow on a tab dot', () => {
-  /* The finished-unseen RING was drawn with box-shadow, and so is the pulse — two rules
-     animating one property on one element. Reported as "sometimes it pulsates properly,
-     sometimes it has the outer circle". The ring is gone with the counter that fed it. */
+test('NOTHING animates a non-composited property — the compositor-loop guard', () => {
+  /* AI-157, measured 2026-09-15. The pulse animated `box-shadow`; the panel's "Working" verb
+     animated `background-position` on `background-clip: text`. Neither property can be
+     composited, so every frame re-ran style and paint on the main thread: 960 style
+     recalculations per 8 seconds — 120 PER SECOND, forever — against 8 with animations off.
+     WindowServer then sat at ~32%, and because compositing is serialised that queued every other
+     window's input: the report was typing lagging in EVERY app on the machine, with ⌘H dropping
+     WindowServer to 0.1% instantly. After the rewrite: ZERO recalcs, 3ms of task time per 8s.
+     The rule is about the PROPERTY, not the effect — animate what the compositor owns. */
+  /* Brace-matched, not regex-sliced: a keyframes block can be written on one line or many, and
+     a greedy pattern runs straight past its closing brace into ordinary rules — which reports
+     every property in the stylesheet and reads exactly like a real failure. */
   const c = css();
-  assert.ok(!/\.tab \.tdot\.unread/.test(c), 'no ring rule survives');
-  const shadows = (c.match(/\.tab \.tdot[^{]*\{[^}]*box-shadow/g) || []);
-  assert.deepEqual(shadows, [], 'the ONLY box-shadow on this element comes from @keyframes tpulse');
-  assert.match(c, /@keyframes tpulse \{[^}]*var\(--sc\)/, "which pulses in the dot's own colour");
+  const animated = new Set<string>();
+  /* ONLY the animations that never end. A one-shot flash costs a handful of frames and is fine;
+     the defect is a loop that pays that cost forever. So the guard follows `infinite` to the
+     keyframes it names, rather than policing every @keyframes in the file. */
+  const endless = new Set<string>();
+  for (const decl of c.matchAll(/animation:\s*([^;]*infinite[^;]*);/g)) {
+    for (const tok of decl[1].trim().split(/\s+/)) {
+      if (/^[A-Za-z][\w-]*$/.test(tok) && !['infinite','linear','ease','ease-in','ease-out',
+          'ease-in-out','both','forwards','backwards','alternate','none','running','paused',
+          'normal','reverse'].includes(tok)) endless.add(tok);
+    }
+  }
+  assert.ok(endless.size > 0, 'no infinite animations found — the extractor is broken, not the CSS');
+  for (const m of c.matchAll(/@keyframes\s+([\w-]+)\s*\{/g)) {
+    if (!endless.has(m[1])) continue;
+    let depth = 0, i = m.index!;
+    while (i < c.length) {
+      if (c[i] === '{') depth++;
+      else if (c[i] === '}' && --depth === 0) break;
+      i++;
+    }
+    const body = c.slice(m.index! + m[0].length, i);
+    for (const step of body.matchAll(/\{([^{}]*)\}/g)) {
+      for (const decl of step[1].split(';')) {
+        const prop = decl.split(':')[0].trim();
+        if (prop) animated.add(prop);
+      }
+    }
+  }
+  const COMPOSITED = new Set(['transform', '-webkit-transform', 'opacity', 'filter', 'visibility']);
+  const offenders = [...animated].filter((x) => !COMPOSITED.has(x));
+  assert.deepEqual(offenders, [],
+    'animated in @keyframes and not compositable, so each costs a style recalc and a main-thread '
+    + 'paint every frame, forever: ' + offenders.join(', '));
 });
 
-test('busy and needs-you pulse, and in their OWN colour', () => {
+test('busy and needs-you still pulse, in their OWN colour, on the GPU', () => {
   const c = css();
-  assert.match(c, /\.tab \.tdot\.busy\s*\{[^}]*animation: tpulse/);
-  assert.match(c, /\.tab \.tdot\.input\s*\{[^}]*animation: tpulse/);
-  assert.match(c, /@keyframes tpulse \{[^}]*var\(--sc\)/,
-    'its own keyframe because the panel\'s ppulse hardcodes amber — which haloes a blue dot amber');
+  assert.match(c, /\.tab \.tdot\.busy::after, \.tab \.tdot\.input::after \{/,
+    'the ring is a pseudo-element, so the dot itself never repaints');
+  assert.match(c, /@keyframes ringpulse \{[\s\S]*?transform: scale\(1\);\s+opacity: \.45;/,
+    'and it animates transform + opacity — the two the compositor owns');
+  assert.match(c, /body\.unfocused \*[^{]*\{ animation-play-state: paused !important; \}/,
+    'and nothing animates while the window is not in front — compositing is serialised, so an '
+    + 'unfocused window that keeps painting costs the whole machine, not just this app');
 });
-
 test('a pane with no live session shows a terminal, never a stale state', () => {
   assert.match(app(), /if \(!entry\) \{[\s\S]{0,700}?dot\.className = 'tdot plain';/,
     'a tab left showing "working" for a session that no longer exists is worse than showing that '
