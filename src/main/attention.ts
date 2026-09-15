@@ -30,8 +30,8 @@ import { t } from '../i18n';
 const MAX_BANNER_TRIES = 3;
 
 export interface AttentionHooks {
-  /** Bring the App forward and focus the pane running `pid`. */
-  reveal(pid: number): void;
+  /** Bring the App forward and focus the pane running this session. */
+  reveal(target: { name: string; sessionId?: string }): void;
   /** Tell the operator something they have to act on outside this app. Fired at most once. */
   notifyBlocked(): void;
 }
@@ -68,7 +68,7 @@ export class Attention {
     for (const s of r.pending) {
       /* Resolve the pane by IDENTITY, not by name: with two sessions called `ingest`, a
          name lookup reveals whichever one happens to come first. */
-      const pid = running.find((a) => sessionKey(a) === s.id)?.pid;
+      const hit = running.find((a) => sessionKey(a) === s.id);
       try {
         const n = new Notification({
           title: t('notify.blockedTitle', { name: s.name }),
@@ -76,8 +76,16 @@ export class Attention {
           silent: false,
         });
         /* Focus the pane, never answer for them: approving a permission from a banner would be
-           a decision taken on a surface that cannot show what is being approved. */
-        n.on('click', () => { if (pid !== undefined) this.hooks.reveal(pid); });
+           a decision taken on a surface that cannot show what is being approved.
+           NAME + SESSION ID, not the pid. The renderer resolves a pane by `sessionId` and falls
+           back to `name` — it has no pid index at all, because a pane object never stores one. So
+           sending `{ pid }` resolved to nothing and the click raised the window and then toasted
+           "isn't a pane in this window" instead of focusing the session that was waiting. It went
+           unseen because the only machine testing it had two installed bundles, and the banner was
+           opening the OTHER one before this code ever ran. */
+        n.on('click', () => {
+          if (hit) this.hooks.reveal({ name: hit.name, sessionId: hit.sessionId });
+        });
         /* DELIVERY IS ASYNCHRONOUS, and this is what was wrong. `show()` does not throw and
            returns immediately — the OS reports the outcome later, on these events. Marking the
            block notified beside `show()` therefore recorded a banner that never appeared:

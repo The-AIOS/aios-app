@@ -160,10 +160,11 @@ export class PanelHost {
     /* macOS refused every banner. Point at the one place that can fix it — the operator's own
        System Settings — rather than leaving the setting looking broken. */
     notifyBlocked: () => this.intent('toast', { text: t('notify.osBlocked') }),
-    reveal: (pid) => {
+    reveal: (target) => {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
-      this.intent('focusTerminal', { pid });
+      /* `id` is what `aios.revealAgent` sends too — one payload shape for one renderer handler. */
+      this.intent('focusTerminal', { name: target.name, id: target.sessionId ?? '' });
     },
   });
 

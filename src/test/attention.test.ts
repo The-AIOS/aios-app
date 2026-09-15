@@ -257,6 +257,34 @@ test('ONE banner per block, whatever the OS reports back — including nothing a
   assert.equal(shown, 1, 'a delivered banner is never sent twice');
 });
 
+test('clicking a banner focuses the WAITING SESSION, in the shape the renderer can resolve', () => {
+  /* The banner used to send `{ pid }`. The renderer resolves a pane by `sessionId`, falling back
+     to `name`, and has no pid index at all — a pane object never stores one. So the click raised
+     the window and then toasted "isn't a pane in this window", which is the opposite of the one
+     thing a notification click is for.
+     It survived three rounds of testing because the only machine exercising it had two installed
+     bundles: the banner was activating the OTHER one, so this code never ran. A bug can hide
+     behind a second bug that was explicitly scoped out. */
+  const { Attention, lastBanner } = loadAttention();
+  const revealed: { name: string; sessionId?: string }[] = [];
+  const a = new Attention({ reveal: (t) => revealed.push(t), notifyBlocked: () => { } });
+
+  a.tick([{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-abc' } as RunningAgent], 'banner');
+  lastBanner()?.emit('click', {});
+
+  assert.deepEqual(revealed, [{ name: 'ingest', sessionId: 'sid-abc' }],
+    'identity, not a pid — and the id is what disambiguates two sessions sharing a name');
+
+  /* The payload must match what the renderer's handler actually reads. Asserted against the
+     renderer source, because these two are wired by convention and nothing else checks them. */
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
+  assert.match(app, /case 'focusTerminal':[\s\S]{0,400}?byName\(m\.name, m\.id\)/,
+    'the handler resolves by name + id, so those are the keys the intent must carry');
+  const host = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'panelHost.ts'), 'utf8');
+  assert.match(host, /this\.intent\('focusTerminal', \{ name: target\.name, id: target\.sessionId/,
+    'and the intent sends exactly those keys');
+});
+
 test('the permission requirement is stated in the SETTING, not left to be discovered', () => {
   /* Three rounds of testing on a signed build produced no runtime warning of any kind, because
      both the in-app warning and the toast hung off a `failed` event the OS never sent. A warning
