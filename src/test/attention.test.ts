@@ -155,3 +155,23 @@ test('the shared predicate accepts what Claude Code actually writes', () => {
     assert.equal(isBlockedStatus(s), false, `"${s}" is not`);
   }
 });
+
+test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
+  /* The operator chose "badge + notification", got nothing, and had to find macOS System
+     Settings unaided — nothing in the App said the OS was refusing. The App is the only party
+     that knows: it receives the `failed` event. A toast alone was not enough, because a toast is
+     an EVENT and this is a STATE — it stays true until the operator changes it, and the moment
+     they go looking is when they open Settings, not the moment it failed. */
+  const glue = fs.readFileSync(path.join(__dirname, '..', 'main', 'attention.ts'), 'utf8');
+  assert.match(glue, /osRefused\(\): boolean \{ return this\.refused; \}/, 'the refusal is readable');
+  assert.match(glue, /n\.on\('failed'[\s\S]{0,200}?this\.refused = true;/,
+    'set from the OS report, never inferred from a permissions guess');
+  assert.match(glue, /n\.on\('show'[\s\S]{0,120}?this\.refused = false;/,
+    'and cleared when a banner lands — permission can be granted mid-run, so the state must not stick');
+  assert.match(glue, /if \(!this\.toldAboutPermission\)/, 'the toast fires once, never a nag');
+
+  const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
+  assert.match(app, /window\.glassShell\.attentionRefused\(\)/,
+    'and Settings asks, so the control explains itself instead of looking broken');
+  assert.match(app, /t\('notify\.osBlocked'\)/, 'in words that name the place to fix it');
+});

@@ -664,6 +664,9 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
    a status dot (--sc via .st-*: blue = session on input, gold = update, calm
    green = the rest) and a hover-reveal stateful dismiss (×). */
 
+/* a setting that cannot take effect says why, in the row itself */
+.thint.twarn { color: var(--st-warn); }
+
 /* quota */
 #pQuota { display: none; }
 .qbar { height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }

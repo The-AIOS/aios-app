@@ -167,6 +167,10 @@ export class PanelHost {
     },
   });
 
+  /** Has macOS refused to show a banner this run? Settings asks, so the control can explain
+   *  itself instead of looking broken. */
+  attentionRefused(): boolean { return this.attention.osRefused(); }
+
   postRunning(): void {
     const running = aios.listRunningAgents();
     this.attention.tick(running, aios.shellSettings().attention);

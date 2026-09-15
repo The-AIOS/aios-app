@@ -138,6 +138,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   openDevTools: (): Promise<boolean> => ipcRenderer.invoke('shell:devtools'),
   /** Pane handles → the live session running under each pane's pty. Exact identity, where a
    *  name cannot be: two live sessions may share a name. */
+  attentionRefused: (): Promise<boolean> => ipcRenderer.invoke('attention:refused'),
   sessionUnder: (paneIds: number[]): Promise<Record<number, { name: string; id: string; pid: number }>> =>
     ipcRenderer.invoke('session:under', paneIds),
   setPrimary: (name: string): Promise<{ ok: boolean; name: string }> => ipcRenderer.invoke('shell:setPrimary', name),

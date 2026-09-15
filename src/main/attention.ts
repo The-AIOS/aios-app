@@ -44,6 +44,14 @@ export class Attention {
   private failures = new Map<string, number>();
   /** Said once, ever: the OS is refusing, and only the operator can change that. */
   private toldAboutPermission = false;
+  /* THE REFUSAL IS A STATE, NOT AN EVENT — which is what the toast alone got wrong. A toast
+     fires once and is gone; "macOS is denying notifications" stays true until the operator
+     changes it, and the moment they go looking is when they open Settings, not the moment it
+     failed. So it is also readable, and Settings renders it beside the control it explains. */
+  private refused = false;
+
+  /** True once macOS has actually refused a banner — not a guess, a report from the OS. */
+  osRefused(): boolean { return this.refused; }
 
   constructor(private hooks: AttentionHooks) {}
 
@@ -87,10 +95,12 @@ export class Attention {
            one as delivered. That is the detected/pending/accepted collapse the request warned
            about, reached from the one direction a try/catch cannot see. */
         n.on('show', () => {
+          this.refused = false;   // granted since — the state must not stick
           this.failures.delete(s.id);
           this.state = markNotified(this.state, [s.id]);
         });
         n.on('failed', () => {
+          this.refused = true;
           const tries = (this.failures.get(s.id) ?? 0) + 1;
           this.failures.set(s.id, tries);
           /* Bounded: after three refusals the OS is not changing its mind this run, and

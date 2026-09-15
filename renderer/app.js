@@ -6241,7 +6241,17 @@ function openSettingsTab() {
     }
     notifySel.value = cfg.attention || 'banner';
     notifySel.addEventListener('change', async () => { await window.glassShell.setSetting('attention', notifySel.value); toast(t('settings.saved')); });
-    row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
+    const attnRow = row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
+    /* IF macOS IS REFUSING, SAY SO HERE — beside the control, not only as a toast at the moment
+       of failure. The operator reported choosing "badge + notification", getting nothing, and
+       having to find System Settings unaided: the App is the only party that knows the OS
+       refused, and Settings is where someone goes when a setting looks broken. Read on open, so
+       it reflects what actually happened rather than a guess about permissions. */
+    void window.glassShell.attentionRefused().then((refused) => {
+      if (!refused || !attnRow || !attnRow.isConnected) return;
+      const warn = el('div', 'thint twarn', t('notify.osBlocked'));
+      attnRow.appendChild(warn);
+    }).catch(() => { /* older main — the toast still covers it */ });
 
     // Calendar week numbers — repaints the calendar on the SETTING change (not just fs events)
     const wkToggle = document.createElement('input');
