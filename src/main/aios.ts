@@ -2181,18 +2181,45 @@ const MODEL_ALIASES: Record<string, string> = {
 };
 
 /**
- * The STRONGEST model of the standard ladder — never the operator's own pin, never an account
- * extra.
+ * What the guided setup should run on — AN ALIAS, on purpose.
  *
- * `modelOptions()[0]` is not this, and reading it as though it were is a real trap: that list
- * unshifts the CURRENT setting when it cannot place it, so on a machine pinned to `opus[1m]`
- * the "most capable model available here" resolved to `opus[1m]` — the operator's own choice,
- * recommended back to them as though it were advice. Account extras cannot be ranked either:
- * Fable is described as most capable for the hardest tasks and carries its own quota, which is
- * a specialist call and not a default to nudge a newcomer toward.
+ * `opus[1m]` means "the latest Opus, 1M context" and is resolved by Claude Code itself, so it
+ * cannot go stale. A pinned generation can, and the failure is not graceful: measured against
+ * the real CLI, an id the catalog does not know prints `[claude-code:unrecognized_model]` and
+ * refuses to start — "It may not exist or you may not have access to it". So the day a
+ * generation is retired, a pinned id would hand a NEWCOMER a hard error in the one conversation
+ * that writes the context every later session reads. The alias is proven on this machine:
+ * operators run `"model": "opus[1m]"` in their own settings every day.
+ *
+ * MODEL_LADDER keeps the exact ids because the PICKER must offer specific generations — a
+ * person choosing a model wants to name one. Ranking and recommending are different jobs.
  */
-export function strongestModel(): { label: string; value: string } {
-  return MODEL_LADDER[0];
+export const RECOMMENDED_SETUP_MODEL = { label: 'Opus (latest) — 1M context', value: 'opus[1m]' };
+
+export function recommendedModel(): { label: string; value: string } {
+  return { ...RECOMMENDED_SETUP_MODEL };
+}
+
+/**
+ * How strong is the operator's pinned model, on the only scale we can defend: its FAMILY.
+ *
+ * `'stronger-or-equal'` and `'weaker'` are answers; `'unknown'` is a real third one and the most
+ * important. An account extra (Fable carries its own quota and is described as most capable for
+ * the hardest tasks) or a provider id is a DELIBERATE specialist choice we cannot rank — and
+ * overriding one with a generic recommendation is worse than the problem being fixed. Absent is
+ * NOT unknown: nothing pinned means the newcomer never chose, which is exactly who the
+ * recommendation is for.
+ */
+export type PinRank = 'absent' | 'weaker' | 'stronger-or-equal' | 'unknown';
+
+export function rankPinnedModel(pinned: string): PinRank {
+  const v = (pinned || '').trim().toLowerCase();
+  if (!v) return 'absent';
+  /* Family, from either an alias (`opus`, `sonnet[1m]`) or a ladder id (`claude-sonnet-5`).
+     Substring rather than an exact table so a new generation of a KNOWN family still ranks. */
+  if (v.includes('opus')) return 'stronger-or-equal';
+  if (v.includes('sonnet') || v.includes('haiku')) return 'weaker';
+  return 'unknown';
 }
 
 export function modelOptions(): { label: string; value: string }[] {

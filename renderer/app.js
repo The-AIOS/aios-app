@@ -6585,18 +6585,29 @@ function openSetupTab() {
 
     let prevDone = null;   // step ids done on the previous paint → animate fresh completions once
     let painting = false;
-    /* THE ONE CONVERSATION WORTH THE BEST MODEL, and the only place it is worth saying so.
+    /* THE ONE CONVERSATION WORTH THE BEST MODEL — and the PRIMARY button is the one that has to
+       act on that, which is where the first version of this went wrong.
        The setup session interviews the operator and writes the context every future session
-       reads — a weaker model there is not a slower answer, it is a thinner vault, permanently,
-       for the sake of one conversation's cost. So the final step names the strongest model this
-       machine offers and offers to run that conversation on it.
-       SUGGESTED, NEVER IMPOSED, and never written to settings.json: the primary button keeps
-       using the operator's own default, and the app cannot know which models their plan
-       includes. Silent when they are already on the top of the list — a recommendation that
-       fires when it has nothing to recommend is how a tip becomes wallpaper. */
-    let modelTop = null;     // strongest entry of modelOptions() — that list is capability-ordered
+       reads: a weaker model there is not a slower answer, it is a thinner vault, permanently,
+       for the sake of one conversation's cost. That was already the argument, and the remedy was
+       then put behind a COLLAPSED `<details>` while the primary button went on inheriting
+       whatever was pinned. Operator-reported 2026-09-15: pinned Haiku deliberately, pressed the
+       big button, and the interview ran on Haiku. A note that argues for the strongest model
+       beside a button that does not use it is the worst of both — it informs, then does the
+       other thing, and only reaches the people who open Advanced, who are the least likely to
+       need telling.
+       So the lanes swap when the recommendation applies: the primary button carries it and says
+       so, and Advanced keeps the operator's own default one click away. Still per-session, still
+       never written to settings.json.
+       SILENT IN TWO CASES, both deliberate. Already on Opus — nothing to recommend, and a tip
+       that fires with nothing to say becomes wallpaper. And pinned to something we cannot rank:
+       an account extra or a provider id is a specialist choice, and overriding one with a
+       generic recommendation is worse than the bug this fixes. Absent is NOT unknown — nobody
+       chose, which is exactly the newcomer this exists for. */
+    let modelRec = null;     // the recommendation: an ALIAS, so it cannot go stale
     let modelPinned = '';    // what the operator pinned in Claude's settings, if anything
-    let modelKnown = [];     // every value that list offers — what we can actually reason about
+    let modelPinLabel = '';  // ...in words, for the "use mine instead" lane
+    let modelPinRank = 'absent';
 
     /* SUGGEST ONLY WHEN WE CAN TELL, which is narrower than "is it not the top string".
        Claude Code accepts ALIASES — the operator running this was pinned to `opus[1m]`, which
@@ -6608,10 +6619,9 @@ function openSetupTab() {
        what IS pinned is a value from our own list and is not the strongest. Anything else is an
        alias or an id we do not model, and silence is the honest answer. */
     const modelWorthSuggesting = () => {
-      if (!modelTop) return false;
-      if (!modelPinned) return true;                       // no override at all
-      if (!modelKnown.includes(modelPinned)) return false;  // an alias, or something we cannot rank
-      return modelPinned !== modelTop.value;
+      if (!modelRec) return false;
+      if (modelPinned && modelPinned === modelRec.value) return false;   // already exactly it
+      return modelPinRank === 'absent' || modelPinRank === 'weaker';
     };
 
     // every Onboarding fix runs where the operator can SEE it; the doctor re-verifies
@@ -6785,9 +6795,19 @@ function openSetupTab() {
              it assumed a project could be created before the AIOS that holds projects exists —
              offered to someone whose framework and vault are both still missing. There is exactly
              one sensible action on this step, so it is the only one shown. */
-          mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
           if (modelWorthSuggesting()) {
-            mkBtn(adv, t('setup.modelUse', { model: modelTop.label }), () => void spawnSetupSession(modelTop.value));
+            /* The recommendation IS the primary action, and the label names the model so nothing
+               is decided behind the operator's back. */
+            mkBtn(acts, t('setup.phase2Model', { model: modelRec.label }),
+              () => void spawnSetupSession(modelRec.value),
+              { primary: true, title: t('setup.phase2Hint') });
+            /* Their own default stays one click away — named, not called "default". Passing NO
+               model is what inherits it, which is also what makes this correct when nothing is
+               pinned: there is nothing to pass. */
+            mkBtn(adv, modelPinned ? t('setup.modelMine', { model: modelPinLabel }) : t('setup.modelDefault'),
+              () => void spawnSetupSession());
+          } else {
+            mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
           }
           break;
         }
@@ -6806,7 +6826,7 @@ function openSetupTab() {
       // the model suggestion rides the same slot: one line, on the step it applies to, and only
       // when the operator is not already on the strongest model this machine lists
       if (s.id === 'firstrun' && modelWorthSuggesting()) {
-        bd.appendChild(el('div', 'step-note', t('setup.modelTip', { model: modelTop.label })));
+        bd.appendChild(el('div', 'step-note', t('setup.modelTip', { model: modelRec.label })));
       }
       /* THE HANDOVER STEP SHOWS NO CHECK ROWS. Everywhere else they are the point: each row is a
          thing the operator can see and fix. Here they are a list of what the guided conversation is
@@ -6975,19 +6995,20 @@ function openSetupTab() {
       try { st = await window.glassShell.onboardingState(); } catch { st = null; } finally { painting = false; }
       if (!st || !document.body.contains(wrap)) return;
       try {
-        const [opts, top, cc] = await Promise.all([
+        const [opts, rec, cc] = await Promise.all([
           window.glassShell.modelOptions().catch(() => []),
-          window.glassShell.strongestModel().catch(() => null),
+          window.glassShell.recommendedModel().catch(() => null),
           window.glassShell.claudeConfig().catch(() => ({ model: '' })),
         ]);
-        /* The strongest of the standard LADDER, not opts[0]. That list also carries account
-           extras and the operator's own pinned value, so its first entry is whatever could not
-           be placed — on a machine pinned to `opus[1m]` it resolved to `opus[1m]`, recommending
-           the operator's own setting back to them as advice. */
-        modelTop = (top && top.value) ? top : null;
+        modelRec = (rec && rec.value) ? rec : null;
         modelPinned = (cc && cc.model) || '';
-        modelKnown = (Array.isArray(opts) ? opts : []).map((o) => o.value).filter(Boolean);
-      } catch { modelTop = null; }
+        modelPinRank = await window.glassShell.rankPinnedModel(modelPinned).catch(() => 'unknown');
+        /* The picker's list is where a value becomes words — it already names aliases and carries
+           the operator's own pin, so the "use mine" lane can say WHICH model that is rather than
+           "your default", which tells them nothing they can check. */
+        const hit = (Array.isArray(opts) ? opts : []).find((o) => o.value === modelPinned);
+        modelPinLabel = (hit && hit.label) || modelPinned;
+      } catch { modelRec = null; }
       list.replaceChildren();
       if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
       st.steps.forEach((s, i) => list.appendChild(stepEl(s, i)));
