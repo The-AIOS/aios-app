@@ -1,7 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { BrowserWindow, WebContents } from 'electron';
+import { BrowserWindow, WebContents, nativeImage } from 'electron';
 import * as aios from './aios';
+import { t } from '../i18n';
+import { Attention } from './attention';
+import { sessionKey } from '../core/attention';
 
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
@@ -102,6 +105,7 @@ export class PanelHost {
   }
 
   dispose(): void {
+    this.attention.dispose();
     if (this.timer) clearInterval(this.timer);
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.updTimer) clearInterval(this.updTimer);
@@ -141,7 +145,6 @@ export class PanelHost {
       observed: aios.countNotes('observed'),
       projects: aios.countNotes('projects'),
       goAgents: aios.countAgentSuggestions(),
-      inbox: aios.inboxItems(),
       learnings: aios.recentLearnings(),
       nudge: aios.shellSettings().showNudges
         ? (() => { const now = new Date(); return aios.nudgeState(now.getHours(), now.getDay(), aios.listRunningAgents().length); })()
@@ -151,8 +154,80 @@ export class PanelHost {
     });
   }
 
+  /** Dock badge + banner for sessions blocked on the operator (#22). Driven by the same
+   *  2s poll that already lists the sessions, so it costs one function call, not a timer. */
+  private attention = new Attention({
+    /* macOS refused every banner. Point at the one place that can fix it — the operator's own
+       System Settings — rather than leaving the setting looking broken. */
+    notifyBlocked: () => this.intent('toast', { text: t('notify.osBlocked') }),
+    /* WINDOWS ONLY, guarded by PLATFORM rather than by feature-detection: `setOverlayIcon` is on
+       the BrowserWindow type everywhere and is documented Windows-only, so a truthy check would
+       say yes on macOS and then do nothing — a call that reads as wired and is not.
+       A failed draw leaves the overlay CLEARED rather than stale: no signal beats a wrong count. */
+    setOverlay: (text, description) => {
+      if (process.platform !== 'win32') return;
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (!w || w.isDestroyed()) return;
+      if (!text) { try { w.setOverlayIcon(null, ''); } catch { /* unsupported */ } return; }
+      void this.drawOverlay(text).then((dataUrl) => {
+        if (!dataUrl || w.isDestroyed()) return;
+        try { w.setOverlayIcon(nativeImage.createFromDataURL(dataUrl), description); }
+        catch { /* unsupported */ }
+      }).catch(() => { /* leave it cleared */ });
+    },
+    flash: (on) => {
+      if (process.platform !== 'win32') return;
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (!w || w.isDestroyed()) return;
+      try { w.flashFrame(on); } catch { /* unsupported */ }
+    },
+    isFocused: () => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      return !!w && !w.isDestroyed() && w.isFocused();
+    },
+    reveal: (target) => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
+      /* `id` is what `aios.revealAgent` sends too — one payload shape for one renderer handler. */
+      this.intent('focusTerminal', { name: target.name, id: target.sessionId ?? '' });
+    },
+  });
+
+  /**
+   * A 32px taskbar overlay glyph carrying `text`, as a data URL — drawn in the RENDERER because
+   * main has no 2D canvas, and a numbered 16px badge is not something to hand-encode as a PNG.
+   *
+   * Bounded by a timeout. A renderer that never answers must not leave an overlay update pending
+   * forever, and a missed overlay is a far smaller failure than a stuck one. It reads the theme's
+   * own attention colour, so the taskbar agrees with the dot in the panel instead of inventing a
+   * second blue.
+   */
+  private drawOverlay(text: string): Promise<string | null> {
+    const label = JSON.stringify(text);
+    const size = text.length > 1 ? 17 : 21;
+    const js = [
+      '(() => { try {',
+      '  const c = document.createElement("canvas"); c.width = 32; c.height = 32;',
+      '  const x = c.getContext("2d");',
+      '  const css = getComputedStyle(document.documentElement);',
+      '  x.fillStyle = (css.getPropertyValue("--st-input") || "#6cb0ff").trim();',
+      '  x.beginPath(); x.arc(16, 16, 16, 0, Math.PI * 2); x.fill();',
+      '  x.fillStyle = "#fff";',
+      '  x.font = "600 ' + size + 'px -apple-system, Segoe UI, sans-serif";',
+      '  x.textAlign = "center"; x.textBaseline = "middle";',
+      '  x.fillText(' + label + ', 16, 17);',
+      '  return c.toDataURL("image/png");',
+      '} catch { return null; } })()',
+    ].join('\n');
+    return Promise.race([
+      this.wc.executeJavaScript(js).then((v) => (typeof v === 'string' ? v : null)),
+      new Promise<string | null>((r) => setTimeout(() => r(null), 2000)),
+    ]).catch(() => null);
+  }
+
   postRunning(): void {
     const running = aios.listRunningAgents();
+    this.attention.tick(running, aios.shellSettings().attention);
     const rl = aios.rateLimit();
     const fwReal = aios.frameworkRoot() ?? '';
     const projOf = (cwd: string): string => {
@@ -164,7 +239,7 @@ export class PanelHost {
     const mem = aios.shellSettings().showMemory ? aios.sessionMemoryMB(running.map((a) => a.pid)) : {};
     this.post({
       type: 'running',
-      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
+      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
         : { has: false, fiveHour: 0, sevenDay: 0, showSwap: false, to: '' },
@@ -190,10 +265,7 @@ export class PanelHost {
   postUpdateStatus(): void {
     this.updAt = Date.now();
     void aios.checkForUpdates().then((state) =>
-      // inboxUpdate: the framework-update row of the "Needs you" card — null
-      // when up-to-date/unknown OR while dismissed (sig = local hash, so the
-      // dismissal auto-expires the moment /aios:update moves the hash)
-      this.post({ type: 'updateStatus', state, framework: aios.readFrameworkStatus() ?? null, inboxUpdate: aios.updateInboxItem(state) }));
+      this.post({ type: 'updateStatus', state, framework: aios.readFrameworkStatus() ?? null }));
   }
 
   /** Messages FROM the panel — same protocol the extension speaks. */
@@ -223,12 +295,6 @@ export class PanelHost {
         this.intent('primary', { slash: normalized });
         return;
       }
-      case 'inboxDismiss':
-        // stateful dismissal: hides the item until its signature changes again
-        aios.dismissInboxItem(String(msg.key ?? ''), String(msg.sig ?? ''));
-        this.postState();
-        if (String(msg.key) === 'update') this.postUpdateStatus();
-        return;
       case 'newTerminal':
         this.intent('terminal', { name: 'terminal' });
         return;
@@ -289,10 +355,14 @@ export class PanelHost {
       case 'aios.launchPrimary': { const p = aios.primaryName(); term(p, `${aios.shellSettings().claudeCmd} --name ${p}`); return; }
       case 'aios.resume': term('resume', 'claude --resume'); return;
       case 'aios.askAios': this.intent('ask'); return;
-      case 'aios.revealAgent': this.intent('focusByName', { name: String(args[0] ?? '') }); return;
-      case 'aios.closeAgent': this.intent('closeByName', { name: String(args[0] ?? '') }); return;
-      case 'aios.closeSessionAgent': this.intent('sendByName', { name: String(args[0] ?? ''), text: '/aios:close-session' }); return;
-      case 'aios.interruptAgent': this.intent('escByName', { name: String(args[0] ?? '') }); return;
+      /* Each of these carries an optional sessionId as args[1]. Two live sessions can share a
+         name, so a name alone cannot say which was meant — the renderer prefers the id, and the
+         destructive ones (close · interrupt · send) REFUSE an ambiguous name rather than act on
+         whichever pane came first. */
+      case 'aios.revealAgent': this.intent('focusByName', { name: String(args[0] ?? ''), id: String(args[1] ?? '') }); return;
+      case 'aios.closeAgent': this.intent('closeByName', { name: String(args[0] ?? ''), id: String(args[1] ?? '') }); return;
+      case 'aios.closeSessionAgent': this.intent('sendByName', { name: String(args[0] ?? ''), id: String(args[1] ?? ''), text: '/aios:close-session' }); return;
+      case 'aios.interruptAgent': this.intent('escByName', { name: String(args[0] ?? ''), id: String(args[1] ?? '') }); return;
       case 'aios.openLearning': this.intent('openFile', { path: String(args[0] ?? ''), mode: 'markdown', line: Number(args[1] ?? 0) }); return;
       case 'aios.openOutput': this.intent('openFile', { path: String(args[0] ?? ''), mode: 'auto' }); return;
       default:

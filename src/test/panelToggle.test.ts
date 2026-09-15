@@ -131,7 +131,15 @@ test('a rebuild restores scroll AFTER the async builder finishes', () => {
      content then arrived at 0. The scroll still jumped while the fix looked present. */
   const fn = /paneObj\.rebuild = \(\) => \{[\s\S]*?\n    \};/.exec(app);
   assert.ok(fn, 'the rebuild closure must be findable');
-  assert.match(fn[0], /await build\(body, head\);\s*\n\s*body\.scrollTop = keep;/,
+  /* ORDER, not the exact line. This asserted the literal `await build(body, head);` followed by
+     the restore, which pinned WHERE the builder writes as well as WHEN the scroll is restored —
+     so it failed the moment the builder was pointed at a staging node to stop the pane blanking
+     mid-rebuild, a change that cannot affect scroll at all. The property that matters is that the
+     restore happens after the await; the smoke gate covers the rebuilt result itself. */
+  const awaitAt = fn[0].indexOf('await build(');
+  const restoreAt = fn[0].indexOf('body.scrollTop = keep;');
+  assert.ok(awaitAt !== -1, 'the builder must be awaited');
+  assert.ok(restoreAt > awaitAt,
     'the restore must wait for the builder — a sync restore over an async build does nothing');
 });
 

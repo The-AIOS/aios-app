@@ -70,21 +70,45 @@ test('no rung→model table survives anywhere in the App — one table, and it i
   assert.match(main, /path\.join\(root, 'hooks', 'resolve-tier'\)/);
 });
 
-test('presence is retracted on a clean exit, and only if the record is OURS', () => {
-  /* A stale surfaces/*.json outlives its process — one advertising a pid dead since
-     2026-08-14 sat beside a live one for three weeks. Readers gate on a RUNNING pid, which is
-     the real defence and is unchanged; this only stops the directory lying to a human.
-     The ownership check is the load-bearing part: two surfaces share that directory, and a
-     quitting App must not delete a record it does not own (nor one a second instance
-     re-announced over ours while we ran — then the live file is the correct one to leave). */
+test('presence is WIRED to the shared decision, on all three paths', () => {
+  /* WHAT this file decides now lives in core/presence and is tested purely there, including the
+     ordering that took the record away from a live App. What remains App-specific is the wiring,
+     and the wiring is where the original bug hid: announce did not consult anything at all.
+     So each of the three paths must go through the shared verdict — the earlier version of this
+     test asserted the literal text of ONE of them, which is how a protocol ends up enforced on
+     the exit and not the entrance. */
   const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(main, /if \(body\.pid !== mine\) \{[\s\S]{0,160}return; \}/,
-    'must not delete another surface\'s record');
+  const fn = (name: string): string => {
+    const i = main.indexOf(`function ${name}(`);
+    assert.notEqual(i, -1, `${name} must exist`);
+    const rest = main.slice(i + 1);
+    const j = rest.indexOf('\nfunction ');
+    return rest.slice(0, j === -1 ? undefined : j);
+  };
+
+  assert.match(fn('announcePresence'), /presenceVerdict\([\s\S]{0,80}?'leave'/,
+    'ARRIVING must defer to a live incumbent — this is the half that was missing');
+  assert.match(fn('healPresence'), /presenceVerdict\(/,
+    'and the heal re-claims only when the record names nobody alive');
+  assert.match(fn('retractPresence'), /mayRetract\(/,
+    'LEAVING must not delete a record it does not own');
+
+  /* Liveness is decided by a signal, never by a process name or a `ps` grep — the record exists
+     precisely because Glass cannot be identified by process name. */
+  assert.match(main, /process\.kill\(pid, 0\)/, 'signal 0 is the liveness probe');
+  assert.match(main, /!== 'ESRCH'/,
+    'only ESRCH proves absence: EPERM is a process that exists and is not ours to signal');
+
+  // the heal must actually be scheduled, or it is a function nobody calls
+  assert.match(main, /setInterval\(\(\) => healPresence\(appVersion\)/, 'the heal is on a timer');
+
   assert.match(main, /app\.on\('before-quit', retractPresence\)/);
   // and it stays packaged-only, symmetric with the announce it undoes
   const gate = main.slice(main.indexOf('function announcePresence'), main.indexOf('function retractPresence'));
   assert.ok(gate.indexOf('!app.isPackaged') < gate.indexOf("app.on('before-quit'"),
     'the retract must be registered behind the same isPackaged gate as the announce');
+  assert.match(fn('healPresence'), /if \(!app\.isPackaged\) return;/,
+    'and so is the heal — a dev build must not claim the record the installed App depends on');
 });
 
 test('an unresolvable rung REFUSES the spawn — defaulting on a typo is the bug itself', () => {

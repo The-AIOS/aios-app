@@ -113,6 +113,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   claudeSet: (key: string, value: unknown): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:set', key, value),
   outputStyles: (): Promise<string[]> => ipcRenderer.invoke('claude:outputStyles'),
   modelOptions: (): Promise<{ label: string; value: string }[]> => ipcRenderer.invoke('claude:modelOptions'),
+  recommendedModel: (): Promise<{ label: string; value: string }> => ipcRenderer.invoke('claude:recommendedModel'),
+  rankPinnedModel: (pinned: string): Promise<string> => ipcRenderer.invoke('claude:rankPinnedModel', pinned),
   phase1Script: (): Promise<string> => ipcRenderer.invoke('aios:phase1'),
   trustDir: (dir: string): Promise<boolean> => ipcRenderer.invoke('aios:trustDir', dir),
   prepareSetupCwd: (): Promise<string> => ipcRenderer.invoke('aios:prepareSetupCwd'),
@@ -135,6 +137,10 @@ contextBridge.exposeInMainWorld('glassShell', {
   notesGet: (name: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:get', name),
   notesCounts: (): Promise<Record<string, number>> => ipcRenderer.invoke('notes:counts'),
   openDevTools: (): Promise<boolean> => ipcRenderer.invoke('shell:devtools'),
+  /** Pane handles → the live session running under each pane's pty. Exact identity, where a
+   *  name cannot be: two live sessions may share a name. */
+  sessionUnder: (paneIds: number[]): Promise<Record<number, { name: string; id: string; pid: number }>> =>
+    ipcRenderer.invoke('session:under', paneIds),
   setPrimary: (name: string): Promise<{ ok: boolean; name: string }> => ipcRenderer.invoke('shell:setPrimary', name),
   accountsList: (): Promise<{ email: string; note: string; current: boolean }[]> => ipcRenderer.invoke('accounts:list'),
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),

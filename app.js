@@ -6003,22 +6003,8 @@ function openToolTab(key, titleText, build, opts) {
     paneObj.rebuild = () => {
       chain = chain.then(async () => {
         const keep = body.scrollTop;
-        /* BUILD BESIDE THE OLD CONTENT, THEN SWAP. Emptying first left the pane blank for the
-           whole of an async build — every rebuild awaits at least one IPC round-trip — so any
-           repaint read as a flicker, and a slow one as the tab breaking.
-           The stage is ATTACHED (hidden, out of flow) rather than detached, which is not
-           incidental: the Setup tab's painter guards on `document.body.contains(wrap)` and would
-           bail out of a build running off-document, leaving an empty tab. Hidden-but-attached
-           keeps every such check true while showing nothing. */
-        const stage = document.createElement('div');
-        stage.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;inset:0';
-        body.appendChild(stage);
-        try {
-          await build(stage, head);
-          const kids = [...stage.childNodes];
-          stage.remove();
-          body.replaceChildren(...kids);
-        } finally { stage.remove(); }
+        body.replaceChildren();
+        await build(body, head);
         body.scrollTop = keep;
       }).catch(() => { /* a failed rebuild must not poison every later one */ });
       return chain;
@@ -6254,11 +6240,37 @@ function openSettingsTab() {
       const o = document.createElement('option'); o.textContent = l; o.value = v; notifySel.appendChild(o);
     }
     notifySel.value = cfg.attention || 'banner';
-    row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
+    const attnRow = row(wrap, t('settings.attention'), notifySel, t('settings.attentionHint'));
+    /* IF macOS IS REFUSING, SAY SO HERE — beside the control, not only as a toast at the moment
+       of failure. The operator reported choosing "badge + notification", getting nothing, and
+       having to find System Settings unaided: the App is the only party that knows the OS
+       refused, and Settings is where someone goes when a setting looks broken.
+       RE-READ AFTER EVERY CHANGE, not only on open. Selecting a banner level makes main send one
+       confirmation banner, and its verdict lands a beat later — rendering only on open meant the
+       operator had to close and reopen Settings to see the answer to the choice they just made,
+       which is precisely the reading of "nothing happened" this line exists to prevent. */
+    const paintAttnWarn = () => {
+      void window.glassShell.attentionRefused().then((refused) => {
+        if (!attnRow || !attnRow.isConnected) return;
+        const had = attnRow.querySelector('.twarn');
+        if (!refused) { if (had) had.remove(); return; }
+        if (had) return;
+        attnRow.appendChild(el('div', 'thint twarn', t('notify.osBlocked')));
+      }).catch(() => { /* older main — the toast still covers it */ });
+    };
     notifySel.addEventListener('change', async () => {
       await window.glassShell.setSetting('attention', notifySel.value);
       toast(t('settings.saved'));
+      /* The OS answers asynchronously (measured: ~7ms for a refusal, longer when it succeeds),
+         so read once the verdict can have arrived rather than racing it. */
+      setTimeout(paintAttnWarn, 1200);
     });
+    /* Ask main to re-measure BEFORE we read, in case the operator fixed the permission since we
+       last looked. It only probes when we are still reporting a refusal, so a Settings open in
+       the normal case sends nothing at all. */
+    void Promise.resolve(window.glassShell.attentionRecheck?.()).catch(() => { });
+    paintAttnWarn();
+    setTimeout(paintAttnWarn, 1200);   // and again once the OS verdict can have landed
 
     // Calendar week numbers — repaints the calendar on the SETTING change (not just fs events)
     const wkToggle = document.createElement('input');
@@ -6356,16 +6368,7 @@ function openSettingsTab() {
         sel.appendChild(opt);
       }
       sel.value = value;
-      sel.addEventListener('change', async () => {
-        /* SUPPRESS, exactly as the toggle beside it does. Writing Claude's config trips the
-           config watcher, which rebuilds this panel — and a rebuild blanks the body while it
-           re-reads, which the operator sees as Settings flickering off and on at the moment they
-           saved. The toggles have set this since the bug was first fixed; the SELECTS never did,
-           so changing the model or the output style still flashed. One guard, two writers. */
-        suppressCfgRebuild = Date.now();
-        await window.glassShell.claudeSet(key, sel.value);
-        toast(t('settings.saved'));
-      });
+      sel.addEventListener('change', async () => { await window.glassShell.claudeSet(key, sel.value); toast(t('settings.saved')); });
       return sel;
     };
     row(wrap, t('settings.model'), mkSelect(MODELS, cc.model, 'model'), t('settings.modelHint'));
@@ -6585,29 +6588,18 @@ function openSetupTab() {
 
     let prevDone = null;   // step ids done on the previous paint → animate fresh completions once
     let painting = false;
-    /* THE ONE CONVERSATION WORTH THE BEST MODEL — and the PRIMARY button is the one that has to
-       act on that, which is where the first version of this went wrong.
+    /* THE ONE CONVERSATION WORTH THE BEST MODEL, and the only place it is worth saying so.
        The setup session interviews the operator and writes the context every future session
-       reads: a weaker model there is not a slower answer, it is a thinner vault, permanently,
-       for the sake of one conversation's cost. That was already the argument, and the remedy was
-       then put behind a COLLAPSED `<details>` while the primary button went on inheriting
-       whatever was pinned. Operator-reported 2026-09-15: pinned Haiku deliberately, pressed the
-       big button, and the interview ran on Haiku. A note that argues for the strongest model
-       beside a button that does not use it is the worst of both — it informs, then does the
-       other thing, and only reaches the people who open Advanced, who are the least likely to
-       need telling.
-       So the lanes swap when the recommendation applies: the primary button carries it and says
-       so, and Advanced keeps the operator's own default one click away. Still per-session, still
-       never written to settings.json.
-       SILENT IN TWO CASES, both deliberate. Already on Opus — nothing to recommend, and a tip
-       that fires with nothing to say becomes wallpaper. And pinned to something we cannot rank:
-       an account extra or a provider id is a specialist choice, and overriding one with a
-       generic recommendation is worse than the bug this fixes. Absent is NOT unknown — nobody
-       chose, which is exactly the newcomer this exists for. */
-    let modelRec = null;     // the recommendation: an ALIAS, so it cannot go stale
+       reads — a weaker model there is not a slower answer, it is a thinner vault, permanently,
+       for the sake of one conversation's cost. So the final step names the strongest model this
+       machine offers and offers to run that conversation on it.
+       SUGGESTED, NEVER IMPOSED, and never written to settings.json: the primary button keeps
+       using the operator's own default, and the app cannot know which models their plan
+       includes. Silent when they are already on the top of the list — a recommendation that
+       fires when it has nothing to recommend is how a tip becomes wallpaper. */
+    let modelTop = null;     // strongest entry of modelOptions() — that list is capability-ordered
     let modelPinned = '';    // what the operator pinned in Claude's settings, if anything
-    let modelPinLabel = '';  // ...in words, for the "use mine instead" lane
-    let modelPinRank = 'absent';
+    let modelKnown = [];     // every value that list offers — what we can actually reason about
 
     /* SUGGEST ONLY WHEN WE CAN TELL, which is narrower than "is it not the top string".
        Claude Code accepts ALIASES — the operator running this was pinned to `opus[1m]`, which
@@ -6619,9 +6611,10 @@ function openSetupTab() {
        what IS pinned is a value from our own list and is not the strongest. Anything else is an
        alias or an id we do not model, and silence is the honest answer. */
     const modelWorthSuggesting = () => {
-      if (!modelRec) return false;
-      if (modelPinned && modelPinned === modelRec.value) return false;   // already exactly it
-      return modelPinRank === 'absent' || modelPinRank === 'weaker';
+      if (!modelTop) return false;
+      if (!modelPinned) return true;                       // no override at all
+      if (!modelKnown.includes(modelPinned)) return false;  // an alias, or something we cannot rank
+      return modelPinned !== modelTop.value;
     };
 
     // every Onboarding fix runs where the operator can SEE it; the doctor re-verifies
@@ -6795,24 +6788,9 @@ function openSetupTab() {
              it assumed a project could be created before the AIOS that holds projects exists —
              offered to someone whose framework and vault are both still missing. There is exactly
              one sensible action on this step, so it is the only one shown. */
+          mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
           if (modelWorthSuggesting()) {
-            /* The recommendation IS the primary action, and the label names the model so nothing
-               is decided behind the operator's back. */
-            mkBtn(acts, t('setup.phase2Model', { model: modelRec.label }),
-              () => void spawnSetupSession(modelRec.value),
-              { primary: true, title: t('setup.phase2Hint') });
-            /* BESIDE the primary, NOT under Advanced. Advanced is gated on `earned` — tried the
-               primary and the step is still not done — which is right for a remedy and wrong for
-               this: it is not a fallback for a failed attempt, it is the other way to run the
-               same action, and it has to be visible while the operator is still choosing. Put
-               there, it only appeared AFTER setup had already launched on the recommendation,
-               which is the choice having already been made for them.
-               Named, not called "default". Passing NO model is what inherits theirs, which is
-               also what makes this correct on a fresh machine: there is nothing to pass. */
-            mkBtn(acts, modelPinned ? t('setup.modelMine', { model: modelPinLabel }) : t('setup.modelDefault'),
-              () => void spawnSetupSession());
-          } else {
-            mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
+            mkBtn(adv, t('setup.modelUse', { model: modelTop.label }), () => void spawnSetupSession(modelTop.value));
           }
           break;
         }
@@ -6831,7 +6809,7 @@ function openSetupTab() {
       // the model suggestion rides the same slot: one line, on the step it applies to, and only
       // when the operator is not already on the strongest model this machine lists
       if (s.id === 'firstrun' && modelWorthSuggesting()) {
-        bd.appendChild(el('div', 'step-note', t('setup.modelTip', { model: modelRec.label })));
+        bd.appendChild(el('div', 'step-note', t('setup.modelTip', { model: modelTop.label })));
       }
       /* THE HANDOVER STEP SHOWS NO CHECK ROWS. Everywhere else they are the point: each row is a
          thing the operator can see and fix. Here they are a list of what the guided conversation is
@@ -6885,7 +6863,6 @@ function openSetupTab() {
     function stepEl(s, i) {
       const fresh = prevDone && s.done && !prevDone.has(s.id); // just flipped → announce once
       const box = el('div', 'step ' + s.state + (fresh ? ' just-done' : ''));
-      box.dataset.stepId = s.id;      // so a repaint can put back what the operator had open
       const hd = el('div', 'step-head');
       hd.appendChild(el('span', 'step-ix', s.done ? '✓' : String(i + 1)));
       /* Title = the ACTION, tag = what this actually is in words the operator already has.
@@ -6994,71 +6971,35 @@ function openSetupTab() {
       return d;
     }
 
-    /* WHAT THE SCREEN ACTUALLY DEPENDS ON, so a poll that finds nothing changed touches no DOM.
-       This repainted unconditionally every 5 seconds — `list.replaceChildren()` and rebuild — so
-       a reader scrolled down was thrown back to the top twice a minute and any Advanced they had
-       opened snapped shut. Operator-reported 2026-09-15. The poll itself is right and was added
-       for a real reason (device-auth and long installs finish outside our terminals' exit
-       events); what was wrong is repainting whether or not it learned anything.
-       The signature covers every input the render reads — step state, the per-check messages the
-       heads display, which steps have been tried, and the model lanes — so a change still lands
-       on the next tick. Anything NOT in here is a thing that can go stale on screen, which is why
-       it is built from the state rather than from a hand-listed set of fields. */
-    const renderSig = (st) => JSON.stringify({
-      steps: (st.steps || []).map((x) => [x.id, x.done, x.state,
-        (x.checks || []).map((c) => [c.id, c.status, c.message])]),
-      current: st.current,
-      tried: [...stepTried].sort(),
-      model: modelWorthSuggesting() ? [modelRec && modelRec.value, modelPinned, modelPinLabel] : null,
-    });
-    let lastSig = '';
-
-    async function paint(force) {
+    async function paint() {
       if (painting || !document.body.contains(wrap)) return;
       painting = true;
       let st = null;
       try { st = await window.glassShell.onboardingState(); } catch { st = null; } finally { painting = false; }
       if (!st || !document.body.contains(wrap)) return;
       try {
-        const [opts, rec, cc] = await Promise.all([
+        const [opts, top, cc] = await Promise.all([
           window.glassShell.modelOptions().catch(() => []),
-          window.glassShell.recommendedModel().catch(() => null),
+          window.glassShell.strongestModel().catch(() => null),
           window.glassShell.claudeConfig().catch(() => ({ model: '' })),
         ]);
-        modelRec = (rec && rec.value) ? rec : null;
+        /* The strongest of the standard LADDER, not opts[0]. That list also carries account
+           extras and the operator's own pinned value, so its first entry is whatever could not
+           be placed — on a machine pinned to `opus[1m]` it resolved to `opus[1m]`, recommending
+           the operator's own setting back to them as advice. */
+        modelTop = (top && top.value) ? top : null;
         modelPinned = (cc && cc.model) || '';
-        modelPinRank = await window.glassShell.rankPinnedModel(modelPinned).catch(() => 'unknown');
-        /* The picker's list is where a value becomes words — it already names aliases and carries
-           the operator's own pin, so the "use mine" lane can say WHICH model that is rather than
-           "your default", which tells them nothing they can check. */
-        const hit = (Array.isArray(opts) ? opts : []).find((o) => o.value === modelPinned);
-        modelPinLabel = (hit && hit.label) || modelPinned;
-      } catch { modelRec = null; }
-      /* Nothing moved → leave the DOM alone. `force` is for the Re-check button, which is an
-         operator asking to see it happen: skipping there would read as a dead control. */
-      const sig = renderSig(st);
-      if (!force && sig === lastSig && list.childElementCount) return;
-      lastSig = sig;
-      /* A repaint that discards where the operator was is its own defect, so carry both across:
-         the scroll offset, and which Advanced sections were open. */
-      const scroller = list.closest('.vbody') || list.parentElement;
-      const keepTop = scroller ? scroller.scrollTop : 0;
-      const openAdv = new Set([...list.querySelectorAll('details.step-adv[open]')]
-        .map((d) => d.closest('.step') && d.closest('.step').dataset.stepId).filter(Boolean));
+        modelKnown = (Array.isArray(opts) ? opts : []).map((o) => o.value).filter(Boolean);
+      } catch { modelTop = null; }
       list.replaceChildren();
       if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
       st.steps.forEach((s, i) => list.appendChild(stepEl(s, i)));
       if (st.current >= st.steps.length) list.appendChild(onboardingDoneEl());
       else list.appendChild(troubleEl());
-      for (const id of openAdv) {
-        const d = list.querySelector('.step[data-step-id="' + id + '"] details.step-adv');
-        if (d) d.open = true;
-      }
-      if (scroller) scroller.scrollTop = keepTop;
       prevDone = new Set(st.steps.filter((s) => s.done).map((s) => s.id));
     }
 
-    recheck.addEventListener('click', () => void paint(true));
+    recheck.addEventListener('click', () => void paint());
     onboardingRepaint = paint;
     // quiet poll while the tab is open — device/web auth flows and long installs
     // complete OUTSIDE our terminals' exit events; the poll catches them

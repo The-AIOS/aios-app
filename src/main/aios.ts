@@ -10,8 +10,9 @@ import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
+import { pickGit } from '../core/gitResolve';
+import { normalizeNotifyLevel, sessionKey, type NotifyLevel } from '../core/attention';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
-import { isInboxEntityDismissed, dismissInboxEntity, pruneInboxDismissals, type InboxDismissals } from '../core/inbox';
 import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
 import { FOLDER_SORT_KEY, MASTER_SORT_KEY, normalizeSortMode, setFolderSort, type FolderSortMap, type SortMode } from '../core/sort';
@@ -245,7 +246,7 @@ export function personalization(): PersonalizationEvidence & { ok: boolean; miss
   const root = frameworkRoot();
   if (root) {
     try {
-      const url = execFileSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 4000 }).trim();
+      const url = execFileSync(gitBin(), ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 4000 }).trim();
       remote = !!url && !/[/:]The-AIOS\/aios(\.git)?$/i.test(url);
     } catch { remote = false; }
   }
@@ -370,7 +371,14 @@ export function countNotes(kind: 'declared' | 'observed' | 'projects'): number {
 
 // ── running sessions (Claude Code's own registry) ───────────────────────────
 
-export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; }
+/* `status` is one of Claude Code's four registry values — busy | shell | idle | waiting —
+   verified against the 2.1.270 binary's own union, not inferred from what happened to be on
+   disk. `waitingFor` rides ALONGSIDE status 'waiting' and is absent otherwise (the writer
+   returns `{status:'waiting', waitingFor:<what>}` or `{status:'busy'|'idle', waitingFor:undefined}`),
+   which is why it is invisible on a machine whose sessions are all idle — that absence is the
+   field working, not the field missing. `statusUpdatedAt` is when the CURRENT status was
+   entered, so it answers "blocked longest" without us having to remember anything. */
+export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; }
 
 export function listRunningAgents(): RunningAgent[] {
   const dir = path.join(os.homedir(), '.claude', 'sessions');
@@ -378,7 +386,7 @@ export function listRunningAgents(): RunningAgent[] {
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
   const out: RunningAgent[] = [];
   for (const f of files) {
-    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number };
+    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number };
     try { d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     const pid = Number(d?.pid ?? path.basename(f, '.json'));
     if (!Number.isInteger(pid) || pid <= 0 || !isAlive(pid)) continue;
@@ -390,6 +398,8 @@ export function listRunningAgents(): RunningAgent[] {
       cwd: String(d?.cwd ?? ''),
       startedAt: Number(d?.startedAt) || 0,
       updatedAt: Number(d?.updatedAt) || 0,
+      ...(typeof d?.waitingFor === 'string' && d.waitingFor.trim() ? { waitingFor: d.waitingFor.trim() } : {}),
+      ...(Number(d?.statusUpdatedAt) > 0 ? { statusUpdatedAt: Number(d.statusUpdatedAt) } : {}),
     });
   }
   const seen = new Set<number>();
@@ -450,6 +460,67 @@ export function sessionMemoryMB(pids: number[]): Record<number, number> {
       if (total > 0) out[root] = Math.round(total / 1024); // KB → MB
     }
   } catch { /* ps unavailable */ }
+  return out;
+}
+
+/**
+ * Which live session runs UNDER each pty — the only exact answer to "which session is this
+ * pane", and the fix for a class of bug a name can never solve.
+ *
+ * A pane learns its identity from the tty title the session announces, then looked that name
+ * up in the registry with `.find()`. Names are not unique (the registry is one file per PID, so
+ * `spawn ingest` twice gives two live `ingest` sessions), so BOTH panes matched the same entry
+ * and were handed the SAME sessionId — after which every per-session display mirrored one
+ * session onto two tabs. Operator-reported 2026-09-14 with two sessions of one name: one
+ * working, one idle, both tabs animating.
+ *
+ * The process tree answers it exactly. The pty is a login shell whose descendant is the actual
+ * `claude` process, and the registry is keyed by THAT pid — so the session under a pane is the
+ * registry pid found beneath the pane's pty. No titles, no names, no guessing.
+ *
+ * Same `ps`/Win32_Process walk `sessionMemoryMB` already does, and the same cross-platform
+ * shape, so this adds a query rather than a mechanism.
+ */
+export function sessionPidsUnder(
+  ptyPids: number[],
+  sessionPids: number[],
+  /** Raw `pid ppid …` table. Injected by tests; read from the OS when absent. */
+  procTable?: string,
+): Record<number, number> {
+  const out: Record<number, number> = {};
+  if (!ptyPids.length || !sessionPids.length) return out;
+  const wanted = new Set(sessionPids);
+  try {
+    const txt = procTable ?? (process.platform === 'win32'
+      ? winProcTable()
+      : execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 }));
+    const kids = new Map<number, number[]>();
+    for (const line of txt.split('\n')) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)(?:\s+\d+)?$/);
+      if (!m) continue;
+      const pid = Number(m[1]), ppid = Number(m[2]);
+      (kids.get(ppid) ?? kids.set(ppid, []).get(ppid)!).push(pid);
+    }
+    for (const root of ptyPids) {
+      const found: number[] = [];
+      const stack = [root];
+      const seen = new Set<number>();
+      while (stack.length) {
+        const q = stack.pop() as number;
+        if (seen.has(q)) continue;
+        seen.add(q);
+        /* The root itself is never the session — a pty is the login shell — so only something
+           BENEATH it counts. */
+        if (q !== root && wanted.has(q)) found.push(q);
+        for (const c of kids.get(q) ?? []) stack.push(c);
+      }
+      /* EXACTLY ONE, or no answer. A pane's pty has one `claude` beneath it, so two means the
+         root given was not a pty but a shared ancestor — the App itself, or launchd, under
+         which every session lives. Answering with the first would be the same guess this
+         function exists to eliminate, just made deeper in the tree. */
+      if (found.length === 1) out[root] = found[0];
+    }
+  } catch { /* ps unavailable — callers fall back to the name, ambiguity and all */ }
   return out;
 }
 
@@ -547,6 +618,17 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
   try { md = fs.readFileSync(note as string, 'utf8'); } catch { return null; }
   const isClosed = /close[\s-]?of[\s-]?day|^#{1,4}.*\bclose\b.*\bday\b/im.test(md);
   if (hour >= 17 && !isClosed) {
+    /* NOT ALWAYS CLOSE-DAY. This branch owned every evening hour, so from 17:00 until the day
+       was closed the whisper said the same sentence — and a nudge that never varies stops being
+       read at all, which is the one failure mode a nudge cannot survive. Operator-reported.
+       The note itself knows better: `suggestedRitual` reads what today actually still wants, so
+       offer that first and keep close-day as what it really is — the last thing, once nothing
+       more specific is outstanding, and not before the evening is genuinely under way. */
+    const r = suggestedRitual(md);
+    if (r && hour < 20) {
+      const label = r.desc ? r.desc.charAt(0).toUpperCase() + r.desc.slice(1) : '';
+      return { kind: 'plan', icon: '💡', cmdLabel: t('nudge.runCmd', { short: r.short }), label, command: r.command };
+    }
     return { kind: 'close', icon: '🌙', label: t('nudge.closeDay'), command: '/aios:close-day' };
   }
   if ((weekday === 1 || weekday === 2) && hour >= 6 && hour < 17 && !weeklyPlanExists()) {
@@ -1003,6 +1085,28 @@ export function readFrameworkStatus(): FrameworkStatus | undefined {
   return { repo: kv.repo ?? '', hash: kv.hash ?? '', synced: kv.synced ?? '' };
 }
 
+/* THE GIT BINARY, resolved once and remembered. A packaged app's PATH finds the Xcode shim,
+   which exists and fails until its licence is accepted — see core/gitResolve.ts. Memoised
+   because this runs on every explorer refresh, not just at boot. */
+let GIT_BIN: string | undefined;
+export function gitBin(): string {
+  if (GIT_BIN) return GIT_BIN;
+  let pathHit: string | undefined;
+  try {
+    pathHit = execFileSync(process.platform === 'win32' ? 'where' : 'which', ['git'],
+      { encoding: 'utf8', timeout: 3000 }).split('\n')[0].trim() || undefined;
+  } catch { /* nothing on PATH */ }
+  GIT_BIN = pickGit({
+    platform: process.platform,
+    pathHit,
+    works: (p) => {
+      try { execFileSync(p, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); return true; }
+      catch { return false; }
+    },
+  });
+  return GIT_BIN;
+}
+
 export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown'> {
   const status = readFrameworkStatus();
   if (!status || !status.repo || !status.hash) return Promise.resolve('unknown');
@@ -1016,7 +1120,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
   return new Promise((resolve) => {
     // SSH remotes need an agent the GUI process may not have — public repo, use https
     const url = status.repo.replace(/^git@github\.com:/, 'https://github.com/');
-    execFile('git', ['ls-remote', url, 'HEAD'], { timeout: 8000 }, (err, stdout) => {
+    execFile(gitBin(), ['ls-remote', url, 'HEAD'], { timeout: 8000 }, (err, stdout) => {
       if (err || !stdout) return resolve('unknown');
       const remote = stdout.trim().split(/\s+/)[0];
       if (!remote) return resolve('unknown');
@@ -1074,7 +1178,7 @@ export function dailyNotePath(iso: string): string | undefined {
 
 // ── shell settings (.glass/shell.json — synced beside state.json) ───────────
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1091,6 +1195,10 @@ export function shellSettings(): ShellSettings {
     claudeCmd: typeof raw.claudeCmd === 'string' && raw.claudeCmd.trim() ? raw.claudeCmd.trim() : 'claude',
     showHints: raw.showHints !== false,
     showNudges: raw.showNudges !== false,
+    /* How a session blocked on the operator reaches them outside the panel: off | badge |
+       banner. Defaults to banner — the whole point of the counter is that you find out
+       without looking, and an operator who prefers silence can say so. */
+    attention: normalizeNotifyLevel(raw.attention),
     showMemory: raw.showMemory !== false,     // default on (Sessions card shows process-tree RAM)
     theme: raw.theme === 'light' ? 'light' : 'dark',
     termFontSize: Number(raw.termFontSize) || 12.5,
@@ -1932,7 +2040,7 @@ export function storeGitHubPat(pat: string): boolean {
   if (!token || /\s/.test(token)) return false;
   try {
     let helper = '';
-    try { helper = execFileSync('git', ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
+    try { helper = execFileSync(gitBin(), ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
     if (!helper) {
       // no helper anywhere → give git one (Keychain on macOS, plain store elsewhere)
       /* Windows has an OS credential vault too, and Git for Windows ships the helper for it, so
@@ -1940,9 +2048,9 @@ export function storeGitHubPat(pat: string): boolean {
          would write the PAT to ~/.git-credentials in PLAIN TEXT — acceptable as a last resort on
          a Linux box with no vault, never the default on a machine that has one. */
       const fallback = process.platform === 'win32' ? 'manager' : 'store';
-      execFileSync('git', ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
+      execFileSync(gitBin(), ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
     }
-    execFileSync('git', ['credential', 'approve'], {
+    execFileSync(gitBin(), ['credential', 'approve'], {
       input: `protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}\n\n`,
       encoding: 'utf8', timeout: 8000,
     });
@@ -1960,10 +2068,22 @@ export const claudeDir = () => process.env.GLASS_CLAUDE_HOME || path.join(os.hom
 const claudeSettingsPath = () => path.join(claudeDir(), 'settings.json');
 const claudeJsonPath = () => process.env.GLASS_CLAUDE_JSON || path.join(os.homedir(), '.claude.json');
 
+/* ORDERED BY CAPABILITY, STRONGEST FIRST — and that order is now load-bearing, not cosmetic.
+   The setup step recommends `MODEL_OPTIONS[0]` by name as "the most capable one available here",
+   so a list that is merely OFFERED stale is a small annoyance while a list that is RECOMMENDED
+   stale is the app confidently pointing a newcomer at a superseded model for the one
+   conversation that writes the context every future session reads.
+   Refreshed to the 5 family 2026-09-14, verified against the ids the installed `claude` binary
+   actually advertises (2.1.270 carries claude-opus-5, claude-opus-5[1m], claude-sonnet-5) rather
+   than from memory. It had been a generation behind — topping out at Opus 4.8 while the operator
+   was running Opus 5.
+   STILL A HARDCODED LIST, and it will go stale again: nothing here derives from the binary. That
+   is the real fix and it is not this one. Until then, this list is a release-time checklist item. */
 export const MODEL_OPTIONS = [
-  { label: 'Opus 4.8 — 1M context', value: 'claude-opus-4-8[1m]' },
-  { label: 'Opus 4.8', value: 'claude-opus-4-8' },
-  { label: 'Sonnet 4.6', value: 'claude-sonnet-4-6' },
+  { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
+  { label: 'Opus 5', value: 'claude-opus-5' },
+  { label: 'Sonnet 5 — 1M context', value: 'claude-sonnet-5[1m]' },
+  { label: 'Sonnet 5', value: 'claude-sonnet-5' },
   { label: 'Haiku 4.5', value: 'claude-haiku-4-5' },
   { label: 'Default (clear the override)', value: '' },
 ];
@@ -2037,13 +2157,73 @@ function writeClaudeUserJson(mutate: (j: Record<string, unknown>) => void): void
  * PLUS the configured value if it is none of those, so opening Settings can never silently
  * reset a model set elsewhere or newer than this build.
  */
+/* The standard ladder, STRONGEST FIRST. Separate from `modelOptions()` because that list also
+   carries account extras and the operator's own pinned value, neither of which can be ranked —
+   and one caller needs a ranking. */
+const MODEL_LADDER = [
+  { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
+  { label: 'Opus 5', value: 'claude-opus-5' },
+  { label: 'Sonnet 5', value: 'claude-sonnet-5' },
+  { label: 'Haiku 4.5', value: 'claude-haiku-4-5-20251001' },
+];
+
+/* Claude Code accepts ALIASES — `opus`, `opus[1m]`, `sonnet` — each meaning "the latest of that
+   family". They are not ids, so they never match the ladder, and an unlabelled alias surfaced in
+   the picker as the raw string `opus[1m]` sitting above the real names. Naming them says what
+   they actually mean, which is also why an operator would choose one: it follows the family
+   rather than pinning a generation. */
+const MODEL_ALIASES: Record<string, string> = {
+  'opus[1m]': 'Opus (latest) — 1M context',
+  opus: 'Opus (latest)',
+  'sonnet[1m]': 'Sonnet (latest) — 1M context',
+  sonnet: 'Sonnet (latest)',
+  haiku: 'Haiku (latest)',
+};
+
+/**
+ * What the guided setup should run on — AN ALIAS, on purpose.
+ *
+ * `opus[1m]` means "the latest Opus, 1M context" and is resolved by Claude Code itself, so it
+ * cannot go stale. A pinned generation can, and the failure is not graceful: measured against
+ * the real CLI, an id the catalog does not know prints `[claude-code:unrecognized_model]` and
+ * refuses to start — "It may not exist or you may not have access to it". So the day a
+ * generation is retired, a pinned id would hand a NEWCOMER a hard error in the one conversation
+ * that writes the context every later session reads. The alias is proven on this machine:
+ * operators run `"model": "opus[1m]"` in their own settings every day.
+ *
+ * MODEL_LADDER keeps the exact ids because the PICKER must offer specific generations — a
+ * person choosing a model wants to name one. Ranking and recommending are different jobs.
+ */
+export const RECOMMENDED_SETUP_MODEL = { label: 'Opus (latest) — 1M context', value: 'opus[1m]' };
+
+export function recommendedModel(): { label: string; value: string } {
+  return { ...RECOMMENDED_SETUP_MODEL };
+}
+
+/**
+ * How strong is the operator's pinned model, on the only scale we can defend: its FAMILY.
+ *
+ * `'stronger-or-equal'` and `'weaker'` are answers; `'unknown'` is a real third one and the most
+ * important. An account extra (Fable carries its own quota and is described as most capable for
+ * the hardest tasks) or a provider id is a DELIBERATE specialist choice we cannot rank — and
+ * overriding one with a generic recommendation is worse than the problem being fixed. Absent is
+ * NOT unknown: nothing pinned means the newcomer never chose, which is exactly who the
+ * recommendation is for.
+ */
+export type PinRank = 'absent' | 'weaker' | 'stronger-or-equal' | 'unknown';
+
+export function rankPinnedModel(pinned: string): PinRank {
+  const v = (pinned || '').trim().toLowerCase();
+  if (!v) return 'absent';
+  /* Family, from either an alias (`opus`, `sonnet[1m]`) or a ladder id (`claude-sonnet-5`).
+     Substring rather than an exact table so a new generation of a KNOWN family still ranks. */
+  if (v.includes('opus')) return 'stronger-or-equal';
+  if (v.includes('sonnet') || v.includes('haiku')) return 'weaker';
+  return 'unknown';
+}
+
 export function modelOptions(): { label: string; value: string }[] {
-  const base = [
-    { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
-    { label: 'Opus 5', value: 'claude-opus-5' },
-    { label: 'Sonnet 5', value: 'claude-sonnet-5' },
-    { label: 'Haiku 4.5', value: 'claude-haiku-4-5-20251001' },
-  ];
+  const base = MODEL_LADDER;
   const out = [...base];
   const cj = readJson(claudeJsonPath()) as { additionalModelOptionsCache?: unknown };
   const extra = Array.isArray(cj.additionalModelOptionsCache) ? cj.additionalModelOptionsCache : [];
@@ -2054,8 +2234,14 @@ export function modelOptions(): { label: string; value: string }[] {
       out.push({ label: typeof l === 'string' && l ? `${l} — ${v.includes('[1m]') ? '1M context' : v}` : v, value: v });
     }
   }
+  /* The operator's own setting, so the picker can show what is actually in force. It goes LAST,
+     not first: prepending it put an unrankable value at index 0, and the setup step reads index 0
+     as "the strongest model available here". Anything that needs a ranking calls
+     strongestModel(); this list is for choosing from, not for ranking. */
   const current = String(readValue('model', readJson(claudeSettingsPath()), cj as Record<string, unknown>) || '');
-  if (current && !out.some((m) => m.value === current)) out.unshift({ label: current, value: current });
+  if (current && !out.some((m) => m.value === current)) {
+    out.push({ label: MODEL_ALIASES[current] ?? current, value: current });
+  }
   return out;
 }
 
@@ -2888,79 +3074,6 @@ export function listAgentSuggestions(): AgentSuggestion[] {
 // auto-expires the moment the live signature differs). Persisted in
 // `.glass/state.json`, so it roams with the vault like the sort prefs.
 
-const INBOX_DISMISS_KEY = 'aios.inbox.dismissed.v1';
-
-export interface InboxItem {
-  key: string;
-  kind: 'session' | 'suggestion' | 'nudge' | 'update';
-  icon: string;
-  label: string;
-  detail?: string;
-  /** Change signature — dismissal hides the item until this changes again. */
-  sig: string;
-  /** session items: the registry name (the renderer focuses/resumes by it). */
-  name?: string;
-  /** nudge items: the slash command a click runs. */
-  command?: string;
-  nudgeKind?: string;
-}
-
-export function inboxDismissals(): InboxDismissals {
-  const raw = glassState()[INBOX_DISMISS_KEY];
-  return raw && typeof raw === 'object' ? (raw as InboxDismissals) : {};
-}
-
-export function dismissInboxItem(key: string, sig: string): void {
-  if (!key) return;
-  setGlassState(INBOX_DISMISS_KEY, dismissInboxEntity(inboxDismissals(), key, sig));
-}
-
-// The same "waiting on the operator" signal the renderer's blue dot uses.
-const NEEDS_INPUT_RE = /wait|input|prompt|\bask\b|attention|approv|permission|block/;
-
-/** The synchronous inbox battery (sessions · suggestions · nudge), already
- *  filtered by dismissals. `running`/`hour`/`weekday` are injectable so tests
- *  never depend on this machine's live sessions or the wall clock. */
-export function inboxItems(
-  running: RunningAgent[] = listRunningAgents(),
-  hour = new Date().getHours(),
-  weekday = new Date().getDay(),
-): InboxItem[] {
-  const all: InboxItem[] = [];
-  // 1 · sessions blocked on the operator
-  for (const a of running) {
-    if (!NEEDS_INPUT_RE.test((a.status || '').toLowerCase())) continue;
-    all.push({ key: 'session:' + a.name, kind: 'session', icon: '💬', label: t('inbox.sessionNeedsInput', { name: a.name }), detail: a.status, sig: a.status, name: a.name });
-  }
-  // 2 · open go-with-agents suggestions from today's note (per-item dismissal;
-  //     the raw line is the signature — edit the task, it resurfaces)
-  for (const s of listAgentSuggestions().slice(0, 4)) {
-    all.push({ key: 'suggestion:' + taskIdentity(s.raw), kind: 'suggestion', icon: '🤖', label: s.task, detail: s.agent ? '→ ' + s.agent : s.command, sig: s.raw });
-  }
-  // 3 · the active nudge (the standalone whisper hides while the inbox shows it)
-  if (shellSettings().showNudges) {
-    const n = nudgeState(hour, weekday, running.length);
-    if (n) all.push({ key: 'nudge:' + n.kind, kind: 'nudge', icon: n.icon, label: (n.cmdLabel ? n.cmdLabel + ' — ' : '') + (n.label || ''), sig: n.kind + '|' + (n.label || ''), command: n.command, nudgeKind: n.kind });
-  }
-  const dismissed = inboxDismissals();
-  const items = all.filter((i) => !isInboxEntityDismissed(dismissed, i.key, i.sig));
-  // prune dismissals whose item no longer exists ('update' is always live-able —
-  // it is composed async by panelHost, so its key is kept)
-  const pruned = pruneInboxDismissals(dismissed, all.map((i) => i.key).concat('update'));
-  if (JSON.stringify(pruned) !== JSON.stringify(dismissed)) setGlassState(INBOX_DISMISS_KEY, pruned);
-  return items;
-}
-
-/** The framework-update inbox row — composed by panelHost AFTER its async
- *  checkForUpdates(). The signature is the LOCAL hash: running the update
- *  moves the hash, which auto-expires the dismissal. */
-export function updateInboxItem(state: 'up-to-date' | 'available' | 'unknown'): InboxItem | null {
-  if (state !== 'available') return null;
-  const hash = readFrameworkStatus()?.hash || '';
-  const item: InboxItem = { key: 'update', kind: 'update', icon: '↓', label: t('inbox.updateAvailable'), detail: t('inbox.updateDetail'), sig: hash };
-  return isInboxEntityDismissed(inboxDismissals(), item.key, item.sig) ? null : item;
-}
-
 // ── starter packs (persona → a preseeded Home) ──────────────────────────────
 //
 // The Onboarding "starter" step: pick who you are — personal/family vs
@@ -3159,7 +3272,7 @@ function gitStatusOne(repoRoot: string): Map<string, string> {
   if (cached && now - cached.at < 2000) return cached.files;
   const files = new Map<string, string>();
   let out = '';
-  try { out = execFileSync('git', ['-C', repoRoot, 'status', '--porcelain'], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+  try { out = execFileSync(gitBin(), ['-C', repoRoot, 'status', '--porcelain'], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
   catch { gitCache.set(repoRoot, { at: now, files }); return files; }
   for (const line of out.split('\n')) {
     if (line.length < 4) continue;
@@ -3201,7 +3314,7 @@ export function gitDirtyLines(absFile: string): Array<[number, number]> {
   if (!root) { diffCache.set(absFile, { at: now, ranges }); return ranges; }
   const rel = path.relative(root, absFile);
   const run = (args: string[]): string => {
-    try { return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+    try { return execFileSync(gitBin(), ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
     catch { return ''; }
   };
   // untracked → every line is new

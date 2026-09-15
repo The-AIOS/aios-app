@@ -144,8 +144,9 @@ test('a named spawn IS the identity — the session becomes the agent', () => {
   // a session adopt a bundled agent on turn one. Running a slash command in the primary
   // session tells it ABOUT the agent instead, and cannot be closed independently.
   // Signature gained optional cwd + permission mode; the identity contract is `--name`, unchanged.
-  assert.match(app, /function spawnNamed\(name, task, cwd, mode\)/);
-  assert.match(app, /CLAUDE \+ \(mode \? ' --permission-mode ' \+ mode : ''\)\s*\n?\s*\+ ' --name ' \+ handle/);
+  assert.match(app, /function spawnNamed\(name, task, cwd, mode, model\)/);
+  // The model clause sits between them — passed only when a caller asks for one, like the mode.
+  assert.match(app, /CLAUDE \+ \(mode \? ' --permission-mode ' \+ mode : ''\)\s*\n?\s*\+ \(model \? ' --model ' \+ shq\(model\) : ''\)\s*\n?\s*\+ ' --name ' \+ handle/);
   assert.match(app, /const hit = byName\(handle\);/, 'reveal an open one rather than duplicating');
   assert.match(app, /case 'spawnNamed':/);
   // the title-bar compass uses the same path as the menu
@@ -330,7 +331,7 @@ test('setup is TWO phases, and the second only appears once Claude runs', () => 
      files in this folder?" — swallows a positional prompt, leaving an idle-looking session with
      the operator's instruction gone. Removing the screen is deterministic; watching the terminal
      for a composer is a regex against another product's UI, and I tried that and threw it away. */
-  assert.match(app, /const spawnSetupSession = async \(\) => \{/);
+  assert.match(app, /const spawnSetupSession = async \(model\) => \{/);
   /* Was `trustDir(roots.framework)`, which granted NOTHING on a virgin machine — the pty then fell
      back to $HOME and Claude asked the operator to trust their whole home directory with "No, exit"
      pre-selected. `prepareSetupCwd()` creates and trusts the default install path instead, and
@@ -352,7 +353,7 @@ test('setup is TWO phases, and the second only appears once Claude runs', () => 
  *  explaining why claudeConfig must not be read here). Both asserts below it are the CONTROL: an
  *  empty or over-stripped string would make every doesNotMatch pass for the wrong reason. */
 function spawnSetupBody(): string {
-  const start = app.indexOf('const spawnSetupSession = async () => {');
+  const start = app.indexOf('const spawnSetupSession = async (model) => {');
   assert.ok(start >= 0, 'spawnSetupSession not found — this guard would be measuring nothing');
   const end = app.indexOf('\n    };', start);
   assert.ok(end > start, 'could not find the end of spawnSetupSession');
@@ -375,7 +376,7 @@ test('the guided setup session opens in AUTO mode, and decides that here', () =>
      apart, and setup runs before the operator has ever opened Settings anyway. `coerce()` in
      src/core/claudeConfig.ts already refuses to write a literal 'default' for the same reason. */
   const body = spawnSetupBody();
-  assert.match(body, /cwd, 'auto'\)/, "the mode is a literal decided here, not read from anywhere");
+  assert.match(body, /cwd, 'auto', model\)/, "the mode is a literal decided here, not read from anywhere");
   assert.doesNotMatch(body, /claudeConfig/, 'must not derive the setup mode from Claude config');
   assert.doesNotMatch(body, /\|\| 'auto'/, "'auto' must not sit behind a config read as a fallback");
   // and the flag still only ships when a caller asks for one — other spawns inherit the

@@ -1,3 +1,10 @@
+/* NOTHING ANIMATES WHILE THE WINDOW IS NOT IN FRONT.
+   Electron's backgroundThrottling does not cover a window that is visible but unfocused, and a
+   compositor loop costs the whole machine, not just this app. `animation-play-state` is the one
+   line that makes every animation — present and future, ours and xterm's — stop paying when
+   nobody is looking at it. */
+body.unfocused *, body.unfocused *::before, body.unfocused *::after { animation-play-state: paused !important; }
+
 /* ═══ Glass Shell — the design system ═══════════════════════════════════════
    The-AIOS product language: deep black, ONE accent (coral = action/identity),
    Inter, hairlines + edge-light instead of heavy borders, motion only as state.
@@ -235,6 +242,30 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tab .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab .tx { color: var(--subtle); opacity: 0; width: 12px; text-align: center; border-radius: 4px; transition: opacity .12s; }
 .tab:hover .tx { opacity: 1; }
+/* #24.2b — session state on the tab. Its own element, never the icon's colour: the group stripe
+   is a separate axis and the two must not share a pixel. Same four meanings as the side panel's
+   dot, so a tab and the panel can never tell the operator different things — including GREY FOR
+   DEAD and GREEN FOR ALIVE, which is what `.pdot` already does over there. */
+.tab .tdot { display: none; --sc: var(--st-idle); width: 6px; height: 6px; border-radius: 50%;
+             flex: 0 0 auto; background: var(--sc); }
+/* HIDDEN BY DEFAULT, shown only once painted. It used to default to visible-and-green, so every
+   newly opened tab — a file, Settings, anything — flashed a green dot for the two seconds until
+   the next poll told it it had no state at all. */
+.tab .tdot.plain, .tab .tdot.idle, .tab .tdot.busy,
+.tab .tdot.input, .tab .tdot.error { display: inline-block; }
+.tab .tdot.plain { --sc: var(--subtle); }           /* a terminal — no state to report */
+.tab .tdot.idle  { --sc: var(--st-idle); }          /* alive — green, like the panel */
+.tab .tdot.busy  { --sc: var(--st-busy); }
+.tab .tdot.input { --sc: var(--st-input); }
+.tab .tdot.error { --sc: var(--st-error); }
+/* Same composited ring as the panel dot, in the tab's own --sc. This was box-shadow too when it
+   was written yesterday — the identical defect, introduced beside the one it was copied from. */
+.tab .tdot.busy, .tab .tdot.input { position: relative; }
+.tab .tdot.busy::after, .tab .tdot.input::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--sc); will-change: transform, opacity;
+  animation: ringpulse 2s ease-out infinite;
+}
 .tab .tx:hover { color: var(--accent); }
 .tab.dirty .tname::after { content: '•'; color: var(--accent); margin-left: 5px; }
 .newTab { flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--subtle); border-radius: 8px;
@@ -632,21 +663,9 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 /* "Needs you" inbox — one card, everything waiting on the operator. Rows carry
    a status dot (--sc via .st-*: blue = session on input, gold = update, calm
    green = the rest) and a hover-reveal stateful dismiss (×). */
-#pInbox { display: none; }
-.pinrow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 7px; cursor: pointer;
-          color: var(--ink); font-size: 12px; }
-.pinrow:hover { background: var(--surface-2); }
-.pindot { --sc: var(--st-idle); width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--sc);
-          box-shadow: 0 0 6px color-mix(in srgb, var(--sc) 40%, transparent); }
-.pinico { flex: 0 0 auto; font-size: 11px; }
-.pintext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.pinlab { line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.pindet { color: var(--subtle); font-size: 10px; font-family: var(--mono);
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pinx { flex: 0 0 auto; background: transparent; border: 0; color: var(--subtle); cursor: pointer; padding: 0 4px;
-        border-radius: 4px; font-size: 13px; line-height: 1; opacity: 0; transition: opacity .12s; }
-.pinrow:hover .pinx, .pinrow:focus-within .pinx { opacity: 1; }
-.pinx:hover { color: var(--ink); background: var(--surface); }
+
+/* a setting that cannot take effect says why, in the row itself */
+.thint.twarn { color: var(--st-warn); }
 
 /* quota */
 #pQuota { display: none; }
@@ -661,7 +680,7 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 .prow2 { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; cursor: pointer;
          color: var(--ink); font-size: 12px; }
 .prow2:hover { background: var(--surface-2); }
-.prow2 .rname { flex: 0 0 auto; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.prow2 .rname { flex: 0 1 auto; min-width: 4.5em; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 .prow2 .pst { flex: 1; min-width: 0; color: var(--subtle); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prow2 .rmem { flex: 0 0 auto; color: var(--subtle); font-family: var(--mono); font-size: 9.5px; opacity: .65; margin-left: 6px; }
 .prow2 .runacts { flex: 0 0 auto; display: inline-flex; gap: 1px; opacity: 0; transition: opacity .12s; margin-left: 4px; }
@@ -682,10 +701,27 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 .pcaltoggle:hover { color: var(--accent); border-color: var(--accent); }
 .pdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--subtle); }
 .pdot.idle { background: var(--st-idle); }
-.pdot.busy { background: var(--st-busy); animation: ppulse 2s ease-out infinite; }
-.pdot.input { background: var(--st-input); animation: ppulse 2s ease-out infinite; }
+.pdot.busy { background: var(--st-busy); --sc: var(--st-busy); }
+.pdot.input { background: var(--st-input); --sc: var(--st-input); }
+/* THE RING IS A PSEUDO-ELEMENT ANIMATING transform + opacity, NOT box-shadow on the dot.
+   MEASURED 2026-09-15: with box-shadow, two pulsing dots produced ~120 STYLE RECALCULATIONS PER
+   SECOND for the life of the window — 960 per 8s against 8 with animations off, a 120x
+   difference. box-shadow is not a compositable property, so every frame re-ran style and paint
+   on the main thread; WindowServer then sat at ~32% and, because compositing is serialised,
+   queued every other window's input behind it. The operator's report was that typing lagged in
+   EVERY app on the machine, and ⌘H dropped WindowServer to 0.1% instantly.
+   transform and opacity are compositor-only: the same ring, on the GPU, at no style cost. */
+.pdot.busy, .pdot.input { position: relative; }
+.pdot.busy::after, .pdot.input::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--sc); will-change: transform, opacity;
+  animation: ringpulse 2s ease-out infinite;
+}
+@keyframes ringpulse {
+  0%        { transform: scale(1);   opacity: .45; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
+}
 .pdot.error { background: var(--st-error); }
-@keyframes ppulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--st-busy) 50%, transparent); } 70% { box-shadow: 0 0 0 5px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .pgo { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 6px 8px; border-radius: 8px;
        border: 1px dashed var(--line-strong); color: var(--subtle); font-size: 11.5px; cursor: pointer; }
 .pgo:hover { color: var(--ink); border-color: var(--accent); }
@@ -830,7 +866,6 @@ body.no-hints .xsectsub { display: none; }
 .pcheck { flex: 0 0 auto; width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 4px;
           display: inline-flex; align-items: center; justify-content: center; color: #fff; }
 .pcheck.ticked { background: var(--accent); border-color: var(--accent); }
-.prow .pindot { flex: 0 0 auto; }
 .mgo:disabled { opacity: .45; cursor: default; }
 /* #19 a session with notes shows its note button ALWAYS (not hover-only) + a count */
 .runact.note.has { opacity: 1 !important; visibility: visible !important; color: var(--st-warn); position: relative; }
@@ -1060,10 +1095,25 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
   background: linear-gradient(100deg,
     var(--ink) 40%, color-mix(in srgb, var(--accent) 55%, var(--ink)) 50%, var(--ink) 60%);
   background-size: 240% 100%; -webkit-background-clip: text; background-clip: text;
-  color: transparent; animation: shimsweep 2.4s linear infinite; }
-@keyframes shimsweep { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+  color: transparent;
+  /* THE SWEEP NO LONGER MOVES THE GRADIENT. Animating `background-position` on a
+     `background-clip: text` element re-rasterises every glyph, every frame, on the main thread —
+     the single most expensive pattern in this file, and it ran forever for every working
+     session. `opacity` is compositor-only, so the verb still breathes to say "this is live" at
+     no style cost, and the gradient stays (static) so the accent colour is not lost. */
+  animation: shimbreathe 2.4s ease-in-out infinite; will-change: opacity; }
+@keyframes shimbreathe { 0%, 100% { opacity: 1; } 50% { opacity: .58; } }
 
-.prow2 .pst.tight { flex: 0 0 auto; }  /* when a ticker rides alongside, the verb hugs its width */
+/* HUGS ITS WIDTH, BUT YIELDS BEFORE THE BUTTONS DO. `flex: 0 0 auto` refused to shrink at all,
+   and on a BUSY row the hover actions are four buttons rather than three — name (up to 45%) +
+   verb + elapsed + four buttons overflowed, and because `.prow2` clips, what got cut was the
+   tail: the buttons the operator was reaching for. Operator-reported 2026-09-15.
+   `0 1 auto` still sizes to content whenever there is room, so the ticker layout is unchanged in
+   the common case; it only gives way under pressure, and `.pst` already ellipsizes. The shrink
+   ORDER is what makes this right: the ticker has `flex-basis: 0`, so it collapses first, then
+   this, then the name down to its floor. The buttons never shrink, because a half-width icon is
+   not a smaller control, it is a broken one. */
+.prow2 .pst.tight { flex: 0 1 auto; }
 .ticker { flex: 1; min-width: 0; height: 15px; position: relative; overflow: hidden; }
 .tickline { position: absolute; inset: 0; color: var(--subtle); font-size: 10px; font-family: var(--mono);
             line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

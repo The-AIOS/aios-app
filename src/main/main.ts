@@ -291,6 +291,7 @@ function inAllowed(abs: string): boolean {
    READ-ONLY, deliberately. ~/.claude.json is large and live sessions write it, so a
    read-modify-write races them (see writeClaudeUserJson) — watching does not. */
 const claudeWatchers: fs.FSWatcher[] = [];
+let lastClaudeCfg = '';
 let claudeCfgTimer: ReturnType<typeof setTimeout> | undefined;
 function setupClaudeConfigWatch(win: BrowserWindow): void {
   for (const w of claudeWatchers.splice(0)) { try { w.close(); } catch { /* ignore */ } }
@@ -305,6 +306,7 @@ function setupClaudeConfigWatch(win: BrowserWindow): void {
     path.join(os.homedir(), '.claude.json'),
     ...(framework ? [path.join(framework, '.claude', 'settings.json'), path.join(framework, '.claude', 'settings.local.json')] : []),
   ];
+  lastClaudeCfg = JSON.stringify(aios.claudeConfig());   // baseline, so the first real change is the first event
   for (const f of watched) {
     try {
       /* Watch the DIRECTORY, not the file. An editor (and Claude itself) writes atomically —
@@ -317,7 +319,19 @@ function setupClaudeConfigWatch(win: BrowserWindow): void {
         if (String(filename || '') !== base) return;
         if (claudeCfgTimer) clearTimeout(claudeCfgTimer);
         claudeCfgTimer = setTimeout(() => {
-          if (!win.webContents.isDestroyed()) win.webContents.send('shell:claudeConfigChanged', aios.claudeConfig());
+          if (win.webContents.isDestroyed()) return;
+          /* ONLY WHEN THE VALUES THIS EVENT IS ABOUT ACTUALLY CHANGED. `~/.claude.json` is
+             rewritten constantly by every live Claude session — it is the file CLAUDE.md warns
+             is "LARGE and live Claude sessions write it too" — so a bare file event fires
+             whenever any session breathes. The renderer rebuilds the open Settings tab on this,
+             which is why Settings visibly reloaded itself every minute or so while several
+             sessions were running (operator-reported 2026-09-14). Nothing about those writes
+             touches the handful of values Settings shows, so comparing them first turns a
+             constant churn into an event that fires when something really changed. */
+          const next = JSON.stringify(aios.claudeConfig());
+          if (next === lastClaudeCfg) return;
+          lastClaudeCfg = next;
+          win.webContents.send('shell:claudeConfigChanged', aios.claudeConfig());
         }, 200);
       }));
     } catch { /* absent store — nothing to watch yet */ }
@@ -850,6 +864,10 @@ ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());
 ipcMain.handle('claude:modelOptions', () => aios.modelOptions());
+/* The strongest of the standard ladder — NOT modelOptions()[0], which can be an account
+   extra or the operator's own unrankable pin. The setup suggestion needs a ranking. */
+ipcMain.handle('claude:recommendedModel', () => aios.recommendedModel());
+ipcMain.handle('claude:rankPinnedModel', (_e, pinned: unknown) => aios.rankPinnedModel(String(pinned ?? '')));
 /* THE MACHINE CHANGES UNDER US. Everything that resolves the framework or the vault is wired
    when the window opens — the explorer tree, the panel's file watchers, the update tracker. On a
    newcomer's machine none of those paths exist at that moment, so every watcher silently no-ops
@@ -883,10 +901,48 @@ ipcMain.handle('aios:prepareSetupCwd', () => aios.prepareSetupCwd());
 ipcMain.handle('aios:banner', (_e, m: { ok: string; okSub: string; fail: string; failSub: string }) =>
   aios.bannerScript(m.ok, m.okSub, m.fail, m.failSub));
 ipcMain.handle('aios:readiness', () => aios.readiness());
-ipcMain.handle('aios:addFrequent', (_e, task: Parameters<typeof aios.addFrequentTask>[0]) => aios.addFrequentTask(task));
-ipcMain.handle('aios:removeFrequent', (_e, id: string) => aios.removeFrequentTask(String(id)));
+/* Both re-post: Home's frequent count is a value the pulse DISPLAYS, and the panel only learns
+   a new one when something pushes. `starter:apply` already did this and said why; these two had
+   the identical need and were never connected, so adding or deleting a task left the counter
+   showing whatever the last push said until an unrelated refresh happened to correct it.
+   Enforced by pulseState.test.ts — a handler that mutates a displayed value and does not push
+   fails there rather than on someone's screen. */
+ipcMain.handle('aios:addFrequent', (_e, task: Parameters<typeof aios.addFrequentTask>[0]) => {
+  const r = aios.addFrequentTask(task);
+  host?.postState();
+  return r;
+});
+ipcMain.handle('aios:removeFrequent', (_e, id: string) => {
+  const r = aios.removeFrequentTask(String(id));
+  host?.postState();
+  return r;
+});
 // AIOS's own auto-update preference (USER.md), deliberately NOT on the claude:* channel
 ipcMain.handle('shell:setAutoUpdates', (_e, on: boolean) => { aios.setAutoUpdates(!!on); return aios.claudeConfig().autoUpdates; });
+/* Which live session runs under a pane's pty — exact identity, where a name cannot be.
+   The renderer asks when a pane confirms itself, so two same-named sessions land on the
+   right tabs instead of both adopting whichever the name matched first. */
+ipcMain.handle('session:under', (_e, paneIds: number[]) => {
+  /* The renderer holds PANE HANDLES (a counter), never pty pids — only this process knows
+     those, via `ptys`. So translate handle → pty pid here, walk, and answer by handle. */
+  const ids = (Array.isArray(paneIds) ? paneIds : []).map(Number).filter((n) => Number.isInteger(n));
+  const ptyPidOf = new Map<number, number>();
+  for (const id of ids) {
+    const pid = ptys.get(id)?.pid;
+    if (Number.isInteger(pid) && (pid as number) > 0) ptyPidOf.set(id, pid as number);
+  }
+  const running = aios.listRunningAgents();
+  const map = aios.sessionPidsUnder([...ptyPidOf.values()], running.map((a) => a.pid));
+  const byPid = new Map(running.map((a) => [a.pid, a]));
+  const out: Record<number, { name: string; id: string; pid: number }> = {};
+  for (const [paneId, ptyPid] of ptyPidOf) {
+    const a = byPid.get(map[ptyPid]);
+    if (a) out[paneId] = { name: a.name, id: a.sessionId, pid: a.pid };
+  }
+  return out;
+});
+/* Settings asks whether macOS has refused a banner, so the alerts control can say why it looks
+   like it is doing nothing rather than leaving the operator to find System Settings unaided. */
 ipcMain.handle('claude:permissionModes', () => aios.permissionModes());
 ipcMain.handle('shell:frameworkPath', () => aios.frameworkPathSetting());
 ipcMain.handle('shell:setFrameworkPath', (_e, v: string) => { aios.setFrameworkPath(String(v ?? '')); return aios.frameworkPathSetting(); });
@@ -896,7 +952,7 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'mode' | 'remoteControl' | 'aut
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
 });
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate', value: unknown) => {
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention', value: unknown) => {
   aios.setShellSetting(key, value);
   /* AI-132: changing the RULE retires any override — otherwise you switch manual→auto and watch
      auto not follow sessions, with nothing on screen explaining why. Applies immediately rather
@@ -911,6 +967,54 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
 });
 
 let mainWin: BrowserWindow | undefined;
+
+/* ONE APP, ONE INSTANCE — and the reason is not tidiness.
+   Operator-reported 2026-09-15: clicking a notification banner opened a SECOND AIOS. macOS
+   activates the bundle through LaunchServices, and with no lock that starts a whole new app.
+   It is easy to see as cosmetic and it is not: every instance publishes the same presence file
+   `~/.aios/surfaces/app.json` and watches the same spawn-inbox, so the second silently
+   overwrites the first's pid and the two then RACE for every request — which is exactly the
+   double-delivery the bus contract was built to prevent, reached from a direction the contract
+   cannot see, because both racers believe they are the only App.
+   The smoke run is exempt: it launches deliberately alongside a developer's own App, and a lock
+   there would make the gate exit 0 having tested nothing. */
+/* MUST EQUAL `build.appId` in package.json — asserted by a test, because it cannot be read.
+   It was read at first, which was wrong in the way that matters: electron-builder REWRITES
+   package.json when it packages and drops the whole `build` block, so in the shipped app the
+   lookup returned undefined and silently fell through to this literal. It worked only because
+   the literal was already correct. Change `build.appId` and the packaged app would have gone on
+   announcing the old id while the installer wrote the new one onto the shortcut — and a
+   mismatched id makes Windows DROP every toast, with nothing logged.
+   A literal plus a test is the honest shape: one place a human edits, and a loud failure when
+   the two disagree. A runtime read that works in dev and not in the package is worse than
+   either, because it looks like it cannot drift. */
+const APP_ID = 'com.the-aios.app';
+
+if (!SMOKE && !app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    /* Someone asked for this app — a banner click, a Dock click, `open -a`. Show the window
+       they already have instead of starting another. */
+    const w = BrowserWindow.getAllWindows()[0];
+    if (!w || w.isDestroyed()) return;
+    if (w.isMinimized()) w.restore();
+    w.show();
+    w.focus();
+  });
+}
+
+/* WINDOWS WILL NOT ATTRIBUTE A TOAST WITHOUT THIS, and the failure is silent: notifications
+   simply never appear, with nothing logged and nothing to click. Windows keys toasts to an
+   Application User Model ID, which must match the one on the Start Menu shortcut the installer
+   creates — electron-builder's NSIS target writes `build.appId` there, so this reads the same
+   value from package.json rather than restating it. Without the call Electron derives an id from
+   the executable path, which does not match the shortcut, and the toast is dropped.
+   Harmless and a no-op off Windows; called before whenReady because the id must be set before
+   anything is shown. */
+if (process.platform === 'win32') {
+  try { app.setAppUserModelId(APP_ID); } catch { /* older Electron — the default id stands */ }
+}
 
 app.whenReady().then(() => {
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
@@ -1051,6 +1155,7 @@ app.whenReady().then(() => {
       const rendererOk = await win.webContents.executeJavaScript('window.__workbenchOk === true').catch(() => false);
       let panelOk = false;
       let themeOk = false;
+      let animOk = false;
       try {
         // gates 5/6: the NATIVE pulse must have consumed real state + the calendar
         // must render + the light theme must repaint the window
@@ -1068,6 +1173,127 @@ app.whenReady().then(() => {
         themeOk = bgBefore !== bgAfter;
         console.log(`shell-smoke: pulse — ready=${pulseReady}, calCells=${calCells}, sessions=${sessions}, actionBtns=${actionBtns}, themeRepaints=${themeOk}, bg=${bgBefore}→${bgAfter}`);
       } catch (err) { console.error('shell-smoke: pulse gate error', err); }
+      /* GATE: AN ANIMATION THAT IS SUPPOSED TO RUN, RUNS — and on a compositable property.
+         The unit test reads @keyframes, which is necessary and not sufficient: a malformed rule
+         leaves the keyframes perfectly valid while the DECLARATION never reaches the element.
+         That happened — a stray `}` closed `.shimverb` one line early, the shimmer silently
+         stopped, every test stayed green, and the operator noticed before any check did.
+         Computed style in a live renderer is the only thing that can tell "defined" from
+         "applied". */
+      try {
+        const anim = await win.webContents.executeJavaScript(`(() => {
+          /* The ring lives on ::after, not on the dot — reading the element alone reports 'none'
+             and says nothing about the animation AI-157 was actually about. */
+          const probe = (cls, pseudo) => { const el = document.createElement('span'); el.className = cls;
+            document.body.appendChild(el); const cs = getComputedStyle(el, pseudo || null);
+            const r = { name: cs.animationName, dur: cs.animationDuration }; el.remove(); return r; };
+          return {
+            reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            shim: probe('shimverb'), dot: probe('pdot busy', '::after'),
+          };
+        })()`).catch(() => null);
+        /* BRANCHED ON THE OPERATOR'S OWN SETTING, because both answers are correct behaviour and
+           only one of them is "the animation runs". The theme carries a reduced-motion block that
+           kills every animation by design, and CI's macOS runner reports reduce — so a gate that
+           unconditionally demanded motion failed a build whose CSS was doing exactly the right
+           thing. It had never run in CI before this branch, which is how it shipped.
+           Asserting both halves is strictly more than the original did: under reduce, motion is
+           the DEFECT, and nothing was checking that the escape hatch actually worked. */
+        const runs = (a: { name?: string; dur?: string } | undefined): boolean =>
+          !!a && a.name !== 'none' && a.dur !== '0s';
+        const ok = !!anim && (anim.reduced
+          ? !runs(anim.shim) && !runs(anim.dot)
+          : runs(anim.shim) && runs(anim.dot));
+        if (!ok) {
+          console.error(`shell-smoke: animation gate FAIL — reduced-motion=${anim && anim.reduced}, `
+            + `shimverb=${JSON.stringify(anim && anim.shim)}, busyDot=${JSON.stringify(anim && anim.dot)}`);
+        }
+        animOk = ok;
+        console.log(`shell-smoke: animations — reduced=${anim?.reduced} shimverb=${anim?.shim.name}/${anim?.shim.dur} busyDot=${anim?.dot.name}/${anim?.dot.dur}`);
+      } catch (err) { console.error('shell-smoke: animation gate error', err); }
+      /* GATE: A REBUILT TOOL TAB STILL HAS CONTENT, AND NEVER GOES BLANK TO GET THERE.
+         Settings is declared `rebuild: true`, so re-opening or re-showing it re-runs an ASYNC
+         builder. That builder used to empty the body first, which is what the operator saw as
+         Settings flickering off and on as it saved. It now stages the new content beside the old
+         and swaps — and the stage has to stay ATTACHED, because the Setup painter bails when its
+         wrap is off-document. Both halves are invisible to a source-reading test and would fail
+         as an empty tab, so: rebuild it for real, then count what is there. */
+      let rebuildOk = false;
+      try {
+        await win.webContents.executeJavaScript('openSettingsTab(), 1');
+        /* Poll for the FIRST build — it is async and a fixed sleep would race it. */
+        let rowsFirst = 0;
+        for (let i = 0; i < 60; i++) {                       // up to ~6s, checked every 100ms
+          rowsFirst = Number(await win.webContents.executeJavaScript(
+            "(() => { const p = [...panes.values()].find((x) => x.path === '::settings');"
+            + " return p ? p.el.querySelectorAll('.trow').length : 0; })()").catch(() => 0));
+          if (rowsFirst > 3) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        /* AWAIT THE REBUILD ITSELF, never a poll. Polling here CANNOT FAIL, and that is the
+           whole point of the change under test: the new content is staged beside the old, so a
+           poll reads the still-present old rows and returns immediately, before the swap. The
+           first version of this gate did exactly that and passed a mutation that threw the
+           rebuilt content away — a check with an unreachable failing branch. `executeJavaScript`
+           resolves promises, so awaiting the pane's own serialized rebuild is what makes the
+           measurement land after the swap rather than before it. */
+        const rowsAfter = Number(await win.webContents.executeJavaScript(`(async () => {
+          const p = [...panes.values()].find((x) => x.path === '::settings');
+          if (!p || !p.rebuild) return -1;
+          await p.rebuild();
+          return p.el.querySelectorAll('.trow').length;
+        })()`).catch(() => -1));
+        rebuildOk = Number(rowsFirst) > 3 && Number(rowsAfter) > 3;
+        if (!rebuildOk) console.error(`shell-smoke: rebuild gate FAIL — rows ${rowsFirst} then ${rowsAfter}`);
+        console.log(`shell-smoke: settings rebuild — ${rowsFirst} rows, ${rowsAfter} after rebuild`);
+      } catch (err) { console.error('shell-smoke: rebuild gate error', err); }
+
+      /* GATE: THE ROW ACTIONS FIT INSIDE THE ROW. `.prow2` clips its overflow, so when the hover
+         actions do not fit they are silently CUT rather than pushed anywhere visible — and the
+         busy row is the one that overflows, because it carries a fourth button (interrupt) that
+         no other row has. Operator-reported 2026-09-15, having shipped past every test.
+         Nothing that reads CSS as text can catch this: every declaration was valid, and the
+         clipping is a product of three widths meeting in a box. So this builds the worst case
+         with the real class names, forces the hover layout (opacity + the memory readout
+         yielding, which is all `:hover` changes here), and measures. */
+      let rowOk = false;
+      try {
+        const fit = await win.webContents.executeJavaScript(`(() => {
+          const host = document.getElementById('pRun');
+          if (!host) return { err: 'no #pRun' };
+          const css = document.createElement('style');
+          css.textContent = '.smoke-hover .runacts{opacity:1!important} .smoke-hover .rmem{display:none!important}';
+          document.head.appendChild(css);
+          const row = document.createElement('div');
+          row.className = 'prow2 smoke-hover';
+          const add = (cls, text) => { const e = document.createElement('span'); e.className = cls; if (text) e.textContent = text; row.appendChild(e); return e; };
+          add('pdot busy');
+          add('rname', 'a-long-running-session-name');
+          const pst = add('pst tight');
+          pst.appendChild(Object.assign(document.createElement('span'), { className: 'shimverb', textContent: 'Working' }));
+          pst.appendChild(document.createTextNode(' for 1h 23m'));
+          const tick = add('ticker');
+          tick.appendChild(Object.assign(document.createElement('span'), { className: 'tickline still', textContent: 'a fairly long recent output line from the session' }));
+          add('rmem', '412 MB');
+          const acts = add('runacts');
+          for (const c of ['note', '', '', 'kill']) {
+            const b = document.createElement('button'); b.className = 'runact' + (c ? ' ' + c : '');
+            b.style.width = '18px'; b.style.height = '16px';
+            acts.appendChild(b);
+          }
+          host.appendChild(row);
+          const rb = row.getBoundingClientRect(), ab = acts.getBoundingClientRect();
+          const out = { buttons: acts.children.length, rowW: Math.round(rb.width),
+                        actsW: Math.round(ab.width), overflowPx: Math.round(ab.right - rb.right) };
+          row.remove(); css.remove();
+          return out;
+        })()`).catch(() => null);
+        /* One pixel of slack for sub-pixel rounding; anything more is a clipped control. */
+        rowOk = !!fit && !fit.err && fit.buttons === 4 && fit.rowW > 0 && fit.overflowPx <= 1;
+        if (!rowOk) console.error(`shell-smoke: row-actions gate FAIL — ${JSON.stringify(fit)}`);
+        console.log(`shell-smoke: row actions — ${fit?.buttons} buttons, acts ${fit?.actsW}px in row ${fit?.rowW}px, overflow ${fit?.overflowPx}px`);
+      } catch (err) { console.error('shell-smoke: row-actions gate error', err); }
+
       /* gate 7: SETUP MUST HAVE CONTENT. This is the first screen a newcomer ever sees, and it
          shipped rendering its title and nothing else — a `const` called above its own
          declaration threw inside the pane builder, so the step list, every button and the
@@ -1217,10 +1443,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([
