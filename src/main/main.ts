@@ -1180,15 +1180,34 @@ app.whenReady().then(() => {
          "applied". */
       try {
         const anim = await win.webContents.executeJavaScript(`(() => {
-          const probe = (cls) => { const el = document.createElement('span'); el.className = cls;
-            document.body.appendChild(el); const cs = getComputedStyle(el);
+          /* The ring lives on ::after, not on the dot — reading the element alone reports 'none'
+             and says nothing about the animation AI-157 was actually about. */
+          const probe = (cls, pseudo) => { const el = document.createElement('span'); el.className = cls;
+            document.body.appendChild(el); const cs = getComputedStyle(el, pseudo || null);
             const r = { name: cs.animationName, dur: cs.animationDuration }; el.remove(); return r; };
-          return { shim: probe('shimverb'), dot: probe('pdot busy') };
+          return {
+            reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            shim: probe('shimverb'), dot: probe('pdot busy', '::after'),
+          };
         })()`).catch(() => null);
-        const ok = !!anim && anim.shim.name !== 'none' && anim.shim.dur !== '0s';
-        if (!ok) console.error(`shell-smoke: animation gate FAIL — .shimverb resolves to ${JSON.stringify(anim && anim.shim)}`);
+        /* BRANCHED ON THE OPERATOR'S OWN SETTING, because both answers are correct behaviour and
+           only one of them is "the animation runs". The theme carries a reduced-motion block that
+           kills every animation by design, and CI's macOS runner reports reduce — so a gate that
+           unconditionally demanded motion failed a build whose CSS was doing exactly the right
+           thing. It had never run in CI before this branch, which is how it shipped.
+           Asserting both halves is strictly more than the original did: under reduce, motion is
+           the DEFECT, and nothing was checking that the escape hatch actually worked. */
+        const runs = (a: { name?: string; dur?: string } | undefined): boolean =>
+          !!a && a.name !== 'none' && a.dur !== '0s';
+        const ok = !!anim && (anim.reduced
+          ? !runs(anim.shim) && !runs(anim.dot)
+          : runs(anim.shim) && runs(anim.dot));
+        if (!ok) {
+          console.error(`shell-smoke: animation gate FAIL — reduced-motion=${anim && anim.reduced}, `
+            + `shimverb=${JSON.stringify(anim && anim.shim)}, busyDot=${JSON.stringify(anim && anim.dot)}`);
+        }
         animOk = ok;
-        console.log(`shell-smoke: animations — shimverb=${anim?.shim.name}/${anim?.shim.dur} busyDot=${anim?.dot.name}`);
+        console.log(`shell-smoke: animations — reduced=${anim?.reduced} shimverb=${anim?.shim.name}/${anim?.shim.dur} busyDot=${anim?.dot.name}/${anim?.dot.dur}`);
       } catch (err) { console.error('shell-smoke: animation gate error', err); }
       /* GATE: A REBUILT TOOL TAB STILL HAS CONTENT, AND NEVER GOES BLANK TO GET THERE.
          Settings is declared `rebuild: true`, so re-opening or re-showing it re-runs an ASYNC
