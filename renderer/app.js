@@ -6003,8 +6003,22 @@ function openToolTab(key, titleText, build, opts) {
     paneObj.rebuild = () => {
       chain = chain.then(async () => {
         const keep = body.scrollTop;
-        body.replaceChildren();
-        await build(body, head);
+        /* BUILD BESIDE THE OLD CONTENT, THEN SWAP. Emptying first left the pane blank for the
+           whole of an async build — every rebuild awaits at least one IPC round-trip — so any
+           repaint read as a flicker, and a slow one as the tab breaking.
+           The stage is ATTACHED (hidden, out of flow) rather than detached, which is not
+           incidental: the Setup tab's painter guards on `document.body.contains(wrap)` and would
+           bail out of a build running off-document, leaving an empty tab. Hidden-but-attached
+           keeps every such check true while showing nothing. */
+        const stage = document.createElement('div');
+        stage.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;inset:0';
+        body.appendChild(stage);
+        try {
+          await build(stage, head);
+          const kids = [...stage.childNodes];
+          stage.remove();
+          body.replaceChildren(...kids);
+        } finally { stage.remove(); }
         body.scrollTop = keep;
       }).catch(() => { /* a failed rebuild must not poison every later one */ });
       return chain;
@@ -6342,7 +6356,16 @@ function openSettingsTab() {
         sel.appendChild(opt);
       }
       sel.value = value;
-      sel.addEventListener('change', async () => { await window.glassShell.claudeSet(key, sel.value); toast(t('settings.saved')); });
+      sel.addEventListener('change', async () => {
+        /* SUPPRESS, exactly as the toggle beside it does. Writing Claude's config trips the
+           config watcher, which rebuilds this panel — and a rebuild blanks the body while it
+           re-reads, which the operator sees as Settings flickering off and on at the moment they
+           saved. The toggles have set this since the bug was first fixed; the SELECTS never did,
+           so changing the model or the output style still flashed. One guard, two writers. */
+        suppressCfgRebuild = Date.now();
+        await window.glassShell.claudeSet(key, sel.value);
+        toast(t('settings.saved'));
+      });
       return sel;
     };
     row(wrap, t('settings.model'), mkSelect(MODELS, cc.model, 'model'), t('settings.modelHint'));

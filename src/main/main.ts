@@ -1167,6 +1167,89 @@ app.whenReady().then(() => {
         animOk = ok;
         console.log(`shell-smoke: animations — shimverb=${anim?.shim.name}/${anim?.shim.dur} busyDot=${anim?.dot.name}`);
       } catch (err) { console.error('shell-smoke: animation gate error', err); }
+      /* GATE: A REBUILT TOOL TAB STILL HAS CONTENT, AND NEVER GOES BLANK TO GET THERE.
+         Settings is declared `rebuild: true`, so re-opening or re-showing it re-runs an ASYNC
+         builder. That builder used to empty the body first, which is what the operator saw as
+         Settings flickering off and on as it saved. It now stages the new content beside the old
+         and swaps — and the stage has to stay ATTACHED, because the Setup painter bails when its
+         wrap is off-document. Both halves are invisible to a source-reading test and would fail
+         as an empty tab, so: rebuild it for real, then count what is there. */
+      let rebuildOk = false;
+      try {
+        await win.webContents.executeJavaScript('openSettingsTab(), 1');
+        /* Poll for the FIRST build — it is async and a fixed sleep would race it. */
+        let rowsFirst = 0;
+        for (let i = 0; i < 60; i++) {                       // up to ~6s, checked every 100ms
+          rowsFirst = Number(await win.webContents.executeJavaScript(
+            "(() => { const p = [...panes.values()].find((x) => x.path === '::settings');"
+            + " return p ? p.el.querySelectorAll('.trow').length : 0; })()").catch(() => 0));
+          if (rowsFirst > 3) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        /* AWAIT THE REBUILD ITSELF, never a poll. Polling here CANNOT FAIL, and that is the
+           whole point of the change under test: the new content is staged beside the old, so a
+           poll reads the still-present old rows and returns immediately, before the swap. The
+           first version of this gate did exactly that and passed a mutation that threw the
+           rebuilt content away — a check with an unreachable failing branch. `executeJavaScript`
+           resolves promises, so awaiting the pane's own serialized rebuild is what makes the
+           measurement land after the swap rather than before it. */
+        const rowsAfter = Number(await win.webContents.executeJavaScript(`(async () => {
+          const p = [...panes.values()].find((x) => x.path === '::settings');
+          if (!p || !p.rebuild) return -1;
+          await p.rebuild();
+          return p.el.querySelectorAll('.trow').length;
+        })()`).catch(() => -1));
+        rebuildOk = Number(rowsFirst) > 3 && Number(rowsAfter) > 3;
+        if (!rebuildOk) console.error(`shell-smoke: rebuild gate FAIL — rows ${rowsFirst} then ${rowsAfter}`);
+        console.log(`shell-smoke: settings rebuild — ${rowsFirst} rows, ${rowsAfter} after rebuild`);
+      } catch (err) { console.error('shell-smoke: rebuild gate error', err); }
+
+      /* GATE: THE ROW ACTIONS FIT INSIDE THE ROW. `.prow2` clips its overflow, so when the hover
+         actions do not fit they are silently CUT rather than pushed anywhere visible — and the
+         busy row is the one that overflows, because it carries a fourth button (interrupt) that
+         no other row has. Operator-reported 2026-09-15, having shipped past every test.
+         Nothing that reads CSS as text can catch this: every declaration was valid, and the
+         clipping is a product of three widths meeting in a box. So this builds the worst case
+         with the real class names, forces the hover layout (opacity + the memory readout
+         yielding, which is all `:hover` changes here), and measures. */
+      let rowOk = false;
+      try {
+        const fit = await win.webContents.executeJavaScript(`(() => {
+          const host = document.getElementById('pRun');
+          if (!host) return { err: 'no #pRun' };
+          const css = document.createElement('style');
+          css.textContent = '.smoke-hover .runacts{opacity:1!important} .smoke-hover .rmem{display:none!important}';
+          document.head.appendChild(css);
+          const row = document.createElement('div');
+          row.className = 'prow2 smoke-hover';
+          const add = (cls, text) => { const e = document.createElement('span'); e.className = cls; if (text) e.textContent = text; row.appendChild(e); return e; };
+          add('pdot busy');
+          add('rname', 'a-long-running-session-name');
+          const pst = add('pst tight');
+          pst.appendChild(Object.assign(document.createElement('span'), { className: 'shimverb', textContent: 'Working' }));
+          pst.appendChild(document.createTextNode(' for 1h 23m'));
+          const tick = add('ticker');
+          tick.appendChild(Object.assign(document.createElement('span'), { className: 'tickline still', textContent: 'a fairly long recent output line from the session' }));
+          add('rmem', '412 MB');
+          const acts = add('runacts');
+          for (const c of ['note', '', '', 'kill']) {
+            const b = document.createElement('button'); b.className = 'runact' + (c ? ' ' + c : '');
+            b.style.width = '18px'; b.style.height = '16px';
+            acts.appendChild(b);
+          }
+          host.appendChild(row);
+          const rb = row.getBoundingClientRect(), ab = acts.getBoundingClientRect();
+          const out = { buttons: acts.children.length, rowW: Math.round(rb.width),
+                        actsW: Math.round(ab.width), overflowPx: Math.round(ab.right - rb.right) };
+          row.remove(); css.remove();
+          return out;
+        })()`).catch(() => null);
+        /* One pixel of slack for sub-pixel rounding; anything more is a clipped control. */
+        rowOk = !!fit && !fit.err && fit.buttons === 4 && fit.rowW > 0 && fit.overflowPx <= 1;
+        if (!rowOk) console.error(`shell-smoke: row-actions gate FAIL — ${JSON.stringify(fit)}`);
+        console.log(`shell-smoke: row actions — ${fit?.buttons} buttons, acts ${fit?.actsW}px in row ${fit?.rowW}px, overflow ${fit?.overflowPx}px`);
+      } catch (err) { console.error('shell-smoke: row-actions gate error', err); }
+
       /* gate 7: SETUP MUST HAVE CONTENT. This is the first screen a newcomer ever sees, and it
          shipped rendering its title and nothing else — a `const` called above its own
          declaration threw inside the pane builder, so the step list, every button and the
@@ -1316,10 +1399,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

@@ -680,7 +680,7 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 .prow2 { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; cursor: pointer;
          color: var(--ink); font-size: 12px; }
 .prow2:hover { background: var(--surface-2); }
-.prow2 .rname { flex: 0 0 auto; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+.prow2 .rname { flex: 0 1 auto; min-width: 4.5em; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 .prow2 .pst { flex: 1; min-width: 0; color: var(--subtle); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prow2 .rmem { flex: 0 0 auto; color: var(--subtle); font-family: var(--mono); font-size: 9.5px; opacity: .65; margin-left: 6px; }
 .prow2 .runacts { flex: 0 0 auto; display: inline-flex; gap: 1px; opacity: 0; transition: opacity .12s; margin-left: 4px; }
@@ -1104,7 +1104,16 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
   animation: shimbreathe 2.4s ease-in-out infinite; will-change: opacity; }
 @keyframes shimbreathe { 0%, 100% { opacity: 1; } 50% { opacity: .58; } }
 
-.prow2 .pst.tight { flex: 0 0 auto; }  /* when a ticker rides alongside, the verb hugs its width */
+/* HUGS ITS WIDTH, BUT YIELDS BEFORE THE BUTTONS DO. `flex: 0 0 auto` refused to shrink at all,
+   and on a BUSY row the hover actions are four buttons rather than three — name (up to 45%) +
+   verb + elapsed + four buttons overflowed, and because `.prow2` clips, what got cut was the
+   tail: the buttons the operator was reaching for. Operator-reported 2026-09-15.
+   `0 1 auto` still sizes to content whenever there is room, so the ticker layout is unchanged in
+   the common case; it only gives way under pressure, and `.pst` already ellipsizes. The shrink
+   ORDER is what makes this right: the ticker has `flex-basis: 0`, so it collapses first, then
+   this, then the name down to its floor. The buttons never shrink, because a half-width icon is
+   not a smaller control, it is a broken one. */
+.prow2 .pst.tight { flex: 0 1 auto; }
 .ticker { flex: 1; min-width: 0; height: 15px; position: relative; overflow: hidden; }
 .tickline { position: absolute; inset: 0; color: var(--subtle); font-size: 10px; font-family: var(--mono);
             line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
