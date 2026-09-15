@@ -92,12 +92,17 @@ test('dead letters come FIRST in the battery — severity decides what survives 
 test('the renderer clips the list but never the count, and never the dead letters', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
   assert.match(src, /const INBOX_CAP = \d+;/, 'the cap is a named constant, not a literal buried in a slice');
-  assert.match(src, /pulseTitle\(I, 'pInbox', t\('pulse\.inbox'\), rows\.length\)/,
-    'the header counts EVERY waiting item — a clipped list that also under-reports is a lie');
+  /* NO count on the header (operator's call, 2026-09-14). Every other pulse card shows one
+     honestly because nothing clips; this is the only card that clips, so its number is either
+     redundant — all rows visible — or reads as wrong: a 7 sitting above six rows. `+N more`
+     carries the only count that matters. */
+  assert.match(src, /pulseTitle\(I, 'pInbox', t\('pulse\.inbox'\)\)/, 'title only, no count');
   assert.match(src, /pulse\.inboxExpanded \? rows : rows\.slice\(0, INBOX_CAP\)/,
     'clipping is the only thing the cap does; nothing is dropped from the model');
-  assert.match(src, /item\.kind === 'deadletter' && item\.path\) pulse\.cmd\('aios\.openOutput', item\.path\)/,
-    'clicking a dead letter opens the file — surface only, no new command invented');
+  assert.match(src, /item\.kind === 'deadletter' && item\.path\) void window\.glassShell\.revealInOS\(item\.path\)/,
+    'clicking a dead letter REVEALS the file. Opening it in the viewer was the first attempt and '
+    + 'it did nothing but toast "can\'t open": the viewer routes on extension and has no handler '
+    + 'for `.undelivered`. Surface only either way — handling stays with /today and /close-day.');
   assert.match(src, /item\.kind === 'update' \|\| item\.kind === 'deadletter'\) \? 'st-warn'/,
     'a dropped request is amber, the same weight as an available update');
 });

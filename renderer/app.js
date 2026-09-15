@@ -788,14 +788,29 @@ function inboxRows() {
   if (pulse.lastInboxUpdate) rows.push(pulse.lastInboxUpdate);
   return rows;
 }
+/* A ROW IS ALREADY THE CHOICE. Every one of these used to hand the operator back to a picker
+   to choose the thing they had just clicked: a suggestion reopened the go-with-agents list, and
+   the nudge skipped the other way and fired straight into the primary session with no say in
+   where. Both are now the same shape — this row, and `runWhere` for the one question worth
+   asking, which is WHERE to run it. */
 function inboxAction(item) {
   if (item.kind === 'session') { pulse.cmd('aios.revealAgent', item.name, item.id || ''); return; }
-  if (item.kind === 'suggestion') { void pickSuggestion(); return; }
-  if (item.kind === 'nudge') { pulse.send({ type: 'nudgeRun', kind: item.nudgeKind, command: item.command }); return; }
+  if (item.kind === 'suggestion') {
+    if (item.agent) void runWhere('/aios:agent ' + item.agent + ' — ' + item.label, item.agent);
+    else if (item.command) void runWhere(item.command + (item.url ? ' ' + item.url : ''),
+                                         item.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]);
+    return;
+  }
+  if (item.kind === 'nudge') {
+    if (item.command) void runWhere(item.command, item.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]);
+    return;
+  }
   if (item.kind === 'update') { pulse.cmd('aios.updateFramework'); return; }
-  /* Surface only: open the .undelivered file so the operator can read the original request and
-     the reason. Handling stays with /today and /close-day, which already do it properly. */
-  if (item.kind === 'deadletter' && item.path) pulse.cmd('aios.openOutput', item.path);
+  /* Surface only: REVEAL the .undelivered file rather than trying to open it in the viewer —
+     the viewer routes on extension and has nothing for `.undelivered`, which is why clicking
+     one produced a "can't open" toast and nothing else. Handling stays with /today and
+     /close-day, which already do it properly. */
+  if (item.kind === 'deadletter' && item.path) void window.glassShell.revealInOS(item.path);
 }
 function renderInboxCard() {
   const I = document.getElementById('pInbox');
@@ -812,7 +827,10 @@ function renderInboxCard() {
      to nobody. `#pNudge` reveals itself with an explicit 'block' and works; the two rules sat
      twelve lines apart in the same stylesheet. */
   I.style.display = 'block';
-  I.appendChild(pulseTitle(I, 'pInbox', t('pulse.inbox'), rows.length));
+  /* NO COUNT on this header. Every other pulse card shows one honestly because nothing clips;
+     this is the only card that clips, so its number is either redundant (all rows visible) or
+     reads as wrong (7 above six rows). `+N more` carries the only count that matters. */
+  I.appendChild(pulseTitle(I, 'pInbox', t('pulse.inbox')));
   /* The COUNT above stays honest at rows.length even when the list is clipped — the operator is
      told how many are waiting, then shown as many as the panel can carry without becoming a
      scroll nobody reaches the end of. Severity decides what survives the cut, not arrival order:
@@ -820,17 +838,26 @@ function renderInboxCard() {
   const shown = pulse.inboxExpanded ? rows : rows.slice(0, INBOX_CAP);
   for (const item of shown) {
     const r = el('div', 'pinrow');
-    const dot = el('span', 'pindot ' + (item.kind === 'session' ? 'st-input' : (item.kind === 'update' || item.kind === 'deadletter') ? 'st-warn' : 'st-idle'));
-    r.appendChild(dot);
+    /* A dot only where it carries STATE. A suggestion and a nudge have none — they were each
+       given a green one purely because the row had a slot for it, which is decoration teaching
+       the operator that the colour means nothing. The icon already says what kind of row it is. */
+    const st = item.kind === 'session' ? 'st-input'
+      : (item.kind === 'update' || item.kind === 'deadletter') ? 'st-warn' : '';
+    if (st) r.appendChild(el('span', 'pindot ' + st));
     r.appendChild(el('span', 'pinico', item.icon || ''));
     const tx = el('span', 'pintext');
     tx.appendChild(el('span', 'pinlab', item.label));
-    if (item.detail || item.since) {
+    /* The grey line earns its place only when it carries something the label cannot: a dead
+       letter's REASON, or what a session is blocked on and for how long. On a suggestion it
+       merely repeated the routing already visible in the label, which is what made these rows
+       three lines tall. */
+    const wantsDetail = item.kind === 'deadletter' || item.kind === 'session' || item.kind === 'update';
+    if ((item.detail && wantsDetail) || item.since) {
       const d = el('span', 'pindet');
-      if (item.detail) d.appendChild(document.createTextNode(item.detail));
+      if (item.detail && wantsDetail) d.appendChild(document.createTextNode(item.detail));
       if (item.since) {
         // separated so the elapsed half can be rewritten on its own, leaving the reason alone
-        if (item.detail) d.appendChild(document.createTextNode(' \u00b7 '));
+        if (item.detail && wantsDetail) d.appendChild(document.createTextNode(' \u00b7 '));
         const w = el('span', 'pinwait', waitedFor(item.since));
         w.dataset.since = String(item.since);
         d.appendChild(w);
@@ -1514,25 +1541,36 @@ function paintTabStates(m) {
   for (const a of running) nameCount.set(a.name, (nameCount.get(a.name) || 0) + 1);
   const unread = new Set(m.unread || []);
   for (const [, p] of panes) {
-    if (p.kind !== 'term' || !p.tab) continue;
+    if (!p.tab) continue;
     const dot = p.tab.querySelector('.tdot');
     if (!dot) continue;
+    /* A FILE TAB HAS NO STATE, so it gets no dot. makeTab() adds the element to every tab
+       because it cannot know what the pane will become, and this loop used to skip non-terminals
+       entirely — leaving their dot at its default grey, which read as a status nobody set. */
+    if (p.kind !== 'term') { dot.className = 'tdot off'; dot.title = ''; continue; }
     const entry = p.sessionId
       ? byKey.get(p.sessionId)
       : (p.confirmedName && nameCount.get(p.confirmedName) === 1
           ? running.find((a) => a.name === p.confirmedName)
           : undefined);
     if (!entry) {
-      /* A plain terminal, or a pane whose session has ended. Grey is exactly what that means
-         here, and it is the only thing grey means. */
-      dot.className = 'tdot plain';
-      dot.title = t('status.terminal');
+      /* No registry entry: a plain terminal, or a pane whose session ended. GREY MEANS DEAD,
+         GREEN MEANS ALIVE — which is what the side panel already does (`.pdot` bare is grey, a
+         live terminal gets `.pdot.idle`, green). A tab disagreeing with the panel about the same
+         pane is the thing worth avoiding. The note we had both been carrying — "grey is reserved
+         for plain terminals" — was reading statusInfo's UNKNOWN case as if it were about
+         terminals; it never was. */
+      dot.className = 'tdot ' + (p.exited ? 'dead' : 'idle');
+      dot.title = p.exited ? t('status.ended') : t('status.terminal');
       continue;
     }
     const info = statusInfo(entry.status);
-    const seen = unread.has(entry.key);          // keys, never names — see above
-    dot.className = 'tdot ' + info.cls + (seen ? ' unread' : '');
-    dot.title = seen ? info.title + ' · ' + t('status.unseen') : info.title;
+    /* NO RING for finished-unseen. It was drawn with `box-shadow`, which is also what the pulse
+       animates — so the two fought and a dot came out ringed, pulsing, or both depending on which
+       won the frame. Unread now lives in the badge alone; if it needs a tab marker later, a
+       bolder tab NAME would not compete with the dot or with the group stripe to come. */
+    dot.className = 'tdot ' + info.cls;
+    dot.title = unread.has(entry.key) ? info.title + ' · ' + t('status.unseen') : info.title;
   }
 }
 
@@ -3345,7 +3383,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
        they just set. Naming is cosmetic, so an operator's choice simply outranks the announcement;
        DELIVERABILITY below is untouched, because that needs proof and a label is not proof. */
     if (!panes.get(id)?.manualName) renamePane(id, nm);
-    const hit = ((pulse.lastRunning || {}).running || []).find((a) => a.name === nm);
+    const running = ((pulse.lastRunning || {}).running || []);
+    const hit = running.find((a) => a.name === nm);
     if (!hit) return;
     p.isSession = true;
     p.confirmedName = nm;
@@ -3353,6 +3392,20 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
        with `/rename`; the sessionId is what the session actually IS. Liveness and endings are
        decided from this, never from the label — see the pulse handler. */
     p.sessionId = hit.id || null;
+    /* …and when the name is AMBIGUOUS, the title cannot tell us which session this is. Two live
+       sessions may share a name (`spawn ingest` twice), and `.find()` hands both panes the same
+       entry — after which every per-session display mirrors one session onto two tabs.
+       Operator-reported 2026-09-14. So ask the process tree, which knows exactly: the pty is a
+       login shell whose descendant is the real `claude`, and the registry is keyed by that pid.
+       Only for duplicates — the common case stays a local lookup with no `ps` call. */
+    if (running.filter((a) => a.name === nm).length > 1) {
+      void window.glassShell.sessionUnder([id]).then((map) => {
+        const real = map && map[id];
+        if (!real || !real.id) return;
+        p.sessionId = real.id;
+        if (real.name && real.name !== p.confirmedName) { p.confirmedName = real.name; renamePane(id, real.name); }
+      }).catch(() => { /* ps unavailable — keep the name-matched guess */ });
+    }
   });
   // one source of truth for geometry pushes, so xterm's own resize event cannot re-send
   // a size pushPtyGeom already sent (or vice versa)

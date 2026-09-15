@@ -32,27 +32,38 @@ test('the tab reuses statusInfo() rather than deriving state a second time', () 
     'a tab and the side panel disagreeing about what a session is doing is worse than neither showing it');
 });
 
-test('IDLE IS GREEN, and grey means a plain terminal — the one distinction grey exists for', () => {
+test('GREEN MEANS ALIVE and GREY MEANS DEAD — the tab says what the panel says', () => {
+  /* Corrected 2026-09-14 after the operator noticed terminals reading grey on their tab and
+     green in the panel. The panel is the older convention and it is the right one: `.pdot` bare
+     is grey, `.pdot.idle` is green, so a LIVE plain terminal is green over there. The note we
+     had both been repeating — "grey is reserved for plain terminals" — was reading statusInfo's
+     UNKNOWN case as though it were about terminals. Grey has always meant dead. */
   const c = css();
   assert.match(c, /--st-idle:\s*#3ec77a/, 'the palette itself calls this "alive & ready (calm green)"');
   assert.match(c, /\.tab \.tdot\.idle\s*\{\s*--sc: var\(--st-idle\);/,
-    'an alive, idle session is green. The issue proposed grey, but its only reason was a clash '
-    + 'with green GROUP colours — and groups are deferred, so the reason does not apply while the '
-    + 'cost does.');
-  assert.match(c, /\.tab \.tdot\.plain\s*\{[^}]*--subtle/,
-    'grey is reserved for a bare terminal — "a registered, alive session is NEVER the grey unknown dot"');
+    'alive and idle is green — for a session AND for a plain terminal. The issue proposed moving '
+    + 'idle to grey, but its only reason was a clash with green GROUP colours, and groups are '
+    + 'deferred: the reason does not apply yet while the cost does.');
+  assert.match(c, /\.tab \.tdot\.dead\s*\{[^}]*--subtle/, 'grey is the ENDED pane');
+  assert.match(c, /\.tab \.tdot\.off\s*\{ display: none; \}/,
+    'and a file tab gets no dot at all — it has no state to report');
   assert.ok(!/\.tab \.tdot\.idle\s*\{[^}]*--subtle/.test(c),
-    'recolouring idle to grey would make a healthy session indistinguishable from a bare shell');
+    'recolouring idle to grey would make a healthy session indistinguishable from a dead one');
 });
 
-test('finished-unseen adds a MARKER, never a sixth colour', () => {
+test('nothing but the pulse animates box-shadow on a tab dot', () => {
+  /* The finished-unseen RING was drawn with box-shadow, and so is the pulse — two rules
+     animating one property on one element. Operator-reported: "sometimes it pulsates properly,
+     sometimes it has the outer circle", and some tabs ended with the ring and others with a
+     halo, depending which rule won the frame. The ring is gone; unread now lives in the badge
+     alone. If it ever needs a tab marker, a bolder tab NAME is the place — a weight change
+     competes with neither the status dot nor the group stripe still to come. */
   const c = css();
-  assert.match(c, /\.tab \.tdot\.unread\s*\{\s*box-shadow:/, 'a ring, drawn in the dot\'s own --sc');
-  assert.ok(!/--st-unread|--st-unseen|--st-new/.test(c),
-    'a new hue would have to compete with four meanings the operator already learned — and unread '
-    + 'is orthogonal to all of them: a session can be idle-and-unread or error-and-unread');
-  assert.match(c, /\.tab \.tdot\.unread\.busy, \.tab \.tdot\.unread\.input \{ animation: none; \}/,
-    'the ring outranks the pulse — it is the state that is easy to miss');
+  assert.ok(!/\.tab \.tdot\.unread/.test(c), 'no ring rule survives');
+  assert.ok(!/--st-unread|--st-unseen|--st-new/.test(c), 'and it was never solved with a new hue');
+  const shadows = (c.match(/\.tab \.tdot[^{]*\{[^}]*box-shadow/g) || []);
+  assert.deepEqual(shadows, [], 'the ONLY box-shadow on this element comes from @keyframes tpulse');
+  assert.match(c, /@keyframes tpulse \{[^}]*var\(--sc\)/, 'which pulses in the dot\'s own colour');
 });
 
 test('busy and needs-you pulse, and in their OWN colour', () => {
@@ -103,9 +114,10 @@ test('what the renderer reports as on-screen is ids, never names', () => {
   assert.match(src, /pulse\.send\(\{ type: 'paneVisible', ids \}\)/);
 });
 
-test('a pane whose session ended falls back to plain, not to a stale state', () => {
-  assert.match(app(), /if \(!entry\) \{[\s\S]{0,400}?dot\.className = 'tdot plain';/,
-    'a tab left showing "working" for a session that no longer exists is worse than showing nothing');
+test('a pane with no live session shows alive-or-dead, never a stale state', () => {
+  assert.match(app(), /if \(!entry\) \{[\s\S]{0,700}?dot\.className = 'tdot ' \+ \(p\.exited \? 'dead' : 'idle'\);/,
+    'a tab left showing "working" for a session that no longer exists is worse than showing '
+    + 'nothing — and a LIVE terminal is green, matching the panel rather than contradicting it');
 });
 
 test('a name alone never decides a DESTRUCTIVE action on a duplicate', () => {

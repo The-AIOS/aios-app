@@ -712,6 +712,7 @@
   "notify.levelBanner": "Contador + notifica\u00e7\u00e3o",
   "notify.levelBadge": "Somente contador",
   "notify.levelOff": "Desativado",
+  "status.ended": "Encerrada",
   "pane.ambiguous": "H\u00e1 duas sess\u00f5es chamadas \u201c{name}\u201d \u2014 abra a que voc\u00ea quer e tente pela aba dela",
   "status.terminal": "Terminal",
   "status.unseen": "terminou enquanto voc\u00ea estava fora",

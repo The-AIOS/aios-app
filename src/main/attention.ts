@@ -26,6 +26,9 @@ import {
 import type { RunningAgent } from './aios';
 import { t } from '../i18n';
 
+/** Banner attempts per block before giving up on the BANNER (the badge is unaffected). */
+const MAX_BANNER_TRIES = 3;
+
 export interface AttentionHooks {
   /** true when the App has system focus and is not minimized. */
   appVisible(): boolean;
@@ -38,6 +41,9 @@ export class Attention {
   /** Session IDS the renderer says are on screen — meaningless alone; see visibleIds(). */
   private onScreen: string[] = [];
   private badge = '';
+  /** Failed banner attempts per block — bounded, so an OS that will not show notifications is
+   *  not retried every two seconds for the life of the process. */
+  private failures = new Map<string, number>();
 
   constructor(private hooks: AttentionHooks) {}
 
@@ -74,7 +80,6 @@ export class Attention {
     if (!mayBanner(level) || !r.pending.length) return r.unread;
     if (!Notification.isSupported()) return r.unread;
 
-    const delivered: string[] = [];
     for (const s of r.pending) {
       /* Resolve the pane by IDENTITY, not by name: with two sessions called `ingest`, a
          name lookup reveals whichever one happens to come first. */
@@ -88,12 +93,28 @@ export class Attention {
         /* Focus the pane, never answer for them: approving a permission from a banner would be
            a decision taken on a surface that cannot show what is being approved. */
         n.on('click', () => { if (pid !== undefined) this.hooks.reveal(pid); });
+        /* DELIVERY IS ASYNCHRONOUS, and this is what was wrong. `show()` does not throw and
+           returns immediately — the OS reports the outcome later, on these events. Marking the
+           block notified beside `show()` therefore recorded a banner that never appeared:
+           measured on an unsigned dev build, every notification came back
+           `failed: UNErrorDomain error 1` (notifications not allowed) while this counted each
+           one as delivered. That is the detected/pending/accepted collapse the request warned
+           about, reached from the one direction a try/catch cannot see. */
+        n.on('show', () => {
+          this.failures.delete(s.id);
+          this.state = markNotified(this.state, [s.id]);
+        });
+        n.on('failed', () => {
+          const tries = (this.failures.get(s.id) ?? 0) + 1;
+          this.failures.set(s.id, tries);
+          /* Bounded: after three refusals the OS is not changing its mind this run, and
+             retrying every two seconds forever is its own bug. Give up on the BANNER only —
+             the block keeps its place in the badge, so nothing vanishes quietly. */
+          if (tries >= MAX_BANNER_TRIES) this.state = markNotified(this.state, [s.id]);
+        });
         n.show();
-        delivered.push(s.id);
-      } catch { /* not delivered → stays pending, and the next tick tries again */ }
+      } catch { /* constructor threw → stays pending, and the next tick tries again */ }
     }
-    // ONLY what the OS accepted. A banner that threw must not be remembered as shown.
-    this.state = markNotified(this.state, delivered);
     return r.unread;
   }
 

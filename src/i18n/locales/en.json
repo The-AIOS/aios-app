@@ -712,6 +712,7 @@
   "notify.levelBanner": "Badge + notification",
   "notify.levelBadge": "Badge only",
   "notify.levelOff": "Off",
+  "status.ended": "Ended",
   "pane.ambiguous": "Two sessions are called \u201c{name}\u201d \u2014 open the one you mean and try from its tab",
   "status.terminal": "Terminal",
   "status.unseen": "finished while you were away",

@@ -236,26 +236,23 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tab .tx { color: var(--subtle); opacity: 0; width: 12px; text-align: center; border-radius: 4px; transition: opacity .12s; }
 .tab:hover .tx { opacity: 1; }
 /* #24.2b — session state on the tab. Its own element, never the icon's colour: the group stripe
-   is a separate axis and the two must not share a pixel. Uses the SAME four meanings as the side
-   panel's dot, so a tab and the panel can never tell the operator different things. */
-.tab .tdot { --sc: var(--subtle); width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
+   is a separate axis and the two must not share a pixel. Same four meanings as the side panel's
+   dot, so a tab and the panel can never tell the operator different things — including GREY FOR
+   DEAD and GREEN FOR ALIVE, which is what `.pdot` already does over there. */
+.tab .tdot { --sc: var(--st-idle); width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
              background: var(--sc); }
-.tab .tdot.plain { --sc: color-mix(in srgb, var(--subtle) 60%, transparent); }  /* a bare terminal — the ONLY grey */
-.tab .tdot.idle  { --sc: var(--st-idle); }     /* alive & ready — GREEN, not grey; see paintTabStates() */
+.tab .tdot.off   { display: none; }                 /* a file tab has no state to show */
+.tab .tdot.dead  { --sc: color-mix(in srgb, var(--subtle) 60%, transparent); }  /* ended */
+.tab .tdot.idle  { --sc: var(--st-idle); }          /* alive — green, like the panel */
 .tab .tdot.busy  { --sc: var(--st-busy); animation: tpulse 2s ease-out infinite; }
 .tab .tdot.input { --sc: var(--st-input); animation: tpulse 2s ease-out infinite; }
 .tab .tdot.error { --sc: var(--st-error); }
-/* finished-unseen: a ring in the dot's OWN colour, so it adds a meaning without adding a hue.
-   The inner ring is the tab's background, which keeps the two rings legible at 6px. */
-.tab .tdot.unread { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--sc); }
-.tab.active .tdot.unread { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 3.5px var(--sc); }
-/* pulses in the dot's own colour — the panel's ppulse hardcodes amber, so a blue dot haloed amber */
+/* Pulses in the dot's OWN colour — the panel's ppulse hardcodes amber, which haloes a blue dot
+   amber. Nothing else may animate box-shadow on this element: a second box-shadow rule (the old
+   unread ring) fought this one and the dot came out ringed, pulsing, or both, per frame. */
 @keyframes tpulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sc) 55%, transparent); }
                     70% { box-shadow: 0 0 0 5px transparent; }
                     100% { box-shadow: 0 0 0 0 transparent; } }
-/* an unread session that is ALSO working keeps the ring — the ring is the state that is easy to
-   miss, so it outranks the pulse rather than being overwritten by it */
-.tab .tdot.unread.busy, .tab .tdot.unread.input { animation: none; }
 .tab .tx:hover { color: var(--accent); }
 .tab.dirty .tname::after { content: '•'; color: var(--accent); margin-left: 5px; }
 .newTab { flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--subtle); border-radius: 8px;

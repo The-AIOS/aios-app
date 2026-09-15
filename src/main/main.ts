@@ -291,6 +291,7 @@ function inAllowed(abs: string): boolean {
    READ-ONLY, deliberately. ~/.claude.json is large and live sessions write it, so a
    read-modify-write races them (see writeClaudeUserJson) — watching does not. */
 const claudeWatchers: fs.FSWatcher[] = [];
+let lastClaudeCfg = '';
 let claudeCfgTimer: ReturnType<typeof setTimeout> | undefined;
 function setupClaudeConfigWatch(win: BrowserWindow): void {
   for (const w of claudeWatchers.splice(0)) { try { w.close(); } catch { /* ignore */ } }
@@ -305,6 +306,7 @@ function setupClaudeConfigWatch(win: BrowserWindow): void {
     path.join(os.homedir(), '.claude.json'),
     ...(framework ? [path.join(framework, '.claude', 'settings.json'), path.join(framework, '.claude', 'settings.local.json')] : []),
   ];
+  lastClaudeCfg = JSON.stringify(aios.claudeConfig());   // baseline, so the first real change is the first event
   for (const f of watched) {
     try {
       /* Watch the DIRECTORY, not the file. An editor (and Claude itself) writes atomically —
@@ -317,7 +319,19 @@ function setupClaudeConfigWatch(win: BrowserWindow): void {
         if (String(filename || '') !== base) return;
         if (claudeCfgTimer) clearTimeout(claudeCfgTimer);
         claudeCfgTimer = setTimeout(() => {
-          if (!win.webContents.isDestroyed()) win.webContents.send('shell:claudeConfigChanged', aios.claudeConfig());
+          if (win.webContents.isDestroyed()) return;
+          /* ONLY WHEN THE VALUES THIS EVENT IS ABOUT ACTUALLY CHANGED. `~/.claude.json` is
+             rewritten constantly by every live Claude session — it is the file CLAUDE.md warns
+             is "LARGE and live Claude sessions write it too" — so a bare file event fires
+             whenever any session breathes. The renderer rebuilds the open Settings tab on this,
+             which is why Settings visibly reloaded itself every minute or so while several
+             sessions were running (operator-reported 2026-09-14). Nothing about those writes
+             touches the handful of values Settings shows, so comparing them first turns a
+             constant churn into an event that fires when something really changed. */
+          const next = JSON.stringify(aios.claudeConfig());
+          if (next === lastClaudeCfg) return;
+          lastClaudeCfg = next;
+          win.webContents.send('shell:claudeConfigChanged', aios.claudeConfig());
         }, 200);
       }));
     } catch { /* absent store — nothing to watch yet */ }
@@ -901,6 +915,28 @@ ipcMain.handle('aios:removeFrequent', (_e, id: string) => {
 });
 // AIOS's own auto-update preference (USER.md), deliberately NOT on the claude:* channel
 ipcMain.handle('shell:setAutoUpdates', (_e, on: boolean) => { aios.setAutoUpdates(!!on); return aios.claudeConfig().autoUpdates; });
+/* Which live session runs under a pane's pty — exact identity, where a name cannot be.
+   The renderer asks when a pane confirms itself, so two same-named sessions land on the
+   right tabs instead of both adopting whichever the name matched first. */
+ipcMain.handle('session:under', (_e, paneIds: number[]) => {
+  /* The renderer holds PANE HANDLES (a counter), never pty pids — only this process knows
+     those, via `ptys`. So translate handle → pty pid here, walk, and answer by handle. */
+  const ids = (Array.isArray(paneIds) ? paneIds : []).map(Number).filter((n) => Number.isInteger(n));
+  const ptyPidOf = new Map<number, number>();
+  for (const id of ids) {
+    const pid = ptys.get(id)?.pid;
+    if (Number.isInteger(pid) && (pid as number) > 0) ptyPidOf.set(id, pid as number);
+  }
+  const running = aios.listRunningAgents();
+  const map = aios.sessionPidsUnder([...ptyPidOf.values()], running.map((a) => a.pid));
+  const byPid = new Map(running.map((a) => [a.pid, a]));
+  const out: Record<number, { name: string; id: string; pid: number }> = {};
+  for (const [paneId, ptyPid] of ptyPidOf) {
+    const a = byPid.get(map[ptyPid]);
+    if (a) out[paneId] = { name: a.name, id: a.sessionId, pid: a.pid };
+  }
+  return out;
+});
 ipcMain.handle('claude:permissionModes', () => aios.permissionModes());
 ipcMain.handle('shell:frameworkPath', () => aios.frameworkPathSetting());
 ipcMain.handle('shell:setFrameworkPath', (_e, v: string) => { aios.setFrameworkPath(String(v ?? '')); return aios.frameworkPathSetting(); });

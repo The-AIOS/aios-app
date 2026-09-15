@@ -463,6 +463,67 @@ export function sessionMemoryMB(pids: number[]): Record<number, number> {
   return out;
 }
 
+/**
+ * Which live session runs UNDER each pty — the only exact answer to "which session is this
+ * pane", and the fix for a class of bug a name can never solve.
+ *
+ * A pane learns its identity from the tty title the session announces, then looked that name
+ * up in the registry with `.find()`. Names are not unique (the registry is one file per PID, so
+ * `spawn ingest` twice gives two live `ingest` sessions), so BOTH panes matched the same entry
+ * and were handed the SAME sessionId — after which every per-session display mirrored one
+ * session onto two tabs. Operator-reported 2026-09-14 with two sessions of one name: one
+ * working, one idle, both tabs animating.
+ *
+ * The process tree answers it exactly. The pty is a login shell whose descendant is the actual
+ * `claude` process, and the registry is keyed by THAT pid — so the session under a pane is the
+ * registry pid found beneath the pane's pty. No titles, no names, no guessing.
+ *
+ * Same `ps`/Win32_Process walk `sessionMemoryMB` already does, and the same cross-platform
+ * shape, so this adds a query rather than a mechanism.
+ */
+export function sessionPidsUnder(
+  ptyPids: number[],
+  sessionPids: number[],
+  /** Raw `pid ppid …` table. Injected by tests; read from the OS when absent. */
+  procTable?: string,
+): Record<number, number> {
+  const out: Record<number, number> = {};
+  if (!ptyPids.length || !sessionPids.length) return out;
+  const wanted = new Set(sessionPids);
+  try {
+    const txt = procTable ?? (process.platform === 'win32'
+      ? winProcTable()
+      : execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 }));
+    const kids = new Map<number, number[]>();
+    for (const line of txt.split('\n')) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)(?:\s+\d+)?$/);
+      if (!m) continue;
+      const pid = Number(m[1]), ppid = Number(m[2]);
+      (kids.get(ppid) ?? kids.set(ppid, []).get(ppid)!).push(pid);
+    }
+    for (const root of ptyPids) {
+      const found: number[] = [];
+      const stack = [root];
+      const seen = new Set<number>();
+      while (stack.length) {
+        const q = stack.pop() as number;
+        if (seen.has(q)) continue;
+        seen.add(q);
+        /* The root itself is never the session — a pty is the login shell — so only something
+           BENEATH it counts. */
+        if (q !== root && wanted.has(q)) found.push(q);
+        for (const c of kids.get(q) ?? []) stack.push(c);
+      }
+      /* EXACTLY ONE, or no answer. A pane's pty has one `claude` beneath it, so two means the
+         root given was not a pty but a shared ancestor — the App itself, or launchd, under
+         which every session lives. Answering with the first would be the same guess this
+         function exists to eliminate, just made deeper in the tree. */
+      if (found.length === 1) out[root] = found[0];
+    }
+  } catch { /* ps unavailable — callers fall back to the name, ambiguity and all */ }
+  return out;
+}
+
 // ── quota (statusline cache) ────────────────────────────────────────────────
 
 export interface RateLimit { fiveHourPct: number; sevenDayPct: number; fiveHourResetsAt: number; sevenDayResetsAt: number; }
@@ -2923,6 +2984,10 @@ export interface InboxItem {
   since?: number;
   /** session items: the sessionId, so a click reveals THIS one and not its namesake. */
   id?: string;
+  /** suggestion items: the agent to run it as. */
+  agent?: string;
+  /** suggestion items: a URL the command takes as its argument. */
+  url?: string;
 }
 
 export function inboxDismissals(): InboxDismissals {
@@ -3031,7 +3096,22 @@ export function inboxItems(
   // 2 · open go-with-agents suggestions from today's note (per-item dismissal;
   //     the raw line is the signature — edit the task, it resurfaces)
   for (const s of listAgentSuggestions().slice(0, 4)) {
-    all.push({ key: 'suggestion:' + taskIdentity(s.raw), kind: 'suggestion', icon: '🤖', label: s.task, detail: s.agent ? '→ ' + s.agent : s.command, sig: s.raw });
+    all.push({
+      key: 'suggestion:' + taskIdentity(s.raw),
+      kind: 'suggestion',
+      icon: '🤖',
+      /* The parser leaves the routing suffix on the task text — "…  (→ agent: [[x]])" — which
+         then repeated whatever the detail line said and pushed every row to three lines. The
+         target belongs in the ACTION, not twice in the label. */
+      label: s.task.replace(/\s*\(?\u2192\s*(?:agent|command)\s*:.*$/i, '').trim() || s.task,
+      detail: s.agent ? '→ ' + s.agent : s.command,
+      sig: s.raw,
+      /* Carried so a click runs THIS one. The row already IS the choice — sending the operator
+         to a list to pick it again is a step that asks them to repeat themselves. */
+      ...(s.agent ? { agent: s.agent } : {}),
+      ...(s.command ? { command: s.command } : {}),
+      ...(s.url ? { url: s.url } : {}),
+    });
   }
   // 3 · the active nudge (the standalone whisper hides while the inbox shows it)
   if (shellSettings().showNudges) {
