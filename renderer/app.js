@@ -6925,11 +6925,16 @@ function openSetupTab() {
       try { st = await window.glassShell.onboardingState(); } catch { st = null; } finally { painting = false; }
       if (!st || !document.body.contains(wrap)) return;
       try {
-        const [opts, cc] = await Promise.all([
+        const [opts, top, cc] = await Promise.all([
           window.glassShell.modelOptions().catch(() => []),
+          window.glassShell.strongestModel().catch(() => null),
           window.glassShell.claudeConfig().catch(() => ({ model: '' })),
         ]);
-        modelTop = (Array.isArray(opts) && opts[0] && opts[0].value) ? opts[0] : null;
+        /* The strongest of the standard LADDER, not opts[0]. That list also carries account
+           extras and the operator's own pinned value, so its first entry is whatever could not
+           be placed — on a machine pinned to `opus[1m]` it resolved to `opus[1m]`, recommending
+           the operator's own setting back to them as advice. */
+        modelTop = (top && top.value) ? top : null;
         modelPinned = (cc && cc.model) || '';
         modelKnown = (Array.isArray(opts) ? opts : []).map((o) => o.value).filter(Boolean);
       } catch { modelTop = null; }

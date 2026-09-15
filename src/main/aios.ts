@@ -2134,13 +2134,46 @@ function writeClaudeUserJson(mutate: (j: Record<string, unknown>) => void): void
  * PLUS the configured value if it is none of those, so opening Settings can never silently
  * reset a model set elsewhere or newer than this build.
  */
+/* The standard ladder, STRONGEST FIRST. Separate from `modelOptions()` because that list also
+   carries account extras and the operator's own pinned value, neither of which can be ranked —
+   and one caller needs a ranking. */
+const MODEL_LADDER = [
+  { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
+  { label: 'Opus 5', value: 'claude-opus-5' },
+  { label: 'Sonnet 5', value: 'claude-sonnet-5' },
+  { label: 'Haiku 4.5', value: 'claude-haiku-4-5-20251001' },
+];
+
+/* Claude Code accepts ALIASES — `opus`, `opus[1m]`, `sonnet` — each meaning "the latest of that
+   family". They are not ids, so they never match the ladder, and an unlabelled alias surfaced in
+   the picker as the raw string `opus[1m]` sitting above the real names. Naming them says what
+   they actually mean, which is also why an operator would choose one: it follows the family
+   rather than pinning a generation. */
+const MODEL_ALIASES: Record<string, string> = {
+  'opus[1m]': 'Opus (latest) — 1M context',
+  opus: 'Opus (latest)',
+  'sonnet[1m]': 'Sonnet (latest) — 1M context',
+  sonnet: 'Sonnet (latest)',
+  haiku: 'Haiku (latest)',
+};
+
+/**
+ * The STRONGEST model of the standard ladder — never the operator's own pin, never an account
+ * extra.
+ *
+ * `modelOptions()[0]` is not this, and reading it as though it were is a real trap: that list
+ * unshifts the CURRENT setting when it cannot place it, so on a machine pinned to `opus[1m]`
+ * the "most capable model available here" resolved to `opus[1m]` — the operator's own choice,
+ * recommended back to them as though it were advice. Account extras cannot be ranked either:
+ * Fable is described as most capable for the hardest tasks and carries its own quota, which is
+ * a specialist call and not a default to nudge a newcomer toward.
+ */
+export function strongestModel(): { label: string; value: string } {
+  return MODEL_LADDER[0];
+}
+
 export function modelOptions(): { label: string; value: string }[] {
-  const base = [
-    { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
-    { label: 'Opus 5', value: 'claude-opus-5' },
-    { label: 'Sonnet 5', value: 'claude-sonnet-5' },
-    { label: 'Haiku 4.5', value: 'claude-haiku-4-5-20251001' },
-  ];
+  const base = MODEL_LADDER;
   const out = [...base];
   const cj = readJson(claudeJsonPath()) as { additionalModelOptionsCache?: unknown };
   const extra = Array.isArray(cj.additionalModelOptionsCache) ? cj.additionalModelOptionsCache : [];
@@ -2151,8 +2184,14 @@ export function modelOptions(): { label: string; value: string }[] {
       out.push({ label: typeof l === 'string' && l ? `${l} — ${v.includes('[1m]') ? '1M context' : v}` : v, value: v });
     }
   }
+  /* The operator's own setting, so the picker can show what is actually in force. It goes LAST,
+     not first: prepending it put an unrankable value at index 0, and the setup step reads index 0
+     as "the strongest model available here". Anything that needs a ranking calls
+     strongestModel(); this list is for choosing from, not for ranking. */
   const current = String(readValue('model', readJson(claudeSettingsPath()), cj as Record<string, unknown>) || '');
-  if (current && !out.some((m) => m.value === current)) out.unshift({ label: current, value: current });
+  if (current && !out.some((m) => m.value === current)) {
+    out.push({ label: MODEL_ALIASES[current] ?? current, value: current });
+  }
   return out;
 }
 

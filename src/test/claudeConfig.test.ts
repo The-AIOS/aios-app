@@ -145,8 +145,14 @@ test('the model list merges Claude\'s own options instead of being frozen here',
   // Fable was missing from Settings while Claude itself already offered it — it lives in
   // additionalModelOptionsCache, which is exactly the list a hardcoded array cannot know
   assert.match(src, /additionalModelOptionsCache/);
-  assert.match(src, /if \(current && !out\.some\(\(m\) => m\.value === current\)\) out\.unshift/,
+  /* Intent unchanged — a configured model unknown to this build must never vanish from the
+     picker — but it now goes LAST and labelled, not first. Unshifting put an unrankable value at
+     index 0, and the setup step reads index 0 as "the strongest model available here": on a
+     machine pinned to `opus[1m]` it recommended the operator's own setting back to them. */
+  assert.match(src, /if \(current && !out\.some\(\(m\) => m\.value === current\)\) \{\s*\n\s*out\.push/,
     'a configured model unknown to this build must never vanish from the picker');
+  assert.match(src, /MODEL_ALIASES\[current\] \?\? current/,
+    'and an alias is named rather than shown as a raw id');
   // and the renderer must ASK for the list rather than keep its own
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /await window\.glassShell\.modelOptions\(\)/);

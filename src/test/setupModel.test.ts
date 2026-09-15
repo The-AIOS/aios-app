@@ -43,7 +43,10 @@ test('the suggestion is silent when there is nothing to suggest', () => {
 test('the strongest model is READ from the list, never named in the renderer', () => {
   const code = noComments(APP());
   assert.match(code, /window\.glassShell\.modelOptions\(\)/, 'the list comes from the main side');
-  assert.match(code, /opts\[0\]/, 'and the top of that capability-ordered list is what gets suggested');
+  /* CORRECTED: `opts[0]` is not the strongest. That list appends the operator's own pin and
+     carries account extras, so its first entry is whatever could not be ranked — measured on a
+     machine pinned to `opus[1m]`, index 0 WAS `opus[1m]`. The ranking has its own accessor. */
+  assert.match(code, /window\.glassShell\.strongestModel\(\)/, 'the ranking comes from the ladder');
   // A model name written into the renderer is a fact that churns; the Settings list already
   // learned this lesson ("a list frozen in the renderer goes stale the moment Anthropic ships").
   for (const name of ['claude-opus', 'claude-sonnet', 'claude-haiku', 'Opus 5', 'Sonnet 5']) {
@@ -80,4 +83,22 @@ test('an ALIAS is never told to upgrade to the model it already resolves to', ()
   assert.match(src, /if \(!modelPinned\) return true;/, 'a fresh machine is the case this exists for');
   assert.ok(!/modelPinned !== modelTop\.value\)/.test(src.replace(/return modelPinned !== modelTop\.value;/, '')),
     'both surfaces go through the one condition — a second copy is how they come to disagree');
+});
+
+test('the suggestion ranks from the LADDER, never from the picker list', () => {
+  /* `modelOptions()` is a list to CHOOSE from, not to rank by: it carries account extras (Fable,
+     which has its own quota and is a specialist call, not a newcomer default) and appends the
+     operator's own pinned value so the picker can show what is in force. Reading its first entry
+     as "the most capable model available here" therefore recommended, on a machine pinned to
+     `opus[1m]`, the operator's own setting back to them as advice. Measured, not imagined. */
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
+  assert.match(src, /window\.glassShell\.strongestModel\(\)/, 'the ranking comes from its own accessor');
+  assert.ok(!/modelTop = \(Array\.isArray\(opts\)/.test(src), 'and never from opts[0]');
+
+  const aios = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'aios.ts'), 'utf8');
+  assert.match(aios, /export function strongestModel\(\)[\s\S]{0,120}return MODEL_LADDER\[0\];/,
+    'which is the top of the standard ladder');
+  assert.match(aios, /out\.push\(\{ label: MODEL_ALIASES\[current\] \?\? current, value: current \}\)/,
+    'and the operator\'s own pin goes LAST in the picker, labelled — unshifting it is what put an '
+    + 'unrankable value at index 0 in the first place');
 });

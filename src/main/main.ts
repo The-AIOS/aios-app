@@ -864,6 +864,9 @@ ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());
 ipcMain.handle('claude:modelOptions', () => aios.modelOptions());
+/* The strongest of the standard ladder — NOT modelOptions()[0], which can be an account
+   extra or the operator's own unrankable pin. The setup suggestion needs a ranking. */
+ipcMain.handle('claude:strongestModel', () => aios.strongestModel());
 /* THE MACHINE CHANGES UNDER US. Everything that resolves the framework or the vault is wired
    when the window opens — the explorer tree, the panel's file watchers, the update tracker. On a
    newcomer's machine none of those paths exist at that moment, so every watcher silently no-ops

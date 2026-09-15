@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   claudeSet: (key: string, value: unknown): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:set', key, value),
   outputStyles: (): Promise<string[]> => ipcRenderer.invoke('claude:outputStyles'),
   modelOptions: (): Promise<{ label: string; value: string }[]> => ipcRenderer.invoke('claude:modelOptions'),
+  strongestModel: (): Promise<{ label: string; value: string }> => ipcRenderer.invoke('claude:strongestModel'),
   phase1Script: (): Promise<string> => ipcRenderer.invoke('aios:phase1'),
   trustDir: (dir: string): Promise<boolean> => ipcRenderer.invoke('aios:trustDir', dir),
   prepareSetupCwd: (): Promise<string> => ipcRenderer.invoke('aios:prepareSetupCwd'),
