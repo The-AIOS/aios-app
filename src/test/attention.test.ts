@@ -10,8 +10,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   attentionTick, markNotified, badgeText, mayBanner, normalizeNotifyLevel, sessionKey,
+  BLOCKED_STATUS_RE, isBlockedStatus,
   EMPTY_ATTENTION, NOTIFY_DEFAULT, type AttentionSession, type AttentionState,
 } from '../core/attention';
 
@@ -125,4 +128,30 @@ test('an unknown or absent level falls back to telling the operator', () => {
   assert.equal(normalizeNotifyLevel('nonsense'), 'banner');
   assert.equal(normalizeNotifyLevel(' BADGE '), 'badge', 'case and whitespace are not a preference');
   assert.equal(normalizeNotifyLevel('off'), 'off', 'but a real choice is honoured');
+});
+
+test('the counter and the coloured dot answer the SAME question, character for character', () => {
+  /* THE BUG THIS EXISTS FOR, reported from a signed build: a session showed the blue "needs you"
+     dot and produced no badge and no banner at all. The dot ran a regex; the counter demanded
+     `status === 'waiting'`. Two predicates for one question, so the surface that colours and the
+     surface that counts disagreed — and the disagreement is invisible, because each is correct
+     on its own terms.
+
+     The renderer is plain `.js` and cannot import this module, so the two spellings are pinned
+     to each other here instead. If either moves, this fails and names the other. */
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
+  const inRenderer = src.match(/if \((\/[^\n]+?\/)\.test\(st\)\) return \{ cls: 'input'/);
+  assert.ok(inRenderer, "statusInfo's needs-input test not found — it moved, and this pin is now blind");
+  assert.equal(inRenderer[1], String(BLOCKED_STATUS_RE),
+    'the renderer decides the blue dot with a different expression than the badge counts with. '
+    + 'They must be identical: a dot without a badge is what the operator actually saw.');
+});
+
+test('the shared predicate accepts what Claude Code actually writes', () => {
+  for (const s of ['waiting', 'waiting for input', 'needs permission approval', 'blocked', 'input needed']) {
+    assert.equal(isBlockedStatus(s), true, `"${s}" is a session waiting on you`);
+  }
+  for (const s of ['busy', 'idle', 'shell', '']) {
+    assert.equal(isBlockedStatus(s), false, `"${s}" is not`);
+  }
 });

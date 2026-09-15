@@ -88,7 +88,26 @@ export interface AttentionTick {
   badge: number;
 }
 
-const isBlocked = (s: AttentionSession): boolean => s.status === 'waiting';
+/**
+ * "Is this session waiting on the operator" — ONE definition, shared.
+ *
+ * This was `status === 'waiting'` while the surfaces decided the same question with a regex, and
+ * the two disagreed in the field: the operator's session showed the BLUE needs-you dot (regex)
+ * and produced no badge and no banner (exact match). Two predicates for one question is the
+ * whole bug — the dot and the counter have to be the same sentence or one of them is lying.
+ *
+ * The regex is the older and broader spelling and it wins, because it is what every surface
+ * already renders from. Kept here so the counter cannot drift from the colour again;
+ * `BLOCKED_STATUS_RE` is pinned character-for-character against the renderer's copy by
+ * `attention.test.ts`, since a plain `.js` renderer cannot import this module.
+ */
+export const BLOCKED_STATUS_RE = /wait|input|prompt|\bask\b|attention|approv|permission|block/;
+
+export function isBlockedStatus(status: string): boolean {
+  return BLOCKED_STATUS_RE.test((status || '').toLowerCase());
+}
+
+const isBlocked = (s: AttentionSession): boolean => isBlockedStatus(s.status);
 
 /**
  * Advance the counter by one observation. Blocks are derived fresh every tick and never
