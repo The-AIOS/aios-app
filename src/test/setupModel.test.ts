@@ -29,11 +29,15 @@ test('the model travels per session — never into settings.json', () => {
 });
 
 test('the suggestion is silent when there is nothing to suggest', () => {
+  /* Unchanged intent, updated spelling: the two surfaces still share ONE condition, but it is
+     now a named function rather than an inline compare, because the compare could not see an
+     alias (see the alias test below). Two copies of a condition is how they come to disagree —
+     which is what this test has always been about. */
   const code = noComments(APP());
-  // both surfaces — the note and the Advanced action — carry the same condition
-  const conds = code.match(/modelTop && modelPinned !== modelTop\.value/g) || [];
-  assert.equal(conds.length, 2, 'the note and the action must share one condition, and both must have it');
-  assert.match(code, /s\.id === 'firstrun' && modelTop/, 'the note belongs to the handover step only');
+  const conds = code.match(/modelWorthSuggesting\(\)/g) || [];
+  assert.equal(conds.length, 2, 'called by BOTH surfaces — the note and the Advanced action');
+  assert.match(code, /const modelWorthSuggesting = \(\) => \{/, 'and defined exactly once');
+  assert.match(code, /s\.id === 'firstrun' && modelWorthSuggesting\(\)/, 'the note belongs to the handover step only');
 });
 
 test('the strongest model is READ from the list, never named in the renderer', () => {
@@ -58,4 +62,22 @@ test('both strings exist in every locale and carry the {model} placeholder', () 
     assert.ok(!/\bmust\b|\bdebes\b|\bprecisa\b/i.test(String(d['setup.modelTip'])),
       `${l}: the tip reads as a requirement, not a suggestion`);
   }
+});
+
+test('an ALIAS is never told to upgrade to the model it already resolves to', () => {
+  /* Claude Code accepts aliases. The operator testing this was pinned to `opus[1m]`, which
+     resolves to Opus 5 and does not string-match `claude-opus-5[1m]` — so a bare `!==` would
+     have recommended the model they were already running. That is exactly the "fires when it
+     has nothing to recommend" failure this feature was designed to avoid, arriving from the one
+     direction a string compare cannot see.
+     The rule is therefore narrower than not-the-top-string: suggest when nothing is pinned, or
+     when the pin is a value from our own list and is not the strongest. Anything else we cannot
+     rank, and silence is the honest answer. */
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
+  assert.match(src, /const modelWorthSuggesting = \(\) => \{/, 'one condition, not two');
+  assert.match(src, /if \(!modelKnown\.includes\(modelPinned\)\) return false;/,
+    'an unrecognised pin — an alias, or an id we do not model — suggests nothing');
+  assert.match(src, /if \(!modelPinned\) return true;/, 'a fresh machine is the case this exists for');
+  assert.ok(!/modelPinned !== modelTop\.value\)/.test(src.replace(/return modelPinned !== modelTop\.value;/, '')),
+    'both surfaces go through the one condition — a second copy is how they come to disagree');
 });

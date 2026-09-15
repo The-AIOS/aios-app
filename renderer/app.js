@@ -6546,6 +6546,23 @@ function openSetupTab() {
        fires when it has nothing to recommend is how a tip becomes wallpaper. */
     let modelTop = null;     // strongest entry of modelOptions() — that list is capability-ordered
     let modelPinned = '';    // what the operator pinned in Claude's settings, if anything
+    let modelKnown = [];     // every value that list offers — what we can actually reason about
+
+    /* SUGGEST ONLY WHEN WE CAN TELL, which is narrower than "is it not the top string".
+       Claude Code accepts ALIASES — the operator running this was pinned to `opus[1m]`, which
+       resolves to Opus 5 and does not string-match `claude-opus-5[1m]`. A bare !== therefore
+       recommends the model they are already on, which is precisely the "fires when it has
+       nothing to recommend" failure the suggestion was built to avoid, arriving from the one
+       direction a string compare cannot see.
+       So: offer it when nothing is pinned (a fresh machine — the case this exists for), or when
+       what IS pinned is a value from our own list and is not the strongest. Anything else is an
+       alias or an id we do not model, and silence is the honest answer. */
+    const modelWorthSuggesting = () => {
+      if (!modelTop) return false;
+      if (!modelPinned) return true;                       // no override at all
+      if (!modelKnown.includes(modelPinned)) return false;  // an alias, or something we cannot rank
+      return modelPinned !== modelTop.value;
+    };
 
     // every Onboarding fix runs where the operator can SEE it; the doctor re-verifies
     // when that terminal exits (and on the quiet poll below)
@@ -6719,7 +6736,7 @@ function openSetupTab() {
              offered to someone whose framework and vault are both still missing. There is exactly
              one sensible action on this step, so it is the only one shown. */
           mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
-          if (modelTop && modelPinned !== modelTop.value) {
+          if (modelWorthSuggesting()) {
             mkBtn(adv, t('setup.modelUse', { model: modelTop.label }), () => void spawnSetupSession(modelTop.value));
           }
           break;
@@ -6738,7 +6755,7 @@ function openSetupTab() {
       if (note && note !== 'onboarding.note.' + s.id) bd.appendChild(el('div', 'step-note', note));
       // the model suggestion rides the same slot: one line, on the step it applies to, and only
       // when the operator is not already on the strongest model this machine lists
-      if (s.id === 'firstrun' && modelTop && modelPinned !== modelTop.value) {
+      if (s.id === 'firstrun' && modelWorthSuggesting()) {
         bd.appendChild(el('div', 'step-note', t('setup.modelTip', { model: modelTop.label })));
       }
       /* THE HANDOVER STEP SHOWS NO CHECK ROWS. Everywhere else they are the point: each row is a
@@ -6914,6 +6931,7 @@ function openSetupTab() {
         ]);
         modelTop = (Array.isArray(opts) && opts[0] && opts[0].value) ? opts[0] : null;
         modelPinned = (cc && cc.model) || '';
+        modelKnown = (Array.isArray(opts) ? opts : []).map((o) => o.value).filter(Boolean);
       } catch { modelTop = null; }
       list.replaceChildren();
       if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
