@@ -490,6 +490,44 @@ test('PROTOCOL: presence ownership is byte-identical across both surfaces', () =
     + 'record the other is still serving, and every agent concluding no surface exists.');
 });
 
+/* THE BUS DECISIONS THEMSELVES, and this is the gap that existed until 2026-09-15. Only the
+   TIMINGS slice of sendQueue.ts was pinned, plus the decision TABLE in this test file — never the
+   implementation that reads them. So `decideSend`, `claimVerdict`, `verifyVerdict`, `canAdoptHold`
+   and `parseClaim` — the functions both fulfillers run while RACING for the same request — could
+   diverge with nothing to catch it. Measured that day: seven symbols already differed. All seven
+   turned out harmless (brace style, an Array where the sibling used a Set, and a hold reason that
+   was simply more informative on one side), but harmless-by-luck is not a property you can keep.
+   The file could not be pinned before because MY_SURFACE lived in it — the one value that MUST
+   differ per surface. It now lives beside each surface's own code, and the rest is pinned whole. */
+const SENDQUEUE_SHA = '50da2e0aecfa2cd8';
+
+test('PROTOCOL: the bus decisions are byte-identical across both fulfillers', () => {
+  const src = fs.readFileSync('src/core/sendQueue.ts', 'utf8');
+  const sha = crypto.createHash('sha256').update(src).digest('hex').slice(0, 16);
+  assert.equal(sha, SENDQUEUE_SHA,
+    'core/sendQueue.ts changed. This is a shared CONTRACT: make the same edit in the sibling repo '
+    + 'and update SENDQUEUE_SHA in BOTH, in one push. Diverging here means the two fulfillers '
+    + 'deciding differently about one request they are both racing for.');
+  /* The DECLARATION, not the word. Aimed at `/MY_SURFACE/` this fired on the comment that
+     explains why the declaration is absent — a guard sensitive to its own documentation. */
+  assert.doesNotMatch(src, /export const MY_SURFACE/,
+    'MY_SURFACE must differ per surface, so it cannot live in a byte-identical file — that is '
+    + 'exactly what made this file unpinnable. Each surface declares its own.');
+});
+
+/* The request BODY, byte-identical for the same reason: contract 2 has both surfaces racing, so a
+   request must survive identically whichever one wins. This file carried a comment asking for
+   byte-identity and drifted from its sibling anyway — a comment is not a guard. */
+const BUSPAYLOAD_SHA = '85cda9572dca9efc';
+
+test('PROTOCOL: the request payload is byte-identical across both fulfillers', () => {
+  const src = fs.readFileSync('src/core/busPayload.ts', 'utf8');
+  const sha = crypto.createHash('sha256').update(src).digest('hex').slice(0, 16);
+  assert.equal(sha, BUSPAYLOAD_SHA,
+    'core/busPayload.ts changed. Make the same edit in the sibling repo and update BUSPAYLOAD_SHA '
+    + 'in BOTH, in one push.');
+});
+
 test('PROTOCOL: a renamed session resolves by its LATEST name, and never to itself', () => {
   const rec = (n: string) => JSON.stringify({ type: 'agent-name', agentName: n });
   assert.equal(latestAgentName([rec('app-walker'), rec('aios-app')].join('\n')), 'aios-app');
