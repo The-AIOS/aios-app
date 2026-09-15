@@ -943,6 +943,7 @@ ipcMain.handle('session:under', (_e, paneIds: number[]) => {
 /* Settings asks whether macOS has refused a banner, so the alerts control can say why it looks
    like it is doing nothing rather than leaving the operator to find System Settings unaided. */
 ipcMain.handle('attention:refused', () => host?.attentionRefused() ?? false);
+ipcMain.handle('attention:recheck', () => { host?.attentionRecheck(); });
 ipcMain.handle('claude:permissionModes', () => aios.permissionModes());
 ipcMain.handle('shell:frameworkPath', () => aios.frameworkPathSetting());
 ipcMain.handle('shell:setFrameworkPath', (_e, v: string) => { aios.setFrameworkPath(String(v ?? '')); return aios.frameworkPathSetting(); });

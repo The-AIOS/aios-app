@@ -179,6 +179,9 @@ export class PanelHost {
   /** The operator just chose a banner level — confirm it works, or learn that it does not. */
   attentionProbe(level: NotifyLevel): void { this.attention.probe(level); }
 
+  /** Settings opened — re-measure a refusal we are still reporting, in case it is over. */
+  attentionRecheck(): void { this.attention.recheck(aios.shellSettings().attention); }
+
   postRunning(): void {
     const running = aios.listRunningAgents();
     this.attention.tick(running, aios.shellSettings().attention);

@@ -31,7 +31,7 @@ import type { RunningAgent } from '../main/aios';
  * Notification that lets the test decide the verdict. Swapping two modules in the loader buys
  * assertions about the thing itself instead of assertions about how it is spelled.
  */
-function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass; fakeNotification: { last?: FakeNotification } } {
+function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass; lastBanner: () => FakeNotification | undefined; clearBanner: () => void } {
   const Module = require('module') as { _load(req: string, parent: unknown, isMain: boolean): unknown };
   const holder: { last?: FakeNotification } = {};
 
@@ -60,7 +60,14 @@ function loadAttention(): { Attention: new (h: AttentionHooks) => AttentionClass
     delete require.cache[id];
     const mod = require('../main/attention') as { Attention: new (h: AttentionHooks) => AttentionClass };
     delete require.cache[id];   // never leave a stubbed copy for another suite
-    return { Attention: mod.Attention, fakeNotification: holder };
+    return {
+      Attention: mod.Attention,
+      /* Read through a CALL, never a property: a test that assigns `holder.last = undefined` to
+         reset between cases narrows the property to `undefined` for the rest of the function, and
+         the next `.emit()` fails to compile on a value that is perfectly fine at runtime. */
+      lastBanner: () => holder.last,
+      clearBanner: () => { holder.last = undefined; },
+    };
   } finally { Module._load = orig; }
 }
 
@@ -218,7 +225,7 @@ test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
      line". A guard that cannot fail for the real defect but does fail for a refactor is worse
      than none: it spends its credibility in the wrong direction. Driving the class through a
      stubbed `electron` costs a loader shim and tests the thing itself. */
-  const { Attention, fakeNotification } = loadAttention();
+  const { Attention, lastBanner } = loadAttention();
   const saved: boolean[] = [];
   let stored = false;
   const mk = () => new Attention({
@@ -231,7 +238,7 @@ test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
   assert.equal(a.osRefused(), false, 'nothing measured yet — never claim a refusal we have not seen');
 
   a.tick([{ name: 'ingest', status: 'waiting', pid: 4242, sessionId: 'sid-1' } as RunningAgent], 'banner');
-  fakeNotification.last?.emit('failed', {}, 'UNErrorDomain error 1');
+  lastBanner()?.emit('failed', {}, 'UNErrorDomain error 1');
   assert.equal(a.osRefused(), true, 'set from the OS report, never inferred from a permissions guess');
   assert.deepEqual(saved, [true], 'and WRITTEN DOWN — the next run must not have to rediscover it');
 
@@ -239,13 +246,53 @@ test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
   assert.equal(mk().osRefused(), true,
     'a fresh run reads the last measurement — Settings is usually opened in a later run than the one that failed');
 
-  fakeNotification.last?.emit('show', {});
+  lastBanner()?.emit('show', {});
   assert.equal(a.osRefused(), false,
     'cleared when a banner lands — permission can be granted mid-run, so the state must not stick');
   assert.deepEqual(saved, [true, false], 'the grant is persisted too, or the warning outlives the problem');
 
   const glue = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'attention.ts'), 'utf8');
   assert.match(glue, /if \(!this\.toldAboutPermission\)/, 'the toast fires once, never a nag');
+});
+
+test('the Settings re-check probes ONLY while we are still reporting a refusal', () => {
+  /* Persisting the refusal introduces one way to be wrong that the in-memory version could not
+     be: the operator fixes the permission, opens Settings, and is told they are still blocked by
+     a line whose entire job is to be trusted. Nothing else clears it — the state clears on a
+     successful banner, and no banner is guaranteed to happen.
+     Re-measuring on open closes that. Gating it on the refused state is what makes it free:
+     while genuinely blocked the probe is invisible because the OS refuses it, so the common case
+     shows nothing, and exactly one banner is ever raised — the one saying the problem is over.
+     Ungated, this would fire a banner every time Settings is opened for any reason. */
+  const { Attention, lastBanner, clearBanner } = loadAttention();
+  let stored = false;
+  const mk = () => new Attention({
+    reveal: () => { }, notifyBlocked: () => { },
+    loadRefused: () => stored,
+    saveRefused: (v: boolean) => { stored = v; },
+  });
+
+  const healthy = mk();
+  clearBanner();
+  healthy.recheck('banner');
+  assert.equal(lastBanner(), undefined,
+    'not refused → nothing is sent, so opening Settings never raises a banner on its own');
+
+  stored = true;
+  const blocked = mk();
+  blocked.recheck('banner');
+  assert.notEqual(lastBanner(), undefined, 'refused → re-measure, because it may be over');
+
+  lastBanner()?.emit('show', {});
+  assert.equal(blocked.osRefused(), false, 'the permission was granted since — the warning clears');
+  assert.equal(stored, false, 'and the correction is persisted, or it returns on the next run');
+
+  /* A level with no banners cannot be measured by sending one. */
+  const off = mk();
+  clearBanner();
+  stored = true;
+  off.recheck('badge');
+  assert.equal(lastBanner(), undefined, 'badge-only: nothing to probe');
 
   const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
   assert.match(app, /window\.glassShell\.attentionRefused\(\)/,

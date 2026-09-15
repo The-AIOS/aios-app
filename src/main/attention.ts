@@ -87,6 +87,25 @@ export class Attention {
    * amber line appears the moment the setting is chosen and cannot be delivered, instead of
    * waiting for some session to block later and hoping the operator is in Settings when it does.
    */
+  /**
+   * Re-measure ONLY if we currently believe we are blocked. Called when Settings opens.
+   *
+   * This is what keeps a PERSISTED state from going stale in the one direction that matters.
+   * The warning clears on any successful banner, but nothing guarantees one happens: an operator
+   * who fixes the permission and then simply opens Settings would be told they are still blocked,
+   * by a line whose whole purpose is to be trusted.
+   *
+   * Gating on the refused state is what makes it free. While we are genuinely blocked the probe
+   * is invisible BY CONSTRUCTION — the OS refuses it, which is the measurement — so the common
+   * case costs nothing and shows nothing. Exactly one banner is ever raised: the one that
+   * announces the problem is over. Probing unconditionally here would instead fire a banner every
+   * time Settings is opened for any reason, which is how a confirmation becomes noise.
+   */
+  recheck(level: NotifyLevel): void {
+    if (!this.osRefused()) return;
+    this.probe(level);
+  }
+
   probe(level: NotifyLevel): void {
     if (!mayBanner(level) || !Notification.isSupported()) return;
     try {

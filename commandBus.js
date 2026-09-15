@@ -1,0 +1,1187 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.inboxDir = inboxDir;
+exports.initCommandBus = initCommandBus;
+const electron_1 = require("electron");
+const fs = __importStar(require("fs"));
+const os = __importStar(require("os"));
+const child_process_1 = require("child_process");
+const path = __importStar(require("path"));
+const aios = __importStar(require("./aios"));
+const commandBus_1 = require("../core/commandBus");
+const resumeTarget_1 = require("../core/resumeTarget");
+const inboxReadme_1 = require("../core/inboxReadme");
+const sendQueue_1 = require("../core/sendQueue");
+const presence_1 = require("../core/presence");
+const busPayload_1 = require("../core/busPayload");
+const bashResolve_1 = require("../core/bashResolve");
+/**
+ * Spawn-inbox command bus (main side) — CONTRACT 2.
+ *
+ * Watches `~/.aios/spawn-inbox/`; an agent drops a `*.json` request and a trusted surface
+ * fulfils it natively. TWO fulfillers exist (this App and the Glass extension) and they
+ * race, so the request FILE is the queue rather than a message we consume:
+ *
+ *   *.json              waiting for a fulfiller
+ *   *.json.holding      CLAIMED by one surface (atomic rename), stamped with _claim
+ *   *.json.undelivered  gave up, with a reason — a visible artifact, never silence
+ *   absent              delivered and VERIFIED
+ *
+ * Two rules that must never soften, both learned from real losses:
+ *  1. Never deliver into a BUSY session. Text sent mid-turn is dropped, not queued. When
+ *     the hold budget expires we mark undelivered rather than "trying anyway" — that
+ *     timeout path was Glass's 0.4.6 bug and performed the exact loss the gate prevents.
+ *  2. "The file is gone" only proves pickup. Delivery is proven in the target's own
+ *     transcript, by COUNTING — double delivery is the worst outcome this protocol can
+ *     produce, so exactly 1 is the pass condition.
+ *
+ * Pure decisions live in ../core/sendQueue.ts, ported from Glass's module of the same name
+ * so both surfaces provably agree; if they ever diverge, a diff should say so.
+ */
+/* A DURABLE trail, because `console.log` alone left none.
+ *
+ * The bus is the most concurrency-sensitive code in the App, and its entire decision history
+ * went to a console nobody can read in a packaged build. When one request was delivered four
+ * times on 2026-08-12, the diagnosis took hours of forensic reconstruction from transcripts and
+ * a request file caught mid-flight — every one of those decisions had been logged, to nowhere.
+ *
+ * ONE FILE, SHARED BY EVERY SURFACE, and that is the point rather than an accident: the failures
+ * this trail exists for are multi-writer races (two fulfillers, claim/release/re-claim), so a
+ * per-process log would split exactly the evidence that needs interleaving. Each line therefore
+ * carries the surface and pid, which is what makes "who did what, in what order" answerable.
+ *
+ * Never throws. A logging failure must not take the bus down — losing the trail is bad, losing
+ * delivery is worse. */
+const BUS_LOG_MAX = 512 * 1024; // ~5k lines; a trail nobody can open is not a trail
+const busLogPath = () => path.join(os.homedir(), '.aios', 'logs', 'command-bus.log');
+function busLogAppend(msg) {
+    try {
+        const f = busLogPath();
+        fs.mkdirSync(path.dirname(f), { recursive: true });
+        fs.appendFileSync(f, `${new Date().toISOString()} [${sendQueue_1.MY_SURFACE}:${process.pid}] ${msg}\n`);
+        /* Cap by keeping the TAIL. The newest half is the half that explains what just happened, and
+           a trail that grows without bound eventually stops being opened at all. */
+        if (fs.statSync(f).size > BUS_LOG_MAX) {
+            const keep = fs.readFileSync(f, 'utf8').slice(-Math.floor(BUS_LOG_MAX / 2));
+            fs.writeFileSync(f, keep.slice(keep.indexOf('\n') + 1)); // drop the half-line at the cut
+        }
+    }
+    catch { /* a trail is a nice-to-have; delivery is not */ }
+}
+const log = (msg) => { console.log(`[command-bus] ${msg}`); busLogAppend(msg); };
+/*
+ * These timings are CONTRACT, not tuning — they must match the Glass extension's, because
+ * both surfaces reason about the same files. The dangerous one is HOLD_STALE_MS: ours was
+ * 15 min against Glass's 45, which opens a 30-minute window where Glass still believes it
+ * owns a hold while we consider it stale and adopt it. Both then deliver — the exact
+ * double-delivery contract 2 exists to prevent. Aligned to Glass's values; longer is the
+ * safe direction for adoption, and waiting is cheap when the file is the queue.
+ */
+/** Addressed elsewhere and unclaimed for this long → any surface may retire it. */
+const RETIRE_TTL_MS = sendQueue_1.TIMINGS.RETIRE_TTL_MS; // contract
+/** A hold this old is adoptable even if its claimer still lives. */
+const HOLD_STALE_MS = sendQueue_1.TIMINGS.HOLD_STALE_MS; // contract
+/** How long we wait for a target to go idle before giving up loudly. */
+const MAX_HOLD_MS = sendQueue_1.TIMINGS.MAX_HOLD_MS; // contract — see TIMINGS in core/sendQueue
+/** Re-check a held request on this cadence (registry reads are cheap). */
+const HOLD_TICK_MS = 3_000;
+/** How long to wait for the text to appear in the target's transcript. */
+const VERIFY_WINDOW_MS = 20_000;
+const VERIFY_TICK_MS = 1_000;
+/** Bound on sibling handoffs, so two fulfillers cannot ping-pong a request. */
+const MAX_RELEASES = sendQueue_1.TIMINGS.MAX_RELEASES; // contract
+/* Sends are capped; waiting is not. Dropping back into the hold loop (instead of retiring when
+   the sibling handoffs run out) fixed a message dying in 20 seconds — but a naive retry would
+   re-deliver every verify window for the whole 30-minute hold, i.e. ~90 copies into one
+   session. Double delivery is the worst outcome this protocol can produce, explicitly worse
+   than latency, so the retry budget is small and the patience budget is the full hold. */
+const MAX_DELIVERY_ATTEMPTS = sendQueue_1.TIMINGS.MAX_DELIVERY_ATTEMPTS; // contract
+/**
+ * fs.watch fires on CREATE, which can beat the writer's content to disk — so a request can
+ * read back empty or half-written. Retiring that as "unparseable" turns a transient read
+ * into a permanent failure. Give a fresh file this long to become whole, and re-check once.
+ */
+const PARSE_GRACE_MS = 2_000;
+/**
+ * The inbox is machine-global by design — that is exactly what lets any surface serve any
+ * request. It is also why this subsystem had no way to be EXERCISED: a second fulfiller pointed
+ * at the real directory races the installed App for live traffic, which is how a real brief died
+ * on 2026-07-27 (AI-67). So the only safe way to test the bus was not to test it, and the
+ * 2026-08-12 double-delivery bug was consequently found by a session complaining rather than by
+ * a check. Test infrastructure for the bus is the gap the bug exposed.
+ *
+ * AIOS_BUS_DIR redirects the watch to a throwaway directory so a dev build can be driven end to
+ * end without touching real requests.
+ *
+ * DEV-ONLY ON PURPOSE. A packaged App ignores it entirely. An env var that can silently divert
+ * the shipped App away from the real inbox would make every dropped request invisible — the
+ * operator would see requests never served, with nothing pointing at the cause. A test seam
+ * must not be reachable in production.
+ */
+function inboxDir() {
+    const override = (process.env.AIOS_BUS_DIR || '').trim();
+    if (override && !electron_1.app.isPackaged)
+        return path.resolve(override);
+    if (override)
+        log(`ignoring AIOS_BUS_DIR in a packaged build — the real inbox is not overridable`);
+    return path.join(os.homedir(), '.aios', 'spawn-inbox');
+}
+/**
+ * Document the bus in the directory it serves. `~/.aios/spawn-inbox/` is machine-local
+ * runtime state, so no repo path can ship this doc — the handler has to write it, which is
+ * also why it cannot drift from the handler. Defers to a Glass doc at the same contract,
+ * and never downgrades one declaring a higher contract.
+ * A README is never a request (only `*.json` is), so this cannot feed the watcher.
+ */
+function ensureReadme(dir, appVersion) {
+    const file = path.join(dir, 'README.md');
+    try {
+        const ours = (0, inboxReadme_1.buildInboxReadme)(appVersion);
+        let existing;
+        try {
+            existing = fs.readFileSync(file, 'utf8');
+        }
+        catch { /* absent — the case that matters */ }
+        if (!(0, inboxReadme_1.shouldWrite)(existing, ours))
+            return;
+        fs.writeFileSync(file, ours);
+        log(`wrote ${file}`);
+    }
+    catch (e) {
+        log(`README not written (${e instanceof Error ? e.message : String(e)})`); // non-fatal
+    }
+}
+/** One `ps` call: the parent of a pid, or 0 if it cannot be read. */
+function ppidOf(pid) {
+    try {
+        const out = (0, child_process_1.execFileSync)('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+        const n = Number(out);
+        return Number.isFinite(n) ? n : 0;
+    }
+    catch {
+        return 0;
+    }
+}
+/** Absolute path of this surface's presence record. */
+function presenceFile() {
+    return path.join(os.homedir(), '.aios', 'surfaces', `${sendQueue_1.MY_SURFACE}.json`);
+}
+/**
+ * Is this pid running? Signal 0 performs the permission + existence checks and delivers nothing.
+ * EPERM means the process EXISTS and is not ours to signal, which is still alive — only ESRCH is
+ * proof of absence, so anything other than ESRCH must read as alive or the protocol evicts a live
+ * surface on a technicality.
+ */
+function pidAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 1)
+        return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (e) {
+        return e?.code !== 'ESRCH';
+    }
+}
+/** Raw contents of the presence record, or undefined if it is absent or unreadable. */
+function readPresence() {
+    try {
+        return fs.readFileSync(presenceFile(), 'utf8');
+    }
+    catch {
+        return undefined;
+    }
+}
+/**
+ * Re-claim the record when it names nobody alive — the backstop that makes presence EVENTUALLY
+ * TRUE under every ordering, rather than correct under the orderings we happened to think of.
+ *
+ * Three ways the file ends up naming no live surface while this App runs, and announce/retract
+ * can only ever address the first two:
+ *   · a second instance announced over us and then quit, retracting the record it owned;
+ *   · we deferred to an incumbent on startup and that incumbent has since exited;
+ *   · anyone crashed, was SIGKILLed or lost power — `before-quit` never fires, so a dead pid sits
+ *     in the file forever (the three-week `glass.json` in announce's note above).
+ * Each is a different ordering of the same two-writer race, and a rule that fixes one re-opens
+ * another. Asking "does this name someone alive" needs no ordering at all.
+ *
+ * Deliberately passive while the record is healthy: if it names a LIVE pid — ours or another
+ * instance's — it is left exactly as it is. Two running Apps therefore settle rather than
+ * ping-pong ownership every tick, and the one holding it keeps holding it until it exits.
+ */
+function healPresence(appVersion) {
+    if (!electron_1.app.isPackaged)
+        return;
+    try {
+        const rec = (0, presence_1.parsePresenceRecord)(readPresence());
+        const root = (0, sendQueue_1.processTreeRoot)(process.pid, ppidOf);
+        if ((0, presence_1.presenceVerdict)(rec, root, pidAlive) === 'leave')
+            return; // healthy — someone alive owns it
+        if (rec?.pid === root && readPresence() !== undefined)
+            return; // already ours; do not churn the file
+        fs.mkdirSync(path.dirname(presenceFile()), { recursive: true });
+        const body = { surface: sendQueue_1.MY_SURFACE, pid: root, at: Date.now(), version: appVersion };
+        fs.writeFileSync(presenceFile(), JSON.stringify(body, null, 2) + '\n');
+        log(`presence re-claimed: ${sendQueue_1.MY_SURFACE} root pid ${root} (record named ${rec?.pid === undefined ? 'nobody' : `dead pid ${rec.pid}`})`);
+    }
+    catch { /* non-fatal — the next tick tries again */ }
+}
+/**
+ * Announce this surface so a REQUESTER can derive where it is running.
+ *
+ * `~/.aios/surfaces/app.json`, outside the inbox on purpose — the watchers claim `*.json`, so a
+ * presence file in there would be read as a request. An agent that wants to spawn a worker in the
+ * surface it already lives in walks its own process ancestry and compares against these pids; no
+ * process-name matching, so it keeps working whichever IDE hosts Glass.
+ *
+ * Written every startup, and REMOVED on a clean exit (see retractPresence). The liveness check
+ * remains the real defence and nothing here weakens it: a crash, a SIGKILL or a power cut all
+ * skip the cleanup, so a reader that trusts the file's existence is still wrong. This only stops
+ * the directory misleading a human reading it by eye — on this machine a `glass.json` advertising
+ * a pid dead since 2026-08-14 sat beside a live `app.json` for three weeks.
+ *
+ * DEFERS TO A LIVE INCUMBENT rather than clobbering it, and that is the half this protocol was
+ * missing. Ownership was checked only on retract, but ANNOUNCE is what assigns ownership — and it
+ * assigned it to whoever wrote last, not to whoever is alive. Measured on the test account
+ * 2026-09-15: instance A announced at 12:54, a second bundle B announced over it at 12:55:40,
+ * B quit ten seconds later, and its retract correctly saw its OWN pid in the file and unlinked it.
+ * A was still running and still fulfilling spawns at 12:58 with no record naming it, so every
+ * agent following CLAUDE.md's liveness rule concluded no surface existed and refused to spawn.
+ * An ownership check on one side of a two-sided protocol cannot hold: whichever side is checked,
+ * the other assigns. So the incumbent is left alone while it is alive, and healPresence below
+ * closes the remaining orderings (and the crash case, which has no retract at all).
+ */
+function announcePresence(appVersion) {
+    /* PACKAGED BUILDS ONLY, and this is not tidiness — it prevents a dev instance from corrupting
+     * the record the real App depends on. Observed 2026-08-14: a dev App launched from a terminal
+     * INSIDE a session the installed App hosts walked up to the installed App's pid and announced
+     * that as its own root, overwriting app.json. Harmless there because the value happened to
+     * match; launched from a plain terminal it would have written a pid that is NOT the installed
+     * App, and every session that App hosts would then derive "neither".
+     * There is nothing to gain the other way: nobody needs to route a spawn into a dev build. */
+    if (!electron_1.app.isPackaged) {
+        log('presence not announced — dev build (a dev instance must not overwrite the real record)');
+        return;
+    }
+    electron_1.app.on('before-quit', retractPresence); // symmetric with the write below; packaged only, same as it
+    try {
+        const dir = path.join(os.homedir(), '.aios', 'surfaces');
+        fs.mkdirSync(dir, { recursive: true });
+        /* The tree ROOT, not process.pid — see processTreeRoot. For the App these are the same pid
+           today (its main process has ppid 1), but deriving it removes a fact about our own process
+           layout from a file whose whole job is to be matched against someone else's ancestry. */
+        const root = (0, sendQueue_1.processTreeRoot)(process.pid, ppidOf);
+        const rec = (0, presence_1.parsePresenceRecord)(readPresence());
+        if ((0, presence_1.presenceVerdict)(rec, root, pidAlive) === 'leave') {
+            log(`presence left to pid ${rec?.pid} — it is still running, and ours (${root}) must not displace a live surface`);
+            return;
+        }
+        const body = { surface: sendQueue_1.MY_SURFACE, pid: root, at: Date.now(), version: appVersion };
+        fs.writeFileSync(path.join(dir, `${sendQueue_1.MY_SURFACE}.json`), JSON.stringify(body, null, 2) + '\n');
+        log(`announced presence: ${sendQueue_1.MY_SURFACE} root pid ${root}${root === process.pid ? '' : ` (self ${process.pid})`}`);
+    }
+    catch (e) {
+        log(`presence not announced (${e instanceof Error ? e.message : String(e)})`); // non-fatal
+    }
+}
+/**
+ * Withdraw the presence file on a clean exit — tidy-up, never a guarantee.
+ *
+ * Deliberately narrow: it removes the file ONLY if the pid inside is ours. Two surfaces share
+ * this directory and an App that quits must not delete a record it does not own — and the same
+ * check saves us from the case where a second instance re-announced over ours while we were
+ * running, in which case the live one's file is the correct one to leave behind.
+ *
+ * Best-effort by construction. `before-quit` does not fire on SIGKILL or a crash, which is
+ * exactly why readers gate on a running pid instead of on this file existing.
+ */
+function retractPresence() {
+    try {
+        const f = presenceFile();
+        const mine = (0, sendQueue_1.processTreeRoot)(process.pid, ppidOf);
+        const body = (0, presence_1.parsePresenceRecord)(readPresence());
+        if (!(0, presence_1.mayRetract)(body, mine)) {
+            log(`presence left in place — ${f} names pid ${body?.pid}, not ours (${mine})`);
+            return;
+        }
+        fs.unlinkSync(f);
+        log(`presence retracted: ${sendQueue_1.MY_SURFACE}`);
+    }
+    catch { /* absent, unreadable, or already gone — all fine */ }
+}
+function emit(win, kind, payload) {
+    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('shell:intent', { ...payload, kind }); // kind LAST: the routing key can never be shadowed by a payload field;
+    }
+}
+/** Live session by sanitized name, from the authoritative registry. */
+function targetByName(name) {
+    const hit = aios.listRunningAgents().find((a) => a.name === name);
+    if (!hit || !Number.isInteger(hit.pid) || hit.pid <= 1)
+        return undefined;
+    return {
+        name: hit.name, pid: hit.pid,
+        status: String(hit.status || ''), sessionId: String(hit.sessionId || ''),
+    };
+}
+const alive = (pid) => {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
+/* AI-66 pt3 — the renderer's verdict on the last send it was asked to make. Fire-and-forget
+   emit + wait-for-the-transcript was the old shape, and it could not tell "delivered, waiting
+   to see it" from "there was nothing here to deliver to". A pane that is gone, or that is no
+   longer running the session, is knowable IMMEDIATELY — and knowing it early is what stops a
+   request burning its whole release budget before anyone finds out. */
+const sendVerdicts = new Map();
+electron_1.ipcMain.on('bus:sendResult', (_e, v) => {
+    if (v && v.name)
+        sendVerdicts.set(v.name, { ok: !!v.ok, reason: String(v.reason || ''), at: Date.now() });
+});
+/** Wait briefly for the renderer's verdict. Undefined means it never answered — treat that as
+ *  "no information", never as failure: a slow renderer must not retire a good request. */
+async function awaitSendVerdict(name, since) {
+    for (let i = 0; i < 20; i++) { // ~1s, generous for an IPC round trip
+        const v = sendVerdicts.get(name);
+        if (v && v.at >= since)
+            return { ok: v.ok, reason: v.reason };
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    return undefined;
+}
+/* Payload store for spilled prompts. NOT inside the inbox: that directory is watched for
+   `*.json` requests and a stray file there is a request-shaped question nobody wants to
+   answer. Files are aged out on every write — they hold arbitrary prompt text, which can be
+   anything the operator has been discussing, so they must not accumulate forever. */
+function payloadDir() {
+    return path.join(os.homedir(), '.aios', 'bus-payloads');
+}
+function sweepPayloads() {
+    const dir = payloadDir();
+    const now = Date.now();
+    try {
+        for (const f of fs.readdirSync(dir)) {
+            const fp = path.join(dir, f);
+            try {
+                if ((0, busPayload_1.isStalePayload)(fs.statSync(fp).mtimeMs, now))
+                    fs.unlinkSync(fp);
+            }
+            catch { /* next */ }
+        }
+    }
+    catch { /* no dir yet */ }
+}
+/** Write a long prompt to disk; returns the path, or '' if it could not be written. */
+function writePayload(name, prompt) {
+    try {
+        const dir = payloadDir();
+        fs.mkdirSync(dir, { recursive: true });
+        sweepPayloads();
+        const safe = String(name || 'session').replace(/[^a-z0-9-]/gi, '-').slice(0, 40);
+        const file = path.join(dir, `${safe}-${Date.now()}.md`);
+        fs.writeFileSync(file, prompt, { mode: 0o600 }); // arbitrary prompt text: owner-only
+        return file;
+    }
+    catch {
+        return '';
+    }
+}
+/**
+ * The most recent CLOSED session that answers to this name (AI-149).
+ *
+ * The registry cannot answer this — it holds only live sessions, so the moment a worker exits
+ * its entry is gone. Transcripts persist and carry `agent-name` records, so they are the durable
+ * name→session mapping, and `latestAgentName` takes the LAST record because a session can rename
+ * itself (0.9.3) and answers to its newest name.
+ *
+ * BOUNDED ON PURPOSE. Transcripts are large and there can be hundreds; the bus must not stall
+ * while a resume request reads a history. Newest-first, stop at the first match, and never look
+ * at more than MAX_SCAN files — an operator resuming something they closed today is always well
+ * inside that, and a name so old it falls outside is correctly reported as "nothing to resume"
+ * rather than found slowly.
+ */
+const MAX_RESUME_SCAN = 60;
+function resumeIdFor(name, excludeSessionId) {
+    const base = path.join(os.homedir(), '.claude', 'projects');
+    let files = [];
+    try {
+        for (const d of fs.readdirSync(base)) {
+            let entries = [];
+            try {
+                entries = fs.readdirSync(path.join(base, d));
+            }
+            catch {
+                continue;
+            }
+            for (const e of entries) {
+                if (!e.endsWith('.jsonl'))
+                    continue;
+                const full = path.join(base, d, e);
+                try {
+                    files.push({ f: full, mtimeMs: fs.statSync(full).mtimeMs });
+                }
+                catch { /* vanished */ }
+            }
+        }
+    }
+    catch {
+        return undefined;
+    }
+    files = files.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, MAX_RESUME_SCAN);
+    for (const { f, mtimeMs } of files) {
+        let text = '';
+        try {
+            text = fs.readFileSync(f, 'utf8');
+        }
+        catch {
+            continue;
+        }
+        const cand = {
+            sessionId: path.basename(f, '.jsonl'),
+            mtimeMs,
+            latestName: (0, resumeTarget_1.latestAgentName)(text),
+        };
+        const hit = (0, resumeTarget_1.pickResume)(name, [cand], excludeSessionId);
+        if (hit)
+            return hit;
+    }
+    return undefined;
+}
+/** Read the target's transcript; the counting RULE is pure and lives in core/sendQueue. */
+function readTranscript(sessionId) {
+    if (!sessionId)
+        return '';
+    const base = path.join(os.homedir(), '.claude', 'projects');
+    let dirs = [];
+    try {
+        dirs = fs.readdirSync(base);
+    }
+    catch {
+        return '';
+    }
+    for (const d of dirs) {
+        try {
+            return fs.readFileSync(path.join(base, d, `${sessionId}.jsonl`), 'utf8');
+        }
+        catch {
+            continue;
+        }
+    }
+    return '';
+}
+/** Move a request to `.undelivered`, recording why. Loud beats silent. */
+/**
+ * Resolve a tier rung to a model id by asking the ONE table that owns it.
+ *
+ * The App launches `claude` straight from a login shell rather than through the `spawn` shell
+ * function, which is legitimate — it fulfils natively by design. What was not legitimate is
+ * that it carried its own rung list and its own rung→model map to compensate, and both went
+ * stale the moment the ladder grew from two rungs to four: three rungs were dropped and two
+ * resolved to the wrong model. So there is no table here. `hooks/resolve-tier` is the table,
+ * and this asks it.
+ *
+ * Its contract, and every branch below exists because getting one wrong reproduces the bug:
+ *  · exit 0 + text   → pass `--model <text>`
+ *  · exit 0 + EMPTY  → a REAL answer (`judgment` = inherit the binary's default). Pass no
+ *                      flag at all — never `--model ""`, which pins the empty string.
+ *  · exit 2          → an unknown rung. REFUSE the spawn and surface the script's stderr,
+ *                      which lists the valid rungs. Defaulting on a typo IS this bug.
+ *  · script absent   → also refuse. The App auto-updates itself, the hook arrives with
+ *                      `/aios:update`, so an operator can genuinely have this build and not
+ *                      the script — and a silent default there is the same silent default we
+ *                      are removing. Say what is missing and how to get it.
+ */
+function resolveTier(tier) {
+    const root = aios.frameworkRoot();
+    if (!root)
+        return { error: `cannot resolve tier '${tier}': no framework root found` };
+    const hook = path.join(root, 'hooks', 'resolve-tier');
+    if (!fs.existsSync(hook)) {
+        return { error: `cannot resolve tier '${tier}': ${hook} is missing — run /aios:update to sync it, or pass an explicit "model" instead` };
+    }
+    /* An interpreter, not the bare word `bash` — see resolveBash(). Refusing by NAME is the point:
+       the old failure surfaced as `spawnSync bash ENOENT`, which reads like the hook is broken when
+       the truth is that this process has no shell. A dead letter that names the missing interpreter
+       tells the operator what to install; `ENOENT` sends them to the wrong file. */
+    const bash = resolveBash();
+    if (!bash) {
+        return { error: `cannot resolve tier '${tier}': no bash interpreter found for this process `
+                + `(checked $SHELL, PATH via 'where bash', and the Git for Windows locations). `
+                + `Install Git for Windows, or pass an explicit "model" instead — resolve-tier is a bash hook `
+                + `and a Node process inherits no shell.` };
+    }
+    try {
+        const out = (0, child_process_1.execFileSync)(bash, [hook, tier], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+        const model = out.trim();
+        return model ? { model } : {}; // empty + exit 0 = inherit the default
+    }
+    catch (e) {
+        /* execFileSync throws on any non-zero exit. The script puts the reason AND the valid rungs
+           on stderr, so quote it rather than inventing a message of our own. */
+        const err = e;
+        const why = String(err.stderr ?? '').trim() || err.message || 'resolve-tier failed';
+        return { error: `tier '${tier}' rejected (exit ${err.status ?? '?'}): ${why.split('\n').join(' · ')}` };
+    }
+}
+/**
+ * Where is a `bash` this process can actually run? (AI-146 · canonical issue #116)
+ *
+ * MEASURED ON WINDOWS: a bus request carrying `"tier":"judgment"` was claimed and retired as
+ * `spawnSync bash ENOENT`, while the identical request WITHOUT the field was fulfilled 90s later.
+ * So the field was the defect, not the bus — and `hooks/resolve-tier` itself is fine: from Git
+ * Bash on that same machine it returns Haiku for `fast` and empty+exit-0 for `judgment`, exactly
+ * as documented.
+ *
+ * THE GAP IS NOT A MISSING `.ps1`, and that distinction is the whole fix. Six extensionless bash
+ * hooks ship with no PowerShell sibling — `aios-commit`, `aios-snapshot`, `aios-note-append`,
+ * `pre-commit`, `pre-push`, `resolve-tier` — and a Windows operator runs `aios-commit` daily.
+ * They work because a SESSION has bash. `resolve-tier` is simply the only one whose caller is a
+ * Node process, and Node inherits no shell. So locating a bash HONOURS a prerequisite that
+ * already exists rather than adding one; shipping a third hand-maintained copy of the rung→model
+ * table would be the change that adds something, and it is the drift AI-129 ended.
+ *
+ * Ordered, and each step says what it proves. Returns null when nothing is found, which is a
+ * REFUSAL — never a licence to default a model.
+ */
+function resolveBash() {
+    /* THE LOOKING lives here; the CHOOSING lives in src/core/bashResolve.ts, so the ordering can be
+       exercised from any platform. `where bash` is Windows' own PATH lookup and prints one hit per
+       line; everything else is read from the environment. */
+    let pathHit;
+    if (process.platform === 'win32') {
+        try {
+            pathHit = (0, child_process_1.execFileSync)('where', ['bash'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
+                .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0];
+        }
+        catch { /* not on PATH — pickBash falls through to the Git for Windows locations */ }
+    }
+    return (0, bashResolve_1.pickBash)(process.platform, {
+        shell: process.env.SHELL,
+        pathHit,
+        programFiles: process.env.ProgramFiles,
+        localAppData: process.env.LOCALAPPDATA,
+        exists: (f) => { try {
+            return fs.existsSync(f);
+        }
+        catch {
+            return false;
+        } },
+    });
+}
+function markUndelivered(fromPath, req, reason) {
+    log(`DEAD LETTER — a message to '${req?.name ?? '?'}' was never delivered: ${reason}`);
+    const dest = (0, sendQueue_1.undeliveredPathFor)(fromPath);
+    try {
+        let body = {};
+        try {
+            body = JSON.parse(fs.readFileSync(fromPath, 'utf8'));
+        }
+        catch { /* keep what we know */ }
+        body._undelivered = { reason, at: Date.now(), surface: sendQueue_1.MY_SURFACE };
+        fs.writeFileSync(dest, JSON.stringify(body, null, 2) + '\n');
+        fs.unlinkSync(fromPath);
+    }
+    catch {
+        try {
+            fs.renameSync(fromPath, dest);
+        }
+        catch { /* already gone */ }
+    }
+    log(`UNDELIVERED ${path.basename(dest)} — ${reason}${req ? ` (${req.action} '${req.name}')` : ''}`);
+}
+/** Hand a claim back for a sibling surface/window to try, bounded by `releases`. */
+function releaseForSibling(heldPath, req, reason) {
+    if (!(0, sendQueue_1.shouldReleaseForSibling)(req.releases ?? 0, MAX_RELEASES))
+        return false;
+    const releases = (req.releases ?? 0) + 1;
+    const back = heldPath.slice(0, -sendQueue_1.HOLD_SUFFIX.length);
+    try {
+        const body0 = JSON.parse(fs.readFileSync(heldPath, 'utf8'));
+        const body = (0, sendQueue_1.withTried)(body0, (0, sendQueue_1.fulfillerId)(sendQueue_1.MY_SURFACE, process.pid)); // so I never re-claim my own release
+        delete body._claim; // an unclaimed file is what a sibling can take
+        body.releases = releases;
+        fs.writeFileSync(back, JSON.stringify(body, null, 2) + '\n');
+        fs.unlinkSync(heldPath);
+        log(`released ${path.basename(back)} for a sibling (${reason}); release ${releases}/${MAX_RELEASES}; tried=[${(0, sendQueue_1.triedBy)(body).join(',')}]`);
+        /* NOTHING ROTS. My own watcher will now skip this file (I am in `_tried`), and if no sibling
+           is running there is nobody left to fire. So the releaser — already awake — owns the honest
+           ending: re-check after the same grace an absent addressee gets, and dead-letter if the file
+           is still sitting there unclaimed. Without this, `_tried` would trade a false dead letter
+           for a silent one, which is a worse bargain. */
+        setTimeout(() => recheck(back), RETIRE_TTL_MS).unref?.();
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * `send` is the only verb its target's state can refuse, so it gets the full
+ * hold → deliver → verify lifecycle. The file on disk IS the queue, so a crash mid-hold
+ * leaves a recoverable artifact rather than a lost message.
+ */
+async function runSend(win, heldPath, req, claimedAt) {
+    if (!req.prompt) {
+        markUndelivered(heldPath, req, "send request carried no 'prompt'");
+        return;
+    }
+    /* AI-66 — spill BEFORE anything else looks at the text. A prompt over the measured
+       inline ceiling is written to a payload file and what gets typed is a pointer to it.
+       Nothing downstream may see the long form: the needle is taken from the DELIVERED text so
+       verification proves the pointer arrived, and a verified pointer is a verified message —
+       whereas verifying a needle from the long form would confirm a message we never sent.
+       If the spill itself fails we mark undelivered. Loud beats a partial prompt. */
+    let deliverText = req.prompt;
+    if ((0, busPayload_1.needsPointer)(req.prompt)) {
+        const spilled = writePayload(req.name, req.prompt);
+        if (!spilled) {
+            markUndelivered(heldPath, req, `prompt is ${(0, busPayload_1.byteLength)(req.prompt)} bytes (inline limit ${busPayload_1.INLINE_LIMIT}) and the payload file could not be written`);
+            return;
+        }
+        deliverText = (0, busPayload_1.pointerText)(spilled);
+        log(`send → '${req.name}' is ${(0, busPayload_1.byteLength)(req.prompt)} bytes; delivering a pointer to ${spilled}`);
+    }
+    const needle = (0, sendQueue_1.safeNeedle)(deliverText);
+    let attempts = 0; // how many times we have actually TYPED into the target
+    /* Captured ONCE, before the first type, and reused by every attempt in this runSend.
+       It used to be recomputed at the top of each iteration, which made a LATE delivery invisible:
+       attempt 1 lands after the verify window closes, attempt 2 re-reads the baseline and absorbs
+       attempt 1's own turn into it, so `now - baseline` is 0 forever and the loop re-types a message
+       that already arrived. A baseline that moves cannot detect the thing it is a baseline for.
+       This is the other half of the 2026-08-12 four-deliveries bug, and the half that made it
+       unrecoverable: even after the text had landed, no later poll could ever prove it. */
+    let baseline;
+    for (;;) {
+        const target = targetByName(req.name);
+        const decision = (0, sendQueue_1.decideSend)(target, Date.now() - claimedAt, MAX_HOLD_MS);
+        if (decision.do === 'undeliverable') {
+            markUndelivered(heldPath, req, decision.reason);
+            return;
+        }
+        if (decision.do === 'hold') {
+            if (!fs.existsSync(heldPath))
+                return; // adopted or cleaned up elsewhere
+            await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+            continue;
+        }
+        // idle → deliver, then prove it in the target's own transcript
+        const sessionId = target ? target.sessionId : '';
+        if (baseline === undefined)
+            baseline = (0, sendQueue_1.countUserTurnsContaining)(readTranscript(sessionId), needle, claimedAt);
+        const before = baseline;
+        /* THE CAP HAS TO SIT HERE, before the send — not only in the after-a-miss decision.
+           A 'wait' verdict does `continue`, which re-enters this branch, so a cap enforced only
+           downstream changed a log line and nothing else: the loop would still re-type the message
+           every cycle for the full hold. Caught by tracing the control flow rather than trusting
+           the counter, which is the same lesson as everything else in this ticket. */
+        if (attempts >= (0, sendQueue_1.maxAttemptsFor)(deliverText)) {
+            const late = (0, sendQueue_1.countUserTurnsContaining)(readTranscript(sessionId), needle, claimedAt);
+            if ((0, sendQueue_1.verifyVerdict)(before, late) !== 'pending') {
+                try {
+                    fs.unlinkSync(heldPath);
+                }
+                catch { /* already gone */ }
+                log(`delivered → '${req.name}' (verified late)`);
+                return;
+            }
+            if (Date.now() - claimedAt >= MAX_HOLD_MS) {
+                markUndelivered(heldPath, req, `sent to '${req.name}' ${attempts}x over ${Math.round((Date.now() - claimedAt) / 60000)} min without it ever appearing in that session's transcript`);
+                return;
+            }
+            await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+            if (!fs.existsSync(heldPath))
+                return;
+            continue; // watch, never type again
+        }
+        attempts++;
+        const emittedAt = Date.now();
+        emit(win(), 'sendByName', { name: req.name, text: deliverText });
+        /* If the surface says it could not deliver, stop here. Waiting out the verification window
+           on a message that was never typed is how one request consumed its entire sibling-release
+           budget and then retired — 20 minutes after the fact, with nobody watching. */
+        /* An undeliverable verdict means undeliverable HERE — never globally. Contract 2 has the
+           surfaces race, so "no pane by that name in this window" is precisely the case a sibling
+           may be able to serve. Retiring on it would make a message die FASTER than the bug this
+           was meant to fix: observed today, a second App with no matching pane claimed a request,
+           spent both sibling releases, and killed a brief the other App could have delivered.
+           So: hand it back first, and only retire when the release budget is genuinely gone. */
+        const sendResult = await awaitSendVerdict(req.name, emittedAt);
+        if (sendResult && !sendResult.ok) {
+            if (releaseForSibling(heldPath, req, sendResult.reason))
+                return; // let another surface try
+            markUndelivered(heldPath, req, sendResult.reason);
+            return;
+        }
+        const until = Date.now() + VERIFY_WINDOW_MS;
+        while (Date.now() < until) {
+            await new Promise((r) => setTimeout(r, VERIFY_TICK_MS));
+            const now = (0, sendQueue_1.countUserTurnsContaining)(readTranscript(sessionId), needle, claimedAt);
+            const verdict = (0, sendQueue_1.verifyVerdict)(before, now);
+            if (verdict === 'pending')
+                continue;
+            try {
+                fs.unlinkSync(heldPath);
+            }
+            catch { /* already gone */ }
+            if (verdict === 'duplicate') {
+                log(`DUPLICATE DELIVERY → '${req.name}': ${now - before} user turns from one send — INVESTIGATE`);
+            }
+            else {
+                log(`delivered → '${req.name}' (verified)`);
+            }
+            return;
+        }
+        /* It never landed. The four-way decision is SHARED with the other fulfiller (see
+           decideAfterVerifyMiss in core/sendQueue) rather than re-derived here: both surfaces got
+           this wrong in the same way independently, which is exactly what a hand-copied policy
+           produces. Retiring is now reachable only two ways — a dead target, or a genuinely spent
+           hold budget. "No sibling left to try" is not one of them. */
+        /* Re-read the target: its status matters as much as its existence now. A session that went
+           busy while we were verifying has not had the chance to surface the turn, and treating that
+           as a failed delivery is what produced four deliveries of one request. */
+        const after = targetByName(req.name);
+        const miss = (0, sendQueue_1.decideAfterVerifyMiss)({
+            targetAlive: !!after,
+            targetBusy: !!after && !(0, sendQueue_1.isDeliverable)(after.status),
+            heldMs: Date.now() - claimedAt,
+            attempts,
+            maxAttempts: (0, sendQueue_1.maxAttemptsFor)(deliverText),
+        });
+        log(`send → '${req.name}' not verified — ${miss.do}: ${miss.reason}`);
+        /* No `release` branch: decideAfterVerifyMiss can no longer return one, because reaching it
+           means the text WAS typed and handing it to a sibling means typing it twice. Release lives
+           only on the !sendResult.ok path above, where nothing was typed. */
+        if (miss.do === 'retry')
+            continue;
+        if (miss.do === 'wait') {
+            /* Out of sends, not out of hope: watch for a late arrival and never type again. A turn
+               that lands after the window closed must not be sent twice. */
+            const late = (0, sendQueue_1.countUserTurnsContaining)(readTranscript(sessionId), needle, claimedAt);
+            if ((0, sendQueue_1.verifyVerdict)(before, late) !== 'pending') {
+                try {
+                    fs.unlinkSync(heldPath);
+                }
+                catch { /* already gone */ }
+                log(`delivered → '${req.name}' (verified late)`);
+                return;
+            }
+            await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+            if (!fs.existsSync(heldPath))
+                return;
+            continue;
+        }
+        markUndelivered(heldPath, req, `sent to '${req.name}' — ${miss.reason}`);
+        return;
+    }
+}
+/**
+ * Start a fresh session for this request.
+ *
+ * Extracted from runImmediate so `resume` can reach it for its opt-in `"fallback":"spawn"`.
+ * Deliberately a separate CALL rather than a shared flag: the two outcomes are a fresh something
+ * and the same someone, and the whole point of AI-149 is that those must not be one code path
+ * with a boolean deciding which you get.
+ */
+function runSpawn(win, heldPath, req) {
+    let taskFile;
+    /* On Windows the pane's shell is PowerShell, but buildSpawnCmd (shared pure core, POSIX
+       quoting) can only quote the inline prompt the POSIX way — which mangles an apostrophe in
+       PowerShell and corrupts the worker's first prompt. So route EVERY task through a temp file
+       on win32: the command becomes `claude --name X 'Read <file>…'` (no apostrophes to mangle)
+       and the worker reads the task verbatim. On POSIX, only long/multiline tasks spill, as before. */
+    if ((0, commandBus_1.needsTaskFile)(req.task) || (process.platform === 'win32' && req.task)) {
+        taskFile = path.join(os.tmpdir(), `aios-spawn-task-${req.name}.md`);
+        try {
+            fs.writeFileSync(taskFile, req.task);
+        }
+        catch {
+            taskFile = undefined;
+        }
+    }
+    // No task → a bootstrap prompt, so the worker runs its Session Start Ritual on turn
+    // one instead of sitting idle (mirrors the `spawn` wrapper).
+    /* An explicit `model` wins over `tier`, matching the `spawn` wrapper
+       (`[ -n "$model" ] && spawn_model="$model"`) — so a caller pinning an id is never
+       second-guessed, and only a bare `tier` is resolved. */
+    let model = req.model;
+    if (!model && req.tier) {
+        const r = resolveTier(req.tier);
+        if ('error' in r) {
+            markUndelivered(heldPath, req, r.error);
+            return;
+        }
+        model = r.model; // may be undefined — that is `judgment`
+    }
+    const cmd = (0, commandBus_1.buildSpawnCmd)(aios.shellSettings().claudeCmd, req.name, {
+        task: req.task || 'Start session', model, taskFile,
+    });
+    emit(win(), 'terminal', { name: req.name, cmd });
+    log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+}
+/** spawn / kill act immediately once claimed — nothing about the target can refuse them. */
+function runImmediate(win, heldPath, req) {
+    try {
+        if (req.action === 'unknown') {
+            /* Refuse a verb we do not implement rather than defaulting it to spawn — see BusAction. */
+            markUndelivered(heldPath, req, `unknown action '${req.rawAction ?? ''}' — this surface implements spawn, kill, send and `
+                + `resume. Omit "action" entirely for a plain spawn.`);
+            return;
+        }
+        if (req.action === 'kill') {
+            // Registry pid → SIGTERM reaches resumed/external sessions too; closeByName also
+            // tears down the app pane if this session owns one.
+            const t = targetByName(req.name);
+            if (t) {
+                try {
+                    process.kill(t.pid, 'SIGTERM');
+                }
+                catch { /* already gone */ }
+            }
+            emit(win(), 'closeByName', { name: req.name });
+            log(`kill '${req.name}'${t ? ` (pid ${t.pid})` : ' (no live pid; pane close only)'}`);
+        }
+        else if (req.action === 'resume') {
+            /* ALREADY AWAKE → reveal and deliver, never reopen. The caller asked for a specific
+               someone; that someone is already running, so resuming would create a SECOND process for
+               one identity — the duplication this verb exists to avoid, arrived at from the other
+               side. The prompt still has to land, so this routes through the same send path a
+               `{"action":"send"}` would take. */
+            const live = targetByName(req.name);
+            if (live) {
+                emit(win(), 'focusByName', { name: req.name });
+                log(`resume '${req.name}' — already running, revealing and delivering`);
+                if (req.prompt)
+                    void runSend(win, heldPath, { ...req, action: 'send' }, Date.now());
+                else
+                    try {
+                        fs.unlinkSync(heldPath);
+                    }
+                    catch { /* already gone */ }
+                return;
+            }
+            const sid = resumeIdFor(req.name, process.env.CLAUDE_CODE_SESSION_ID);
+            if (!sid) {
+                /* NO TRANSCRIPT. Falling back to a spawn unasked would hand back a fresh something when
+                   the caller asked for the same someone — so the default is to refuse and SAY the name
+                   that could not be found, which is what makes the dead letter actionable. */
+                if (req.fallback !== 'spawn') {
+                    markUndelivered(heldPath, req, `resume '${req.name}': no transcript found for that name — nothing to resume `
+                        + `(it may never have run, or its history is older than the ${MAX_RESUME_SCAN} most `
+                        + `recent sessions). Pass "fallback":"spawn" to start a fresh one instead.`);
+                    return;
+                }
+                log(`resume '${req.name}' — no transcript; falling back to spawn as asked`);
+            }
+            else {
+                let taskFile;
+                /* Same Windows quoting rule as spawn: PowerShell mangles POSIX-quoted apostrophes, so
+                   every prompt goes through a file there. */
+                if ((0, commandBus_1.needsTaskFile)(req.prompt) || (process.platform === 'win32' && req.prompt)) {
+                    taskFile = path.join(os.tmpdir(), `aios-resume-task-${req.name}.md`);
+                    try {
+                        fs.writeFileSync(taskFile, req.prompt);
+                    }
+                    catch {
+                        taskFile = undefined;
+                    }
+                }
+                const cmd = (0, commandBus_1.buildResumeCmd)(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile });
+                emit(win(), 'terminal', { name: req.name, cmd });
+                log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${taskFile ? ' (via file)' : ''}`);
+                try {
+                    fs.unlinkSync(heldPath);
+                }
+                catch { /* already gone */ }
+                return;
+            }
+            runSpawn(win, heldPath, req);
+        }
+        else if (targetByName(req.name)) {
+            emit(win(), 'focusByName', { name: req.name }); // reveal, never duplicate
+            log(`'${req.name}' already running — revealed`);
+        }
+        else {
+            runSpawn(win, heldPath, req);
+        }
+        /* One cleanup for every branch that did NOT already return — kill, spawn, and resume's
+           opt-in fallback. The branches that return have unlinked their own held file first. */
+        try {
+            fs.unlinkSync(heldPath);
+        }
+        catch { /* already gone */ }
+    }
+    catch (e) {
+        markUndelivered(heldPath, req, `${req.action} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+/**
+ * Claim a `*.json` request: decide whether it is ours at all, then take it by ATOMIC
+ * RENAME out of the watch glob, stamping who holds it. Returns undefined when we
+ * deliberately left it alone.
+ */
+function claim(fsPath) {
+    let raw;
+    try {
+        raw = fs.readFileSync(fsPath, 'utf8');
+    }
+    catch {
+        return undefined;
+    } // gone / mid-write
+    let ageMs = 0;
+    try {
+        ageMs = Date.now() - fs.statSync(fsPath).mtimeMs;
+    }
+    catch { /* treat as fresh */ }
+    const req = (0, commandBus_1.parseRequest)(raw);
+    if (!req) {
+        // A file younger than the grace window is probably still being written (fs.watch fires
+        // on create). Leave it and look once more; only a file that is BOTH old enough and
+        // still unparseable is genuinely malformed.
+        if (ageMs < PARSE_GRACE_MS) {
+            setTimeout(() => recheck(fsPath), PARSE_GRACE_MS);
+            return undefined;
+        }
+        markUndelivered(fsPath, null, 'unparseable request (bad JSON, or no usable name)');
+        return undefined;
+    }
+    let bodyForTried = {};
+    try {
+        bodyForTried = JSON.parse(raw);
+    }
+    catch { /* parseRequest already vouched */ }
+    const tried = (0, sendQueue_1.triedBy)(bodyForTried);
+    const myId = (0, sendQueue_1.fulfillerId)(sendQueue_1.MY_SURFACE, process.pid);
+    const verdict = (0, sendQueue_1.claimVerdict)(req.surface, sendQueue_1.MY_SURFACE, ageMs, RETIRE_TTL_MS, tried, myId);
+    if (verdict === 'skip')
+        return undefined; // addressed elsewhere, or already tried here
+    if (verdict === 'retire') {
+        /* Two ways to reach this: addressed to an absent surface, or handed back by me and left
+           untaken. The second is the one worth naming precisely — a sibling had its chance. */
+        const why = tried.includes(myId)
+            ? `handed back for a sibling ${Math.round(ageMs / 60000)} min ago and no other surface took it`
+            : `addressed to '${req.surface}' but unclaimed for ${Math.round(ageMs / 60000)} min`;
+        markUndelivered(fsPath, req, why);
+        return undefined;
+    }
+    const heldPath = (0, sendQueue_1.holdPathFor)(fsPath);
+    const at = Date.now();
+    try {
+        const body = JSON.parse(raw);
+        body._claim = { surface: sendQueue_1.MY_SURFACE, pid: process.pid, at };
+        fs.writeFileSync(fsPath, JSON.stringify(body, null, 2) + '\n');
+        fs.renameSync(fsPath, heldPath); // atomic: exactly one surface can win
+    }
+    catch {
+        return undefined;
+    } // lost the race, or it vanished — either is fine
+    return { heldPath, req, at };
+}
+/** Set by initCommandBus so the parse-grace re-check can reach the same pipeline. */
+let recheck = () => { };
+function consume(win, fsPath) {
+    const held = claim(fsPath);
+    if (!held)
+        return;
+    if (held.req.action === 'send')
+        void runSend(win, held.heldPath, held.req, held.at);
+    else
+        runImmediate(win, held.heldPath, held.req);
+}
+/** Recover `.holding` files left by a crash — but never steal a live sibling's hold. */
+function adoptHolds(win, dir) {
+    let files = [];
+    try {
+        files = fs.readdirSync(dir);
+    }
+    catch {
+        return;
+    }
+    for (const f of files) {
+        if (!(0, sendQueue_1.isHoldPath)(f))
+            continue;
+        const p = path.join(dir, f);
+        let body = {};
+        try {
+            body = JSON.parse(fs.readFileSync(p, 'utf8'));
+        }
+        catch {
+            continue;
+        }
+        const stamp = (0, sendQueue_1.parseClaim)(body._claim);
+        /* A hold stamped with MY OWN pid is mine and IN FLIGHT — never adopt it.
+         *
+         * This ran `stamp.pid !== process.pid`, which forced holderAlive=false for our own stamp and
+         * therefore adopted it. The reasoning was that adoptHolds runs once at startup, so a
+         * self-stamped hold could only be a predecessor whose pid we recycled. That reasoning was
+         * wrong, and measured wrong on 2026-08-14: the startup DRAIN runs immediately before this and
+         * claims every pending request, so this loop then finds a `.holding` stamped with our own pid
+         * microseconds old and starts a SECOND runSend on it. Two delivery loops, one process, one
+         * request — observed as duplicated `attempt 2/3` lines and two output files from one send.
+         *
+         * The trade is deliberate: we lose the pid-recycle case, where a crashed predecessor's pid
+         * happens to equal ours. That costs a 45-minute wait (HOLD_STALE_MS still rescues the orphan)
+         * against a DOUBLE DELIVERY, which this protocol calls its worst outcome. Glass never had the
+         * clause and was right not to. */
+        if (stamp && stamp.pid === process.pid) {
+            log(`leaving ${f} — already in flight in this process (pid ${stamp.pid})`);
+            continue;
+        }
+        const holderAlive = !!stamp && alive(stamp.pid);
+        if (!(0, sendQueue_1.canAdoptHold)(stamp, Date.now(), HOLD_STALE_MS, holderAlive)) {
+            log(`leaving ${f} — held by a live ${stamp?.surface} (pid ${stamp?.pid})`);
+            continue;
+        }
+        const req = (0, commandBus_1.parseRequest)(JSON.stringify(body));
+        if (!req) {
+            markUndelivered(p, null, 'unparseable held request');
+            continue;
+        }
+        log(`adopting ${f} (${stamp ? `holder pid ${stamp.pid} gone or hold stale` : 'unstamped, contract-1 era'})`);
+        body._claim = { surface: sendQueue_1.MY_SURFACE, pid: process.pid, at: Date.now() };
+        try {
+            fs.writeFileSync(p, JSON.stringify(body, null, 2) + '\n');
+        }
+        catch { /* keep going */ }
+        if (req.action === 'send')
+            void runSend(win, p, req, Date.now());
+        else
+            runImmediate(win, p, req);
+    }
+}
+/* AI-66 pt4 — DEAD LETTERS NEED A READER.
+   `.undelivered` was written honestly and then read by nobody. The README's promise that
+   "nothing rots" is about CONTENTION — retirement stops a stuck claim blocking another
+   surface — but it reads as a promise about MESSAGES, and it is not one. Retiring a request
+   does not deliver it. So from the sender's side a verified-FAILED send looked exactly like a
+   successful one: aios-app believed it had handed off work that never arrived, and the file
+   sat for twenty minutes until someone happened to `ls` the directory for an unrelated reason.
+
+   The verifier was never the problem — it refused to claim a delivery it could not prove, which
+   is exactly right. The gap is that its refusal was addressed to no one. */
+const announcedDeadLetters = new Set();
+function surfaceDeadLetters(getWin) {
+    const dir = inboxDir();
+    let files = [];
+    try {
+        files = fs.readdirSync(dir).filter((f) => f.endsWith('.undelivered'));
+    }
+    catch {
+        return;
+    }
+    if (!files.length)
+        return;
+    const items = files.map((f) => {
+        let to = '?', reason = 'unknown', at = 0;
+        try {
+            const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+            to = String(j.name ?? '?');
+            reason = String(j?._undelivered?.reason ?? 'unknown');
+            at = Number(j?._undelivered?.at ?? 0);
+        }
+        catch { /* unreadable — still worth reporting that it exists */ }
+        return { file: f, to, reason, at };
+    });
+    for (const it of items)
+        log(`DEAD LETTER — a message to '${it.to}' was never delivered: ${it.reason} (${it.file})`);
+    /* Notify ONCE per dead letter, not every sweep. Repeating an alert the operator has already
+       read trains them to dismiss it unseen, which is how the next one gets missed — the very
+       failure this exists to prevent. The log still records every sweep; only the interruption
+       is deduplicated. */
+    const fresh = items.filter((it) => !announcedDeadLetters.has(it.file));
+    for (const it of fresh)
+        announcedDeadLetters.add(it.file);
+    if (fresh.length)
+        emit(getWin(), 'deadLetters', { items: fresh });
+}
+function initCommandBus(getWin, appVersion = '0.0.0') {
+    /* AIOS_BUS_DISABLED=1 — for a DEV build sharing a machine with the installed app.
+       The inbox is machine-global, so two running surfaces both watch it and either may claim
+       any request. That is not hypothetical: it is how a live brief died on 2026-07-27, bounced
+       between instances until the release budget was spent (AI-67). Running a dev build while
+       real sessions coordinate over the bus therefore risks eating the operator's own traffic,
+       and the failure is silent from the sender's side. A dev instance can simply not listen. */
+    if (process.env.AIOS_BUS_DISABLED === '1') {
+        console.log('[bus] AIOS_BUS_DISABLED=1 — not watching the inbox (dev instance)');
+        return;
+    }
+    const dir = inboxDir();
+    try {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    catch { /* non-fatal */ }
+    ensureReadme(dir, appVersion);
+    announcePresence(appVersion);
+    // On boot and every 5 min: a dead letter must not be able to sit unseen.
+    surfaceDeadLetters(getWin);
+    setInterval(() => surfaceDeadLetters(getWin), 5 * 60 * 1000);
+    /* Far more often than the dead-letter sweep: the window this closes is the one in which an
+       agent asks "is a surface alive?" and is told no while this App is running. A stat and a
+       small parse; it writes only when the record already names nobody alive. */
+    setInterval(() => healPresence(appVersion), 20 * 1000);
+    recheck = (p) => { if (fs.existsSync(p))
+        consume(getWin, p); };
+    try {
+        // Only `*.json` is a request — `.holding` and `.undelivered` sit deliberately OUTSIDE
+        // the glob, so a claimed or abandoned request can never be re-picked-up as a new one.
+        fs.watch(dir, (_evt, filename) => {
+            const f = String(filename || '');
+            if (!f.endsWith('.json'))
+                return;
+            const p = path.join(dir, f);
+            if (fs.existsSync(p))
+                consume(getWin, p);
+        });
+    }
+    catch (e) {
+        log(`watch failed on ${dir} (${e instanceof Error ? e.message : String(e)})`);
+    }
+    // Requests dropped while the app was closed, then holds left behind by a crash.
+    try {
+        for (const f of fs.readdirSync(dir)) {
+            if (f.endsWith('.json'))
+                consume(getWin, path.join(dir, f));
+        }
+    }
+    catch { /* empty/absent inbox */ }
+    adoptHolds(getWin, dir);
+    log(`watching ${dir} (contract ${sendQueue_1.INBOX_CONTRACT}, surface '${sendQueue_1.MY_SURFACE}')`);
+}
+//# sourceMappingURL=commandBus.js.map
