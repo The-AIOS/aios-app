@@ -74,6 +74,35 @@ test('the unread set is computed ONCE and shared with the Dock badge', () => {
     + 'have you seen" is how a badge and a tab come to disagree');
 });
 
+test('the tab resolves a session by IDENTITY — two sessions can share one name', () => {
+  /* OPERATOR-REPORTED 2026-09-14, and the reason this test exists: two `ingest` sessions, one
+     working and one idle, made BOTH tabs run the working animation. The side panel was correct
+     because it renders a ROW PER ENTRY; the tabs were a LOOKUP keyed on name, and `new Map()`
+     keeps only the last entry for a duplicate key, so both panes resolved to the same session.
+
+     Nothing enforces unique names — the registry is one file per PID. And the renderer already
+     knew this: "The name was never the identity. `sessionId` is." sits ~100 lines above where
+     the name-keyed lookup was reintroduced. */
+  const src = app();
+  assert.ok(!/new Map\(\(m\.running \|\| \[\]\)\.map\(\(a\) => \[a\.name, a\]\)\)/.test(src),
+    'a Map keyed on name silently merges two sessions that share one');
+  assert.match(src, /const byKey = new Map\(running\.filter\(\(a\) => a\.key\)\.map\(\(a\) => \[a\.key, a\]\)\)/,
+    'keyed on the session identity the host now sends');
+  assert.match(src, /p\.sessionId\s*\n?\s*\? byKey\.get\(p\.sessionId\)/,
+    'and a pane resolves through its own sessionId first');
+  assert.match(src, /nameCount\.get\(p\.confirmedName\) === 1/,
+    'the name fallback (for panes predating sessionId) fires ONLY when the name is unambiguous — '
+    + 'with a duplicate, guessing is the bug and showing no state is the honest answer');
+  assert.match(src, /unread\.has\(entry\.key\)/, 'the unread marker is keyed the same way');
+});
+
+test('what the renderer reports as on-screen is ids, never names', () => {
+  const src = app();
+  assert.match(src, /p\.isSession && p\.sessionId\) ids\.push\(p\.sessionId\)/,
+    'a name here would mark the wrong session as seen');
+  assert.match(src, /pulse\.send\(\{ type: 'paneVisible', ids \}\)/);
+});
+
 test('a pane whose session ended falls back to plain, not to a stale state', () => {
   assert.match(app(), /if \(!entry\) \{[\s\S]{0,400}?dot\.className = 'tdot plain';/,
     'a tab left showing "working" for a session that no longer exists is worse than showing nothing');

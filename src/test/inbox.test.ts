@@ -83,7 +83,10 @@ test('inboxItems: session-on-input + suggestion + evening nudge consolidate into
   assert.ok(kinds.includes('suggestion'), 'open go-with-agents task surfaces');
   assert.ok(kinds.includes('nudge'), 'active nudge rides in the same card');
   const sess = items.find((i) => i.kind === 'session')!;
-  assert.equal(sess.key, 'session:writer');
+  /* The row key is the session IDENTITY, not its name (changed 2026-09-14). Two live sessions
+     can share a name — nothing enforces uniqueness, the registry is one file per PID — and a
+     name key collapsed them into one row AND made a single dismissal hide both. */
+  assert.equal(sess.key, 'session:s1', 'keyed by sessionId, not by the name');
   assert.equal(sess.sig, 'waiting for input', 'the status IS the change signature');
   const sug = items.find((i) => i.kind === 'suggestion')!;
   assert.match(sug.label, /launch email/i);

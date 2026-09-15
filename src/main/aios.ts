@@ -10,7 +10,7 @@ import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
-import { normalizeNotifyLevel, type NotifyLevel } from '../core/attention';
+import { normalizeNotifyLevel, sessionKey, type NotifyLevel } from '../core/attention';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
 import { isInboxEntityDismissed, dismissInboxEntity, pruneInboxDismissals, type InboxDismissals } from '../core/inbox';
 import personaPersonal from './personas/personal-family.json';
@@ -3009,7 +3009,9 @@ export function inboxItems(
     .sort((x, y) => (x.statusUpdatedAt ?? x.updatedAt ?? 0) - (y.statusUpdatedAt ?? y.updatedAt ?? 0));
   for (const a of blocked) {
     all.push({
-      key: 'session:' + a.name,
+      /* Keyed by IDENTITY, not name. Two live sessions can share a name, and a name key would
+         collapse them into ONE row — and, worse, make one dismissal hide both. */
+      key: 'session:' + sessionKey(a),
       kind: 'session',
       icon: '\u{1f4ac}',
       label: t('inbox.sessionNeedsInput', { name: a.name }),

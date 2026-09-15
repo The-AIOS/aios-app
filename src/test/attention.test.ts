@@ -5,12 +5,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  attentionTick, markNotified, badgeText, mayBanner, normalizeNotifyLevel,
+  attentionTick, markNotified, badgeText, mayBanner, normalizeNotifyLevel, sessionKey,
   EMPTY_ATTENTION, NOTIFY_DEFAULT, type AttentionSession, type AttentionState,
 } from '../core/attention';
 
-const S = (name: string, status: string, waitingFor?: string): AttentionSession =>
-  ({ name, status, ...(waitingFor ? { waitingFor } : {}) });
+/* `id` defaults to the name, because most tests here have one session per name and reading
+   `S('writer','waiting')` is clearer than threading an id through every case. The duplicate-name
+   tests pass an explicit id — which is the whole point of the parameter existing. */
+const S = (name: string, status: string, waitingFor?: string, id?: string): AttentionSession =>
+  ({ id: id ?? name, name, status, ...(waitingFor ? { waitingFor } : {}) });
 
 /** Run a sequence of observations, as the 2s poll would. */
 function run(steps: { sessions: AttentionSession[]; visible?: string[]; deliver?: boolean }[]) {
@@ -18,7 +21,7 @@ function run(steps: { sessions: AttentionSession[]; visible?: string[]; deliver?
   const ticks = [];
   for (const s of steps) {
     const t = attentionTick(state, s.sessions, s.visible ?? []);
-    state = s.deliver === false ? t.state : markNotified(t.state, t.pending.map((p) => p.name));
+    state = s.deliver === false ? t.state : markNotified(t.state, t.pending.map((p) => p.id));
     ticks.push(t);
   }
   return ticks;
@@ -144,6 +147,49 @@ test('a session finishing in the HIDDEN half of a split is still unread', () => 
     { sessions: [S('a', 'busy'), S('b', 'idle')], visible: ['a'] },
   ]);
   assert.deepEqual(t[1].unread, ['b'], 'on screen is the test, not merely open');
+});
+
+test('TWO SESSIONS, ONE NAME: they are counted separately, never collapsed', () => {
+  /* Operator-reported 2026-09-14: two `ingest` sessions, one working and one idle, made BOTH
+     tabs animate. Nothing enforces unique names — the registry is one file per PID, so
+     `spawn ingest` twice gives two live sessions called `ingest`. Everything here used to be
+     keyed on name, which silently merged them. */
+  const t = run([
+    { sessions: [S('ingest', 'busy', undefined, 'sid-a'), S('ingest', 'busy', undefined, 'sid-b')] },
+    { sessions: [S('ingest', 'waiting', 'permission', 'sid-a'), S('ingest', 'idle', undefined, 'sid-b')] },
+  ]);
+  assert.equal(t[1].blocks.length, 1, 'only ONE of them is blocked');
+  assert.equal(t[1].blocks[0].id, 'sid-a', 'and we know which');
+  assert.deepEqual(t[1].unread, ['sid-b'], 'the other finished unseen — a different state entirely');
+  assert.equal(t[1].badge, 2, 'one block + one unread, from two sessions sharing a name');
+});
+
+test('looking at one of two same-named sessions clears only THAT one', () => {
+  const t = run([
+    { sessions: [S('ingest', 'busy', undefined, 'sid-a'), S('ingest', 'busy', undefined, 'sid-b')] },
+    { sessions: [S('ingest', 'idle', undefined, 'sid-a'), S('ingest', 'idle', undefined, 'sid-b')],
+      visible: ['sid-a'] },
+  ]);
+  assert.deepEqual(t[1].unread, ['sid-b'],
+    'seeing one pane must not mark its namesake as read — that is the same collision from the '
+    + 'other direction, and it would silently hide a finished result');
+});
+
+test('a banner for one namesake does not silence the other', () => {
+  const t = run([
+    { sessions: [S('ingest', 'waiting', 'q1', 'sid-a'), S('ingest', 'busy', undefined, 'sid-b')] },
+    { sessions: [S('ingest', 'waiting', 'q1', 'sid-a'), S('ingest', 'waiting', 'q2', 'sid-b')] },
+  ]);
+  assert.deepEqual(t[0].pending.map((p) => p.id), ['sid-a']);
+  assert.deepEqual(t[1].pending.map((p) => p.id), ['sid-b'],
+    'the second one blocking is its own news, even under a shared name');
+});
+
+test('sessionKey prefers sessionId and falls back to the pid, never to the name', () => {
+  assert.equal(sessionKey({ sessionId: 'abc', pid: 5 }), 'abc');
+  assert.equal(sessionKey({ sessionId: '', pid: 5 }), 'pid:5', 'a record with no id is still unique');
+  assert.equal(sessionKey({ sessionId: '   ', pid: 7 }), 'pid:7', 'whitespace is not an id');
+  assert.notEqual(sessionKey({ sessionId: '', pid: 1 }), sessionKey({ sessionId: '', pid: 2 }));
 });
 
 test('levels: off shows nothing, badge never banners, banner does both', () => {

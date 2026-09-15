@@ -41,6 +41,19 @@ export function normalizeNotifyLevel(raw: unknown): NotifyLevel {
 
 /** The slice of a session record this module reasons about. */
 export interface AttentionSession {
+  /**
+   * The session's IDENTITY — its `sessionId`, or `pid:<n>` for a record without one.
+   *
+   * NOT the name. Names are not unique and nothing enforces that they are: the registry is one
+   * file per PID, so `spawn ingest` twice gives two live sessions both called `ingest`. Keyed by
+   * name, one of them silently overwrites the other — measured on a live machine, two `ingest`
+   * sessions (one working, one idle) made BOTH tabs animate, because a Map keyed on name keeps
+   * only the last entry and both panes then resolved to it.
+   *
+   * The App's renderer already learned this once and says so in a comment a hundred lines from
+   * where this was reintroduced: *"The name was never the identity. `sessionId` is."*
+   */
+  id: string;
   name: string;
   /** Claude Code's registry status: busy | shell | idle | waiting. */
   status: string;
@@ -48,12 +61,18 @@ export interface AttentionSession {
   waitingFor?: string;
 }
 
+/** The identity of a registry record. Stable across a rename; unique across duplicates. */
+export function sessionKey(r: { sessionId?: string; pid?: number }): string {
+  const sid = (r.sessionId ?? '').trim();
+  return sid || `pid:${r.pid ?? 0}`;
+}
+
 export interface AttentionState {
-  /** Blocks already announced. NOT the badge — bookkeeping, advanced only on a delivered banner. */
+  /** Blocks already announced, BY ID. Not the badge — bookkeeping, advanced only on delivery. */
   notified: string[];
-  /** Finished while nobody was looking. */
+  /** Finished while nobody was looking, BY ID. */
   unread: string[];
-  /** Last status seen per session — how a TRANSITION is told from a repeated observation. */
+  /** Last status seen per session id — how a TRANSITION is told from a repeated observation. */
   seen: Record<string, string>;
 }
 
@@ -64,7 +83,7 @@ export interface AttentionTick {
   state: AttentionState;
   /** Sessions blocked right now — derived, never remembered. */
   blocks: AttentionSession[];
-  /** Finished-unseen session names. */
+  /** Finished-unseen session IDS. Resolve to names for display at the call site. */
   unread: string[];
   /** Blocks entered and not yet announced. Notify these, then markNotified() what succeeded. */
   pending: AttentionSession[];
@@ -78,10 +97,10 @@ const isBlocked = (s: AttentionSession): boolean => s.status === 'waiting';
  * Advance the counters by one observation.
  *
  * `visible` is every session the operator can actually SEE — the App focused AND that pane on
- * screen. A focused pane behind another window is not visible, which is why this is passed in
- * rather than inferred from a tab id. It is a SET rather than one name because this app splits:
- * with two panes tiled, both are on screen, and treating only the focused one as seen would
- * leave a result the operator is looking at counted as unread.
+ * screen — given as IDS, not names. A focused pane behind another window is not visible, which
+ * is why this is passed in rather than inferred from a tab id. It is a SET rather than one id
+ * because this app splits: with two panes tiled, both are on screen, and treating only the
+ * focused one as seen would leave a result the operator is looking at counted as unread.
  */
 export function attentionTick(
   prev: AttentionState,
@@ -89,26 +108,26 @@ export function attentionTick(
   visible: readonly string[],
 ): AttentionTick {
   const vis = new Set(visible);
-  const live = new Set(sessions.map((s) => s.name));
+  const live = new Set(sessions.map((s) => s.id));
   const blocks = sessions.filter(isBlocked);
-  const blocked = new Set(blocks.map((s) => s.name));
+  const blocked = new Set(blocks.map((s) => s.id));
 
   // ── unread: busy → idle while unseen ──────────────────────────────────────
-  const unread = new Set(prev.unread.filter((n) => live.has(n)));
+  const unread = new Set(prev.unread.filter((k) => live.has(k)));
   for (const s of sessions) {
-    const was = prev.seen[s.name];
+    const was = prev.seen[s.id];
     /* 'shell' is a plain terminal, not an agent finishing work — a shell going idle is not a
        result anyone is waiting to read. Only an agent that was actually working can produce one. */
-    if (was === 'busy' && s.status === 'idle' && !vis.has(s.name)) unread.add(s.name);
+    if (was === 'busy' && s.status === 'idle' && !vis.has(s.id)) unread.add(s.id);
   }
   for (const v of vis) unread.delete(v);        // looking at it IS reading it
 
   // ── notified: forget a session once it is no longer blocked, so the NEXT block speaks ──
-  const notified = prev.notified.filter((n) => blocked.has(n));
-  const pending = blocks.filter((s) => !notified.includes(s.name));
+  const notified = prev.notified.filter((k) => blocked.has(k));
+  const pending = blocks.filter((s) => !notified.includes(s.id));
 
   const seen: Record<string, string> = {};
-  for (const s of sessions) seen[s.name] = s.status;
+  for (const s of sessions) seen[s.id] = s.status;
 
   return {
     state: { notified, unread: [...unread], seen },
@@ -119,10 +138,10 @@ export function attentionTick(
   };
 }
 
-/** Record that these blocks were actually announced. Call ONLY for banners the OS accepted. */
-export function markNotified(state: AttentionState, names: readonly string[]): AttentionState {
-  if (!names.length) return state;
-  return { ...state, notified: [...new Set([...state.notified, ...names])] };
+/** Record that these blocks were announced, BY ID. Call ONLY for banners the OS accepted. */
+export function markNotified(state: AttentionState, ids: readonly string[]): AttentionState {
+  if (!ids.length) return state;
+  return { ...state, notified: [...new Set([...state.notified, ...ids])] };
 }
 
 /** What the Dock shows. Electron clears the badge on '' and shows the string otherwise. */

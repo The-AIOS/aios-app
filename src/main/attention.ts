@@ -20,7 +20,7 @@
  */
 import { app, Notification } from 'electron';
 import {
-  attentionTick, markNotified, badgeText, mayBanner,
+  attentionTick, markNotified, badgeText, mayBanner, sessionKey,
   EMPTY_ATTENTION, type AttentionState, type NotifyLevel,
 } from '../core/attention';
 import type { RunningAgent } from './aios';
@@ -35,19 +35,21 @@ export interface AttentionHooks {
 
 export class Attention {
   private state: AttentionState = EMPTY_ATTENTION;
-  /** The panes the renderer says are on screen — meaningless alone; see visibleNames(). */
+  /** Session IDS the renderer says are on screen — meaningless alone; see visibleIds(). */
   private onScreen: string[] = [];
   private badge = '';
 
   constructor(private hooks: AttentionHooks) {}
 
-  /** The renderer tells us which session panes are tiled on screen whenever that changes. */
-  setOnScreen(names: readonly string[]): void {
-    this.onScreen = [...new Set(names.map((n) => String(n ?? '').trim()).filter(Boolean))];
+  /** The renderer tells us which session panes are tiled on screen — by ID, never by name.
+   *  Two live sessions can share a name (`spawn ingest` twice), and a name would mark the
+   *  wrong one as seen. */
+  setOnScreen(ids: readonly string[]): void {
+    this.onScreen = [...new Set(ids.map((n) => String(n ?? '').trim()).filter(Boolean))];
   }
 
   /** On screen AND the window actually in front. Behind another app, nothing is visible. */
-  private visibleNames(): string[] {
+  private visibleIds(): string[] {
     return this.hooks.appVisible() ? this.onScreen : [];
   }
 
@@ -55,8 +57,10 @@ export class Attention {
    *  Returns the finished-unseen names so the tab strip can mark them (#24.2b) — the counter
    *  and the tab marker are the SAME state, so deriving it twice would let them disagree. */
   tick(running: readonly RunningAgent[], level: NotifyLevel): string[] {
-    const sessions = running.map((a) => ({ name: a.name, status: a.status, waitingFor: a.waitingFor }));
-    const r = attentionTick(this.state, sessions, this.visibleNames());
+    const sessions = running.map((a) => ({
+      id: sessionKey(a), name: a.name, status: a.status, waitingFor: a.waitingFor,
+    }));
+    const r = attentionTick(this.state, sessions, this.visibleIds());
     this.state = r.state;
 
     const want = badgeText(r.badge, level);
@@ -72,7 +76,9 @@ export class Attention {
 
     const delivered: string[] = [];
     for (const s of r.pending) {
-      const pid = running.find((a) => a.name === s.name)?.pid;
+      /* Resolve the pane by IDENTITY, not by name: with two sessions called `ingest`, a
+         name lookup reveals whichever one happens to come first. */
+      const pid = running.find((a) => sessionKey(a) === s.id)?.pid;
       try {
         const n = new Notification({
           title: t('notify.blockedTitle', { name: s.name }),
@@ -83,7 +89,7 @@ export class Attention {
            a decision taken on a surface that cannot show what is being approved. */
         n.on('click', () => { if (pid !== undefined) this.hooks.reveal(pid); });
         n.show();
-        delivered.push(s.name);
+        delivered.push(s.id);
       } catch { /* not delivered → stays pending, and the next tick tries again */ }
     }
     // ONLY what the OS accepted. A banner that threw must not be remembered as shown.

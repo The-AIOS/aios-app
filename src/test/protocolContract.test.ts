@@ -461,7 +461,7 @@ test('PROTOCOL: the name→session resolution is byte-identical across both fulf
    SEEN, the operator would get two different answers from two windows onto the same registry,
    and each would look correct on its own. The UI is per-surface by design (a Dock badge here, a
    status-bar item there); the DEFINITIONS are not. core/attention.ts is copied byte-identical. */
-const ATTENTION_SHA = '9b89334cc9df0626';
+const ATTENTION_SHA = '040966e5db73e2dc';
 
 test('PROTOCOL: the attention counters are byte-identical across both surfaces', () => {
   const src = fs.readFileSync('src/core/attention.ts', 'utf8');

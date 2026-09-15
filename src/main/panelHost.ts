@@ -4,6 +4,7 @@ import { BrowserWindow, WebContents } from 'electron';
 import * as aios from './aios';
 import { inboxDir } from './commandBus';
 import { Attention } from './attention';
+import { sessionKey } from '../core/attention';
 
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
@@ -184,10 +185,11 @@ export class PanelHost {
     const mem = aios.shellSettings().showMemory ? aios.sessionMemoryMB(running.map((a) => a.pid)) : {};
     this.post({
       type: 'running',
-      /* finished-while-unseen, for the tab's unread marker (#24.2b). Same state the Dock badge
-         counts — one derivation, so the two can never disagree about what you have seen. */
+      /* finished-while-unseen, for the tab's unread marker (#24.2b), as session KEYS rather
+         than names — two live sessions can share a name, and a name here would mark the wrong
+         tab. Same state the Dock badge counts: one derivation, so the two can never disagree. */
       unread,
-      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
+      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
         : { has: false, fiveHour: 0, sevenDay: 0, showSwap: false, to: '' },
@@ -236,7 +238,7 @@ export class PanelHost {
         /* Which pane the operator is looking at. Only ever a HINT: the Attention module pairs
            it with real window focus, so this arriving while the App is in the background
            correctly marks nothing as seen. */
-        this.attention.setOnScreen(Array.isArray(msg.names) ? (msg.names as unknown[]).map(String) : []);
+        this.attention.setOnScreen(Array.isArray(msg.ids) ? (msg.ids as unknown[]).map(String) : []);
         return;
       case 'navMonth':
         this.post({ type: 'month', data: aios.getMonthData(Number(msg.year), Number(msg.month)) });

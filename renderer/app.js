@@ -1499,13 +1499,29 @@ function statusInfo(raw) {
    there. A new hue would have to compete with four meanings the operator has already learned,
    and unread is orthogonal to all of them — a session can be idle-and-unread or error-and-unread. */
 function paintTabStates(m) {
-  const byName = new Map((m.running || []).map((a) => [a.name, a]));
+  const running = m.running || [];
+  /* BY IDENTITY, NOT BY NAME. Names are not unique and nothing makes them so — the registry is
+     one file per PID, so `spawn ingest` twice yields two live sessions both called `ingest`.
+     Keyed on name, a Map keeps only the LAST of them and every matching pane resolves to that
+     one entry: operator-reported 2026-09-14 with two ingests, one working and one idle, where
+     BOTH tabs ran the working animation while the side panel showed them correctly. The panel
+     renders a row per entry; the tabs were a LOOKUP, and a lookup keyed on a non-unique field
+     cannot tell two sessions apart. */
+  const byKey = new Map(running.filter((a) => a.key).map((a) => [a.key, a]));
+  /* Name is the FALLBACK for panes confirmed before sessionId existed — and only when that name
+     is unambiguous. With a duplicate, guessing is exactly the bug; showing no state is honest. */
+  const nameCount = new Map();
+  for (const a of running) nameCount.set(a.name, (nameCount.get(a.name) || 0) + 1);
   const unread = new Set(m.unread || []);
   for (const [, p] of panes) {
     if (p.kind !== 'term' || !p.tab) continue;
     const dot = p.tab.querySelector('.tdot');
     if (!dot) continue;
-    const entry = p.confirmedName ? byName.get(p.confirmedName) : undefined;
+    const entry = p.sessionId
+      ? byKey.get(p.sessionId)
+      : (p.confirmedName && nameCount.get(p.confirmedName) === 1
+          ? running.find((a) => a.name === p.confirmedName)
+          : undefined);
     if (!entry) {
       /* A plain terminal, or a pane whose session has ended. Grey is exactly what that means
          here, and it is the only thing grey means. */
@@ -1514,7 +1530,7 @@ function paintTabStates(m) {
       continue;
     }
     const info = statusInfo(entry.status);
-    const seen = unread.has(entry.name);
+    const seen = unread.has(entry.key);          // keys, never names — see above
     dot.className = 'tdot ' + info.cls + (seen ? ' unread' : '');
     dot.title = seen ? info.title + ' · ' + t('status.unseen') : info.title;
   }
@@ -2565,17 +2581,20 @@ function setVisible(z) {
    the background correctly marks nothing as seen. */
 let lastOnScreen = '';
 function reportOnScreen() {
-  const names = [];
+  /* IDS, not names. A name would mark the wrong session as seen when two share one. A pane with
+     no sessionId yet is simply not reported — that over-counts unread rather than wrongly
+     clearing it, which is the safe direction to fail for "have you read this". */
+  const ids = [];
   for (const z of Object.keys(zones)) {
     for (const id of zones[z].visible) {
       const p = panes.get(id);
-      if (p && p.kind === 'term' && p.isSession && p.name) names.push(p.name);
+      if (p && p.kind === 'term' && p.isSession && p.sessionId) ids.push(p.sessionId);
     }
   }
-  const key = names.slice().sort().join('\u0000');
+  const key = ids.slice().sort().join('\u0000');
   if (key === lastOnScreen) return;          // setVisible runs on every tab click; this changes rarely
   lastOnScreen = key;
-  pulse.send({ type: 'paneVisible', names });
+  pulse.send({ type: 'paneVisible', ids });
 }
 
 const evenFrac = (n) => (n <= 0 ? [] : Array.from({ length: n }, () => 1 / n));
