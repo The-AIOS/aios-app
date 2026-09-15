@@ -1562,7 +1562,10 @@ function renderPulseRunning(m) {
   if (q.has) R.appendChild(buildQuotaRow(q));
 
   runSection(R, t('pulse.sessions'), 'sessions', sessions.length, () => void spawnWorkerFlow(), t('pulse.spawnSession'), (box) => {
-    for (const a of sessions) { const r = sessionRow(a); feedMark(r, 'sess', a.name); box.appendChild(r); }
+    /* Keyed by IDENTITY. `FEED.seen` returns early for a key it has already marked, so two rows
+     sharing a name meant the SECOND one silently skipped its entry animation — the last thing
+     in the session display still keyed on a label instead of on what the session is. */
+  for (const a of sessions) { const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); box.appendChild(r); }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
   }, null); // close-all now lives in the panel toolbar (Glass placement), not this header
   runSection(R, t('pulse.terminals'), 'terminals', terms.length, () => void createPane({ name: 'terminal' }), t('pulse.newTerminal'), (box) => {
