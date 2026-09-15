@@ -6801,10 +6801,15 @@ function openSetupTab() {
             mkBtn(acts, t('setup.phase2Model', { model: modelRec.label }),
               () => void spawnSetupSession(modelRec.value),
               { primary: true, title: t('setup.phase2Hint') });
-            /* Their own default stays one click away — named, not called "default". Passing NO
-               model is what inherits it, which is also what makes this correct when nothing is
-               pinned: there is nothing to pass. */
-            mkBtn(adv, modelPinned ? t('setup.modelMine', { model: modelPinLabel }) : t('setup.modelDefault'),
+            /* BESIDE the primary, NOT under Advanced. Advanced is gated on `earned` — tried the
+               primary and the step is still not done — which is right for a remedy and wrong for
+               this: it is not a fallback for a failed attempt, it is the other way to run the
+               same action, and it has to be visible while the operator is still choosing. Put
+               there, it only appeared AFTER setup had already launched on the recommendation,
+               which is the choice having already been made for them.
+               Named, not called "default". Passing NO model is what inherits theirs, which is
+               also what makes this correct on a fresh machine: there is nothing to pass. */
+            mkBtn(acts, modelPinned ? t('setup.modelMine', { model: modelPinLabel }) : t('setup.modelDefault'),
               () => void spawnSetupSession());
           } else {
             mkBtn(acts, t('setup.phase2'), () => spawnSetupSession(), { primary: true, title: t('setup.phase2Hint') });
@@ -6880,6 +6885,7 @@ function openSetupTab() {
     function stepEl(s, i) {
       const fresh = prevDone && s.done && !prevDone.has(s.id); // just flipped → announce once
       const box = el('div', 'step ' + s.state + (fresh ? ' just-done' : ''));
+      box.dataset.stepId = s.id;      // so a repaint can put back what the operator had open
       const hd = el('div', 'step-head');
       hd.appendChild(el('span', 'step-ix', s.done ? '✓' : String(i + 1)));
       /* Title = the ACTION, tag = what this actually is in words the operator already has.
@@ -6988,7 +6994,26 @@ function openSetupTab() {
       return d;
     }
 
-    async function paint() {
+    /* WHAT THE SCREEN ACTUALLY DEPENDS ON, so a poll that finds nothing changed touches no DOM.
+       This repainted unconditionally every 5 seconds — `list.replaceChildren()` and rebuild — so
+       a reader scrolled down was thrown back to the top twice a minute and any Advanced they had
+       opened snapped shut. Operator-reported 2026-09-15. The poll itself is right and was added
+       for a real reason (device-auth and long installs finish outside our terminals' exit
+       events); what was wrong is repainting whether or not it learned anything.
+       The signature covers every input the render reads — step state, the per-check messages the
+       heads display, which steps have been tried, and the model lanes — so a change still lands
+       on the next tick. Anything NOT in here is a thing that can go stale on screen, which is why
+       it is built from the state rather than from a hand-listed set of fields. */
+    const renderSig = (st) => JSON.stringify({
+      steps: (st.steps || []).map((x) => [x.id, x.done, x.state,
+        (x.checks || []).map((c) => [c.id, c.status, c.message])]),
+      current: st.current,
+      tried: [...stepTried].sort(),
+      model: modelWorthSuggesting() ? [modelRec && modelRec.value, modelPinned, modelPinLabel] : null,
+    });
+    let lastSig = '';
+
+    async function paint(force) {
       if (painting || !document.body.contains(wrap)) return;
       painting = true;
       let st = null;
@@ -7009,15 +7034,31 @@ function openSetupTab() {
         const hit = (Array.isArray(opts) ? opts : []).find((o) => o.value === modelPinned);
         modelPinLabel = (hit && hit.label) || modelPinned;
       } catch { modelRec = null; }
+      /* Nothing moved → leave the DOM alone. `force` is for the Re-check button, which is an
+         operator asking to see it happen: skipping there would read as a dead control. */
+      const sig = renderSig(st);
+      if (!force && sig === lastSig && list.childElementCount) return;
+      lastSig = sig;
+      /* A repaint that discards where the operator was is its own defect, so carry both across:
+         the scroll offset, and which Advanced sections were open. */
+      const scroller = list.closest('.vbody') || list.parentElement;
+      const keepTop = scroller ? scroller.scrollTop : 0;
+      const openAdv = new Set([...list.querySelectorAll('details.step-adv[open]')]
+        .map((d) => d.closest('.step') && d.closest('.step').dataset.stepId).filter(Boolean));
       list.replaceChildren();
       if (subEl) subEl.textContent = t('setup.onboardingSub', { n: String(st.steps.length) });
       st.steps.forEach((s, i) => list.appendChild(stepEl(s, i)));
       if (st.current >= st.steps.length) list.appendChild(onboardingDoneEl());
       else list.appendChild(troubleEl());
+      for (const id of openAdv) {
+        const d = list.querySelector('.step[data-step-id="' + id + '"] details.step-adv');
+        if (d) d.open = true;
+      }
+      if (scroller) scroller.scrollTop = keepTop;
       prevDone = new Set(st.steps.filter((s) => s.done).map((s) => s.id));
     }
 
-    recheck.addEventListener('click', () => void paint());
+    recheck.addEventListener('click', () => void paint(true));
     onboardingRepaint = paint;
     // quiet poll while the tab is open — device/web auth flows and long installs
     // complete OUTSIDE our terminals' exit events; the poll catches them

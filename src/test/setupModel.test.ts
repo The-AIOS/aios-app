@@ -103,8 +103,15 @@ test('the PRIMARY button carries the recommendation, and the operator\'s own sta
 
   assert.match(block, /mkBtn\(acts, t\('setup\.phase2Model'[\s\S]{0,200}?spawnSetupSession\(modelRec\.value\)[\s\S]{0,120}?primary: true/,
     'the recommendation IS the primary action');
-  assert.match(block, /mkBtn\(adv,[\s\S]{0,220}?spawnSetupSession\(\)\)/,
-    'and Advanced runs it with no model, which is what inherits the operator\'s own');
+  /* BESIDE the primary, not under Advanced. `adv` is gated on `earned` — primary tried and the
+     step still not done — which is correct for a remedy and wrong for this: it is the other way
+     to run the SAME action, so it has to be on screen while the operator is still choosing.
+     Put in Advanced it only appeared after setup had already launched on the recommendation,
+     which is the choice having been made for them. Operator-reported. */
+  assert.match(block, /mkBtn\(acts, modelPinned \? t\('setup\.modelMine'[\s\S]{0,200}?spawnSetupSession\(\)\)/,
+    'the operator\'s own model runs with NO model argument, and sits beside the primary');
+  assert.doesNotMatch(block, /mkBtn\(adv,/,
+    'never behind Advanced — it is unreachable there until the action it replaces has run');
   /* Passing NO model is also what makes the Advanced lane correct on a fresh machine: there is
      nothing pinned to pass, so it simply defers to Claude Code. */
   assert.doesNotMatch(block, /spawnSetupSession\(modelPinned\)/,
@@ -117,14 +124,40 @@ test('the PRIMARY button carries the recommendation, and the operator\'s own sta
 
 test('one condition drives both surfaces, and it reads the RANK', () => {
   const code = noComments(APP());
+  /* ONE DEFINITION is the invariant; the number of call sites is not. It was pinned at two and
+     broke when the repaint signature legitimately became a third reader — the guard fired for a
+     change that made the condition MORE consistently applied, which is the opposite of what it
+     is for. Assert what actually matters: defined once, and every surface goes through it. */
+  const defs = code.match(/const modelWorthSuggesting = \(\) => \{/g) || [];
+  assert.equal(defs.length, 1, 'defined exactly once — two copies is how they come to disagree');
   const conds = code.match(/modelWorthSuggesting\(\)/g) || [];
-  assert.equal(conds.length, 2, 'called by BOTH surfaces — the note and the buttons');
-  assert.match(code, /const modelWorthSuggesting = \(\) => \{/, 'and defined exactly once');
+  assert.ok(conds.length >= 3, 'read by the note, the buttons, and the repaint signature');
   assert.match(code, /s\.id === 'firstrun' && modelWorthSuggesting\(\)/, 'the note belongs to the handover step only');
   assert.match(code, /modelPinRank === 'absent' \|\| modelPinRank === 'weaker'/,
     'suggest only when we can tell the pin is weaker, or nobody chose — `unknown` stays silent');
   assert.match(code, /modelPinned === modelRec\.value\) return false/,
     'and never recommend what is already pinned');
+});
+
+test('the setup screen does not repaint when nothing changed', () => {
+  /* The poll exists for a real reason — device-auth and long installs finish outside our
+     terminals' exit events — but it repainted unconditionally every 5 seconds, rebuilding the
+     whole list. A reader scrolled down was thrown to the top twice a minute and any Advanced
+     they had opened snapped shut. Operator-reported 2026-09-15.
+     The signature must be built FROM THE STATE rather than from a hand-listed set of fields:
+     anything omitted is something that can go stale on screen with nothing reporting it. */
+  const code = noComments(APP());
+  assert.match(code, /const renderSig = \(st\) => JSON\.stringify\(\{/, 'one signature, computed from the state');
+  for (const part of ['x.checks', 'stepTried', 'modelWorthSuggesting()', 'st.current']) {
+    assert.ok(code.includes(part), `the signature must cover ${part} — omitted means stale on screen`);
+  }
+  assert.match(code, /if \(!force && sig === lastSig && list\.childElementCount\) return;/,
+    'unchanged → touch no DOM at all');
+  /* And when it DOES repaint, it must not discard where the operator was. */
+  assert.match(code, /scroller\.scrollTop = keepTop/, 'scroll survives a repaint');
+  assert.match(code, /details\.step-adv\[open\]/, 'and so does an opened Advanced');
+  assert.match(code, /recheck\.addEventListener\('click', \(\) => void paint\(true\)\)/,
+    'Re-check forces it — an operator asking to see it happen must not get a no-op');
 });
 
 test('no model name is written into the renderer', () => {
