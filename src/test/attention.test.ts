@@ -162,7 +162,7 @@ test('an OS that refuses banners is REPORTED, not silently absorbed', () => {
      that knows: it receives the `failed` event. A toast alone was not enough, because a toast is
      an EVENT and this is a STATE — it stays true until the operator changes it, and the moment
      they go looking is when they open Settings, not the moment it failed. */
-  const glue = fs.readFileSync(path.join(__dirname, '..', 'main', 'attention.ts'), 'utf8');
+  const glue = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'attention.ts'), 'utf8');
   assert.match(glue, /osRefused\(\): boolean \{ return this\.refused; \}/, 'the refusal is readable');
   assert.match(glue, /n\.on\('failed'[\s\S]{0,200}?this\.refused = true;/,
     'set from the OS report, never inferred from a permissions guess');
