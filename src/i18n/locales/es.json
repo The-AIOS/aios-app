@@ -711,6 +711,7 @@
   "notify.levelBanner": "Contador + notificaci\u00f3n",
   "notify.levelBadge": "Solo contador",
   "notify.levelOff": "Desactivado",
+  "notify.osBlocked": "Las notificaciones de AIOS están desactivadas en Ajustes del Sistema de macOS — ábrelas en Notificaciones y actívalas para que te lleguen las sesiones bloqueadas.",
   "status.ended": "Finalizada",
   "pane.ambiguous": "Hay dos sesiones llamadas \u201c{name}\u201d \u2014 abre la que quieres e int\u00e9ntalo desde su pesta\u00f1a",
   "status.terminal": "Terminal",

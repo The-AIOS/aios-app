@@ -1092,12 +1092,12 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
   background: linear-gradient(100deg,
     var(--ink) 40%, color-mix(in srgb, var(--accent) 55%, var(--ink)) 50%, var(--ink) 60%);
   background-size: 240% 100%; -webkit-background-clip: text; background-clip: text;
-  color: transparent; }
-/* THE SWEEP NO LONGER MOVES THE GRADIENT. Animating `background-position` on a
-   `background-clip: text` element re-rasterises every glyph, every frame, on the main thread —
-   the single most expensive pattern here, and it ran forever for every working session.
-   `opacity` is compositor-only, so the verb still breathes to say "this is live" at no style
-   cost. The gradient stays, static, so the accent colour is not lost. */
+  color: transparent;
+  /* THE SWEEP NO LONGER MOVES THE GRADIENT. Animating `background-position` on a
+     `background-clip: text` element re-rasterises every glyph, every frame, on the main thread —
+     the single most expensive pattern in this file, and it ran forever for every working
+     session. `opacity` is compositor-only, so the verb still breathes to say "this is live" at
+     no style cost, and the gradient stays (static) so the accent colour is not lost. */
   animation: shimbreathe 2.4s ease-in-out infinite; will-change: opacity; }
 @keyframes shimbreathe { 0%, 100% { opacity: 1; } 50% { opacity: .58; } }
 

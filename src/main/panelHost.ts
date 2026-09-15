@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BrowserWindow, WebContents } from 'electron';
 import * as aios from './aios';
+import { t } from '../i18n';
 import { Attention } from './attention';
 import { sessionKey } from '../core/attention';
 
@@ -156,6 +157,9 @@ export class PanelHost {
   /** Dock badge + banner for sessions blocked on the operator (#22). Driven by the same
    *  2s poll that already lists the sessions, so it costs one function call, not a timer. */
   private attention = new Attention({
+    /* macOS refused every banner. Point at the one place that can fix it — the operator's own
+       System Settings — rather than leaving the setting looking broken. */
+    notifyBlocked: () => this.intent('toast', { text: t('notify.osBlocked') }),
     reveal: (pid) => {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }

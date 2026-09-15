@@ -965,6 +965,30 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
 
 let mainWin: BrowserWindow | undefined;
 
+/* ONE APP, ONE INSTANCE — and the reason is not tidiness.
+   Operator-reported 2026-09-15: clicking a notification banner opened a SECOND AIOS. macOS
+   activates the bundle through LaunchServices, and with no lock that starts a whole new app.
+   It is easy to see as cosmetic and it is not: every instance publishes the same presence file
+   `~/.aios/surfaces/app.json` and watches the same spawn-inbox, so the second silently
+   overwrites the first's pid and the two then RACE for every request — which is exactly the
+   double-delivery the bus contract was built to prevent, reached from a direction the contract
+   cannot see, because both racers believe they are the only App.
+   The smoke run is exempt: it launches deliberately alongside a developer's own App, and a lock
+   there would make the gate exit 0 having tested nothing. */
+if (!SMOKE && !app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    /* Someone asked for this app — a banner click, a Dock click, `open -a`. Show the window
+       they already have instead of starting another. */
+    const w = BrowserWindow.getAllWindows()[0];
+    if (!w || w.isDestroyed()) return;
+    if (w.isMinimized()) w.restore();
+    w.show();
+    w.focus();
+  });
+}
+
 app.whenReady().then(() => {
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
@@ -1104,6 +1128,7 @@ app.whenReady().then(() => {
       const rendererOk = await win.webContents.executeJavaScript('window.__workbenchOk === true').catch(() => false);
       let panelOk = false;
       let themeOk = false;
+      let animOk = false;
       try {
         // gates 5/6: the NATIVE pulse must have consumed real state + the calendar
         // must render + the light theme must repaint the window
@@ -1121,6 +1146,25 @@ app.whenReady().then(() => {
         themeOk = bgBefore !== bgAfter;
         console.log(`shell-smoke: pulse — ready=${pulseReady}, calCells=${calCells}, sessions=${sessions}, actionBtns=${actionBtns}, themeRepaints=${themeOk}, bg=${bgBefore}→${bgAfter}`);
       } catch (err) { console.error('shell-smoke: pulse gate error', err); }
+      /* GATE: AN ANIMATION THAT IS SUPPOSED TO RUN, RUNS — and on a compositable property.
+         The unit test reads @keyframes, which is necessary and not sufficient: a malformed rule
+         leaves the keyframes perfectly valid while the DECLARATION never reaches the element.
+         That happened — a stray `}` closed `.shimverb` one line early, the shimmer silently
+         stopped, every test stayed green, and the operator noticed before any check did.
+         Computed style in a live renderer is the only thing that can tell "defined" from
+         "applied". */
+      try {
+        const anim = await win.webContents.executeJavaScript(`(() => {
+          const probe = (cls) => { const el = document.createElement('span'); el.className = cls;
+            document.body.appendChild(el); const cs = getComputedStyle(el);
+            const r = { name: cs.animationName, dur: cs.animationDuration }; el.remove(); return r; };
+          return { shim: probe('shimverb'), dot: probe('pdot busy') };
+        })()`).catch(() => null);
+        const ok = !!anim && anim.shim.name !== 'none' && anim.shim.dur !== '0s';
+        if (!ok) console.error(`shell-smoke: animation gate FAIL — .shimverb resolves to ${JSON.stringify(anim && anim.shim)}`);
+        animOk = ok;
+        console.log(`shell-smoke: animations — shimverb=${anim?.shim.name}/${anim?.shim.dur} busyDot=${anim?.dot.name}`);
+      } catch (err) { console.error('shell-smoke: animation gate error', err); }
       /* gate 7: SETUP MUST HAVE CONTENT. This is the first screen a newcomer ever sees, and it
          shipped rendering its title and nothing else — a `const` called above its own
          declaration threw inside the pane builder, so the step list, every button and the
@@ -1270,10 +1314,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

@@ -32,6 +32,8 @@ const MAX_BANNER_TRIES = 3;
 export interface AttentionHooks {
   /** Bring the App forward and focus the pane running `pid`. */
   reveal(pid: number): void;
+  /** Tell the operator something they have to act on outside this app. Fired at most once. */
+  notifyBlocked(): void;
 }
 
 export class Attention {
@@ -40,6 +42,8 @@ export class Attention {
   /** Failed banner attempts per block — bounded, so an OS that will not show notifications is
    *  not retried every two seconds for the life of the process. */
   private failures = new Map<string, number>();
+  /** Said once, ever: the OS is refusing, and only the operator can change that. */
+  private toldAboutPermission = false;
 
   constructor(private hooks: AttentionHooks) {}
 
@@ -92,7 +96,18 @@ export class Attention {
           /* Bounded: after three refusals the OS is not changing its mind this run, and
              retrying every two seconds forever is its own bug. Give up on the BANNER only —
              the block keeps its place in the badge, so nothing vanishes quietly. */
-          if (tries >= MAX_BANNER_TRIES) this.state = markNotified(this.state, [s.id]);
+          if (tries >= MAX_BANNER_TRIES) {
+            this.state = markNotified(this.state, [s.id]);
+            /* AND SAY SO. Giving up silently is how an operator concludes the feature is broken:
+               they set it to "badge + notification", nothing ever appears, and nothing anywhere
+               explains that macOS is refusing. Reported exactly that — the banners only worked
+               after finding System Settings unaided. The App is the only party that KNOWS the OS
+               refused, so it is the only one that can say it. Once per run, never a nag. */
+            if (!this.toldAboutPermission) {
+              this.toldAboutPermission = true;
+              try { this.hooks.notifyBlocked(); } catch { /* the surface went away */ }
+            }
+          }
         });
         n.show();
       } catch { /* constructor threw → stays pending, and the next tick tries again */ }
