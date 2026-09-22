@@ -1248,6 +1248,33 @@ app.whenReady().then(() => {
         console.log(`shell-smoke: settings rebuild — ${rowsFirst} rows, ${rowsAfter} after rebuild`);
       } catch (err) { console.error('shell-smoke: rebuild gate error', err); }
 
+      /* GATE: THE PANEL HEADER NEVER DRAWS ITS TWO HALVES ON TOP OF EACH OTHER. The offline label
+         overlapped the wordmark at a narrow panel (operator-reported 2026-09-22) — the same defect
+         class as the clipped busy-row buttons, one row over, and nothing measured this row. So:
+         force the panel narrow, put the LONGEST label any locale can produce into the status, and
+         require the brand to end before the status begins and the status to stay inside the row. */
+      let headOk = false;
+      try {
+        const head = await win.webContents.executeJavaScript(`(() => {
+          const ph = document.getElementById('phead');
+          const brand = ph && ph.querySelector('.pbrand');
+          const st = document.getElementById('railUpdate');
+          const txt = st && st.querySelector('.pupdtext');
+          if (!ph || !brand || !st || !txt) return { err: 'header parts missing' };
+          const keepW = ph.style.width, keepT = txt.textContent;
+          ph.style.width = '200px';
+          txt.textContent = 'não foi possível verificar · última sincronização 2026-09-15';
+          const pb = ph.getBoundingClientRect(), bb = brand.getBoundingClientRect(), sb = st.getBoundingClientRect();
+          const out = { rowW: Math.round(pb.width), overlapPx: Math.round(bb.right - sb.left),
+                        spillPx: Math.round(sb.right - pb.right) };
+          ph.style.width = keepW; txt.textContent = keepT;
+          return out;
+        })()`).catch(() => null);
+        headOk = !!head && !head.err && head.overlapPx <= 1 && head.spillPx <= 1;
+        if (!headOk) console.error(`shell-smoke: header gate FAIL — ${JSON.stringify(head)}`);
+        console.log(`shell-smoke: header — row ${head?.rowW}px, overlap ${head?.overlapPx}px, spill ${head?.spillPx}px`);
+      } catch (err) { console.error('shell-smoke: header gate error', err); }
+
       /* GATE: THE ROW ACTIONS FIT INSIDE THE ROW. `.prow2` clips its overflow, so when the hover
          actions do not fit they are silently CUT rather than pushed anywhere visible — and the
          busy row is the one that overflows, because it carries a fourth button (interrupt) that
@@ -1443,10 +1470,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && headOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + header + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

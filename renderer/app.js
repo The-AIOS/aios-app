@@ -5174,8 +5174,18 @@ function updateRailStatus(state, fw) {
     railUpdate.title = t('rail.updateUpToDate');
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   } else if (fw && fw.synced) {
-    if (txt) txt.textContent = t('pulse.updSynced', { date: fw.synced });
-    railUpdate.title = t('rail.updateSynced', { synced: fw.synced, hash: fw.hash ? ' · ' + fw.hash.slice(0, 7) : '' });
+    /* ONE SHORT WORD, THE DETAIL IN THE TOOLTIP. This read "could not check · last synced
+       2026-09-15" — about 38 characters in a header row built for ten — and at a narrow panel it
+       drew straight over the wordmark (operator-reported, 2026-09-22).
+       The word has to be TRUE, not just short. This branch is `unknown`, which covers any failed
+       `git ls-remote`: no network, but also GitHub down, a proxy, an 8s timeout. Calling all of
+       those "offline" would tell someone on a working connection that theirs is broken. The OS
+       knows the difference: navigator.onLine false means there is genuinely no network. Anything
+       else is honestly "can't check". */
+    const offline = navigator.onLine === false;
+    const hash = fw.hash ? ' · ' + fw.hash.slice(0, 7) : '';
+    if (txt) txt.textContent = t(offline ? 'pulse.updOffline' : 'pulse.updCantCheck');
+    railUpdate.title = t(offline ? 'rail.updateOffline' : 'rail.updateCantCheck', { synced: fw.synced, hash });
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   } else if (state === 'unknown') {
     /* There is nothing to compare against — no .aios-update tracker yet, which is the normal
@@ -5194,6 +5204,12 @@ function updateRailStatus(state, fw) {
   }
 }
 updateRailStatus('', null);
+/* The "offline" tooltip says it re-checks by itself on reconnect, so it does: coming back online
+   is the one moment a failed check is most likely to succeed, and making the operator click for
+   it would leave a stale "offline" on screen after the network returned. Going offline repaints
+   the word too, so it never claims a connection that has just dropped. */
+window.addEventListener('online', () => { try { pulse.send({ type: 'recheck' }); } catch { /* pulse not up yet */ } });
+window.addEventListener('offline', () => { try { pulse.send({ type: 'recheck' }); } catch { /* pulse not up yet */ } });
 function updateAgentBadge(n) {
   const badge = railAgents.querySelector('.ribadge');
   if (!badge) return;
