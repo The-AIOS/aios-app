@@ -435,6 +435,28 @@ function sessionNameFromTranscript(file: string, mtime: number): string {
   return name;
 }
 
+/* #28 — WHERE EACH SESSION WE ARE ABOUT TO OFFER STANDS NOW. Not `sessions:resumable`: that list
+   hides unnamed sessions on purpose and is capped, so a restored pane that never announced a name
+   would be reported "could not be found" when its transcript is sitting right there. This asks
+   about exactly the ids we hold, and nothing else.
+     exists — a transcript is on disk, so `claude --resume <id>` has something to resume
+     live    — another surface (Glass, a terminal) already has it open; resuming it here would
+               open a second pane fighting the first for one conversation
+   The id becomes part of a PATH, so anything that is not id-shaped is refused before it is joined. */
+ipcMain.handle('sessions:locate', (_e, ids: unknown) => {
+  const want = (Array.isArray(ids) ? ids : []).map(String).filter((id) => /^[0-9a-f][0-9a-f-]{7,63}$/i.test(id));
+  const dir = path.join(os.homedir(), '.claude', 'projects');
+  let projs: string[] = [];
+  try { projs = fs.readdirSync(dir); } catch { /* no transcripts at all */ }
+  const live = new Set(aios.listRunningAgents().map((a: { sessionId?: string }) => a.sessionId).filter(Boolean));
+  const out: Record<string, { exists: boolean; live: boolean }> = {};
+  for (const id of want) {
+    const exists = projs.some((pr) => { try { return fs.existsSync(path.join(dir, pr, id + '.jsonl')); } catch { return false; } });
+    out[id] = { exists, live: live.has(id) };
+  }
+  return out;
+});
+
 ipcMain.handle('sessions:resumable', () => {
   const dir = path.join(os.homedir(), '.claude', 'projects');
   let files: Array<{ file: string; at: number }> = [];
@@ -1248,6 +1270,47 @@ app.whenReady().then(() => {
         console.log(`shell-smoke: settings rebuild — ${rowsFirst} rows, ${rowsAfter} after rebuild`);
       } catch (err) { console.error('shell-smoke: rebuild gate error', err); }
 
+      /* GATE: #28 — A RESTORED TAB IS REAL, REMEMBERED, AND COSTS NOTHING UNTIL OPENED. Driven
+         through the actual functions rather than read as source: a placeholder is created, must
+         appear in the strip marked as waiting, must NOT be the visible pane (nothing has started),
+         must be in the persisted list, and must LEAVE the list when the operator closes it. The
+         lookup behind the launch offer is probed with a path-traversal id, which it must drop —
+         that id becomes part of a filesystem path. Nothing here spawns a process. */
+      let restoreOk = false;
+      try {
+        const rs = await win.webContents.executeJavaScript(`(async () => {
+          const keep = localStorage.getItem('shellSessions');
+          const sid = '00000000-0000-4000-8000-00000000abcd';
+          const termsBefore = [...panes.values()].filter((x) => x.kind === 'term').length;
+          const id = createRestoreTab({ sessionId: sid, name: 'smoke-restore', cwd: '' });
+          const p = panes.get(id);
+          const tabOk = !!(p && p.tab && p.tab.classList.contains('restoring') && document.body.contains(p.tab));
+          /* NOTHING STARTED — the property lazy restore exists for. Asked as "no new terminal pane",
+             not "not the active pane": a placeholder may legitimately be SHOWN (it is the last thing
+             in its zone), and then its body must say it is paused and offer Resume. */
+          await new Promise((r) => setTimeout(r, 300));
+          const idle = !!p && p.kind === 'restore'
+            && [...panes.values()].filter((x) => x.kind === 'term').length === termsBefore
+            && !!p.el.querySelector('button.vbtn');
+          const inSnap = sessionsSnapshot().sessions.some((x) => x.sessionId === sid);
+          persistSessions();
+          await new Promise((r) => setTimeout(r, 400));
+          const stored = JSON.parse(localStorage.getItem('shellSessions') || '{"sessions":[]}');
+          const persisted = stored.sessions.some((x) => x.sessionId === sid);
+          closePane(id);
+          const dropped = !sessionsSnapshot().sessions.some((x) => x.sessionId === sid);
+          const loc = await window.glassShell.locateSessions(['../../../../etc/passwd', sid]);
+          const traversalRefused = !Object.keys(loc).some((k) => k.includes('/') || k.includes('..'));
+          const answered = !!loc[sid] && loc[sid].exists === false;
+          await new Promise((r) => setTimeout(r, 300));
+          if (keep === null) localStorage.removeItem('shellSessions'); else localStorage.setItem('shellSessions', keep);
+          return { tabOk, idle, inSnap, persisted, dropped, traversalRefused, answered };
+        })()`).catch((e) => ({ err: String(e) }));
+        restoreOk = !!rs && !rs.err && rs.tabOk && rs.idle && rs.inSnap && rs.persisted && rs.dropped && rs.traversalRefused && rs.answered;
+        if (!restoreOk) console.error(`shell-smoke: restore gate FAIL — ${JSON.stringify(rs)}`);
+        console.log(`shell-smoke: restore — ${JSON.stringify(rs)}`);
+      } catch (err) { console.error('shell-smoke: restore gate error', err); }
+
       /* GATE: THE PANEL HEADER NEVER DRAWS ITS TWO HALVES ON TOP OF EACH OTHER. The offline label
          overlapped the wordmark at a narrow panel (operator-reported 2026-09-22) — the same defect
          class as the clipped busy-row buttons, one row over, and nothing measured this row. So:
@@ -1470,10 +1533,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && headOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + header + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + header + restore + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

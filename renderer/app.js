@@ -514,7 +514,7 @@ function applySplit() {
   const tz = document.getElementById('termzone');
   const vz = document.getElementById('viewzone');
   const hs = document.getElementById('hsplit');
-  const anyTerm = [...panes.values()].some((p) => p.kind === 'term');
+  const anyTerm = termZoneHasPanes();
   const anyMain = [...panes.values()].some((p) => zoneOf(p) === 'main');
   const show = split && anyTerm; // empty dock = invisible dock (less cockpit)
   /* The editor zone earns the same rule the dock has always had. It used to stay open when
@@ -2002,6 +2002,24 @@ function renderPulseUpdate(m) {
 }
 
 /* ── unified/split zones: tabs + panes per zone ───────────────────────────── */
+/* #28 restore state — declared HERE, beside `panes`, and not with the functions that use it.
+   persistSessions() is called from setActive/closePane/renamePane, which run long before the
+   restore section further down would have been evaluated; a `let` read above its declaration
+   throws, and that throw would land inside setActive. Same class as the temporal-dead-zone crash
+   smoke gate 7 exists for. */
+const RESTORE_KEY = 'shellSessions';
+let restoreQuitting = false;
+let restoreTimer = 0;
+let restorePending = null;
+let restoreSeq = 0;
+/* Read ONCE, at load, before any pane can exist. Every change in this run overwrites the store
+   with THIS run's sessions, so the offer has to be made from a copy taken before that happens. */
+const restoreOnLaunch = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RESTORE_KEY) || 'null');
+    return raw && Array.isArray(raw.sessions) ? raw : null;
+  } catch { return null; }
+})();
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
 /* AI-82 — `active` is now FOCUS, not visibility.
    It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
@@ -2024,7 +2042,14 @@ const zoneSplit = (z) => zones[z].visible.length > 1;
 const active = { main: null, term: null };
 let viewSeq = 0;
 
-const zoneOf = (p) => (split && p.kind === 'term' ? 'term' : 'main');
+const zoneOf = (p) => (split && (p.kind === 'term' || p.kind === 'restore') ? 'term' : 'main');
+/* "Is there anything in the terminal zone?" — asked by ZONE, not by kind, and asked in one place.
+   It was three copies of `kind === 'term'`, while the editor-zone twin beside the first one already
+   asked by zone. The difference was invisible until a second kind could live in that zone: a
+   restored tab (#28) is shown there but was not counted, so the zone was judged empty, stayed
+   hidden, and homePane → applySplit → homePane re-homed every pane forever. The smoke gate for
+   #28 hit it on its first run as "Maximum call stack size exceeded". */
+const termZoneHasPanes = () => [...panes.values()].some((p) => zoneOf(p) === 'term');
 const tabsEl = (z) => document.getElementById(z === 'term' ? 'ttabs' : 'tabs');
 const panesEl = (z) => document.getElementById(z === 'term' ? 'tpanes' : 'panes');
 
@@ -2401,6 +2426,7 @@ function paintStrip(z) {
 /* Move `dragId` to just before/after `overId` inside one strip. Same-strip only by design:
    a tab cannot cross zones, land in the explorer, or enter the panel. */
 function moveTab(z, dragId, overId, after) {
+  setTimeout(persistSessions, 0);   // the stored order follows the strip
   const list = tabOrder[z];
   const from = list.indexOf(dragId);
   if (from < 0) return;
@@ -2607,6 +2633,10 @@ function unsplitZone(z) {
 function setActive(id) {
   const p = panes.get(id);
   if (!p) return;
+  /* #28 — OPENING A RESTORED TAB IS WHAT RESUMES IT. The placeholder never becomes the active
+     pane itself: it hands over to a real session in its place, so everything that assumes an
+     active pane has a pty keeps holding. */
+  if (p.kind === 'restore') { void materializeRestore(id); return; }
   const z = zoneOf(p);
   /* Clicking a HIDDEN pane's tab while split swaps it into the half the operator was focused in,
      rather than collapsing the split. Collapsing would make every tab click destroy the
@@ -2617,6 +2647,7 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
+  if (p.sessionId) persistSessions();   // #28 — which one to resume first, next launch
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
   try { p.tab.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } catch { /* older engines */ }
@@ -2640,7 +2671,12 @@ function ensureActive(z) {
      rebuilding, so the surviving pane keeps its side until it is alone. */
   zones[z].visible = zones[z].visible.filter((v) => ids.includes(v));
   zones[z].frac = evenFrac(zones[z].visible.length);
-  if (!ids.includes(active[z])) active[z] = zones[z].visible[0] ?? ids[ids.length - 1] ?? null;
+  /* Prefer a REAL pane over a restored placeholder (#28) when choosing who inherits the zone.
+     A placeholder can still end up shown — when it is all that is left — and that is fine, because
+     its body says it is paused and offers Resume; what must never happen is a process starting
+     because something else closed. */
+  const real = ids.filter((i) => panes.get(i)?.kind !== 'restore');
+  if (!ids.includes(active[z])) active[z] = zones[z].visible[0] ?? real[real.length - 1] ?? ids[ids.length - 1] ?? null;
   setVisible(z);
   saveLayout();
 }
@@ -2680,8 +2716,8 @@ function showUpdatePill(version, state = 'ready', pct = null) {
     pill.addEventListener('click', async () => {
       if (pill.dataset.state !== 'ready') return;   // still downloading — nothing to install yet
       const v = pill.dataset.version || '';
-      // Confirm, because this closes live terminals. Once session-restore lands the cost
-      // drops and this prompt can soften — until then it must not be a surprise.
+      // Confirm, because this closes live terminals. Session restore (#28) softened the cost —
+      // sessions are offered back on relaunch — but plain terminals are not, so it stays a question.
       if (!window.confirm(t('update.confirm', { version: v }))) return;
       await window.glassShell.updaterInstall();
     });
@@ -2753,6 +2789,7 @@ function renamePane(id, name) {
   const p = panes.get(id);
   if (!p || !name || name === p.name) return;
   p.name = name;
+  persistSessions();
   const nm = p.tab.querySelector('.tname');
   if (nm) nm.textContent = name;
   // Running correlates by name, so it has to be repainted or the row stays orphaned.
@@ -3086,7 +3123,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   // `name` travels as data, not smuggled inside the command string — see termEnv().
   const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name });
   const tab = makeTab(id, name, 'term');
-  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, isSession: paneIsClaude(cmd) };
+  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
   homePane(id, p, { fresh: true });
@@ -3276,6 +3313,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
        with `/rename`; the sessionId is what the session actually IS. Liveness and endings are
        decided from this, never from the label — see the pulse handler. */
     p.sessionId = hit.id || null;
+    persistSessions();
     /* …and when the name is AMBIGUOUS, the title cannot tell us which session this is. Two live
        sessions may share a name (`spawn ingest` twice), and `.find()` hands both panes the same
        entry — after which every per-session display mirrors one session onto two tabs.
@@ -3288,6 +3326,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
         const real = map && map[id];
         if (!real || !real.id) return;
         p.sessionId = real.id;
+        persistSessions();
         if (real.name && real.name !== p.confirmedName) { p.confirmedName = real.name; renamePane(id, real.name); }
       }).catch(() => { /* ps unavailable — keep the name-matched guess */ });
     }
@@ -3365,6 +3404,7 @@ function closePane(id) {
   unregisterTab(id);
   if (active[z] === id) ensureActive(z);
   updateEmpty();
+  persistSessions();   // a tab the operator closed is a session they chose not to keep
   /* Unconditional now. It used to re-split only when the LAST TERMINAL closed, which was
      right when only the dock could hide; the editor zone hides on the same rule today, so
      closing the last editor pane has to re-run the split too or the zone stays open empty. */
@@ -3540,7 +3580,7 @@ function ensureTermRoom(id, p) {
   if (grew) { applySplit(); saveLayout(); fitTerms(); }
 }
 function expandZone(zone) {
-  const anyTerm = [...panes.values()].some((p) => p.kind === 'term');
+  const anyTerm = termZoneHasPanes();
   if (!split || !anyTerm) { setZen(!zenOn); return; }
   const maxed = zone === 'term' ? th >= TH_MAX - 0.01 : th <= TH_MIN + 0.01;
   const squeezed = zone === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
@@ -3568,7 +3608,7 @@ function paintExpandBtn(btn, zone) {
   btn.title = t('viewer.' + state);
 }
 function paintExpandButtons() {
-  const anyTerm = [...panes.values()].some((p) => p.kind === 'term');
+  const anyTerm = termZoneHasPanes();
   for (const [id, zone] of [['zexpMain', 'main'], ['zexpTerm', 'term']]) {
     const btn = document.getElementById(id);
     if (!btn) continue;
@@ -4039,6 +4079,176 @@ async function batchResume() {
     void createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}` });
   }
   toast(t('resume.started', { n: picked.length }));
+}
+
+/* ═══ #28 — REOPEN LAST SESSIONS ═══════════════════════════════════════════════
+   When the App quits, the sessions that were open come back as an offer on the next launch.
+   Saying yes brings them back as TABS, and each one resumes when it is opened — only the one the
+   operator was in resumes straight away.
+
+   LAZY, because a session is not a tab, it is a process. One live session measured 2.8 GB here;
+   resuming eight at launch is eight Claude processes contending for memory, rate limit and first
+   paint at once, for tabs the operator may not open today. A tab costs nothing until it is used.
+   It is also why the offer can come PRE-TICKED, unlike the batch-resume picker, whose rule is
+   "never pre-ticked — each tick spawns a process": here a tick spawns nothing.
+
+   PERSISTED AS IT CHANGES, not snapshotted at quit. A crash, a force-quit and a power cut all skip
+   `beforeunload`; a list written at each change is already true when any of them happens. The
+   pending write is flushed at unload and then frozen, so nothing torn down during quit can
+   rewrite the list with half the tabs missing.
+
+   MACHINE-LOCAL (localStorage), deliberately. A session id means nothing on another computer, so
+   this must never ride along with the settings that sync.
+
+   What is stored is only what the resume needs — identity, label, where it ran. A session that
+   ENDED (its pty exited) is left out; one the operator CLOSED leaves the list with its tab. */
+/* (state declared beside `panes` — see the note there) */
+
+function sessionsSnapshot() {
+  const sessions = [];
+  for (const z of ['main', 'term']) {
+    for (const id of tabOrder[z]) {
+      const p = panes.get(id);
+      if (!p || !p.sessionId) continue;
+      if (p.kind === 'term' ? p.exited : p.kind !== 'restore') continue;
+      if (sessions.some((x) => x.sessionId === p.sessionId)) continue;
+      sessions.push({ sessionId: p.sessionId, name: p.name, manual: !!p.manualName, cwd: p.cwd || '' });
+    }
+  }
+  let activeSid = '';
+  for (const z of ['term', 'main']) {
+    const a = panes.get(active[z]);
+    if (a && a.sessionId) { activeSid = a.sessionId; break; }
+  }
+  return { v: 1, at: Date.now(), active: activeSid, sessions };
+}
+/* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
+   written is the state at the moment of the change, never the state mid-teardown. */
+function persistSessions() {
+  if (restoreQuitting) return;
+  try { restorePending = sessionsSnapshot(); } catch { return; }
+  clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(() => {
+    if (restoreQuitting || !restorePending) return;
+    try { localStorage.setItem(RESTORE_KEY, JSON.stringify(restorePending)); } catch { /* private mode */ }
+    restorePending = null;
+  }, 250);
+}
+window.addEventListener('beforeunload', () => {
+  clearTimeout(restoreTimer);
+  if (restorePending) { try { localStorage.setItem(RESTORE_KEY, JSON.stringify(restorePending)); } catch { /* */ } }
+  restoreQuitting = true;
+});
+
+/** A tab for a session that has not been resumed yet — no pty until it is opened. */
+function createRestoreTab(s) {
+  const id = 'restore-' + (++restoreSeq);
+  const box = document.createElement('div');
+  box.className = 'pane restorecard';
+  /* HONEST WHEN SHOWN. A placeholder is normally never the visible pane — opening its tab
+     replaces it — but it CAN end up shown (it is the last pane left in the zone). It said
+     "Resuming…" at first, which was a lie in exactly that case: nothing was resuming, and it
+     would have sat there forever. So it says what it is, and offers the one action. */
+  const msg = document.createElement('div');
+  msg.className = 'restoremsg';
+  msg.textContent = t('restore.paused', { name: s.name });
+  const go = document.createElement('button');
+  go.className = 'vbtn primary';
+  go.textContent = t('restore.resumeNow');
+  box.append(msg, go);
+  const tab = makeTab(id, s.name, 'term');
+  tab.classList.add('restoring');
+  tab.title = t('restore.tabHint');
+  const p = { kind: 'restore', name: s.name, el: box, tab, sessionId: s.sessionId, cwd: s.cwd || '',
+              manualName: !!s.manual, exited: false };
+  go.addEventListener('click', () => void materializeRestore(id));
+  panes.set(id, p);
+  attachPaneDropTarget(p, id);   // uniform with every other pane kind (split.test's invariant)
+  homePane(id, p, { fresh: false });
+  return id;
+}
+
+/** Turn a placeholder into the real session, in the same place in the strip. */
+async function materializeRestore(id) {
+  const ph = panes.get(id);
+  if (!ph || ph.kind !== 'restore' || ph.materializing) return;
+  ph.materializing = true;
+  const cmd = `${CLAUDE} --resume ${shq(ph.sessionId)}`;
+  const newId = await createPane({ name: ph.name, cmd, cwd: ph.cwd || undefined });
+  if (newId == null) {
+    /* Refused before it started (Claude missing, setup incomplete). Keep the tab and say so —
+       dropping it would lose the one thing the operator asked to keep. */
+    ph.materializing = false;
+    /* A TOAST, not text in the placeholder: the placeholder is never the visible pane (opening it
+       is what replaces it), so a message written into it would be read by nobody. */
+    toast(t('restore.failed', { name: ph.name }));
+    return;
+  }
+  const np = panes.get(newId);
+  if (np) {
+    /* Identity carried over NOW, not when the session next announces its title: until then the
+       new pane would have no sessionId, and a quit in that window would drop it from the list. */
+    np.sessionId = ph.sessionId;
+    np.isSession = true;
+    if (ph.manualName) np.manualName = true;
+  }
+  const z = np ? zoneOf(np) : zoneOf(ph);
+  const order = tabOrder[z];
+  const ni = order.indexOf(newId);
+  if (ni >= 0 && order.includes(id)) { order.splice(ni, 1); order.splice(order.indexOf(id), 0, newId); }
+  closePane(id);
+  paintStrip(z);
+  setActive(newId);
+  persistSessions();
+}
+
+/** On launch: offer back what was open, lazily. */
+async function offerRestore() {
+  const saved = restoreOnLaunch;
+  if (!saved || !saved.sessions.length) return;
+  let where = {};
+  try { where = await window.glassShell.locateSessions(saved.sessions.map((x) => x.sessionId)); } catch { where = {}; }
+  const ready = [], missing = [], elsewhere = [];
+  for (const x of saved.sessions) {
+    const w = where[x.sessionId];
+    if (!w || !w.exists) missing.push(x.name);
+    else if (w.live) elsewhere.push(x.name);
+    else ready.push(x);
+  }
+  const report = (n) => [
+    n ? t('restore.done', { n: String(n) }) : '',
+    missing.length ? t('restore.missing', { names: missing.join(', ') }) : '',
+    elsewhere.length ? t('restore.elsewhere', { names: elsewhere.join(', ') }) : '',
+  ].filter(Boolean).join(' · ');
+  if (!ready.length) {
+    if (missing.length || elsewhere.length) toast(report(0));
+    try { localStorage.removeItem(RESTORE_KEY); } catch { /* */ }
+    return;
+  }
+  const items = ready.map((x) => ({
+    label: x.name,
+    desc: x.sessionId === saved.active ? t('restore.wasActive') : '',
+    icon: 'term',
+    value: x,
+    picked: true,          // safe to pre-tick: a tick spawns nothing (see the note above)
+    hay: [x.name, x.sessionId].join(' '),
+  }));
+  const chosen = await checkModal(t('restore.title'), items, {
+    hint: t('restore.hint'),
+    confirmLabel: t('restore.confirm'),
+    allowEmpty: true,
+  });
+  const picked = Array.isArray(chosen) ? chosen.filter((c) => c && c.sessionId) : [];
+  if (!picked.length) {
+    try { localStorage.removeItem(RESTORE_KEY); } catch { /* */ }
+    if (missing.length || elsewhere.length) toast(report(0));
+    return;
+  }
+  const ids = picked.map(createRestoreTab);
+  const at = picked.findIndex((x) => x.sessionId === saved.active);
+  void materializeRestore(ids[at >= 0 ? at : 0]);
+  persistSessions();
+  toast(report(picked.length));
 }
 
 /* ── RECENTS ───────────────────────────────────────────────────────────────────
@@ -8170,6 +8380,10 @@ void initLocale().then(async () => {
     /* AFTER readiness, and only when the workbench is actually usable. A "what's new" tab in front
        of an operator whose framework is missing is noise on top of a real problem — Setup owns
        that screen, and returning above keeps this out of its way. */
+    /* #28 — the offer comes FIRST: What's New opens a tab, and a modal arriving over a tab the
+       operator did not ask for reads as two things interrupting at once. Awaited, so the two
+       never overlap; a failure here must never cost the operator What's New. */
+    try { await offerRestore(); } catch { /* the sessions stay resumable from the picker */ }
     void maybeShowWhatsNew();
   } catch { /* if we cannot even ask, the Setup tab is still reachable by hand */ }
 });

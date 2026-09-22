@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
   onCaffeinate: (cb: (s: unknown) => void) => ipcRenderer.on('shell:caffeinate', (_e, s) => cb(s)),
   menuShortcuts: (): Promise<Array<{ group: string; label: string; accel: string }>> => ipcRenderer.invoke('menu:shortcuts'),
+  locateSessions: (ids: string[]): Promise<Record<string, { exists: boolean; live: boolean }>> => ipcRenderer.invoke('sessions:locate', ids),
   resumableSessions: (): Promise<{ items: Array<{ id: string; name: string; proj: string; at: number }>; total: number; named: number; unnamed: number }> =>
     ipcRenderer.invoke('sessions:resumable'),
   ptyRun: (id: number, cmd: string): Promise<boolean> => ipcRenderer.invoke('pty:run', { id, cmd }),
