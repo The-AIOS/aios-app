@@ -477,6 +477,17 @@ function saveLayout() {
   try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
 }
 
+/* Every explicit layout choice (the title-bar menu, ⌘1–4) goes through here.
+   CHOOSING A LAYOUT THAT HAS A PANEL BRINGS THE PANEL BACK. ⌘B hides it, and the people who press
+   ⌘B by accident have no idea what they pressed, so they have no idea how to undo it. Asked
+   2026-09-22. The layout menu is where a lost person goes looking, and picking a layout (even
+   the one they are already on) is the natural "reset this" gesture. Zen has no panel by design,
+   so choosing Zen leaves pOn alone and the panel comes back once they leave Zen. */
+function choosePreset(name) {
+  preset = name;
+  if (hasPanel(name)) { lastPanelPreset = name; pOn = true; }
+}
+
 function applyLayout() {
   // Anything the tree missed while it was hidden becomes visible again HERE — the one place
   // every layout/visibility change funnels through. Fire-and-forget: it no-ops when nothing
@@ -5546,11 +5557,7 @@ document.getElementById('railLayout').addEventListener('click', (e) => {
     const g = el('span', 'lglyph'); g.innerHTML = layoutGlyph(name);
     b.append(g, document.createTextNode(layoutLabel(name) + (name === preset ? '  ✓' : '')));
     b.classList.toggle('on', name === preset);
-    b.addEventListener('click', () => {
-      preset = name;
-      if (hasPanel(name)) lastPanelPreset = name;   // remember it for the way back out of Zen
-      applyLayout(); menu.remove();
-    });
+    b.addEventListener('click', () => { choosePreset(name); applyLayout(); menu.remove(); });
     menu.appendChild(b);
   }
   const sep = document.createElement('div'); sep.className = 'lsep'; menu.appendChild(sep);
@@ -5836,10 +5843,7 @@ window.glassShell.onIntent(async (m) => {
       if (m.toggleExplorer) { if (!hasExplorer()) { preset = lastPanelPreset; xOn = true; } else { xOn = !xOn; } }
       // validate: the native menu once sent 'Full' long after it was renamed, and an
       // unknown value sailed straight through into the persisted layout
-      if (m.preset && LAYOUTS.includes(m.preset)) {
-        preset = m.preset;
-        if (hasPanel(preset)) lastPanelPreset = preset;
-      }
+      if (m.preset && LAYOUTS.includes(m.preset)) choosePreset(m.preset);
       applyLayout();
       return;
     /* ⌘W / File → Close Tab. Same hand, same gate. NOTE: this is a native accelerator

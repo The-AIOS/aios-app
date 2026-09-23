@@ -75,7 +75,7 @@ test('the menu carries a position diagram, and picking a layout remembers it', (
     assert.match(app, new RegExp(`${name}: \\[`), `${name} needs a diagram entry`);
   }
   assert.match(app, /function layoutGlyph\(name\)/);
-  assert.match(app, /if \(hasPanel\(name\)\) lastPanelPreset = name;/);
+  assert.match(app, /if \(hasPanel\(name\)\) \{ lastPanelPreset = name; pOn = true; \}/, 'remembered in choosePreset — see panelReturn.test');
   assert.match(css, /\.lglyph \{/);
 });
 
@@ -99,8 +99,7 @@ test('the NATIVE menu owns ⌘1–4, and the renderer does not duplicate it', ()
 
 test('the renderer validates a preset handed to it by the menu', () => {
   // `if (m.preset) preset = m.preset` let an unknown value sail into the persisted layout
-  assert.match(app, /if \(m\.preset && LAYOUTS\.includes\(m\.preset\)\) \{/);
-  assert.match(app, /if \(hasPanel\(preset\)\) lastPanelPreset = preset;/);
+  assert.match(app, /if \(m\.preset && LAYOUTS\.includes\(m\.preset\)\) choosePreset\(m\.preset\);/);
 });
 
 test('every surface that names the shortcut range or the layouts is current', () => {
