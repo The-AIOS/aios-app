@@ -5431,6 +5431,10 @@ function updateRailStatus(state, fw) {
        knows the difference: navigator.onLine false means there is genuinely no network. Anything
        else is honestly "can't check". */
     const offline = navigator.onLine === false;
+    /* AMBER, not the default green. The dot fell through to `st-idle`, which is "alive and ready" —
+       so a header that could not check sat beside the same colour as one that had checked and was
+       fine. Neither offline nor can't-check is fine; both are "attention soon". Operator's call. */
+    if (dot) dot.className = 'pdot st-warn';
     const hash = fw.hash ? ' · ' + fw.hash.slice(0, 7) : '';
     if (txt) txt.textContent = t(offline ? 'pulse.updOffline' : 'pulse.updCantCheck');
     railUpdate.title = t(offline ? 'rail.updateOffline' : 'rail.updateCantCheck', { synced: fw.synced, hash });

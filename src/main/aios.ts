@@ -1107,6 +1107,21 @@ export function gitBin(): string {
   return GIT_BIN;
 }
 
+/** Is there anything to compare against? A tracker with a repo and a commit-shaped hash. When
+ *  this is true, an `unknown` from checkForUpdates means the NETWORK check failed — the one kind
+ *  of unknown that a retry can fix. One rule, used by the check and by its retry, so the two can
+ *  never disagree about which unknowns are worth another attempt. */
+export function frameworkCheckable(status: { repo?: string; hash?: string } | null | undefined): boolean {
+  return !!status && !!status.repo && !!status.hash && /^[0-9a-f]{7,40}$/i.test(status.hash);
+}
+
+/** How long to wait before retrying a failed check: 5s, 10s, 20s… capped at the regular poll.
+ *  Starts short because the commonest failure is a network that has only just come back. */
+export function updateRetryDelay(failures: number, capMs: number): number {
+  const n = Math.max(1, Math.floor(failures));
+  return Math.min(5_000 * 2 ** (n - 1), capMs);
+}
+
 export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown'> {
   const status = readFrameworkStatus();
   if (!status || !status.repo || !status.hash) return Promise.resolve('unknown');
@@ -1116,7 +1131,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
      had just synced, then silently corrected itself when the real sha landed. Observed exactly
      that. An unusable hash means "cannot tell", not "you are behind": a false alarm that
      resolves on its own teaches the operator to ignore the pill. */
-  if (!/^[0-9a-f]{7,40}$/i.test(status.hash)) return Promise.resolve('unknown');
+  if (!frameworkCheckable(status)) return Promise.resolve('unknown');   // the SAME rule the retry uses
   return new Promise((resolve) => {
     // SSH remotes need an agent the GUI process may not have — public repo, use https
     const url = status.repo.replace(/^git@github\.com:/, 'https://github.com/');

@@ -22,6 +22,8 @@ export class PanelHost {
   private updTimer?: ReturnType<typeof setInterval>;
   private updDebounce?: ReturnType<typeof setTimeout>;
   private updAt = 0;
+  private updRetry?: ReturnType<typeof setTimeout>;
+  private updFailures = 0;
   private watchers: fs.FSWatcher[] = [];
   private bootAt = Date.now();
   private lastReveal = 0;
@@ -264,8 +266,31 @@ export class PanelHost {
 
   postUpdateStatus(): void {
     this.updAt = Date.now();
-    void aios.checkForUpdates().then((state) =>
-      this.post({ type: 'updateStatus', state, framework: aios.readFrameworkStatus() ?? null }));
+    void aios.checkForUpdates().then((state) => {
+      const framework = aios.readFrameworkStatus() ?? null;
+      this.post({ type: 'updateStatus', state, framework });
+      /* A FAILED CHECK RETRIES ITSELF. Operator-reported 2026-09-22: Wi-Fi off showed "offline",
+         Wi-Fi back on showed "can't check" — and it stayed that way until the App was restarted.
+         The reconnect DID trigger a check, at the one moment it is least likely to succeed: the
+         `online` event fires when the interface comes up, before DNS is ready. That failure then
+         had nothing behind it but the 5-minute poll, and focus only re-checks after 60s — so a
+         header saying "can't check" looked permanent.
+         Only the unknowns a retry can fix: a tracker exists, so the network call is what failed.
+         (No tracker at all is a different state and retrying it would change nothing.) Backoff
+         from 5s, capped at the regular poll, and stopped the moment an answer arrives — so this
+         adds work only while something is genuinely wrong, never on a healthy window. */
+      if (this.updRetry) { clearTimeout(this.updRetry); this.updRetry = undefined; }
+      if (state === 'unknown' && aios.frameworkCheckable(framework)) {
+        this.updFailures += 1;
+        this.updRetry = setTimeout(() => {
+          this.updRetry = undefined;
+          const w = BrowserWindow.fromWebContents(this.wc);
+          if (w && !w.isDestroyed()) this.postUpdateStatus();
+        }, aios.updateRetryDelay(this.updFailures, UPD_POLL_MS));
+      } else {
+        this.updFailures = 0;
+      }
+    });
   }
 
   /** Messages FROM the panel — same protocol the extension speaks. */

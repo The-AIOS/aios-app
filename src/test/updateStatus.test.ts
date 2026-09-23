@@ -10,6 +10,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import { frameworkCheckable } from '../main/aios';
 
 const host = fs.readFileSync('src/main/panelHost.ts', 'utf8');
 const main = fs.readFileSync('src/main/main.ts', 'utf8');
@@ -83,11 +84,17 @@ test('a placeholder hash means "cannot tell", never "you are behind"', () => {
      that had JUST synced, then silently corrected itself when the real sha landed. Observed on a
      real run. A false alarm that resolves on its own is worse than no alarm: it teaches the
      operator to ignore the pill. */
+  /* BEHAVIOUR first: the rule itself, exercised. It used to pin the literal regex line inside
+     checkForUpdates, which broke the moment that rule moved into `frameworkCheckable` so the
+     retry could share it — a correct refactor failing a guard whose intent it kept. */
+  assert.equal(frameworkCheckable({ repo: 'https://github.com/The-AIOS/aios.git', hash: 'initial' }), false,
+    'a placeholder hash cannot be compared — "cannot tell", never "you are behind"');
+  assert.equal(frameworkCheckable({ repo: 'https://github.com/The-AIOS/aios.git', hash: '585f3d3' }), true);
+  // …and the ORDER, which is the part only the source can show: guard before comparison.
   const src = fs.readFileSync('src/main/aios.ts', 'utf8');
-  assert.match(src, /if \(!\/\^\[0-9a-f\]\{7,40\}\$\/i\.test\(status\.hash\)\) return Promise\.resolve\('unknown'\);/);
-  // and the guard must come BEFORE the comparison, or it protects nothing
-  const iGuard = src.indexOf("test(status.hash)) return Promise.resolve('unknown')");
-  const iCompare = src.indexOf('remote.startsWith(status.hash)');
+  const fn = src.slice(src.indexOf('export function checkForUpdates()'));
+  const iGuard = fn.indexOf("if (!frameworkCheckable(status)) return Promise.resolve('unknown')");
+  const iCompare = fn.indexOf('remote.startsWith(status.hash)');
   assert.ok(iGuard > 0 && iCompare > iGuard, 'validate the hash before comparing against it');
 });
 
