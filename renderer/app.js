@@ -1654,35 +1654,51 @@ async function closeAllSessions(sessions) {
   toast(t('pulse.closeAllSent', { n: picked.length, primary }));
   // 2. optional kill — ONLY after a session finishes capturing, and never the primary
   if (doKill) {
-    const killNames = picked.filter((a) => a.name !== primary).map((a) => a.name);
-    void watchThenKill(killNames);
+    /* Sessions, not names: two picked sessions can share one, and a name alone would let the
+       wait watch one of them and close the other. */
+    void watchThenKill(picked.filter((a) => a.name !== primary).map((a) => ({ name: a.name, id: a.id })));
   }
   // 3. optional consolidation — one writer, in the primary session
   if (doCloseDay) setTimeout(() => void runInPrimary('/aios:close-day'), 1500);
 }
 
-/* Wait for each named session to finish its --auto capture (seen busy → back to
+/* Wait for each session to finish its --auto capture (seen busy → back to
    idle, or gone from the registry), THEN kill it. Never kills mid-capture; a session
-   that never shows the cycle inside the window is left alone (safer than losing work). */
-async function watchThenKill(names) {
-  const pending = new Set(names), seenBusy = new Set();
+   that never shows the cycle inside the window is left alone (safer than losing work).
+
+   Each target is `{ name, id?, paneId? }` — a SESSION, not a name. This used to take names and
+   look them up in a Map keyed by name, so with two sessions sharing one the Map kept only the
+   last, the wait watched whichever that was, and the close landed on `byName`'s first match:
+   ending one `update` closed the other. Now the registry entry is found by `id`, the pane by
+   `paneId` or `paneOf`, and a name shared by two live sessions with no id to tell them apart is
+   never resolved at all — it waits out the deadline and is reported, like any session this
+   loop cannot be sure about. */
+async function watchThenKill(targets) {
+  const pending = new Set(targets.map((x) => (typeof x === 'string' ? { name: x } : x)));
+  const seenBusy = new Set();
   const deadline = Date.now() + 180000;
   await new Promise((r) => setTimeout(r, 2500)); // grace: let close-session start
   while (pending.size && Date.now() < deadline) {
-    const live = new Map((((pulse.lastRunning || {}).running) || []).map((a) => [a.name, a]));
-    for (const n of [...pending]) {
-      const a = live.get(n);
-      if (a && statusInfo(a.status).cls === 'busy') { seenBusy.add(n); continue; }
+    const running = ((pulse.lastRunning || {}).running) || [];
+    for (const tg of [...pending]) {
+      let a;
+      if (tg.id) a = running.find((r) => r.id === tg.id);
+      else {
+        const same = running.filter((r) => r.name === tg.name);
+        if (same.length > 1) continue;   // cannot tell which one is ours — never guess
+        a = same[0];
+      }
+      if (a && statusInfo(a.status).cls === 'busy') { seenBusy.add(tg); continue; }
       const gone = !a;
-      if (!gone && !seenBusy.has(n)) continue;
-      pending.delete(n);
-      const hit = byName(n);
-      if (hit) closePane(hit[0]);
+      if (!gone && !seenBusy.has(tg)) continue;
+      pending.delete(tg);
+      const id = tg.paneId != null && panes.has(tg.paneId) ? tg.paneId : (paneOf(tg.name, tg.id) || [null])[0];
+      if (id !== null) closePane(id);
       else if (a && a.pid) void window.glassShell.sessionSignal(a.pid, 'SIGTERM');
     }
     if (pending.size) await new Promise((r) => setTimeout(r, 1500));
   }
-  if (pending.size) toast(t('pulse.closeAllKillTimeout', { names: [...pending].join(', ') }));
+  if (pending.size) toast(t('pulse.closeAllKillTimeout', { names: [...pending].map((x) => x.name).join(', ') }));
 }
 
 /* a boxed, collapsible sub-section (Glass's Sessions / Terminals headers) */
@@ -1771,12 +1787,14 @@ function buildQuotaRow(q) {
 
    Returns 'kill' | 'capture' — or null when the operator dismissed the picker, which is the
    caller's cue that nothing happened and focus has to go back where it was. */
-async function endSession({ name, pid = null, paneId = null }) {
+async function endSession({ name, pid = null, paneId = null, sessionId = null }) {
   /* Resolved AFTER the await, never before: the session can end, or be closed from elsewhere,
-     while the picker is open. `panes.has` and closePane's own no-op cover the late answer. */
+     while the picker is open. `panes.has` and closePane's own no-op cover the late answer.
+     `paneOf`, never `byName`: this pane is about to be closed, and with two sessions sharing a
+     name the first match is a coin flip whose loser is a session nobody asked to end. */
   const pane = () => {
     if (paneId !== null && panes.has(paneId)) return paneId;
-    const hit = name ? byName(name) : null;
+    const hit = paneOf(name, sessionId);
     return hit ? hit[0] : null;
   };
   const hardKill = () => {
@@ -1795,7 +1813,7 @@ async function endSession({ name, pid = null, paneId = null }) {
       /* Then close it — but only once the capture is actually done. watchThenKill waits for
          seen-busy → idle, and a session that never shows that cycle inside its window is left
          open on purpose: an un-closed pane is recoverable, a capture killed halfway is not. */
-      if (name) void watchThenKill([name]);
+      if (name) void watchThenKill([{ name, id: sessionId || panes.get(id)?.sessionId || null, paneId: id }]);
     } else if (pid) void window.glassShell.sessionSignal(pid, 'SIGTERM');
     toast(t('session.closing', { name }));
     return 'capture';
@@ -1874,7 +1892,7 @@ function sessionRow(a) {
   });
   // Kill: behavior is configurable (Glass killBehavior parity). One decision site,
   // shared with the tab × — see endSession().
-  actBtn('trash', t('session.kill'), 'kill', () => void endSession({ name: a.name, pid: a.pid }));
+  actBtn('trash', t('session.kill'), 'kill', () => void endSession({ name: a.name, pid: a.pid, sessionId: a.id }));
   r.appendChild(acts);
   r.addEventListener('click', open);
   r.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
@@ -5356,6 +5374,19 @@ const byName = (name, id) => {
 /** More than one pane answers to this name — so a name alone cannot say which is meant. */
 const ambiguous = (name) =>
   [...panes.values()].filter((p) => p.kind === 'term' && p.name === name).length > 1;
+
+/* The pane of ONE session, for callers that are about to close it. By `sessionId` when known;
+   by name only when the name is unique. `byName` falls back to the first name match, which is
+   right for navigation and wrong here: with two `update` sessions open, killing one by pid and
+   then closing `byName('update')` took the OTHER one down too — the operator asked to end one
+   session and lost two. Undefined means "cannot tell", and the caller then leaves panes alone. */
+const paneOf = (name, id) => {
+  if (id) {
+    const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && p.sessionId === id);
+    if (hit) return hit;
+  }
+  return name && !ambiguous(name) ? byName(name) : undefined;
+};
 
 window.glassShell.onIntent(async (m) => {
   switch (m.kind) {

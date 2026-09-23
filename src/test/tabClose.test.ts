@@ -55,7 +55,7 @@ test('there is exactly ONE killBehavior decision, and both affordances reach it'
   assert.match(decision.slice(0, decision.indexOf('\n}\n')), /KILLBEHAVIOR === 'kill'/,
     'and that site is endSession');
   // both entry points, one function
-  assert.match(app, /actBtn\('trash', t\('session\.kill'\), 'kill', \(\) => void endSession\(\{ name: a\.name, pid: a\.pid \}\)\)/,
+  assert.match(app, /actBtn\('trash', t\('session\.kill'\), 'kill', \(\) => void endSession\(\{ name: a\.name, pid: a\.pid, sessionId: a\.id \}\)\)/,
     'the RUNNING card trash button');
   assert.match(app, /await endSession\(\{ name: p\.name, paneId: id \}\)/, 'the tab ×');
 });
@@ -165,14 +165,14 @@ test('Capture & close actually closes — after the capture, and never during it
   /* And it must reach the EXISTING waiter rather than grow a second wait loop. Two copies of
      "wait for the capture, then close" would drift, and the branch that drifts is this one —
      the one almost nobody sets. */
-  assert.match(body, /watchThenKill\(\[name\]\)/, 'reuse the proven waiter, one mechanism');
+  assert.match(body, /watchThenKill\(\[\{ name, id: /, 'reuse the proven waiter, one mechanism — handed the SESSION, not its name');
   assert.doesNotMatch(body, /setInterval|while \(|setTimeout\([^)]*15\d\d/,
     'endSession must not reimplement the polling that watchThenKill already does');
 
   /* The properties the reuse DEPENDS ON. If watchThenKill ever stops requiring seen-busy, or
      starts force-killing on timeout, this branch silently becomes "kill mid-capture" — the exact
      outcome the operator chose it to avoid. */
-  const w = app.slice(app.indexOf('async function watchThenKill(names) {'));
+  const w = app.slice(app.indexOf('async function watchThenKill(targets) {'));
   const wb = w.slice(0, w.indexOf('\n}'));
   assert.match(wb, /seenBusy/, 'it must wait for the capture to START before deciding it ended');
   assert.match(wb, /deadline/, 'and be bounded');
