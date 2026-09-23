@@ -1100,7 +1100,7 @@ app.whenReady().then(() => {
           && !/Content-Security-Policy/.test(msg)) rendererErrors.push(msg.slice(0, 200));
     });
   }
-  win.on('focus', () => { host?.refreshUpdateStatus(); rewireForRoots(win); });
+  win.on('focus', () => { host?.refreshUpdateStatus(); host?.refreshStateIfChanged(); rewireForRoots(win); });
   /* Every 4s while the window is up. Cheap (two path resolutions) and it only acts on a CHANGE,
      so the common case — roots that already exist — costs nothing after the first tick. */
   const rootPoll = setInterval(() => { if (!win.isDestroyed()) rewireForRoots(win); }, 4000);
@@ -1337,6 +1337,54 @@ app.whenReady().then(() => {
         if (!headOk) console.error(`shell-smoke: header gate FAIL — ${JSON.stringify(head)}`);
         console.log(`shell-smoke: header — row ${head?.rowW}px, overlap ${head?.overlapPx}px, spill ${head?.spillPx}px`);
       } catch (err) { console.error('shell-smoke: header gate error', err); }
+      /* GATE: THE TWO NEW RE-CHECKS COST NOTHING WHEN NOTHING CHANGED (AI-153 + the retry label).
+         0.9.8 adds two things that fire on a clock: the counter re-check (every 30s) and the
+         "retrying…" status (every few seconds while a check fails). Either one repainting the panel
+         on each tick would be AI-157's redraw class again, arriving by a new door. Unit tests prove
+         the gates in main; only a live renderer can prove the DOM stays still, so this measures
+         style recalcs + layouts through the DevTools protocol over three equal windows — plain
+         idle, ten counter re-checks, ten identical retrying posts — and requires the triggered
+         windows to cost no more than idle does (a small allowance for a clock tick landing inside). */
+      let idleOk = false;
+      try {
+        const dbg = win.webContents.debugger;
+        if (!dbg.isAttached()) dbg.attach('1.3');
+        await dbg.sendCommand('Performance.enable');
+        const metric = async (): Promise<number> => {
+          const r = await dbg.sendCommand('Performance.getMetrics') as { metrics: { name: string; value: number }[] };
+          const v = (n: string) => r.metrics.find((m) => m.name === n)?.value ?? 0;
+          return v('RecalcStyleCount') + v('LayoutCount');
+        };
+        const WINDOW_MS = 1500;
+        const measure = async (poke: () => void): Promise<number> => {
+          const a = await metric();
+          for (let i = 0; i < 10; i++) { poke(); await new Promise((r) => setTimeout(r, WINDOW_MS / 10)); }
+          return (await metric()) - a;
+        };
+        host?.postState();                                  // settle: the panel holds current state
+        await new Promise((r) => setTimeout(r, 800));
+        const idle = await measure(() => { /* nothing */ });
+        /* Count what main actually SENDS during the counter window, beside what the renderer paid:
+           recalcs alone cannot say whether a post happened or the 2s running-sessions tick landed. */
+        let statePosts = 0;
+        const wcs = win.webContents as unknown as { send: (c: string, m: unknown) => void };
+        const realSend = wcs.send.bind(wcs);
+        wcs.send = (c: string, m: unknown) => { if ((m as { type?: string })?.type === 'state') statePosts++; realSend(c, m); };
+        let counters: number;
+        try { counters = await measure(() => host?.refreshStateIfChanged()); } finally { wcs.send = realSend; }
+        const retryMsg = { type: 'updateStatus', state: 'unknown', retrying: true,
+                           framework: { repo: 'https://github.com/The-AIOS/aios.git', hash: '585f3d3', synced: '2026-09-15' } };
+        win.webContents.send('panel:post', retryMsg);       // the first one legitimately repaints
+        await new Promise((r) => setTimeout(r, 300));
+        const retrying = await measure(() => win.webContents.send('panel:post', retryMsg));
+        await dbg.sendCommand('Performance.disable');
+        dbg.detach();
+        const ALLOW = 4;
+        idleOk = statePosts === 0 && counters <= idle + ALLOW && retrying <= idle + ALLOW;
+        console.log(`shell-smoke: idle — recalc+layout per ${WINDOW_MS}ms: idle ${idle}, counter re-checks ${counters} (${statePosts} state posts), retrying posts ${retrying}`);
+        if (!idleOk) console.error(`shell-smoke: idle gate FAIL — a no-change re-check is repainting (idle ${idle}, counters ${counters}, retrying ${retrying})`);
+        host?.refreshUpdateStatus(true);                    // put the real status back
+      } catch (err) { console.error('shell-smoke: idle gate error', err); }
 
       /* GATE: THE ROW ACTIONS FIT INSIDE THE ROW. `.prow2` clips its overflow, so when the hover
          actions do not fit they are silently CUT rather than pushed anywhere visible — and the
@@ -1533,10 +1581,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && idleOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + header + restore + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + header + restore + idle + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, idle=${idleOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

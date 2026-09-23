@@ -47,7 +47,9 @@ test('window focus re-checks — the App has no view-visibility event to lean on
      window opens, so everything wired at boot — the panel's watchers, the explorer tree, the
      update tracker — was wired against a machine that no longer exists by the time setup
      finishes. Focus is the cheapest honest moment to notice, alongside the poll. */
-  assert.match(main, /win\.on\('focus', \(\) => \{ host\?\.refreshUpdateStatus\(\); rewireForRoots\(win\); \}\)/);
+  /* AI-153: focus is also when counters nothing watches (agents, skills, commands, frequent)
+     catch up — change-gated, so a focus with nothing new sends nothing. */
+  assert.match(main, /win\.on\('focus', \(\) => \{ host\?\.refreshUpdateStatus\(\); host\?\.refreshStateIfChanged\(\); rewireForRoots\(win\); \}\)/);
   assert.match(main, /function rewireForRoots\(win: BrowserWindow\): void/);
   assert.match(main, /host\?\.wireWatchers\(\);/, 'the panel watchers must be re-wired, not just refreshed');
   assert.match(main, /setInterval\(\(\) => \{ if \(!win\.isDestroyed\(\)\) rewireForRoots\(win\); \}, 4000\)/);

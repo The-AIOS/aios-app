@@ -5410,16 +5410,26 @@ dragGuide.addEventListener('click', () => void spawnNamed('onboarding-aios'));
 function updateRailStatus(state, fw, retrying = false) {
   const dot = railUpdate.querySelector('.pdot');
   const txt = railUpdate.querySelector('.pupdtext');
+  /* WRITE ONLY WHAT CHANGED. This runs on every status post — and a failing check now posts every
+     few seconds while it retries. Assigning the same text still replaces the text node and forces
+     a style recalc; harmless at that rate, but a status indicator should cost nothing when its
+     answer has not moved, and after AI-157 "harmless at this rate" is not a standard to keep. */
+  const setText = (v) => { if (txt && txt.textContent !== v) txt.textContent = v; };
+  const setTitle = (v) => { if (railUpdate.title !== v) railUpdate.title = v; };
+  const setDot = (c) => { if (dot && dot.className !== c) dot.className = c; };
   railUpdate.classList.toggle('updok', state === 'up-to-date');
   railUpdate.classList.toggle('updavail', state === 'available');
-  if (dot) dot.className = 'pdot ' + (state === 'available' ? 'st-warn' : state === 'up-to-date' ? 'st-ok' : 'st-idle');
+  /* The dot's class is DECIDED here and written once, at the end. It used to be written at the top
+     and overwritten in the offline branch — idle then amber, on every post — and that flip alone
+     cost a style recalc per "retrying" tick. The idle smoke gate measured it. */
+  let dotCls = 'pdot ' + (state === 'available' ? 'st-warn' : state === 'up-to-date' ? 'st-ok' : 'st-idle');
   if (state === 'available') {
-    if (txt) txt.textContent = t('pulse.updAvailable');
-    railUpdate.title = t('rail.updateAvailable');
+    setText(t('pulse.updAvailable'));
+    setTitle(t('rail.updateAvailable'));
     railUpdate.onclick = () => pulse.cmd('aios.updateFramework');
   } else if (state === 'up-to-date') {
-    if (txt) txt.textContent = t('pulse.updUpToDate');
-    railUpdate.title = t('rail.updateUpToDate');
+    setText(t('pulse.updUpToDate'));
+    setTitle(t('rail.updateUpToDate'));
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   } else if (fw && fw.synced) {
     /* ONE SHORT WORD, THE DETAIL IN THE TOOLTIP. This read "could not check · last synced
@@ -5434,14 +5444,14 @@ function updateRailStatus(state, fw, retrying = false) {
     /* AMBER, not the default green. The dot fell through to `st-idle`, which is "alive and ready" —
        so a header that could not check sat beside the same colour as one that had checked and was
        fine. Neither offline nor can't-check is fine; both are "attention soon". Operator's call. */
-    if (dot) dot.className = 'pdot st-warn';
+    dotCls = 'pdot st-warn';
     const hash = fw.hash ? ' · ' + fw.hash.slice(0, 7) : '';
     /* THREE WORDS, each one true. "can't check" alone read as a second way of saying offline —
        the operator asked which it was. Now that a failed check retries by itself, the word for
        "online, but the server did not answer" is the thing that is actually happening. */
     const word = offline ? 'Offline' : retrying ? 'Retrying' : 'CantCheck';
-    if (txt) txt.textContent = t('pulse.upd' + word);
-    railUpdate.title = t('rail.update' + word, { synced: fw.synced, hash });
+    setText(t('pulse.upd' + word));
+    setTitle(t('rail.update' + word, { synced: fw.synced, hash }));
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   } else if (state === 'unknown') {
     /* There is nothing to compare against — no .aios-update tracker yet, which is the normal
@@ -5449,15 +5459,16 @@ function updateRailStatus(state, fw, retrying = false) {
        "Checking…" and sit there permanently, because the same branch served both "a check is in
        flight" and "there is nothing to check". A spinner that never resolves is a bug report
        waiting to happen; naming the state ends it. */
-    if (txt) txt.textContent = t('pulse.updUntracked');
-    railUpdate.title = t('rail.updateUntracked');
+    setText(t('pulse.updUntracked'));
+    setTitle(t('rail.updateUntracked'));
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   } else {
     // genuinely in flight — the boot state, before the first answer arrives
-    if (txt) txt.textContent = t('pulse.updChecking');
-    railUpdate.title = t('rail.updateStatus');
+    setText(t('pulse.updChecking'));
+    setTitle(t('rail.updateStatus'));
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   }
+  setDot(dotCls);
 }
 updateRailStatus('', null);
 /* The "offline" tooltip says it re-checks by itself on reconnect, so it does: coming back online

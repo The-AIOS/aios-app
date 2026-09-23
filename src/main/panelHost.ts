@@ -9,6 +9,8 @@ import { sessionKey } from '../core/attention';
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
 const UPD_MIN_GAP_MS = 60_000;
+/** How often the counters are re-checked for changes made outside the App (AI-153). */
+const STATE_POLL_MS = 30_000;
 
 /**
  * The shell-side twin of the extension's HomeViewProvider: feeds the shared
@@ -20,6 +22,7 @@ export class PanelHost {
   private timer?: ReturnType<typeof setInterval>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private updTimer?: ReturnType<typeof setInterval>;
+  private stateTimer?: ReturnType<typeof setInterval>;
   private updDebounce?: ReturnType<typeof setTimeout>;
   private updAt = 0;
   private updRetry?: ReturnType<typeof setTimeout>;
@@ -41,6 +44,12 @@ export class PanelHost {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()) this.refreshUpdateStatus();
     }, UPD_POLL_MS);
+    // AI-153 — skipped while hidden, like the update poll: nobody is reading the counters then,
+    // and the focus check below catches up the moment they are.
+    this.stateTimer = setInterval(() => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()) this.refreshStateIfChanged();
+    }, STATE_POLL_MS);
     this.wireWatchers();
   }
 
@@ -111,6 +120,8 @@ export class PanelHost {
     if (this.timer) clearInterval(this.timer);
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.updTimer) clearInterval(this.updTimer);
+    if (this.stateTimer) clearInterval(this.stateTimer);   // a timer outliving its window is a leak
+    if (this.updRetry) clearTimeout(this.updRetry);
     if (this.updDebounce) clearTimeout(this.updDebounce);
     for (const w of this.watchers) w.close();
   }
@@ -129,8 +140,20 @@ export class PanelHost {
     if (!this.wc.isDestroyed()) this.wc.send('shell:intent', { ...payload, kind })   // kind LAST: the routing key can never be shadowed by a payload field;
   }
 
-  postState(): void {
-    this.post({
+  /* AI-153, THE CLASS. The panel's counters are a PUSHED snapshot: the renderer draws whatever
+     the last postState said. Watched sources re-push themselves; the App's own mutating handlers
+     push (pulseState.test enforces that). What neither covers is a source that changes OUTSIDE
+     the App and is not watched — agents/, skills/ and plugins/ commands (a sync, or a session
+     writing one), .glass/state.json (Glass shares it), and the nudge, which depends on the clock.
+     Those stayed stale until something unrelated happened to trigger a push.
+     The fix is a CHANGE-GATED check, deliberately not more watchers: every 30s and on window
+     focus, recompute the payload and post only if it differs from what was last sent. An
+     unchanged window gets zero renderer work, and a timer cannot feed itself — a watcher on a
+     path the App writes can, and that loop is the one shape of bug this ship must not add. */
+  private lastState = '';
+
+  private stateSnapshot(): Record<string, unknown> {
+    return {
       type: 'state',
       operator: aios.operatorName(),
       primary: aios.primaryName(),
@@ -153,7 +176,25 @@ export class PanelHost {
         : null,
       outputs: aios.recentOutputs(),
       reports: aios.recentReports(),
-    });
+    };
+  }
+
+  /** Unconditional — every existing caller keeps exactly the behaviour it had (a renderer that
+   *  just reloaded needs the state whether or not it changed). It also records what was sent. */
+  postState(): void {
+    const snap = this.stateSnapshot();
+    this.lastState = JSON.stringify(snap);
+    this.post(snap);
+  }
+
+  /** The gated check: post only when something the panel shows has actually changed. */
+  refreshStateIfChanged(): void {
+    let snap: Record<string, unknown>;
+    try { snap = this.stateSnapshot(); } catch { return; }
+    const json = JSON.stringify(snap);
+    if (json === this.lastState) return;
+    this.lastState = json;
+    this.post(snap);
   }
 
   /** Dock badge + banner for sessions blocked on the operator (#22). Driven by the same
