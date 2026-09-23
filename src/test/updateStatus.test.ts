@@ -36,7 +36,7 @@ test('an explicit click bypasses the rate limit — the operator asked', () => {
 
 test('.aios-update flips the pill on its own callback, debounced', () => {
   // must NOT be the shared scheduleRefresh: that fires on every calendar/export write
-  assert.match(host, /fs\.watch\(path\.join\(r, '\.aios-update'\), \(\) => \{[\s\S]{0,200}updateStatusSoon\(\)/);
+  assert.match(host, /fs\.watch\(r, \(_e, name\) => \{[\s\S]{0,200}updateStatusSoon\(\)/, 'the tracker watch — see trackerWatch.test for why it watches the folder');
   assert.match(host, /private updateStatusSoon\(\)/);
   assert.match(host, /clearTimeout\(this\.updDebounce\)/, 'fs.watch double-fires; debounce it');
   assert.match(host, /if \(this\.updDebounce\) clearTimeout\(this\.updDebounce\);/, 'cleared on dispose');

@@ -106,12 +106,21 @@ export class PanelHost {
       // then instead of leaving it stuck on "available" until the next restart.
       // Its OWN callback, not the shared scheduleRefresh: that one also fires on
       // every calendar/export write, and each status check is a network round trip.
+      /* WATCH THE FOLDER, NOT THE FILE. /aios:update writes the tracker with `sed -i`, which
+         replaces the file with a new one. A watch on the file follows the OLD file: it fires
+         once and then never again, so the second /aios:update in one App session was invisible.
+         The header sat on "update available" until the 60s focus re-check or the 5-minute poll
+         (reported 2026-09-22; measured: three `sed -i` writes, one event). A watch on the
+         folder sees the name come back each time. Non-recursive, filtered to the one name, so
+         nothing else in the framework root triggers a network check. `filename` can be null on
+         some platforms; then we cannot rule the tracker out, and the check is debounced anyway. */
       try {
-        this.watchers.push(fs.watch(path.join(r, '.aios-update'), () => {
+        this.watchers.push(fs.watch(r, (_e, name) => {
+          if (name !== null && name !== undefined && String(name) !== '.aios-update') return;
           this.scheduleRefresh();
-          this.updateStatusSoon();   // debounced: fs.watch commonly double-fires
+          this.updateStatusSoon();   // debounced: one sed -i fires several events
         }));
-      } catch { /* absent until the first sync */ }
+      } catch { /* framework root unreadable — the poll and focus re-check still cover it */ }
     }
   }
 
