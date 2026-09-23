@@ -2032,7 +2032,7 @@ function paintCalendar() {
 }
 
 function renderPulseUpdate(m) {
-  updateRailStatus(m.state, m.framework || null);
+  updateRailStatus(m.state, m.framework || null, !!m.retrying);
   /* The framework status lives ONLY in the panel header (updateRailStatus above). The old footer
      badge duplicated it at the bottom, and the "Needs you" card duplicated it a third time —
      which is the argument that retired the card: the operator already had the update pill sitting
@@ -5407,7 +5407,7 @@ dragGuide.addEventListener('click', () => void spawnNamed('onboarding-aios'));
    word in the panel header (NOT a boxed icon button), clickable to run the update when
    one is available, else to re-check. This is the single update surface; the old panel
    footer copy is gone. */
-function updateRailStatus(state, fw) {
+function updateRailStatus(state, fw, retrying = false) {
   const dot = railUpdate.querySelector('.pdot');
   const txt = railUpdate.querySelector('.pupdtext');
   railUpdate.classList.toggle('updok', state === 'up-to-date');
@@ -5436,8 +5436,12 @@ function updateRailStatus(state, fw) {
        fine. Neither offline nor can't-check is fine; both are "attention soon". Operator's call. */
     if (dot) dot.className = 'pdot st-warn';
     const hash = fw.hash ? ' · ' + fw.hash.slice(0, 7) : '';
-    if (txt) txt.textContent = t(offline ? 'pulse.updOffline' : 'pulse.updCantCheck');
-    railUpdate.title = t(offline ? 'rail.updateOffline' : 'rail.updateCantCheck', { synced: fw.synced, hash });
+    /* THREE WORDS, each one true. "can't check" alone read as a second way of saying offline —
+       the operator asked which it was. Now that a failed check retries by itself, the word for
+       "online, but the server did not answer" is the thing that is actually happening. */
+    const word = offline ? 'Offline' : retrying ? 'Retrying' : 'CantCheck';
+    if (txt) txt.textContent = t('pulse.upd' + word);
+    railUpdate.title = t('rail.update' + word, { synced: fw.synced, hash });
     railUpdate.onclick = () => pulse.send({ type: 'recheck' });
   } else if (state === 'unknown') {
     /* There is nothing to compare against — no .aios-update tracker yet, which is the normal

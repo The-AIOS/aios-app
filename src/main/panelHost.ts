@@ -268,7 +268,11 @@ export class PanelHost {
     this.updAt = Date.now();
     void aios.checkForUpdates().then((state) => {
       const framework = aios.readFrameworkStatus() ?? null;
-      this.post({ type: 'updateStatus', state, framework });
+      /* Told to the renderer rather than inferred there: only this side knows whether a retry was
+         armed, and a header that says "retrying…" must be true — the rule for which unknowns are
+         retried lives here, and a second copy in the renderer is how the two would drift. */
+      const retrying = state === 'unknown' && aios.frameworkCheckable(framework);
+      this.post({ type: 'updateStatus', state, framework, retrying });
       /* A FAILED CHECK RETRIES ITSELF. Operator-reported 2026-09-22: Wi-Fi off showed "offline",
          Wi-Fi back on showed "can't check" — and it stayed that way until the App was restarted.
          The reconnect DID trigger a check, at the one moment it is least likely to succeed: the
@@ -280,7 +284,7 @@ export class PanelHost {
          from 5s, capped at the regular poll, and stopped the moment an answer arrives — so this
          adds work only while something is genuinely wrong, never on a healthy window. */
       if (this.updRetry) { clearTimeout(this.updRetry); this.updRetry = undefined; }
-      if (state === 'unknown' && aios.frameworkCheckable(framework)) {
+      if (retrying) {
         this.updFailures += 1;
         this.updRetry = setTimeout(() => {
           this.updRetry = undefined;
@@ -302,7 +306,14 @@ export class PanelHost {
         this.postUpdateStatus();
         this.post({ type: 'month', data: (() => { const n = new Date(); return aios.getMonthData(n.getFullYear(), n.getMonth() + 1); })() });
         return;
+      /* AN EXPLICIT RE-CHECK STARTS THE BACKOFF OVER. It arrives when the network comes back (the
+         renderer's `online` event) and when the operator clicks — both moments when "the last ten
+         attempts failed" is no longer evidence of anything. Without this, being offline for a
+         couple of minutes grew the backoff to 80s+, the reconnect check failed once (DNS not ready
+         yet), and the next retry was minutes away: "can't check" until clicked. Reproduced with the
+         real checker before this line existed — network up at 3s, no answer at 25s. */
       case 'recheck':
+        this.updFailures = 0;
         this.postState();
         this.refreshUpdateStatus(true);
         return;
