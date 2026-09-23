@@ -1525,6 +1525,43 @@ function feedMark(node, coll, key) {
 }
 function feedPrime(...colls) { for (const c of colls) FEED.primed.add(c); }
 
+/* ADOPT WHAT THE TITLE LISTENER MISSED. A pane learns its sessionId in exactly one place: when
+   its terminal title matches a name in the registry. But the registry reaches the renderer on a
+   2s poll, and a freshly started session announces its title once, at startup — usually before
+   that poll has seen it. An idle session never re-announces, so it never got an identity, and the
+   reconciliation below only follows panes that already HAVE one. Operator-reported 2026-09-22:
+   opened four sessions, quit, relaunched — nothing to reopen, because not one had been identified.
+   Resumed four more with the picker, quit again — same.
+   So on each poll, any Claude pane still without an id is resolved through the PROCESS TREE: the
+   pty's descendant `claude` is keyed in the registry by pid, which is exact and does not care when
+   the title arrived. Bounded: it only asks about unidentified Claude panes, one request at a time,
+   and once every pane has an id it does nothing at all — no new work on an idle window. */
+let adoptInFlight = false;
+function adoptUnidentified() {
+  if (adoptInFlight) return;
+  const want = [...panes.entries()]
+    .filter(([, p]) => p.kind === 'term' && !p.exited && !p.sessionId && (p.isSession || paneIsClaude(p.cmd)))
+    .map(([id]) => id);
+  if (!want.length) return;
+  adoptInFlight = true;
+  void window.glassShell.sessionUnder(want).then((map) => {
+    let changed = false;
+    for (const id of want) {
+      const real = map && map[id];
+      const p = panes.get(id);
+      if (!real || !real.id || !p || p.sessionId) continue;
+      p.sessionId = real.id;
+      p.isSession = true;
+      /* confirmedName is what the liveness pass above keys on to notice a session ENDING, so an
+         adopted pane needs it too — taken from the registry, the same authority as the id. */
+      if (!p.confirmedName && real.name) p.confirmedName = real.name;
+      changed = true;
+    }
+    if (changed) persistSessions();
+  }).catch(() => { /* ps unavailable — the title path still works, and we retry next poll */ })
+    .finally(() => { adoptInFlight = false; });
+}
+
 /* The RUNNING card (Glass's "Running"): quota · Sessions (registry-wide) ·
    Terminals (this window's panes). Re-renders on the 2s poll AND on pane open/close. */
 function renderPulseRunning(m) {
@@ -1565,6 +1602,7 @@ function renderPulseRunning(m) {
       renamePane(pid, t('tab.endedSession', { name: was }));
     }
   }
+  adoptUnidentified();
   const data = pulse.lastRunning || {};
   const sessions = data.running || [];
   trackTheater(sessions);
@@ -8383,7 +8421,9 @@ void initLocale().then(async () => {
     /* #28 — the offer comes FIRST: What's New opens a tab, and a modal arriving over a tab the
        operator did not ask for reads as two things interrupting at once. Awaited, so the two
        never overlap; a failure here must never cost the operator What's New. */
-    try { await offerRestore(); } catch { /* the sessions stay resumable from the picker */ }
+    /* Logged, not swallowed. The first build caught this silently, so a failure here would have
+       looked exactly like "nothing was saved" — two different bugs with one symptom. */
+    try { await offerRestore(); } catch (e) { console.error('[restore] launch offer failed', e); }
     void maybeShowWhatsNew();
   } catch { /* if we cannot even ask, the Setup tab is still reachable by hand */ }
 });
