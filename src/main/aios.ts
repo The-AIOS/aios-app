@@ -1107,6 +1107,21 @@ export function gitBin(): string {
   return GIT_BIN;
 }
 
+/** Is there anything to compare against? A tracker with a repo and a commit-shaped hash. When
+ *  this is true, an `unknown` from checkForUpdates means the NETWORK check failed — the one kind
+ *  of unknown that a retry can fix. One rule, used by the check and by its retry, so the two can
+ *  never disagree about which unknowns are worth another attempt. */
+export function frameworkCheckable(status: { repo?: string; hash?: string } | null | undefined): boolean {
+  return !!status && !!status.repo && !!status.hash && /^[0-9a-f]{7,40}$/i.test(status.hash);
+}
+
+/** How long to wait before retrying a failed check: 5s, 10s, 20s… capped at the regular poll.
+ *  Starts short because the commonest failure is a network that has only just come back. */
+export function updateRetryDelay(failures: number, capMs: number): number {
+  const n = Math.max(1, Math.floor(failures));
+  return Math.min(5_000 * 2 ** (n - 1), capMs);
+}
+
 export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown'> {
   const status = readFrameworkStatus();
   if (!status || !status.repo || !status.hash) return Promise.resolve('unknown');
@@ -1116,7 +1131,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
      had just synced, then silently corrected itself when the real sha landed. Observed exactly
      that. An unusable hash means "cannot tell", not "you are behind": a false alarm that
      resolves on its own teaches the operator to ignore the pill. */
-  if (!/^[0-9a-f]{7,40}$/i.test(status.hash)) return Promise.resolve('unknown');
+  if (!frameworkCheckable(status)) return Promise.resolve('unknown');   // the SAME rule the retry uses
   return new Promise((resolve) => {
     // SSH remotes need an agent the GUI process may not have — public repo, use https
     const url = status.repo.replace(/^git@github\.com:/, 'https://github.com/');
@@ -1407,11 +1422,68 @@ function psOnce(snippet: string): Promise<string | null> {
  * blocked profile would otherwise read as "wrapper missing".
  */
 function psProfileOnce(snippet: string): Promise<string | null> {
+  /* NO `-ExecutionPolicy Bypass`, and that is the fix. This probe loads the operator's profile to
+     ask whether `spawn` exists — and Bypass applies to the profile it loads, so under a
+     `Restricted` policy the probe loaded a profile the operator's own terminal refuses, found
+     `spawn`, and reported it wired. Reported 2026-09-22 from a Windows machine whose every
+     terminal opened on "running scripts is disabled on this system". A probe that bypasses the
+     policy the real terminal runs under measures a machine that does not exist. */
   return new Promise((res) => {
-    execFile('powershell.exe', ['-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', snippet], { timeout: 8000 },
+    execFile('powershell.exe', ['-NonInteractive', '-Command', snippet], { timeout: 8000 },
       (err, out) => res(err ? null : String(out).trim() || null));
   });
 }
+
+/** What PowerShell will actually let the operator's terminal run, read the way that terminal
+ *  reads it — `-NoProfile` so the probe cannot be broken by the thing it is diagnosing, and
+ *  never `-ExecutionPolicy Bypass`. Also reports whether a group policy pins the value (then a
+ *  per-user change cannot win) and what `claude` resolves to (an npm install is a `.ps1` shim). */
+export interface PsPolicy { policy: string; managed: boolean; claudeType: string }
+let psPolicyCache: { at: number; p: Promise<PsPolicy | null> } | null = null;
+export function psPolicyProbe(): Promise<PsPolicy | null> {
+  if (process.platform !== 'win32') return Promise.resolve(null);
+  /* One call per doctor run, shared by the three checks that need it — they must agree, and
+     three PowerShell launches on a slow machine is three chances to time out differently. */
+  if (psPolicyCache && Date.now() - psPolicyCache.at < 5000) return psPolicyCache.p;
+  const snippet = [
+    '$e = Get-ExecutionPolicy',
+    "$m = @(Get-ExecutionPolicy -List | Where-Object { ($_.Scope -eq 'MachinePolicy' -or $_.Scope -eq 'UserPolicy') -and $_.ExecutionPolicy -ne 'Undefined' }).Count",
+    '$c = (Get-Command claude -ErrorAction SilentlyContinue | Select-Object -First 1).CommandType',
+    '"POLICY=$e|MANAGED=$m|CLAUDE=$c"',
+  ].join('; ');
+  const p = new Promise<PsPolicy | null>((res) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { timeout: 8000 }, (err, out) => {
+      if (err) return res(null);
+      const m = /POLICY=([^|]*)\|MANAGED=(\d*)\|CLAUDE=(.*)/.exec(String(out));
+      if (!m) return res(null);
+      res({ policy: m[1].trim(), managed: Number(m[2] || 0) > 0, claudeType: m[3].trim() });
+    });
+  });
+  psPolicyCache = { at: Date.now(), p };
+  return p;
+}
+
+/**
+ * Can the operator's terminal load an unsigned local script — their own profile, or an npm `.ps1`?
+ *
+ * `Restricted` (the Windows PowerShell 5.1 default on a client machine) and `AllSigned` refuse it;
+ * `RemoteSigned`, `Unrestricted` and `Bypass` allow it. `Undefined` as the EFFECTIVE value means no
+ * scope set one, which on a client resolves to Restricted.
+ * `managed` means a group policy pins the value: a per-user change is overridden, so offering it
+ * as a repair would be a button that cannot work — that case gets words, not a button.
+ */
+export type PsPolicyVerdict = 'ok' | 'blocked' | 'managed';
+export function psPolicyVerdict(policy: string, managed: boolean): PsPolicyVerdict {
+  const v = (policy || '').trim().toLowerCase();
+  const blocking = v === 'restricted' || v === 'allsigned' || v === 'undefined' || v === '';
+  if (!blocking) return 'ok';
+  return managed ? 'managed' : 'blocked';
+}
+
+/** The repair — per user, so no admin prompt; RemoteSigned still refuses unsigned DOWNLOADED
+ *  scripts, which is Microsoft's own default on Windows Server and what PowerShell 7 ships with. */
+export const PS_POLICY_FIX =
+  'powershell -NoProfile -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"';
 
 /** Where a PowerShell profile can live — both hosts, and a OneDrive-redirected Documents. */
 function psProfileFiles(): string[] {
@@ -1605,6 +1677,27 @@ function doctorChecks(): DoctorCheck[] {
        offered on Windows is exactly the impossible instruction the gh check learned not to give. */
     whichCheck('git', 'git', 'fail', 'setupCheck.gitMissing', installGitCmd()),
     whichCheck('node', 'node', 'warn', 'setupCheck.nodeMissing', installNodeCmd()),
+    /* WINDOWS ONLY, and OPTIONAL in the stepper — it never blocks a step on its own. On a machine
+       where setup has always worked the policy is already permissive and this passes silently, so
+       nothing changes for those operators. It exists for the machine where every terminal opens
+       on "running scripts is disabled": the profile AIOS wrote cannot load, `spawn` does not
+       exist, and nothing said why. The blocking case — an npm `claude.ps1` — is reported by the
+       `claude` check below, which IS required, because there the policy stops Claude itself. */
+    ...(process.platform === 'win32' ? [{
+      id: 'psPolicy', severity: 'warn' as const,
+      run: async (): Promise<CheckResult> => {
+        const pp = await psPolicyProbe();
+        if (!pp) return { id: 'psPolicy', label: t('setupCheck.psPolicy'), status: 'warn', message: t('setupCheck.psPolicyUnknown'), canRepair: false };
+        const v = psPolicyVerdict(pp.policy, pp.managed);
+        if (v === 'ok') return { id: 'psPolicy', label: t('setupCheck.psPolicy'), status: 'pass', message: t('setupCheck.psPolicyOk', { policy: pp.policy }), canRepair: false };
+        if (v === 'managed') return { id: 'psPolicy', label: t('setupCheck.psPolicy'), status: 'warn', message: t('setupCheck.psPolicyManaged', { policy: pp.policy }), canRepair: false };
+        return {
+          id: 'psPolicy', label: t('setupCheck.psPolicy'), status: 'warn',
+          message: t('setupCheck.psPolicyBlocked', { policy: pp.policy }),
+          repairCmd: PS_POLICY_FIX, repairHint: PS_POLICY_FIX, repairLabel: t('setup.allowPsProfile'), canRepair: false,
+        };
+      },
+    }] : []),
     /* Three states, not two. Observed on a real newcomer machine: the official installer
        SUCCEEDS, puts the binary at ~/.local/bin/claude, and then asks the operator to add
        ~/.local/bin to PATH themselves. Reporting that as "missing" sent someone who had just
@@ -1618,6 +1711,23 @@ function doctorChecks(): DoctorCheck[] {
           const v = process.platform === 'win32'
             ? await cmdCheck(claudeCmd)
             : await zshOut(`${claudeCmd} --version 2>/dev/null | head -1`);
+          /* On the PATH is not the same as runnable. An npm install on Windows leaves a
+             `claude.ps1` shim that PowerShell prefers over `claude.cmd` — and under a Restricted
+             policy PowerShell refuses it, so Claude cannot start in the operator's own terminal
+             while every probe here (which avoided the policy) said it was fine. That is the case
+             where the operator is genuinely stuck rather than looking at noise, so it fails. */
+          if (process.platform === 'win32') {
+            const pp = await psPolicyProbe();
+            const verdict = pp ? psPolicyVerdict(pp.policy, pp.managed) : 'ok';
+            if (pp && /externalscript/i.test(pp.claudeType) && verdict !== 'ok') {
+              return verdict === 'managed'
+                ? { id: 'claude', label: t('setupCheck.claude'), status: 'fail', message: t('setupCheck.claudePsManaged'), canRepair: false }
+                : {
+                    id: 'claude', label: t('setupCheck.claude'), status: 'fail', message: t('setupCheck.claudePsBlocked'),
+                    repairCmd: PS_POLICY_FIX, repairHint: PS_POLICY_FIX, repairLabel: t('setup.allowPsProfile'), canRepair: false,
+                  };
+            }
+          }
           return { id: 'claude', label: t('setupCheck.claude'), status: 'pass', message: v || loc.bin, canRepair: false };
         }
         if (loc.where === 'disk') {
@@ -1760,9 +1870,27 @@ function doctorChecks(): DoctorCheck[] {
           ? !!(await psProfileOnce('if (Get-Command spawn -ErrorAction SilentlyContinue) { "HAVESPAWN" }'))?.includes('HAVESPAWN')
           : !!(await zshOut('type spawn >/dev/null 2>&1 && echo HAVESPAWN', '-ic'))?.includes('HAVESPAWN');
         if (!ok && process.platform === 'win32') {
-          ok = psProfileFiles().some((f) => {
+          const written = psProfileFiles().some((f) => {
             try { return /(^|\n)\s*function\s+spawn\b/i.test(fs.readFileSync(f, 'utf8')); } catch { return false; }
           });
+          /* THE FALSE PASS THIS REPLACES: the function being in the file was read as the function
+             being callable. It is only callable if PowerShell will load the file — so when the
+             live probe failed AND the policy refuses scripts, say so, instead of passing. When
+             the policy is fine, the fallback keeps its original job: a probe that failed for some
+             other reason (a slow machine, a timeout) must not report a working wrapper missing. */
+          if (written) {
+            const pp = await psPolicyProbe();
+            const v = pp ? psPolicyVerdict(pp.policy, pp.managed) : 'ok';
+            if (v !== 'ok') {
+              return {
+                id: 'spawn', label: t('setupCheck.spawn'), status: 'warn',
+                message: t(v === 'managed' ? 'setupCheck.spawnPsManaged' : 'setupCheck.spawnNotLoadable'),
+                ...(v === 'blocked' ? { repairCmd: PS_POLICY_FIX, repairHint: PS_POLICY_FIX, repairLabel: t('setup.allowPsProfile') } : {}),
+                canRepair: false,
+              };
+            }
+            ok = true;
+          }
         } else if (!ok) {
           try { ok = /(^|\n)\s*(function\s+spawn\b|spawn\s*\(\))/.test(fs.readFileSync(path.join(os.homedir(), '.zshrc'), 'utf8')); } catch { /* absent */ }
         }
@@ -2161,6 +2289,11 @@ function writeClaudeUserJson(mutate: (j: Record<string, unknown>) => void): void
    carries account extras and the operator's own pinned value, neither of which can be ranked —
    and one caller needs a ranking. */
 const MODEL_LADDER = [
+  /* Opus 5.5 — verified present in Claude Code 2.1.280's own model catalog before it was listed
+     here, because an id the catalog does not know is refused outright rather than falling back.
+     Opus 5 stays below it: an operator pinned to it must still see a named option, not a raw id. */
+  { label: 'Opus 5.5 — 1M context', value: 'claude-opus-5-5[1m]' },
+  { label: 'Opus 5.5', value: 'claude-opus-5-5' },
   { label: 'Opus 5 — 1M context', value: 'claude-opus-5[1m]' },
   { label: 'Opus 5', value: 'claude-opus-5' },
   { label: 'Sonnet 5', value: 'claude-sonnet-5' },

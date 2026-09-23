@@ -9,6 +9,8 @@ import { sessionKey } from '../core/attention';
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
 const UPD_MIN_GAP_MS = 60_000;
+/** How often the counters are re-checked for changes made outside the App (AI-153). */
+const STATE_POLL_MS = 30_000;
 
 /**
  * The shell-side twin of the extension's HomeViewProvider: feeds the shared
@@ -20,8 +22,11 @@ export class PanelHost {
   private timer?: ReturnType<typeof setInterval>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private updTimer?: ReturnType<typeof setInterval>;
+  private stateTimer?: ReturnType<typeof setInterval>;
   private updDebounce?: ReturnType<typeof setTimeout>;
   private updAt = 0;
+  private updRetry?: ReturnType<typeof setTimeout>;
+  private updFailures = 0;
   private watchers: fs.FSWatcher[] = [];
   private bootAt = Date.now();
   private lastReveal = 0;
@@ -39,6 +44,12 @@ export class PanelHost {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()) this.refreshUpdateStatus();
     }, UPD_POLL_MS);
+    // AI-153 — skipped while hidden, like the update poll: nobody is reading the counters then,
+    // and the focus check below catches up the moment they are.
+    this.stateTimer = setInterval(() => {
+      const w = BrowserWindow.fromWebContents(this.wc);
+      if (w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()) this.refreshStateIfChanged();
+    }, STATE_POLL_MS);
     this.wireWatchers();
   }
 
@@ -109,6 +120,8 @@ export class PanelHost {
     if (this.timer) clearInterval(this.timer);
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.updTimer) clearInterval(this.updTimer);
+    if (this.stateTimer) clearInterval(this.stateTimer);   // a timer outliving its window is a leak
+    if (this.updRetry) clearTimeout(this.updRetry);
     if (this.updDebounce) clearTimeout(this.updDebounce);
     for (const w of this.watchers) w.close();
   }
@@ -127,8 +140,20 @@ export class PanelHost {
     if (!this.wc.isDestroyed()) this.wc.send('shell:intent', { ...payload, kind })   // kind LAST: the routing key can never be shadowed by a payload field;
   }
 
-  postState(): void {
-    this.post({
+  /* AI-153, THE CLASS. The panel's counters are a PUSHED snapshot: the renderer draws whatever
+     the last postState said. Watched sources re-push themselves; the App's own mutating handlers
+     push (pulseState.test enforces that). What neither covers is a source that changes OUTSIDE
+     the App and is not watched — agents/, skills/ and plugins/ commands (a sync, or a session
+     writing one), .glass/state.json (Glass shares it), and the nudge, which depends on the clock.
+     Those stayed stale until something unrelated happened to trigger a push.
+     The fix is a CHANGE-GATED check, deliberately not more watchers: every 30s and on window
+     focus, recompute the payload and post only if it differs from what was last sent. An
+     unchanged window gets zero renderer work, and a timer cannot feed itself — a watcher on a
+     path the App writes can, and that loop is the one shape of bug this ship must not add. */
+  private lastState = '';
+
+  private stateSnapshot(): Record<string, unknown> {
+    return {
       type: 'state',
       operator: aios.operatorName(),
       primary: aios.primaryName(),
@@ -151,7 +176,25 @@ export class PanelHost {
         : null,
       outputs: aios.recentOutputs(),
       reports: aios.recentReports(),
-    });
+    };
+  }
+
+  /** Unconditional — every existing caller keeps exactly the behaviour it had (a renderer that
+   *  just reloaded needs the state whether or not it changed). It also records what was sent. */
+  postState(): void {
+    const snap = this.stateSnapshot();
+    this.lastState = JSON.stringify(snap);
+    this.post(snap);
+  }
+
+  /** The gated check: post only when something the panel shows has actually changed. */
+  refreshStateIfChanged(): void {
+    let snap: Record<string, unknown>;
+    try { snap = this.stateSnapshot(); } catch { return; }
+    const json = JSON.stringify(snap);
+    if (json === this.lastState) return;
+    this.lastState = json;
+    this.post(snap);
   }
 
   /** Dock badge + banner for sessions blocked on the operator (#22). Driven by the same
@@ -264,8 +307,35 @@ export class PanelHost {
 
   postUpdateStatus(): void {
     this.updAt = Date.now();
-    void aios.checkForUpdates().then((state) =>
-      this.post({ type: 'updateStatus', state, framework: aios.readFrameworkStatus() ?? null }));
+    void aios.checkForUpdates().then((state) => {
+      const framework = aios.readFrameworkStatus() ?? null;
+      /* Told to the renderer rather than inferred there: only this side knows whether a retry was
+         armed, and a header that says "retrying…" must be true — the rule for which unknowns are
+         retried lives here, and a second copy in the renderer is how the two would drift. */
+      const retrying = state === 'unknown' && aios.frameworkCheckable(framework);
+      this.post({ type: 'updateStatus', state, framework, retrying });
+      /* A FAILED CHECK RETRIES ITSELF. Operator-reported 2026-09-22: Wi-Fi off showed "offline",
+         Wi-Fi back on showed "can't check" — and it stayed that way until the App was restarted.
+         The reconnect DID trigger a check, at the one moment it is least likely to succeed: the
+         `online` event fires when the interface comes up, before DNS is ready. That failure then
+         had nothing behind it but the 5-minute poll, and focus only re-checks after 60s — so a
+         header saying "can't check" looked permanent.
+         Only the unknowns a retry can fix: a tracker exists, so the network call is what failed.
+         (No tracker at all is a different state and retrying it would change nothing.) Backoff
+         from 5s, capped at the regular poll, and stopped the moment an answer arrives — so this
+         adds work only while something is genuinely wrong, never on a healthy window. */
+      if (this.updRetry) { clearTimeout(this.updRetry); this.updRetry = undefined; }
+      if (retrying) {
+        this.updFailures += 1;
+        this.updRetry = setTimeout(() => {
+          this.updRetry = undefined;
+          const w = BrowserWindow.fromWebContents(this.wc);
+          if (w && !w.isDestroyed()) this.postUpdateStatus();
+        }, aios.updateRetryDelay(this.updFailures, UPD_POLL_MS));
+      } else {
+        this.updFailures = 0;
+      }
+    });
   }
 
   /** Messages FROM the panel — same protocol the extension speaks. */
@@ -277,7 +347,14 @@ export class PanelHost {
         this.postUpdateStatus();
         this.post({ type: 'month', data: (() => { const n = new Date(); return aios.getMonthData(n.getFullYear(), n.getMonth() + 1); })() });
         return;
+      /* AN EXPLICIT RE-CHECK STARTS THE BACKOFF OVER. It arrives when the network comes back (the
+         renderer's `online` event) and when the operator clicks — both moments when "the last ten
+         attempts failed" is no longer evidence of anything. Without this, being offline for a
+         couple of minutes grew the backoff to 80s+, the reconnect check failed once (DNS not ready
+         yet), and the next retry was minutes away: "can't check" until clicked. Reproduced with the
+         real checker before this line existed — network up at 3s, no answer at 25s. */
       case 'recheck':
+        this.updFailures = 0;
         this.postState();
         this.refreshUpdateStatus(true);
         return;

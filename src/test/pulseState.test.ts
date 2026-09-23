@@ -62,9 +62,18 @@ function handlers(main: string): { channel: string; line: number; body: string }
 
 /** The getters `postState()` actually calls — i.e. everything the pulse displays. */
 function postStateReads(host: string): string[] {
-  const i = host.indexOf('postState(): void {');
-  assert.notEqual(i, -1, 'postState() not found in panelHost.ts — this guard cannot run blind');
-  let depth = 0, p = i + 'postState(): void '.length;
+  /* The payload lives in stateSnapshot() since AI-153's change-gated re-check: postState() and
+     refreshStateIfChanged() both build from it, so it is the one place the displayed set is read —
+     and both must actually use it, or the gated path could display a different set unnoticed. */
+  for (const fn of ['postState(): void {', 'refreshStateIfChanged(): void {']) {
+    const at = host.indexOf(fn);
+    assert.notEqual(at, -1, `${fn} not found in panelHost.ts — this guard cannot run blind`);
+    assert.match(host.slice(at, host.indexOf('\n  }\n', at)), /this\.stateSnapshot\(\)/, `${fn} must build from stateSnapshot()`);
+  }
+  const sig = 'private stateSnapshot(): Record<string, unknown> {';
+  const i = host.indexOf(sig);
+  assert.notEqual(i, -1, 'stateSnapshot() not found in panelHost.ts — this guard cannot run blind');
+  let depth = 0, p = i + sig.length - 1;
   const start = p;
   while (p < host.length) {
     if (host[p] === '{') depth++;

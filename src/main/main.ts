@@ -435,6 +435,28 @@ function sessionNameFromTranscript(file: string, mtime: number): string {
   return name;
 }
 
+/* #28 — WHERE EACH SESSION WE ARE ABOUT TO OFFER STANDS NOW. Not `sessions:resumable`: that list
+   hides unnamed sessions on purpose and is capped, so a restored pane that never announced a name
+   would be reported "could not be found" when its transcript is sitting right there. This asks
+   about exactly the ids we hold, and nothing else.
+     exists — a transcript is on disk, so `claude --resume <id>` has something to resume
+     live    — another surface (Glass, a terminal) already has it open; resuming it here would
+               open a second pane fighting the first for one conversation
+   The id becomes part of a PATH, so anything that is not id-shaped is refused before it is joined. */
+ipcMain.handle('sessions:locate', (_e, ids: unknown) => {
+  const want = (Array.isArray(ids) ? ids : []).map(String).filter((id) => /^[0-9a-f][0-9a-f-]{7,63}$/i.test(id));
+  const dir = path.join(os.homedir(), '.claude', 'projects');
+  let projs: string[] = [];
+  try { projs = fs.readdirSync(dir); } catch { /* no transcripts at all */ }
+  const live = new Set(aios.listRunningAgents().map((a: { sessionId?: string }) => a.sessionId).filter(Boolean));
+  const out: Record<string, { exists: boolean; live: boolean }> = {};
+  for (const id of want) {
+    const exists = projs.some((pr) => { try { return fs.existsSync(path.join(dir, pr, id + '.jsonl')); } catch { return false; } });
+    out[id] = { exists, live: live.has(id) };
+  }
+  return out;
+});
+
 ipcMain.handle('sessions:resumable', () => {
   const dir = path.join(os.homedir(), '.claude', 'projects');
   let files: Array<{ file: string; at: number }> = [];
@@ -1078,7 +1100,7 @@ app.whenReady().then(() => {
           && !/Content-Security-Policy/.test(msg)) rendererErrors.push(msg.slice(0, 200));
     });
   }
-  win.on('focus', () => { host?.refreshUpdateStatus(); rewireForRoots(win); });
+  win.on('focus', () => { host?.refreshUpdateStatus(); host?.refreshStateIfChanged(); rewireForRoots(win); });
   /* Every 4s while the window is up. Cheap (two path resolutions) and it only acts on a CHANGE,
      so the common case — roots that already exist — costs nothing after the first tick. */
   const rootPoll = setInterval(() => { if (!win.isDestroyed()) rewireForRoots(win); }, 4000);
@@ -1247,6 +1269,122 @@ app.whenReady().then(() => {
         if (!rebuildOk) console.error(`shell-smoke: rebuild gate FAIL — rows ${rowsFirst} then ${rowsAfter}`);
         console.log(`shell-smoke: settings rebuild — ${rowsFirst} rows, ${rowsAfter} after rebuild`);
       } catch (err) { console.error('shell-smoke: rebuild gate error', err); }
+
+      /* GATE: #28 — A RESTORED TAB IS REAL, REMEMBERED, AND COSTS NOTHING UNTIL OPENED. Driven
+         through the actual functions rather than read as source: a placeholder is created, must
+         appear in the strip marked as waiting, must NOT be the visible pane (nothing has started),
+         must be in the persisted list, and must LEAVE the list when the operator closes it. The
+         lookup behind the launch offer is probed with a path-traversal id, which it must drop —
+         that id becomes part of a filesystem path. Nothing here spawns a process. */
+      let restoreOk = false;
+      try {
+        const rs = await win.webContents.executeJavaScript(`(async () => {
+          const keep = localStorage.getItem('shellSessions');
+          const sid = '00000000-0000-4000-8000-00000000abcd';
+          const termsBefore = [...panes.values()].filter((x) => x.kind === 'term').length;
+          const id = createRestoreTab({ sessionId: sid, name: 'smoke-restore', cwd: '' });
+          const p = panes.get(id);
+          const tabOk = !!(p && p.tab && p.tab.classList.contains('restoring') && document.body.contains(p.tab));
+          /* NOTHING STARTED — the property lazy restore exists for. Asked as "no new terminal pane",
+             not "not the active pane": a placeholder may legitimately be SHOWN (it is the last thing
+             in its zone), and then its body must say it is paused and offer Resume. */
+          await new Promise((r) => setTimeout(r, 300));
+          const idle = !!p && p.kind === 'restore'
+            && [...panes.values()].filter((x) => x.kind === 'term').length === termsBefore
+            && !!p.el.querySelector('button.vbtn');
+          const inSnap = sessionsSnapshot().sessions.some((x) => x.sessionId === sid);
+          persistSessions();
+          await new Promise((r) => setTimeout(r, 400));
+          const stored = JSON.parse(localStorage.getItem('shellSessions') || '{"sessions":[]}');
+          const persisted = stored.sessions.some((x) => x.sessionId === sid);
+          closePane(id);
+          const dropped = !sessionsSnapshot().sessions.some((x) => x.sessionId === sid);
+          const loc = await window.glassShell.locateSessions(['../../../../etc/passwd', sid]);
+          const traversalRefused = !Object.keys(loc).some((k) => k.includes('/') || k.includes('..'));
+          const answered = !!loc[sid] && loc[sid].exists === false;
+          await new Promise((r) => setTimeout(r, 300));
+          if (keep === null) localStorage.removeItem('shellSessions'); else localStorage.setItem('shellSessions', keep);
+          return { tabOk, idle, inSnap, persisted, dropped, traversalRefused, answered };
+        })()`).catch((e) => ({ err: String(e) }));
+        restoreOk = !!rs && !rs.err && rs.tabOk && rs.idle && rs.inSnap && rs.persisted && rs.dropped && rs.traversalRefused && rs.answered;
+        if (!restoreOk) console.error(`shell-smoke: restore gate FAIL — ${JSON.stringify(rs)}`);
+        console.log(`shell-smoke: restore — ${JSON.stringify(rs)}`);
+      } catch (err) { console.error('shell-smoke: restore gate error', err); }
+
+      /* GATE: THE PANEL HEADER NEVER DRAWS ITS TWO HALVES ON TOP OF EACH OTHER. The offline label
+         overlapped the wordmark at a narrow panel (operator-reported 2026-09-22) — the same defect
+         class as the clipped busy-row buttons, one row over, and nothing measured this row. So:
+         force the panel narrow, put the LONGEST label any locale can produce into the status, and
+         require the brand to end before the status begins and the status to stay inside the row. */
+      let headOk = false;
+      try {
+        const head = await win.webContents.executeJavaScript(`(() => {
+          const ph = document.getElementById('phead');
+          const brand = ph && ph.querySelector('.pbrand');
+          const st = document.getElementById('railUpdate');
+          const txt = st && st.querySelector('.pupdtext');
+          if (!ph || !brand || !st || !txt) return { err: 'header parts missing' };
+          const keepW = ph.style.width, keepT = txt.textContent;
+          ph.style.width = '200px';
+          txt.textContent = 'não foi possível verificar · última sincronização 2026-09-15';
+          const pb = ph.getBoundingClientRect(), bb = brand.getBoundingClientRect(), sb = st.getBoundingClientRect();
+          const out = { rowW: Math.round(pb.width), overlapPx: Math.round(bb.right - sb.left),
+                        spillPx: Math.round(sb.right - pb.right) };
+          ph.style.width = keepW; txt.textContent = keepT;
+          return out;
+        })()`).catch(() => null);
+        headOk = !!head && !head.err && head.overlapPx <= 1 && head.spillPx <= 1;
+        if (!headOk) console.error(`shell-smoke: header gate FAIL — ${JSON.stringify(head)}`);
+        console.log(`shell-smoke: header — row ${head?.rowW}px, overlap ${head?.overlapPx}px, spill ${head?.spillPx}px`);
+      } catch (err) { console.error('shell-smoke: header gate error', err); }
+      /* GATE: THE TWO NEW RE-CHECKS COST NOTHING WHEN NOTHING CHANGED (AI-153 + the retry label).
+         0.9.8 adds two things that fire on a clock: the counter re-check (every 30s) and the
+         "retrying…" status (every few seconds while a check fails). Either one repainting the panel
+         on each tick would be AI-157's redraw class again, arriving by a new door. Unit tests prove
+         the gates in main; only a live renderer can prove the DOM stays still, so this measures
+         style recalcs + layouts through the DevTools protocol over three equal windows — plain
+         idle, ten counter re-checks, ten identical retrying posts — and requires the triggered
+         windows to cost no more than idle does (a small allowance for a clock tick landing inside). */
+      let idleOk = false;
+      try {
+        const dbg = win.webContents.debugger;
+        if (!dbg.isAttached()) dbg.attach('1.3');
+        await dbg.sendCommand('Performance.enable');
+        const metric = async (): Promise<number> => {
+          const r = await dbg.sendCommand('Performance.getMetrics') as { metrics: { name: string; value: number }[] };
+          const v = (n: string) => r.metrics.find((m) => m.name === n)?.value ?? 0;
+          return v('RecalcStyleCount') + v('LayoutCount');
+        };
+        const WINDOW_MS = 1500;
+        const measure = async (poke: () => void): Promise<number> => {
+          const a = await metric();
+          for (let i = 0; i < 10; i++) { poke(); await new Promise((r) => setTimeout(r, WINDOW_MS / 10)); }
+          return (await metric()) - a;
+        };
+        host?.postState();                                  // settle: the panel holds current state
+        await new Promise((r) => setTimeout(r, 800));
+        const idle = await measure(() => { /* nothing */ });
+        /* Count what main actually SENDS during the counter window, beside what the renderer paid:
+           recalcs alone cannot say whether a post happened or the 2s running-sessions tick landed. */
+        let statePosts = 0;
+        const wcs = win.webContents as unknown as { send: (c: string, m: unknown) => void };
+        const realSend = wcs.send.bind(wcs);
+        wcs.send = (c: string, m: unknown) => { if ((m as { type?: string })?.type === 'state') statePosts++; realSend(c, m); };
+        let counters: number;
+        try { counters = await measure(() => host?.refreshStateIfChanged()); } finally { wcs.send = realSend; }
+        const retryMsg = { type: 'updateStatus', state: 'unknown', retrying: true,
+                           framework: { repo: 'https://github.com/The-AIOS/aios.git', hash: '585f3d3', synced: '2026-09-15' } };
+        win.webContents.send('panel:post', retryMsg);       // the first one legitimately repaints
+        await new Promise((r) => setTimeout(r, 300));
+        const retrying = await measure(() => win.webContents.send('panel:post', retryMsg));
+        await dbg.sendCommand('Performance.disable');
+        dbg.detach();
+        const ALLOW = 4;
+        idleOk = statePosts === 0 && counters <= idle + ALLOW && retrying <= idle + ALLOW;
+        console.log(`shell-smoke: idle — recalc+layout per ${WINDOW_MS}ms: idle ${idle}, counter re-checks ${counters} (${statePosts} state posts), retrying posts ${retrying}`);
+        if (!idleOk) console.error(`shell-smoke: idle gate FAIL — a no-change re-check is repainting (idle ${idle}, counters ${counters}, retrying ${retrying})`);
+        host?.refreshUpdateStatus(true);                    // put the real status back
+      } catch (err) { console.error('shell-smoke: idle gate error', err); }
 
       /* GATE: THE ROW ACTIONS FIT INSIDE THE ROW. `.prow2` clips its overflow, so when the hover
          actions do not fit they are silently CUT rather than pushed anywhere visible — and the
@@ -1443,10 +1581,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && idleOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + shortcuts + animations + row-actions + settings-rebuild + header + restore + idle + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, idle=${idleOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

@@ -381,7 +381,12 @@ test('the permission requirement is stated in the SETTING, not left to be discov
   const en = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', '..', 'src', 'i18n', 'locales', 'en.json'), 'utf8')) as Record<string, string>;
 
-  for (const key of ['settings.attentionHint', 'whatsnew.b2']) {
+  /* The SETTING only. This also pinned `whatsnew.b2`, which was right for exactly one release:
+     What's New is rewritten every version (check:whatsnew refuses one that is not), so a slot's
+     content is not a durable fact — 0.9.8's b2 is the Windows item and correctly names Windows.
+     The permission requirement's permanent home is the hint beside the control, and that is
+     what stays guarded. */
+  for (const key of ['settings.attentionHint']) {
     const copy = en[key];
     assert.ok(copy, `${key} must exist`);
     assert.match(copy, /permission/i, `${key}: say that permission is required`);

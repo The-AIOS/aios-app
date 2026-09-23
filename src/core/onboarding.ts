@@ -39,7 +39,7 @@ export interface OnboardingStepSpec {
  *  AIOS became someone's (see core/personalized.ts).
  */
 export const ONBOARDING_STEPS: OnboardingStepSpec[] = [
-  { id: 'prereqs', required: ['git', 'claude'], optional: ['node'] },
+  { id: 'prereqs', required: ['git', 'claude'], optional: ['node', 'psPolicy'] },
   { id: 'login', required: ['account'] },
   { id: 'github', required: ['gh'] },
   {

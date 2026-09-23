@@ -88,13 +88,20 @@ html, body { height: 100%; margin: 0; background: var(--bg); font-family: var(--
 
 /* ── panel header + toolbar (#18 — the rail's controls, now in the panel; Glass parity) ── */
 #phead { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 10px; }
-.pbrand { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.pwordmark { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); white-space: nowrap; }
+/* BOTH SIDES OF THE HEADER CAN YIELD. This row overlapped offline: `.pstatus` was `flex: 0 0 auto`
+   and the wordmark was `nowrap` with nothing to clip it, so `min-width: 0` on `.pbrand` could not
+   make it shrink — two items that both refused, drawn on top of each other. The same defect as the
+   busy-row buttons fixed in 0.9.7, one row over. Shortening the label fixes today's string; this
+   fixes the next one, and the Spanish and Portuguese ones, which are longer than "offline". */
+.pbrand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; }
+.pwordmark { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* framework status — a quiet dot+word indicator, not a boxed button (Glass parity) */
-.pstatus { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; background: none; border: 0;
+.pstatus { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; background: none; border: 0;
            color: var(--subtle); font-size: 10.5px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
 .pstatus:hover { color: var(--ink); background: var(--surface-2); }
 .pstatus .pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--st-idle); flex: 0 0 auto; }
+.pstatus .pupdtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pstatus .pdot.st-ok { background: var(--st-ok); }
 .pstatus .pdot.st-warn { background: var(--st-warn); }
 /* "update available" is CORAL — dot and word — matching the Glass extension's
@@ -1370,3 +1377,10 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    rather than a border change — the border already carries focus, and two meanings on one edge is
    how an operator stops trusting either. */
 .pane.panedrop { box-shadow: inset 0 0 0 2px var(--accent), var(--edge), var(--depth); }
+
+/* #28 — a restored tab that has not been opened yet. Dimmed and italic so it reads as "waiting",
+   not as a live session; opening it resumes the real one in its place. No animation of any kind:
+   a placeholder that moves would be a repaint loop waiting to happen, which is how AI-157 began. */
+.tab.restoring .tname { opacity: .6; font-style: italic; }
+.pane.restorecard { display: flex; align-items: center; justify-content: center; }
+.restoremsg { color: var(--subtle); font-size: 12px; }
