@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'electron';
+import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import * as path from 'path';
 import * as os from 'os';
 import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
@@ -536,7 +537,8 @@ ipcMain.handle('fs:roots', () => {
 ipcMain.handle('fs:addFolder', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
-  aios.addWorkspaceFolder(r.filePaths[0]);
+  const refused = aios.addWorkspaceFolder(r.filePaths[0]);
+  if (refused) return { refused, path: r.filePaths[0] };   // the renderer says why
   if (mainWin) setupExplorerWatch(mainWin); // wire live watch + git for the new folder
   return r.filePaths[0];
 });
@@ -545,7 +547,8 @@ ipcMain.handle('fs:addFolder', async () => {
 ipcMain.handle('fs:addFolderPath', (_e, p: string) => {
   const abs = String(p || '');
   try { if (!fs.statSync(abs).isDirectory()) return null; } catch { return null; }
-  aios.addWorkspaceFolder(abs);
+  const refused = aios.addWorkspaceFolder(abs);
+  if (refused) return { refused, path: abs };
   if (mainWin) setupExplorerWatch(mainWin);
   return abs;
 });
@@ -1043,6 +1046,17 @@ app.whenReady().then(() => {
   aios.applyLocale();            // load the resolved UI locale before building the menu
   const win = createWindow();
   mainWin = win;
+  /* macOS: THE RED BUTTON HIDES, IT DOES NOT QUIT. The Mac convention, and here it protects work:
+     the terminals live in this window and the App answers the spawn-inbox, so a reflexive close
+     used to end live sessions and leave agents' requests unclaimed. ⌘Q, the Dock's Quit, logout
+     and an update install still quit (quitState.ts explains why the install needs its own mark).
+     Windows and Linux keep closing = quitting, their convention. Smoke/eval runs never hide. */
+  win.on('close', (e) => {
+    if (!closeShouldHide(process.platform, isQuitting(), !!(SMOKE || EVAL || SHOT))) return;
+    e.preventDefault();
+    if (win.isFullScreen()) { win.once('leave-full-screen', () => win.hide()); win.setFullScreen(false); }
+    else win.hide();
+  });
   installMenu(() => mainWin);
   host = new PanelHost(win.webContents);
   host.start();
@@ -1595,4 +1609,12 @@ app.whenReady().then(() => {
     ]).then((ok) => app.exit(ok ? 0 : 1));
   }
 });
+/* Every real quit passes through here first, so the close handler above lets the windows go. */
+app.on('before-quit', markQuitting);
+/* The Dock icon brings the hidden window back. */
+app.on('activate', () => {
+  if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); }
+});
+/* Kept on every platform: on macOS a window only really closes while quitting (or if it died),
+   and an App left in the Dock with no window and no way to rebuild one would be worse. */
 app.on('window-all-closed', () => app.quit());

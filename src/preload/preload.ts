@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('glassShell', {
      so this is the only way to resolve a Finder drop — without it, external drags look
      like they work and then do nothing. */
   pathForFile: (f: File): string => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
-  addFolderPath: (p: string): Promise<string | null> => ipcRenderer.invoke('fs:addFolderPath', p),
+  addFolderPath: (p: string): Promise<string | { refused: string; path: string } | null> => ipcRenderer.invoke('fs:addFolderPath', p),
   ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
   /* App self-update. `updater.ts` has emitted on `shell:updater` since it was written and
      NOTHING listened — its own comment called the renderer surface a "future" one. These
@@ -128,7 +128,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   frameworkPath: (): Promise<{ value: string; resolved: string; source: string }> => ipcRenderer.invoke('shell:frameworkPath'),
   setFrameworkPath: (v: string): Promise<{ value: string; resolved: string; source: string }> => ipcRenderer.invoke('shell:setFrameworkPath', v),
   fsRoots: (): Promise<{ framework: string | null; vault: string | null; workspace: { path: string; name: string }[] }> => ipcRenderer.invoke('fs:roots'),
-  addFolder: (): Promise<string | null> => ipcRenderer.invoke('fs:addFolder'),
+  addFolder: (): Promise<string | { refused: string; path: string } | null> => ipcRenderer.invoke('fs:addFolder'),
   removeFolder: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:removeFolder', p),
   aiosLists: (): Promise<{ agents: unknown[]; commands: unknown[]; skills: unknown[]; frequent: unknown[]; running: unknown[]; suggestions: unknown[] }> => ipcRenderer.invoke('aios:lists'),
   fsIndex: (): Promise<{ name: string; path: string; root: string }[]> => ipcRenderer.invoke('fs:index'),
@@ -147,7 +147,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),
   notesAdd: (name: string, note: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:add', name, note),
   notesDel: (name: string, index: number): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:del', name, index),
-  fsGit: (): Promise<{ files: Record<string, string>; dirty: string[]; repos: string[] }> => ipcRenderer.invoke('fs:git'),
+  fsGit: (): Promise<{ files: Record<string, string>; dirty: string[]; repos: string[]; slow: string[] }> => ipcRenderer.invoke('fs:git'),
   revealInOS: (p: string): Promise<boolean> => ipcRenderer.invoke('shell:reveal', p),
   /* Open a local file OUTSIDE the app — the system's default handler, never the in-app browser
      pane. Takes a PATH, not a URL: main validates it against the allowed roots and builds the

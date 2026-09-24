@@ -1,5 +1,6 @@
 import { app, ipcMain, BrowserWindow, powerMonitor } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import { markQuitting } from './quitState';
 
 /**
  * Auto-update — the last mile for app-only operators (no terminal, cannot
@@ -97,7 +98,9 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   // toast for every outcome — found / up-to-date / dev build / failed. `quitAndInstall`
   // remains scaffolding with no caller yet.
   ipcMain.handle('updater:check', () => autoUpdater.checkForUpdatesAndNotify());
-  ipcMain.handle('updater:quitAndInstall', () => { autoUpdater.quitAndInstall(); });
+  // Mark the quit BEFORE installing: quitAndInstall closes the windows first, and a window that
+  // hides on close (macOS) would otherwise swallow the install. See quitState.ts.
+  ipcMain.handle('updater:quitAndInstall', () => { markQuitting(); autoUpdater.quitAndInstall(); });
 
   // Check on boot, then every 6h while the app stays open. `checkForUpdatesAndNotify`
   // auto-downloads and raises a NATIVE OS notification when an update is staged —

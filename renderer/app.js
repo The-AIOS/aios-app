@@ -448,6 +448,28 @@ let xOn = layoutState.xOn !== false;
    prefers it and does not see corruption. */
 let termRenderer = layoutState.termRenderer === 'webgl' ? 'webgl' : 'dom';
 
+/* AI-77 — OPTION AS META, EXCEPT WHERE YOUR KEYBOARD TYPES A CHARACTER WITH IT.
+   macOptionIsMeta stays on: it is what makes ⌥↵ (newline in Claude's composer), ⌥←/→ (word
+   jumps), ⌥⌫ and ⌥-letter shortcuts reach the TUI. But on Spanish, German, French, Italian and
+   other layouts Option is how you TYPE @ # | \ [ ] { } ~, and Meta swallowed them: ⌥2 sent
+   ESC-2 instead of @ (operator-reported; Spanish ISO). So: when Option produces a plain
+   printable ASCII character that the key does NOT produce on its own, type that character. The
+   browser already tells us what the layout composed (`key`), and `code` tells us which key it
+   was. Everything else stays Meta, so a US keyboard, where ⌥2 makes ™ and ⌥p makes π, behaves
+   exactly as before. No setting and no layout detection: the keystroke itself says which case
+   it is. Returns the character to type, or null to let Meta handle it. */
+function optionComposedChar(e) {
+  if (!e.altKey || e.metaKey || e.ctrlKey) return null;
+  const k = e.key;
+  if (typeof k !== 'string' || k.length !== 1) return null;           // Enter, arrows, Backspace, Dead…
+  const c = k.charCodeAt(0);
+  if (c < 0x21 || c > 0x7e) return null;                              // π, ™, non-breaking space → Meta
+  const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code || '');
+  const base = m ? (m[1] ? m[1].toLowerCase() : m[2]) : null;
+  if (base !== null && k.toLowerCase() === base) return null;         // Option changed nothing → Meta
+  return k;
+}
+
 function attachRenderer(p) {
   if (!p || p.kind !== 'term' || !p.term) return;
   const canGl = !!(window.WebglAddon && window.WebglAddon.WebglAddon) && !NO_WEBGL;
@@ -702,6 +724,7 @@ function renderPulse(msg) {
   else if (msg.type === 'running') { renderPulseRunning(msg); paintTabStates(msg); }   // #24.2b tab state, on the same 2s pulse
   else if (msg.type === 'month') renderPulseMonth(msg.data);
   else if (msg.type === 'updateStatus') renderPulseUpdate(msg);
+  else if (msg.type === 'workspacePruned') toast(t('explorer.pruned', { paths: (msg.folders || []).join(', ') }));
   else if (msg.type === 'calendarDirty') { if (pulse.calCur) pulse.send({ type: 'navMonth', year: pulse.calCur.year, month: pulse.calCur.month }); }
   else if (msg.type === 'toggleAllCards') toggleAllPulse();
 }
@@ -3283,6 +3306,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
     }
     if (e.type === 'keydown' && handleChord(e)) return false; // ⌘⌥G chords win everywhere
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
+    /* AI-77 — Option types the character your keyboard makes, when it makes a plain one. */
+    if (e.type === 'keydown') { const ch = optionComposedChar(e); if (ch) { e.preventDefault(); window.glassShell.ptyWrite(id, ch); return false; } }   // preventDefault: no second copy via keypress
     if (e.type !== 'keydown' || !e.metaKey || e.altKey) return true;
     // ⌘ conventions every macOS terminal user expects — and that a non-technical operator
     // will try first. Without these, ⌘C sent nothing and ⌘←/→ did nothing at all.
@@ -4985,7 +5010,7 @@ function applySectionGit(files) {
 let gitTimer = null;
 function refreshGit() {
   if (gitTimer) clearTimeout(gitTimer);
-  gitTimer = setTimeout(() => { window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); }, 120);
+  gitTimer = setTimeout(() => { window.glassShell.fsGit().then((g) => { applyGit(g.files, g.dirty, g.repos); noteSlowRepos(g.slow); }).catch(() => {}); }, 120);
 }
 
 /* targeted in-place re-list of ONE folder (new files surface, removed vanish — no repaint).
@@ -5132,7 +5157,7 @@ async function paintExplorer() {
   if (roots.vault) {
     await addSection(t('explorer.vault'), { key: 'VAULT', dot: 'solid', sub: t('explorer.vaultSub'), primary: true, sortRoot: roots.vault, gitRoot: roots.vault }, (box) => buildTree(roots.vault, box, 0, null, 14));
   }
-  await addSection(t('explorer.workspace'), { key: 'WORKSPACE', external: true, sub: t('explorer.workspaceSub'), add: async () => { const p = await window.glassShell.addFolder(); if (p) void paintExplorer(); } }, (box) => {
+  await addSection(t('explorer.workspace'), { key: 'WORKSPACE', external: true, sub: t('explorer.workspaceSub'), add: async () => { const p = await window.glassShell.addFolder(); if (folderRefused(p)) return; if (p) void paintExplorer(); } }, (box) => {
     for (const w of roots.workspace) {
       const fh = el('div', 'xrow dir xroot'); fh.dataset.path = w.path;
       fh.style.paddingLeft = '14px'; // match the Vault/Framework top-level folder indent (Glass parity)
@@ -5185,7 +5210,7 @@ if (window.glassShell.onClaudeConfigChanged) {
     }
   });
 }
-setInterval(() => { if (!document.hidden) window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); }, 4000);
+setInterval(() => { if (!document.hidden) window.glassShell.fsGit().then((g) => { applyGit(g.files, g.dirty, g.repos); noteSlowRepos(g.slow); }).catch(() => {}); }, 4000);
 
 /* ── rail: toggles + layout menu ──────────────────────────────────────────── */
 document.getElementById('railMark').innerHTML = icon('aios', 22);
@@ -5576,6 +5601,24 @@ document.getElementById('railLayout').addEventListener('click', (e) => {
    the editor zone OPENS what you drop (a folder reveals it in the explorer instead, since
    there is nothing to view), and the terminal zone routes to the active terminal — or opens
    one at that folder if none exists, which is the useful reading of "drop a folder here". */
+/* Main refuses a folder too broad to watch (the disk root, home, anything above home, a volume)
+   and says which. Returns true when it was refused, after telling the operator. */
+function folderRefused(r) {
+  if (!r || typeof r !== 'object' || !r.refused) return false;
+  toast(t('explorer.tooBroad', { path: r.path }));
+  return true;
+}
+/* A repo where `git status` takes over 30s loses its change markers (main keeps the App
+   responsive by not waiting for it). Say so once per repo per run, so missing markers are not a
+   mystery. */
+const slowReposNoted = new Set();
+function noteSlowRepos(list) {
+  for (const r of list || []) {
+    if (slowReposNoted.has(r)) continue;
+    slowReposNoted.add(r);
+    toast(t('explorer.gitSlow', { name: xBase(r) }));
+  }
+}
 attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
   for (const dropped of paths) {
     // one of ours, and a folder: nothing to view, so reveal it in the tree
@@ -5583,6 +5626,7 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
     // An OS drop can be a folder too — that becomes a workspace folder, which is how an
     // outside project comes in.
     const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
+    if (folderRefused(addedDir)) continue;
     if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
     /* A file the reader refuses is simply outside every allowed root — which is most things
        dragged from Finder. Rather than dead-ending on "cannot open", bring its folder into
@@ -5592,6 +5636,9 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
     if (!readable) {
       const parent = xDirOf(dropped);
       const widened = await window.glassShell.addFolderPath(parent).catch(() => null);
+      /* Dropping a file that sits directly in home (or at the disk root) used to add its PARENT
+         — the whole home folder — as a workspace folder. Refused now; say why, don't open. */
+      if (folderRefused(widened)) continue;
       if (widened) { toast(t('drop.folderAdded', { name: xBase(parent) })); void paintExplorer(); }
     }
     void openViewer(dropped);
@@ -6645,7 +6692,7 @@ function openSettingsTab() {
       await window.glassShell.setSetting('ignorePaths', arr);
       ignoreIn.value = arr.join(', ');                 // normalize what they see
       void paintExplorer();                            // hide/show folders live
-      window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); // clear/restore bubbles now
+      window.glassShell.fsGit().then((g) => { applyGit(g.files, g.dirty, g.repos); noteSlowRepos(g.slow); }).catch(() => {}); // clear/restore bubbles now
       toast(t('settings.saved'));
     });
     row(wrap, t('settings.ignorePaths'), ignoreIn, t('settings.ignorePathsHint'));

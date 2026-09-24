@@ -2621,18 +2621,71 @@ export function modelLabel(value: string): string {
 
 // ── workspace folders (operator-added roots beside the vault) ───────────────
 
-export function workspaceFolders(): string[] {
+/**
+ * A folder too broad to be a workspace folder, and why — or null when it is fine.
+ *
+ * Every workspace folder gets a RECURSIVE fs.watch (the explorer's live refresh), and it also
+ * widens what the App's viewer may read. With `/` in the list the main process received every
+ * file event on the machine: 30–70% CPU at idle, typing lag, frozen frames (a team member's App,
+ * 2026-09-23 — `/` in .glass/shell.json; removing it dropped the App to ~1%). It also let the
+ * viewer open any file on the disk. The drop flow could produce it by itself: dropping a file
+ * that lives directly in home or at the disk root added its PARENT as a workspace folder.
+ *
+ * Refused: a filesystem root, the home folder, anything above home (`/Users`), a mounted volume's
+ * root, and macOS's data-volume root. A project folder INSIDE any of those is fine.
+ */
+export type BroadReason = 'root' | 'home' | 'aboveHome' | 'volume';
+export function tooBroadFolder(p: string, home: string = os.homedir(), platform: NodeJS.Platform = process.platform): BroadReason | null {
+  const pathMod = platform === 'win32' ? path.win32 : path.posix;
+  let abs = p;
+  // Resolve symlinks only on the platform we are running on (a link to `/` is still `/`).
+  if (platform === process.platform) { try { abs = fs.realpathSync(p); } catch { /* keep as given */ } }
+  const fold = (x: string) => {
+    const r = pathMod.resolve(x);
+    const trimmed = r.length > pathMod.parse(r).root.length ? r.replace(/[\\/]+$/, '') : r;
+    return platform === 'win32' || platform === 'darwin' ? trimmed.toLowerCase() : trimmed;   // case-insensitive file systems
+  };
+  const a = fold(abs), h = fold(home);
+  if (a === fold(pathMod.parse(pathMod.resolve(abs)).root)) return 'root';
+  if (platform === 'darwin' && a === '/system/volumes/data') return 'root';
+  if (a === h) return 'home';
+  if (h.startsWith(a + pathMod.sep)) return 'aboveHome';
+  if (platform === 'darwin' && /^\/volumes\/[^/]+$/.test(a)) return 'volume';
+  return null;
+}
+
+function rawWorkspaceFolders(): string[] {
   const r = frameworkRoot();
   if (!r) return [];
   try {
     const j = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8'));
     const arr = Array.isArray(j.workspaceFolders) ? j.workspaceFolders : [];
-    return arr.filter((p: unknown): p is string => typeof p === 'string' && fs.existsSync(p));
+    return arr.filter((p: unknown): p is string => typeof p === 'string');
   } catch { return []; }
 }
-export function addWorkspaceFolder(p: string): void {
+
+/** The folders in use. A too-broad entry already in the config is never watched or readable,
+ *  whether or not the one-time cleanup below has run yet — this filter is the protection. */
+export function workspaceFolders(): string[] {
+  return rawWorkspaceFolders().filter((p) => fs.existsSync(p) && !tooBroadFolder(p));
+}
+
+/** Adds the folder, or returns why it was refused. */
+export function addWorkspaceFolder(p: string): BroadReason | null {
+  const why = tooBroadFolder(p);
+  if (why) return why;
   const cur = workspaceFolders();
   if (!cur.includes(p)) setShellSetting('workspaceFolders' as never, [...cur, p] as never);
+  return null;
+}
+
+/** Removes too-broad entries a config already carries (written before this check existed) and
+ *  returns them, so the operator can be told once. Never touches anything else in the list. */
+export function pruneBroadWorkspaceFolders(): string[] {
+  const all = rawWorkspaceFolders();
+  const broad = all.filter((p) => tooBroadFolder(p));
+  if (broad.length) setShellSetting('workspaceFolders' as never, all.filter((p) => !broad.includes(p)) as never);
+  return broad;
 }
 export function removeWorkspaceFolder(p: string): void {
   setShellSetting('workspaceFolders' as never, workspaceFolders().filter((x) => x !== p) as never);
@@ -3371,42 +3424,75 @@ function repoRootOf(dir: string): string | undefined {
 }
 
 const repoListCache = new Map<string, { at: number; repos: string[] }>();
-/** Repos under a root: the root itself if it's (in) a repo, else a bounded scan
- *  for nested `.git`s (a non-repo container like `~/code`). Cached ~20s. */
-function reposUnder(rootPath: string): string[] {
+const repoListInflight = new Map<string, Promise<string[]>>();
+/** Repos under a root: the root itself if it's (in) a repo, else a bounded scan for nested
+ *  `.git`s (a non-repo container like `~/code`). Cached ~20s. ASYNC: the scan used to walk six
+ *  levels with sync readdir + stat, on the main process, every 20s. */
+async function reposUnder(rootPath: string): Promise<string[]> {
   const own = repoRootOf(rootPath);
   if (own) return [own];
   const c = repoListCache.get(rootPath);
   const now = Date.now();
   if (c && now - c.at < 20000) return c.repos;
-  const repos: string[] = [];
-  const walk = (dir: string, depth: number): void => {
-    if (depth > 6) return;
-    let names: string[] = [];
-    try { names = fs.readdirSync(dir); } catch { return; }
-    for (const name of names) {
-      if (GIT_ALWAYS_HIDE.has(name) || name.startsWith('.')) continue;
-      const full = path.join(dir, name);
-      try { if (!fs.statSync(full).isDirectory()) continue; } catch { continue; }
-      if (fs.existsSync(path.join(full, '.git'))) repos.push(full);
-      else walk(full, depth + 1);
-    }
-  };
-  walk(rootPath, 0);
-  repoListCache.set(rootPath, { at: now, repos });
-  return repos;
+  const running = repoListInflight.get(rootPath);
+  if (running) return running;
+  const scan = (async () => {
+    const repos: string[] = [];
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > 6) return;
+      let ents: fs.Dirent[] = [];
+      try { ents = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of ents) {
+        if (!e.isDirectory() || GIT_ALWAYS_HIDE.has(e.name) || e.name.startsWith('.')) continue;
+        const full = path.join(dir, e.name);
+        let isRepo = false;
+        try { await fs.promises.access(path.join(full, '.git')); isRepo = true; } catch { /* not a repo */ }
+        if (isRepo) repos.push(full);
+        else await walk(full, depth + 1);
+      }
+    };
+    await walk(rootPath, 0);
+    repoListCache.set(rootPath, { at: Date.now(), repos });
+    return repos;
+  })().finally(() => repoListInflight.delete(rootPath));
+  repoListInflight.set(rootPath, scan);
+  return scan;
 }
 
-const gitCache = new Map<string, { at: number; files: Map<string, string> }>();
-/** `git status --porcelain` for a repo → abs-path → code map. Cached ~2s. */
-function gitStatusOne(repoRoot: string): Map<string, string> {
-  const cached = gitCache.get(repoRoot);
-  const now = Date.now();
-  if (cached && now - cached.at < 2000) return cached.files;
+/* ── git status that never freezes the App ────────────────────────────────────
+   It used to be execFileSync with a 4s timeout, asked for every 4s by the explorer. A repo
+   where `git status` takes 8s (43 GB of media, operator-reported 2026-09-23) therefore held the
+   main process for 4s, timed out, cached nothing useful, and was asked again: the App was frozen
+   most of the time, with typing lag and stalled terminals. Now:
+     · it runs in the background — the main process keeps serving the window meanwhile;
+     · one run at a time per repo — a slow repo is never stacked up;
+     · a repo is re-checked as often as it can afford: every 2s when git answers fast, and ten
+       times its own duration (30s–5min) when it doesn't;
+     · a run that takes over 30s marks the repo too slow: its markers are dropped and it is
+       re-tried every 5 minutes, and the operator is told once which repo and why. */
+export const GIT_STATUS_TIMEOUT_MS = 30_000;
+const GIT_ANSWER_WAIT_MS = 800;   // how long a request waits for a FRESH answer before using the last one
+
+/** How long to wait between `git status` runs for a repo, given how long the last one took. */
+export function gitRefreshInterval(lastMs: number, tooSlow: boolean): number {
+  if (tooSlow) return 5 * 60_000;
+  if (lastMs < 500) return 2000;
+  return Math.min(5 * 60_000, Math.max(30_000, lastMs * 10));
+}
+
+type GitRunner = (repo: string, cb: (err: (Error & { killed?: boolean }) | null, out: string) => void) => void;
+let runGitStatus: GitRunner = (repo, cb) => {
+  execFile(gitBin(), ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8', timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 1 << 22 },
+    (err, out) => cb(err as (Error & { killed?: boolean }) | null, String(out ?? '')));
+};
+/** Tests only: swap the git runner (and clear state). */
+export function __setGitRunnerForTest(r: GitRunner | null): void {
+  runGitStatus = r ?? runGitStatus;
+  repoState.clear(); repoListCache.clear(); gitSnapCache = null;
+}
+
+function parsePorcelain(repoRoot: string, out: string): Map<string, string> {
   const files = new Map<string, string>();
-  let out = '';
-  try { out = execFileSync(gitBin(), ['-C', repoRoot, 'status', '--porcelain'], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
-  catch { gitCache.set(repoRoot, { at: now, files }); return files; }
   for (const line of out.split('\n')) {
     if (line.length < 4) continue;
     const xy = line.slice(0, 2);
@@ -3417,19 +3503,50 @@ function gitStatusOne(repoRoot: string): Map<string, string> {
     const code = xy.includes('?') ? 'U' : xy.includes('A') ? 'A' : xy.includes('D') ? 'D' : xy.includes('R') ? 'R' : 'M';
     files.set(abs, code);
   }
-  gitCache.set(repoRoot, { at: now, files });
   return files;
 }
 
-export interface GitSnapshot { files: Record<string, string>; dirty: string[]; repos: string[]; }
+interface RepoState { files: Map<string, string>; at: number; ms: number; tooSlow: boolean; inflight?: Promise<void>; }
+const repoState = new Map<string, RepoState>();
+
+function refreshRepo(repo: string): Promise<void> {
+  let st = repoState.get(repo);
+  if (!st) { st = { files: new Map(), at: 0, ms: 0, tooSlow: false }; repoState.set(repo, st); }
+  if (st.inflight) return st.inflight;
+  const s0 = st;
+  const t0 = Date.now();
+  s0.inflight = new Promise<void>((resolve) => {
+    runGitStatus(repo, (err, out) => {
+      s0.ms = Date.now() - t0; s0.at = Date.now(); s0.inflight = undefined;
+      if (err) {
+        s0.tooSlow = !!err.killed;          // killed = hit the timeout; other errors = not a repo right now
+        s0.files = new Map();
+      } else {
+        s0.tooSlow = false;
+        s0.files = parsePorcelain(repo, out);
+      }
+      resolve();
+    });
+  });
+  return s0.inflight;
+}
+
+/** The latest status for a repo. Starts a run when one is due, waits a moment for it, and
+ *  otherwise answers with the last known state — never blocks. */
+async function gitStatusOne(repo: string): Promise<RepoState> {
+  const st = repoState.get(repo);
+  const due = !st || (!st.inflight && Date.now() - st.at >= gitRefreshInterval(st.ms, st.tooSlow));
+  const run = due ? refreshRepo(repo) : st?.inflight;
+  if (run) await Promise.race([run, new Promise((r) => setTimeout(r, GIT_ANSWER_WAIT_MS))]);
+  return repoState.get(repo)!;
+}
+
+export interface GitSnapshot { files: Record<string, string>; dirty: string[]; repos: string[]; slow: string[]; }
 /** A snapshot the renderer reconciles onto rendered rows: changed files (abs→code)
  *  + every ancestor folder up to each root (dirty), + the roots covered. */
-// #40 The whole snapshot is TTL-cached. gitStatusOne shells `git status` SYNCHRONOUSLY
-// per repo, and the repo walk descends 6 levels — so on a root like ~/code (dozens of
-// repos) an uncached call blocks the main process long enough to freeze the window,
-// which is the "hard loading time" when adding a workspace folder. Explorer paints and
-// fs watcher events both ask for status repeatedly; one short-lived snapshot serves
-// them all. (The repo LIST was already cached; the expensive status pass wasn't.)
+// #40 The whole snapshot is TTL-cached: explorer paints and fs watcher events both ask for
+// status repeatedly, and one short-lived snapshot serves them all. (Since 0.9.9 nothing in this
+// path blocks the main process either: see "git status that never freezes the App" above.)
 let gitSnapCache: { key: string; at: number; snap: GitSnapshot } | null = null;
 /* Changed LINE RANGES for one file, for the editor's gutter — `git diff -U0` gives hunk
    headers with no context, so `@@ -a,b +c,d @@` maps straight onto working-file lines.
@@ -3475,18 +3592,19 @@ export function gitDirtyLines(absFile: string): Array<[number, number]> {
   return ranges;
 }
 
-export function gitStatusForRoots(roots: string[]): GitSnapshot {
-  const key = roots.join(' ');
+export async function gitStatusForRoots(roots: string[]): Promise<GitSnapshot> {
+  const key = roots.join(' ');
   const now = Date.now();
   if (gitSnapCache && gitSnapCache.key === key && now - gitSnapCache.at < 4000) return gitSnapCache.snap;
-  const snap = computeGitStatusForRoots(roots);
-  gitSnapCache = { key, at: now, snap };
+  const snap = await computeGitStatusForRoots(roots);
+  gitSnapCache = { key, at: Date.now(), snap };
   return snap;
 }
-function computeGitStatusForRoots(roots: string[]): GitSnapshot {
+async function computeGitStatusForRoots(roots: string[]): Promise<GitSnapshot> {
   const files: Record<string, string> = {};
   const dirty = new Set<string>();
   const covered: string[] = [];
+  const slow = new Set<string>();   // a repo reached from two roots is still one repo
   const ignored = ignoreMatchers(shellSettings().ignorePaths);
   // A file under an ignored path segment (e.g. `_archive/…`) contributes no
   // status and no dirty propagation — so ignored folders never raise a
@@ -3497,8 +3615,11 @@ function computeGitStatusForRoots(roots: string[]): GitSnapshot {
     abs.slice(root.length).replace(/^[\\/]+/, '').split(/[\\/]/).some((seg) => ignored.some((re) => re.test(seg)));
   for (const root of roots) {
     covered.push(root);
-    for (const r of reposUnder(root)) {
-      for (const [abs, code] of gitStatusOne(r)) {
+    const repos = await reposUnder(root);
+    const states = await Promise.all(repos.map((r) => gitStatusOne(r).then((st) => [r, st] as const)));
+    for (const [r, st] of states) {
+      if (st.tooSlow) slow.add(r);
+      for (const [abs, code] of st.files) {
         if (underIgnored(abs, root)) continue;
         files[abs] = code;
         for (let d = path.dirname(abs); d.startsWith(root) && d.length >= root.length; d = path.dirname(d)) {
@@ -3508,7 +3629,7 @@ function computeGitStatusForRoots(roots: string[]): GitSnapshot {
       }
     }
   }
-  return { files, dirty: [...dirty], repos: covered };
+  return { files, dirty: [...dirty], repos: covered, slow: [...slow] };
 }
 
 // ── plugins / marketplace (the AIOS Partner Network) ────────────────────────
