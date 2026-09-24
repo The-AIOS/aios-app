@@ -102,6 +102,7 @@
   "explorer.addFolder": "Adicionar pasta ao espaço de trabalho",
   "explorer.tooBroad": "O AIOS não pode adicionar {path}: é o disco inteiro ou sua pasta de usuário inteira, e vigiar tudo isso deixa o app lento. Adicione uma pasta de projeto dentro dela.",
   "explorer.pruned": "Removemos {paths} das suas pastas: vigiar o disco inteiro ou a pasta de usuário estava deixando o app lento. Adicione uma pasta de projeto dentro dela.",
+  "explorer.gitSlow": "O Git está muito lento em {name}, então as marcas de alteração dele estão desligadas por enquanto. O AIOS continua funcionando e verifica de novo a cada poucos minutos.",
   "explorer.removeFolder": "Remover do espaço de trabalho",
   "explorer.empty": "Adicione uma pasta (um repo, uma pasta do Drive) para navegar nela aqui.",
   "drop.hintEditor": "Solte para abrir",

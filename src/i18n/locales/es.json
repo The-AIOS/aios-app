@@ -102,6 +102,7 @@
   "explorer.addFolder": "Agregar carpeta al espacio de trabajo",
   "explorer.tooBroad": "AIOS no puede agregar {path}: es todo el disco o toda tu carpeta de usuario, y vigilar tanto hace lenta la app. Agrega mejor una carpeta de proyecto dentro.",
   "explorer.pruned": "Quitamos {paths} de tus carpetas: vigilar todo el disco o la carpeta de usuario estaba haciendo lenta la app. Agrega mejor una carpeta de proyecto dentro.",
+  "explorer.gitSlow": "Git va muy lento en {name}, así que sus marcas de cambios están apagadas por ahora. AIOS sigue funcionando y vuelve a revisar cada pocos minutos.",
   "explorer.removeFolder": "Quitar del espacio de trabajo",
   "explorer.empty": "Agrega una carpeta (un repo, una carpeta de Drive) para navegarla aquí.",
   "drop.hintEditor": "Suelta para abrir",

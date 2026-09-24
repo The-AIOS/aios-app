@@ -5010,7 +5010,7 @@ function applySectionGit(files) {
 let gitTimer = null;
 function refreshGit() {
   if (gitTimer) clearTimeout(gitTimer);
-  gitTimer = setTimeout(() => { window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); }, 120);
+  gitTimer = setTimeout(() => { window.glassShell.fsGit().then((g) => { applyGit(g.files, g.dirty, g.repos); noteSlowRepos(g.slow); }).catch(() => {}); }, 120);
 }
 
 /* targeted in-place re-list of ONE folder (new files surface, removed vanish — no repaint).
@@ -5210,7 +5210,7 @@ if (window.glassShell.onClaudeConfigChanged) {
     }
   });
 }
-setInterval(() => { if (!document.hidden) window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); }, 4000);
+setInterval(() => { if (!document.hidden) window.glassShell.fsGit().then((g) => { applyGit(g.files, g.dirty, g.repos); noteSlowRepos(g.slow); }).catch(() => {}); }, 4000);
 
 /* ── rail: toggles + layout menu ──────────────────────────────────────────── */
 document.getElementById('railMark').innerHTML = icon('aios', 22);
@@ -5607,6 +5607,17 @@ function folderRefused(r) {
   if (!r || typeof r !== 'object' || !r.refused) return false;
   toast(t('explorer.tooBroad', { path: r.path }));
   return true;
+}
+/* A repo where `git status` takes over 30s loses its change markers (main keeps the App
+   responsive by not waiting for it). Say so once per repo per run, so missing markers are not a
+   mystery. */
+const slowReposNoted = new Set();
+function noteSlowRepos(list) {
+  for (const r of list || []) {
+    if (slowReposNoted.has(r)) continue;
+    slowReposNoted.add(r);
+    toast(t('explorer.gitSlow', { name: xBase(r) }));
+  }
 }
 attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
   for (const dropped of paths) {
@@ -6681,7 +6692,7 @@ function openSettingsTab() {
       await window.glassShell.setSetting('ignorePaths', arr);
       ignoreIn.value = arr.join(', ');                 // normalize what they see
       void paintExplorer();                            // hide/show folders live
-      window.glassShell.fsGit().then((g) => applyGit(g.files, g.dirty, g.repos)).catch(() => {}); // clear/restore bubbles now
+      window.glassShell.fsGit().then((g) => { applyGit(g.files, g.dirty, g.repos); noteSlowRepos(g.slow); }).catch(() => {}); // clear/restore bubbles now
       toast(t('settings.saved'));
     });
     row(wrap, t('settings.ignorePaths'), ignoreIn, t('settings.ignorePathsHint'));

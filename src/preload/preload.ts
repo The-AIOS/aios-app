@@ -147,7 +147,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),
   notesAdd: (name: string, note: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:add', name, note),
   notesDel: (name: string, index: number): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:del', name, index),
-  fsGit: (): Promise<{ files: Record<string, string>; dirty: string[]; repos: string[] }> => ipcRenderer.invoke('fs:git'),
+  fsGit: (): Promise<{ files: Record<string, string>; dirty: string[]; repos: string[]; slow: string[] }> => ipcRenderer.invoke('fs:git'),
   revealInOS: (p: string): Promise<boolean> => ipcRenderer.invoke('shell:reveal', p),
   /* Open a local file OUTSIDE the app — the system's default handler, never the in-app browser
      pane. Takes a PATH, not a URL: main validates it against the allowed roots and builds the

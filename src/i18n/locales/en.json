@@ -102,6 +102,7 @@
   "explorer.addFolder": "Add folder to workspace",
   "explorer.tooBroad": "AIOS can't add {path}: it's the whole disk or your whole home folder, and watching that much slows the App down. Add a project folder inside it instead.",
   "explorer.pruned": "Removed {paths} from your folders: watching the whole disk or home folder was slowing the App down. Add a project folder inside it instead.",
+  "explorer.gitSlow": "Git is very slow in {name}, so its change markers are off for now. AIOS keeps working and checks again every few minutes.",
   "explorer.removeFolder": "Remove from workspace",
   "explorer.empty": "Add a folder (a repo, a Drive folder) to navigate it here.",
   "drop.hintEditor": "Drop to open",
