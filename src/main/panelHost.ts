@@ -355,6 +355,10 @@ export class PanelHost {
         this.postRunning();
         this.postUpdateStatus();
         this.post({ type: 'month', data: (() => { const n = new Date(); return aios.getMonthData(n.getFullYear(), n.getMonth() + 1); })() });
+        /* A config written before the too-broad check can still carry `/` or the home folder.
+           workspaceFolders() already ignores them; this removes them from the file and says so
+           once, so the operator knows why a folder left the explorer. */
+        { const pruned = aios.pruneBroadWorkspaceFolders(); if (pruned.length) this.post({ type: 'workspacePruned', folders: pruned }); }
         return;
       /* AN EXPLICIT RE-CHECK STARTS THE BACKOFF OVER. It arrives when the network comes back (the
          renderer's `online` event) and when the operator clicks — both moments when "the last ten

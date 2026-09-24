@@ -2621,18 +2621,71 @@ export function modelLabel(value: string): string {
 
 // ── workspace folders (operator-added roots beside the vault) ───────────────
 
-export function workspaceFolders(): string[] {
+/**
+ * A folder too broad to be a workspace folder, and why — or null when it is fine.
+ *
+ * Every workspace folder gets a RECURSIVE fs.watch (the explorer's live refresh), and it also
+ * widens what the App's viewer may read. With `/` in the list the main process received every
+ * file event on the machine: 30–70% CPU at idle, typing lag, frozen frames (a team member's App,
+ * 2026-09-23 — `/` in .glass/shell.json; removing it dropped the App to ~1%). It also let the
+ * viewer open any file on the disk. The drop flow could produce it by itself: dropping a file
+ * that lives directly in home or at the disk root added its PARENT as a workspace folder.
+ *
+ * Refused: a filesystem root, the home folder, anything above home (`/Users`), a mounted volume's
+ * root, and macOS's data-volume root. A project folder INSIDE any of those is fine.
+ */
+export type BroadReason = 'root' | 'home' | 'aboveHome' | 'volume';
+export function tooBroadFolder(p: string, home: string = os.homedir(), platform: NodeJS.Platform = process.platform): BroadReason | null {
+  const pathMod = platform === 'win32' ? path.win32 : path.posix;
+  let abs = p;
+  // Resolve symlinks only on the platform we are running on (a link to `/` is still `/`).
+  if (platform === process.platform) { try { abs = fs.realpathSync(p); } catch { /* keep as given */ } }
+  const fold = (x: string) => {
+    const r = pathMod.resolve(x);
+    const trimmed = r.length > pathMod.parse(r).root.length ? r.replace(/[\\/]+$/, '') : r;
+    return platform === 'win32' || platform === 'darwin' ? trimmed.toLowerCase() : trimmed;   // case-insensitive file systems
+  };
+  const a = fold(abs), h = fold(home);
+  if (a === fold(pathMod.parse(pathMod.resolve(abs)).root)) return 'root';
+  if (platform === 'darwin' && a === '/system/volumes/data') return 'root';
+  if (a === h) return 'home';
+  if (h.startsWith(a + pathMod.sep)) return 'aboveHome';
+  if (platform === 'darwin' && /^\/volumes\/[^/]+$/.test(a)) return 'volume';
+  return null;
+}
+
+function rawWorkspaceFolders(): string[] {
   const r = frameworkRoot();
   if (!r) return [];
   try {
     const j = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8'));
     const arr = Array.isArray(j.workspaceFolders) ? j.workspaceFolders : [];
-    return arr.filter((p: unknown): p is string => typeof p === 'string' && fs.existsSync(p));
+    return arr.filter((p: unknown): p is string => typeof p === 'string');
   } catch { return []; }
 }
-export function addWorkspaceFolder(p: string): void {
+
+/** The folders in use. A too-broad entry already in the config is never watched or readable,
+ *  whether or not the one-time cleanup below has run yet — this filter is the protection. */
+export function workspaceFolders(): string[] {
+  return rawWorkspaceFolders().filter((p) => fs.existsSync(p) && !tooBroadFolder(p));
+}
+
+/** Adds the folder, or returns why it was refused. */
+export function addWorkspaceFolder(p: string): BroadReason | null {
+  const why = tooBroadFolder(p);
+  if (why) return why;
   const cur = workspaceFolders();
   if (!cur.includes(p)) setShellSetting('workspaceFolders' as never, [...cur, p] as never);
+  return null;
+}
+
+/** Removes too-broad entries a config already carries (written before this check existed) and
+ *  returns them, so the operator can be told once. Never touches anything else in the list. */
+export function pruneBroadWorkspaceFolders(): string[] {
+  const all = rawWorkspaceFolders();
+  const broad = all.filter((p) => tooBroadFolder(p));
+  if (broad.length) setShellSetting('workspaceFolders' as never, all.filter((p) => !broad.includes(p)) as never);
+  return broad;
 }
 export function removeWorkspaceFolder(p: string): void {
   setShellSetting('workspaceFolders' as never, workspaceFolders().filter((x) => x !== p) as never);
