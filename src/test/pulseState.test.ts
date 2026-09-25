@@ -125,7 +125,7 @@ const DISPLAYED = [
   'discoverCommands',
   'discoverSkills',
   'frequentTaskCount',
-  'listRunningAgents',
+  'listOperatorSessions',   // AI-165: the panel shows operator sessions only (daemon spares hidden)
   'nudgeState',
   'operatorName',
   'primaryName',
