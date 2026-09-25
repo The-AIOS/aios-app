@@ -667,7 +667,7 @@ ipcMain.handle('aios:lists', () => ({
   commands: aios.discoverCommands(),
   skills: aios.discoverSkills(),
   frequent: aios.frequentTasks(),
-  running: aios.listRunningAgents(),
+  running: aios.listOperatorSessions(),
   suggestions: aios.listAgentSuggestions(),
 }));
 ipcMain.handle('fs:index', () => aios.fileIndex());

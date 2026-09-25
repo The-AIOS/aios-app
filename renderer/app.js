@@ -1926,7 +1926,19 @@ function sessionRow(a) {
     // idle collapse: "Worked for 12m" when we watched a run end, else the plain status
     const dur = fmtAgo(a.updatedAt);
     const label = (s.cls === 'idle' && stt.lastDur) ? t('theater.workedFor', { time: fmtDur(stt.lastDur) }) : s.label + (dur ? ' ' + dur : '');
-    r.appendChild(el('span', 'pst', '· ' + label + (a.proj ? ' · ' + a.proj : '')));
+    /* #23 — a session that needs you says WHAT it needs, in the row's own detail slot. Three
+       blocked sessions used to read as three identical "needs input" rows; the answer to "which
+       first?" was already in the registry (`waitingFor`) and only reached the macOS banner. One
+       line, no new surface; the full text is in the tooltip when it doesn't fit. */
+    if (s.cls === 'input' && a.waitingFor) {
+      // How long it has WAITED: statusUpdatedAt is when this status began; updatedAt moves on every heartbeat.
+      const waited = fmtAgo(a.statusUpdatedAt || a.updatedAt);
+      const pst = el('span', 'pst', '· ' + a.waitingFor + (waited ? ' · ' + waited : ''));
+      pst.title = a.waitingFor;
+      r.appendChild(pst);
+    } else {
+      r.appendChild(el('span', 'pst', '· ' + label + (a.proj ? ' · ' + a.proj : '')));
+    }
   }
   const mem = fmtMem(a.mem);
   if (mem) r.appendChild(el('span', 'rmem', mem));
@@ -3905,6 +3917,29 @@ function applyEdZoom() {
   document.documentElement.style.setProperty('--edzoom', String(edZoom));
 }
 
+/* Terminal text size (#24 readability). Same range as the Settings field (10–18). */
+const TERM_FONT_DEFAULT = 12.5, TERM_FONT_MIN = 10, TERM_FONT_MAX = 18;
+function focusedTerminal() {
+  const ae = document.activeElement;
+  if (!ae) return null;
+  for (const q of panes.values()) if (q.kind === 'term' && q.term && !q.exited && q.el && q.el.contains(ae)) return q;
+  return null;
+}
+let termFontSaveTimer = 0;
+function setTermFont(v) {
+  const next = Math.min(TERM_FONT_MAX, Math.max(TERM_FONT_MIN, Math.round(v * 2) / 2));
+  const changed = next !== TERMFONT;
+  TERMFONT = next;
+  if (changed) {
+    for (const q of liveTerms()) { try { q.term.options.fontSize = next; } catch { /* disposed */ } }
+    fitTerms();   // new cell size → new cols/rows, and the pty is told
+    // One write when the keys stop, not one per keypress.
+    clearTimeout(termFontSaveTimer);
+    termFontSaveTimer = setTimeout(() => { void window.glassShell.setSetting('termFontSize', TERMFONT).catch(() => {}); }, 400);
+  }
+  toast(t('zoom.termLevel', { size: String(next) }) + (changed ? '' : ' ·'));
+}
+
 function setEdZoom(v, announce) {
   const next = Math.min(ED_ZOOM_MAX, Math.max(ED_ZOOM_MIN, Math.round(v * 100) / 100));
   const changed = next !== edZoom;
@@ -5856,6 +5891,14 @@ window.glassShell.onIntent(async (m) => {
       openHomeTab();
       return;
     case 'zoom':
+      /* #24 readability — ⌘+/− FOLLOWS THE FOCUS. In a terminal it changes the terminal text,
+         live, for every open terminal, and is saved so new ones match; anywhere else it is the
+         editor zoom it always was. Before, the terminal size lived only in Settings and applied
+         to NEW sessions, so the one pane you were squinting at could not be changed at all. */
+      if (focusedTerminal()) {
+        setTermFont(m.reset ? TERM_FONT_DEFAULT : TERMFONT + Math.sign(Number(m.delta) || 0));
+        return;
+      }
       if (m.reset) setEdZoom(1, true);
       else setEdZoom(edZoom + (Number(m.delta) || 0), true);
       return;
@@ -6012,9 +6055,14 @@ function openWhatsNewTab() {
        it carries links out of our sandbox. Bottom-right, with air above it: it is the last thing
        here and it leaves the app, so it must not read as part of the last card. */
     const foot = el('div', 'wnfoot');
+    const skipped = skippedReleases(whatsNewFrom, v);
+    whatsNewFrom = null;   // said once: reopening What's New later shows just this release
+    /* Skipped a release? Say which, and send them to the list of every release, not just this tag. */
+    if (skipped.length) foot.appendChild(el('div', 'wnskip', t('whatsnew.skipped', { versions: skipped.join(', ') })));
     const link = el('button', 'wnlink', t('whatsnew.more'));
-    link.addEventListener('click', () => void window.glassShell.openExternal(
-      'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
+    link.addEventListener('click', () => void window.glassShell.openExternal(skipped.length
+      ? 'https://github.com/The-AIOS/aios-app/releases'
+      : 'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
     foot.appendChild(link);
     wrap.appendChild(foot);
   });
@@ -6032,6 +6080,21 @@ function openWhatsNewTab() {
  *  · SAME VERSION, NOTHING. The comparison is against the version, so it cannot fire twice for
  *    one release and it needs no separate "seen" bookkeeping to go stale.
  */
+/* EVERY PUBLISHED RELEASE, oldest first. The update feed only ever offers the LATEST version, so
+   someone on 0.9.7 lands on 0.9.9 and never sees 0.9.8's headlines, and "full release notes"
+   opens only the current tag (operator's question, 2026-09-23). With this list the App can say
+   exactly which releases they skipped, rather than guessing from version numbers (0.9.9 → 0.10.0
+   cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
+   if package.json names a version that is missing. */
+const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0'];
+let whatsNewFrom = null;
+/** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
+function skippedReleases(from, to) {
+  const a = RELEASES.indexOf(from), b = RELEASES.indexOf(to);
+  return a >= 0 && b > a + 1 ? RELEASES.slice(a + 1, b) : [];
+}
+
 async function maybeShowWhatsNew() {
   let v = '';
   try { v = await window.glassShell.appVersion(); } catch { return; }
@@ -6054,6 +6117,7 @@ async function maybeShowWhatsNew() {
          "new operator" would have skipped every one of them. The feature would have started
          working one release AFTER the release it was built to announce. */
   if (!seen && PROFILE_WAS_EMPTY) return;
+  whatsNewFrom = seen;   // who they were before this update: names any release they skipped
   openWhatsNewTab();
 }
 
@@ -6554,7 +6618,8 @@ function openSettingsTab() {
     const fontIn = document.createElement('input');
     fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = '18'; fontIn.style.width = '70px';
     fontIn.value = String(cfg.termFontSize || 12.5);
-    fontIn.addEventListener('change', async () => { await window.glassShell.setSetting('termFontSize', Number(fontIn.value) || 12.5); TERMFONT = Number(fontIn.value) || 12.5; toast(t('settings.savedNewTerminals')); });
+    // Live now, like ⌘+/− in a terminal: every open terminal changes, and new ones match.
+    fontIn.addEventListener('change', () => setTermFont(Number(fontIn.value) || TERM_FONT_DEFAULT));
     row(wrap, t('settings.termFont'), fontIn, t('settings.termFontHint'));
 
     // interface scale — the UI's counterpart to terminal font size, applied live

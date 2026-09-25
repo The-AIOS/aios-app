@@ -714,7 +714,7 @@ test("what's new opens once after an update, and its copy cannot describe the la
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   const foot = /\.wnfoot \{([^}]*)\}/.exec(css);
   assert.ok(foot, '.wnfoot must exist — it is what puts the link bottom-right');
-  assert.match(foot![1], /justify-content: flex-end/, 'the link is right-aligned');
+  assert.match(foot![1], /justify-content: flex-end|flex-direction: column; align-items: flex-end/, 'the link is right-aligned');
   assert.match(foot![1], /margin-top: (?:[3-9]\d|\d{3})px/, 'with real air above it, not a default gap');
   /* And the cards must NOT borrow .hcard: that is a button style, and these do nothing when
      clicked. Borrowing it would promise an action that is not there. */

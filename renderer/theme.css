@@ -504,7 +504,8 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .wnbody { color: var(--subtle); font-size: 12.5px; line-height: 1.65; margin-top: 6px; }
 /* The way out sits bottom-right with real air above it: it is the last thing on the pane and it
    leaves the app, so it must not read as part of the last card. */
-.wnfoot { display: flex; justify-content: flex-end; margin-top: 30px; }
+.wnfoot { display: flex; flex-direction: column; align-items: flex-end; margin-top: 30px; }
+.wnskip { color: var(--subtle); font-size: 12px; margin-bottom: 6px; }
 .wnlink { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
           color: var(--ink); font-family: var(--font); font-size: 12.5px; padding: 8px 14px;
           cursor: pointer; transition: all .16s; }
@@ -697,6 +698,16 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 .prow2 { overflow: hidden; }
 .prow2:hover .rmem { display: none; }
 .prow2 .runacts { flex: 0 0 auto; white-space: nowrap; }
+/* 0.10.0 (#23) — AT REST THE HOVER ACTIONS TAKE NO SPACE. They were only transparent
+   (opacity 0), so every row kept their width reserved and cut its own name and status to
+   "aios-ca…" / "· …" beside empty space (operator screenshot, 2026-09-25). Now they leave the
+   layout at rest and come back only on the row you hover or focus, which is also the only row
+   that crops to make room. A notes button with a count stays: it is information, not an action.
+   The name may use more of the row at rest, and yields back to 45% when the buttons appear. */
+.prow2:not(:hover):not(:focus-within) .runact:not(.has) { display: none; }
+.prow2:not(:hover):not(:focus-within) .runacts { margin-left: 0; }
+.prow2 .runacts:has(.runact.note.has) { opacity: 1; }
+.prow2:not(:hover):not(:focus-within) .rname { max-width: 62%; }
 .runact { background: transparent; border: 0; color: var(--subtle); cursor: pointer; padding: 2px 3px; border-radius: 4px; display: inline-flex; }
 .runact:hover { color: var(--accent); background: var(--surface); }
 .runact.kill:hover { color: var(--st-error); }
@@ -1372,6 +1383,10 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    on screen says where the next keystroke lands. */
 .zsplit .pane.termcard:not(.panehidden) { border-color: var(--line); }
 .zsplit .pane.termcard.panefocus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+/* #24 (2c) — in LIGHT the 55% tint lands next to a pale border and all but disappears
+   (operator: easy to see in dark, not in light). Full accent plus a 1px outer ring there. An
+   OUTER ring, so it can never be confused with the drop target's inset ring below. */
+body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--edge), var(--depth); }
 
 /* AI-82 drag-to-split: the pane under the cursor says it will take the drop. A coral inset ring
    rather than a border change — the border already carries focus, and two meanings on one edge is

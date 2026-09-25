@@ -181,7 +181,7 @@ export class PanelHost {
       goAgents: aios.countAgentSuggestions(),
       learnings: aios.recentLearnings(),
       nudge: aios.shellSettings().showNudges
-        ? (() => { const now = new Date(); return aios.nudgeState(now.getHours(), now.getDay(), aios.listRunningAgents().length); })()
+        ? (() => { const now = new Date(); return aios.nudgeState(now.getHours(), now.getDay(), aios.listOperatorSessions().length); })()
         : null,
       outputs: aios.recentOutputs(),
       reports: aios.recentReports(),
@@ -278,7 +278,7 @@ export class PanelHost {
   }
 
   postRunning(): void {
-    const running = aios.listRunningAgents();
+    const running = aios.listOperatorSessions();   // AI-165: never a daemon spare
     this.attention.tick(running, aios.shellSettings().attention);
     const rl = aios.rateLimit();
     const fwReal = aios.frameworkRoot() ?? '';
@@ -291,7 +291,7 @@ export class PanelHost {
     const mem = aios.shellSettings().showMemory ? aios.sessionMemoryMB(running.map((a) => a.pid)) : {};
     this.post({
       type: 'running',
-      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid] })),
+      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid], waitingFor: a.waitingFor, statusUpdatedAt: a.statusUpdatedAt })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
         : { has: false, fiveHour: 0, sevenDay: 0, showSwap: false, to: '' },

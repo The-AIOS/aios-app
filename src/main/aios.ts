@@ -378,7 +378,7 @@ export function countNotes(kind: 'declared' | 'observed' | 'projects'): number {
    which is why it is invisible on a machine whose sessions are all idle — that absence is the
    field working, not the field missing. `statusUpdatedAt` is when the CURRENT status was
    entered, so it answers "blocked longest" without us having to remember anything. */
-export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; }
+export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; kind: string; }
 
 export function listRunningAgents(): RunningAgent[] {
   const dir = path.join(os.homedir(), '.claude', 'sessions');
@@ -386,7 +386,7 @@ export function listRunningAgents(): RunningAgent[] {
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
   const out: RunningAgent[] = [];
   for (const f of files) {
-    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number };
+    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number; kind?: string };
     try { d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     const pid = Number(d?.pid ?? path.basename(f, '.json'));
     if (!Number.isInteger(pid) || pid <= 0 || !isAlive(pid)) continue;
@@ -400,10 +400,33 @@ export function listRunningAgents(): RunningAgent[] {
       updatedAt: Number(d?.updatedAt) || 0,
       ...(typeof d?.waitingFor === 'string' && d.waitingFor.trim() ? { waitingFor: d.waitingFor.trim() } : {}),
       ...(Number(d?.statusUpdatedAt) > 0 ? { statusUpdatedAt: Number(d.statusUpdatedAt) } : {}),
+      // Missing = an older CLI that predates the field; those were all terminal sessions.
+      kind: String(d?.kind ?? '').trim() || 'interactive',
     });
   }
   const seen = new Set<number>();
   return out.filter((a) => (seen.has(a.pid) ? false : (seen.add(a.pid), true)));
+}
+
+/**
+ * AI-165 — the sessions the OPERATOR is running, for everything that shows or alerts.
+ *
+ * Claude Code's background daemon keeps a pool of pre-started spare sessions so a background
+ * agent opens instantly. Each spare registers like any other session, but has no name, so the
+ * panel listed them under their session ids ("7a6c1978"), and closing one made the daemon start
+ * a replacement: phantom sessions that kept coming back (operator-reported 2026-09-24).
+ *
+ * The registry already says which is which. Measured in the 2.1.282 binary: the writer sets
+ * `kind = <launch kind> ?? "interactive"`, and a spare is `kind === "bg" && CLAUDE_BG_SOURCE ===
+ * "spare"`. Claude Code's own FleetView lists only `kind === "interactive"`, so this is the same
+ * rule. Background agents started on purpose are `bg` too and are hidden as well (operator's call:
+ * Claude Code's own background list shows them).
+ *
+ * listRunningAgents() still returns everything, on purpose: the spawn-inbox must still find a named
+ * background agent to `send` to or `kill`, and keep-awake should count any busy session.
+ */
+export function listOperatorSessions(): RunningAgent[] {
+  return listRunningAgents().filter((a) => a.kind === 'interactive');
 }
 
 function isAlive(pid: number): boolean {
