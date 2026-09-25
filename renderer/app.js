@@ -3116,6 +3116,21 @@ function attachPaneDropTarget(p, id) {
     splitWithPane(zoneOf(p), dropped);
   });
 }
+/* A DROP ANYWHERE CLEARS EVERY DROP HIGHLIGHT. Each target only cleared itself on its own
+   dragleave/drop, so a file dragged across both zones and dropped on the editor left the terminal
+   zone ringed in coral, looking like a focus border on an unsplit pane (operator-reported
+   2026-09-25). `dragleave` is unreliable for this (it fires for child elements and not at all
+   when the drop lands elsewhere), so the reset hangs off the events that always end a drag.
+   Capture phase, so a target that stops propagation cannot keep its highlight. */
+function clearAllDropHighlights() {
+  for (const el of document.querySelectorAll('.dropok, .panedrop')) el.classList.remove('dropok', 'panedrop');
+  clearDropHint();
+}
+document.addEventListener('drop', () => setTimeout(clearAllDropHighlights, 0), true);
+document.addEventListener('dragend', clearAllDropHighlights, true);
+// The pointer left the window mid-drag: nothing under it can still be a target.
+document.addEventListener('dragleave', (ev) => { if (!ev.relatedTarget) clearAllDropHighlights(); }, true);
+
 function clearDropHint() {
   for (const el of document.querySelectorAll('.tab.drop-before, .tab.drop-after')) {
     el.classList.remove('drop-before', 'drop-after');

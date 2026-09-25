@@ -89,3 +89,9 @@ test('#23: a waiting row shows what it is waiting for; at rest the hover buttons
   assert.match(css, /\.prow2:not\(:hover\):not\(:focus-within\) \.runact:not\(\.has\) \{ display: none; \}/);
   assert.match(css, /body\.light \.zsplit \.pane\.termcard\.panefocus \{ border-color: var\(--accent\);/, '#24 (2c) light-theme focus border');
 });
+
+test('a drop anywhere clears every drop highlight (no coral ring left on the other zone)', () => {
+  assert.match(app, /function clearAllDropHighlights\(\) \{\s*for \(const el of document\.querySelectorAll\('\.dropok, \.panedrop'\)\)/);
+  assert.match(app, /document\.addEventListener\('drop', \(\) => setTimeout\(clearAllDropHighlights, 0\), true\);/, 'capture phase, after the target handled it');
+  assert.match(app, /document\.addEventListener\('dragend', clearAllDropHighlights, true\);/);
+});
