@@ -38,6 +38,19 @@ test('AI-165: a daemon spare is not an operator session; the terminal session be
   });
 });
 
+test('AI-165: a headless SDK run (a plugin, `claude -p`) is not an operator session either', () => {
+  withRegistry([
+    { pid: LIVE[0], sessionId: 's-1', name: 'buddai', kind: 'interactive', entrypoint: 'cli', status: 'idle' },
+    { pid: LIVE[1], sessionId: '1dc5e420', name: 'aios-app-5e', kind: 'interactive', entrypoint: 'sdk-py', status: 'busy' },
+  ], () => {
+    assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), ['buddai'], 'the security-review run is hidden');
+  });
+  for (const ep of ['cli', 'claude-desktop', 'claude-vscode', 'remote', ''])
+    assert.equal(aios.isOperatorSession({ kind: 'interactive', entrypoint: ep }), true, `entrypoint "${ep}" is a person`);
+  for (const ep of ['sdk-cli', 'sdk-py', 'sdk-ts'])
+    assert.equal(aios.isOperatorSession({ kind: 'interactive', entrypoint: ep }), false, `entrypoint "${ep}" is a program`);
+});
+
 test('AI-165: a registry entry with no kind (an older Claude Code) is treated as a terminal session', () => {
   withRegistry([{ pid: LIVE[0], sessionId: 's-old', name: 'legacy', status: 'busy' }], () => {
     assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), ['legacy']);

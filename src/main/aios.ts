@@ -378,7 +378,7 @@ export function countNotes(kind: 'declared' | 'observed' | 'projects'): number {
    which is why it is invisible on a machine whose sessions are all idle — that absence is the
    field working, not the field missing. `statusUpdatedAt` is when the CURRENT status was
    entered, so it answers "blocked longest" without us having to remember anything. */
-export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; kind: string; }
+export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; kind: string; entrypoint: string; }
 
 export function listRunningAgents(): RunningAgent[] {
   const dir = path.join(os.homedir(), '.claude', 'sessions');
@@ -386,7 +386,7 @@ export function listRunningAgents(): RunningAgent[] {
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
   const out: RunningAgent[] = [];
   for (const f of files) {
-    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number; kind?: string };
+    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number; kind?: string; entrypoint?: string };
     try { d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     const pid = Number(d?.pid ?? path.basename(f, '.json'));
     if (!Number.isInteger(pid) || pid <= 0 || !isAlive(pid)) continue;
@@ -402,6 +402,7 @@ export function listRunningAgents(): RunningAgent[] {
       ...(Number(d?.statusUpdatedAt) > 0 ? { statusUpdatedAt: Number(d.statusUpdatedAt) } : {}),
       // Missing = an older CLI that predates the field; those were all terminal sessions.
       kind: String(d?.kind ?? '').trim() || 'interactive',
+      entrypoint: String(d?.entrypoint ?? '').trim(),
     });
   }
   const seen = new Set<number>();
@@ -425,8 +426,18 @@ export function listRunningAgents(): RunningAgent[] {
  * listRunningAgents() still returns everything, on purpose: the spawn-inbox must still find a named
  * background agent to `send` to or `kill`, and keep-awake should count any busy session.
  */
+/* The second half of the rule, found in operator testing the same day: `kind` only marks the
+   DAEMON's sessions (it comes from CLAUDE_CODE_SESSION_KIND: bg | daemon | daemon-worker), so a
+   headless SDK run registers as `interactive` too. A security-review plugin that starts a short
+   `sdk-py` session after each commit showed up in the panel as a working "aios-app-5e"
+   (2026-09-25). What tells them apart is `entrypoint`: a person's session is `cli`,
+   `claude-desktop`, `claude-vscode`, `remote`…; a program's is `sdk-cli` (`claude -p`),
+   `sdk-py` or `sdk-ts` (values measured in the 2.1.282 binary). */
+export function isOperatorSession(a: { kind: string; entrypoint: string }): boolean {
+  return a.kind === 'interactive' && !/^sdk-/i.test(a.entrypoint);
+}
 export function listOperatorSessions(): RunningAgent[] {
-  return listRunningAgents().filter((a) => a.kind === 'interactive');
+  return listRunningAgents().filter(isOperatorSession);
 }
 
 function isAlive(pid: number): boolean {
