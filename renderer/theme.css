@@ -243,7 +243,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 /* tabs pick up the same coral hover outline as the (+) — the invitation reads the same
    wherever it appears (DESIGN.md: coral means action) */
 .tab:hover { color: var(--ink); background: var(--surface); border-color: var(--accent); }
-.tab.active { color: var(--ink); background: var(--surface-2); border-color: var(--line); box-shadow: var(--edge); }
+.tab.active { color: var(--ink); background: var(--surface-2); border-color: var(--line); box-shadow: inset 0 -2px 0 var(--accent), var(--edge); }
+/* ↑ the 2px accent underline marks the active tab in BOTH themes (operator: loved it in light,
+   wanted it in dark for consistency); it is the same accent as the focused pane's edge. */
 .tab .ticon { display: inline-flex; color: var(--subtle); }
 .tab.active .ticon { color: var(--accent); }
 .tab .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -541,6 +543,11 @@ body.light {
   --edge: inset 0 1px 0 rgba(255,255,255,.7);
   --depth: 0 10px 26px -18px rgba(0,0,0,.25);
 }
+/* #24 — THE ACTIVE TAB IN LIGHT. Measured: the strip is #e9e9e6 and the active tab was #ececea
+   with an 8% border, a step too small to see (operator: fine in dark, hard in light). White card,
+   the stronger line, and a 2px accent underline, the same accent that marks the focused pane, so
+   "where am I" reads the same way in both places. Dark is unchanged. */
+body.light .tab.active { background: var(--surface); border-color: var(--line-strong); }
 body.light .pbtn.primary { color: #fff; }  /* white-on-coral Launch reads better than black in light */
 body.light .pbtn.primary .pblabel { color: #fff; }
 /* (zone tones now come from --zone-edit / --zone-term, set per theme) */
