@@ -2444,13 +2444,19 @@ function attachPathLinks(term, cwd) {
               : { start: at(m.index), end: at(m.index + best.text.length - 1) },
             text: best.text,
             decorations: { pointerCursor: true, underline: true },
-            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t('term.cmdClickOpen')),
+            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t('term.cmdClickOpen') + '  ·  ' + t('term.cmdShiftClickReveal')),
             leave: () => hidePathTip(),
             activate: (ev) => {
               hidePathTip();
               // ⌘/Ctrl required, as asked. A plain click falls through to the terminal, so
               // selecting text over a path still behaves like a terminal.
               if (!ev.metaKey && !ev.ctrlKey) return;
+              /* ⌘⇧ / Ctrl+Shift: hand the file to the DESKTOP, selected in its folder, instead of
+                 to a pane. The preview is the right default for reading and the wrong end for a
+                 file whose next step happens elsewhere (an image to upload, a PDF to attach) —
+                 operator-reported while uploading a generated avatar. Same modifier family as
+                 the preview, so a plain click still selects text. */
+              if (ev.shiftKey) { void window.glassShell.revealInOS(abs); return; }
               void openViewer(abs);
             },
           });
@@ -4452,6 +4458,10 @@ async function openViewer(p) {
   }
   const file = await window.glassShell.fsRead(p);
   if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
+  /* A file the pane cannot SHOW is handed to the desktop, not frozen into a pane: main did not
+     read it (binary, or too large for the editor) and says so. The folder is where a .dmg or a
+     .zip is useful anyway — the same "reveal" the header button below offers for every file. */
+  if (file.unreadable) { toast(t('viewer.revealedInstead', { name: xBase(file.path) })); void window.glassShell.revealInOS(file.path); return; }
   const name = xBase(file.path);
   noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
   const id = 'v' + (++viewSeq);
@@ -4519,6 +4529,14 @@ async function openViewer(p) {
     });
     head.appendChild(png);
   }
+  /* Every file, whatever it is. The pane SHOWS it; the desktop is where it gets USED — uploaded,
+     attached, dragged somewhere — and before this the route from a preview to that folder was
+     explorer → right-click → Reveal. Same label as that menu item: one string, one meaning.
+     Not gated on extension, on purpose: the files that motivated it are exactly the ones whose
+     preview is a dead end (images, PDFs — the non-editable kinds). */
+  const rev = document.createElement('button'); rev.className = 'vbtn'; rev.innerHTML = icon('folder', 13) + ' ' + t('ctx.reveal'); rev.title = t('viewer.revealTitle');
+  rev.addEventListener('click', () => { void window.glassShell.revealInOS(file.path); });
+  head.appendChild(rev);
 
   function paint() {
     body.replaceChildren();
