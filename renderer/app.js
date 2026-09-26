@@ -2444,13 +2444,19 @@ function attachPathLinks(term, cwd) {
               : { start: at(m.index), end: at(m.index + best.text.length - 1) },
             text: best.text,
             decorations: { pointerCursor: true, underline: true },
-            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t('term.cmdClickOpen')),
+            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t('term.cmdClickOpen') + '  ·  ' + t('term.cmdShiftClickReveal')),
             leave: () => hidePathTip(),
             activate: (ev) => {
               hidePathTip();
               // ⌘/Ctrl required, as asked. A plain click falls through to the terminal, so
               // selecting text over a path still behaves like a terminal.
               if (!ev.metaKey && !ev.ctrlKey) return;
+              /* ⌘⇧ / Ctrl+Shift: hand the file to the DESKTOP, selected in its folder, instead of
+                 to a pane. The preview is the right default for reading and the wrong end for a
+                 file whose next step happens elsewhere (an image to upload, a PDF to attach) —
+                 operator-reported while uploading a generated avatar. Same modifier family as
+                 the preview, so a plain click still selects text. */
+              if (ev.shiftKey) { void window.glassShell.revealInOS(abs); return; }
               void openViewer(abs);
             },
           });
@@ -4519,6 +4525,14 @@ async function openViewer(p) {
     });
     head.appendChild(png);
   }
+  /* Every file, whatever it is. The pane SHOWS it; the desktop is where it gets USED — uploaded,
+     attached, dragged somewhere — and before this the route from a preview to that folder was
+     explorer → right-click → Reveal. Same label as that menu item: one string, one meaning.
+     Not gated on extension, on purpose: the files that motivated it are exactly the ones whose
+     preview is a dead end (images, PDFs — the non-editable kinds). */
+  const rev = document.createElement('button'); rev.className = 'vbtn'; rev.innerHTML = icon('folder', 13) + ' ' + t('ctx.reveal'); rev.title = t('viewer.revealTitle');
+  rev.addEventListener('click', () => { void window.glassShell.revealInOS(file.path); });
+  head.appendChild(rev);
 
   function paint() {
     body.replaceChildren();
