@@ -4458,6 +4458,10 @@ async function openViewer(p) {
   }
   const file = await window.glassShell.fsRead(p);
   if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
+  /* A file the pane cannot SHOW is handed to the desktop, not frozen into a pane: main did not
+     read it (binary, or too large for the editor) and says so. The folder is where a .dmg or a
+     .zip is useful anyway — the same "reveal" the header button below offers for every file. */
+  if (file.unreadable) { toast(t('viewer.revealedInstead', { name: xBase(file.path) })); void window.glassShell.revealInOS(file.path); return; }
   const name = xBase(file.path);
   noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
   const id = 'v' + (++viewSeq);

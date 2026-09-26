@@ -534,6 +534,7 @@
   "viewer.edit": "Edit",
   "viewer.pngTitle": "Download as a high-res image",
   "viewer.revealTitle": "Show this file in its folder — Finder on macOS, Explorer on Windows",
+  "viewer.revealedInstead": "Not something to preview — shown in its folder instead: {name}",
   "viewer.rendering": "Rendering…",
   "viewer.savedPng": "Saved PNG · {w}×{h}",
   "viewer.pngFailed": "PNG export failed",

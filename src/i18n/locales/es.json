@@ -534,6 +534,7 @@
   "viewer.edit": "Editar",
   "viewer.pngTitle": "Descargar como imagen de alta resolución",
   "viewer.revealTitle": "Mostrar este archivo en su carpeta: Finder en macOS, Explorador en Windows",
+  "viewer.revealedInstead": "No es para vista previa: lo muestro en su carpeta — {name}",
   "viewer.rendering": "Renderizando…",
   "viewer.savedPng": "PNG guardado · {w}×{h}",
   "viewer.pngFailed": "Error al exportar PNG",

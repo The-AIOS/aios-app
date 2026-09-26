@@ -43,16 +43,17 @@ test('the hover tip names both gestures, so the second one is discoverable', () 
 test('the viewer header carries a "Reveal in Finder" button for EVERY file, not one extension', () => {
   const i = app.indexOf('async function openViewer(p) {');
   assert.ok(i >= 0, 'openViewer moved?');
-  const body = app.slice(i, i + 6000);
-  const btn = body.indexOf("window.glassShell.revealInOS(file.path)");
-  assert.ok(btn >= 0, 'the viewer must be able to hand its file to the desktop');
+  const body = app.slice(i, i + 7000);
   /* NOT inside the HTML-only block: the PNG button is gated by `if (HTML_EXT.test(name))`, and a
      reveal that only worked for .html would miss exactly the files that motivated it (images,
-     PDFs — the non-editable ones, whose preview is a dead end). */
+     PDFs — the non-editable ones, whose preview is a dead end). Searched from the END of that
+     block: an earlier reveal exists above it — the unreadable-file branch (previewGate.test.ts) —
+     and that one is not the button. */
   const htmlGate = body.indexOf('if (HTML_EXT.test(name)) {');
   const htmlGateEnd = body.indexOf('\n  }\n', htmlGate);
   assert.ok(htmlGate >= 0 && htmlGateEnd > htmlGate, 'the HTML-only block moved?');
-  assert.ok(btn > htmlGateEnd, 'the reveal button sits OUTSIDE the HTML-only block');
+  const btn = body.indexOf("window.glassShell.revealInOS(file.path)", htmlGateEnd);
+  assert.ok(btn >= 0, 'the reveal button sits OUTSIDE the HTML-only block, after it');
   assert.ok(body.slice(btn - 400, btn).includes("t('ctx.reveal')"),
     'reuses the explorer\'s own label — one string, one meaning, across the app');
 });
