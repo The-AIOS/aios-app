@@ -120,4 +120,22 @@ try {
   fail(`stapler validate: ${e.stderr || e.message}\n   (notarized but NOT stapled — Gatekeeper would have to reach Apple on first launch, so this fails offline.)`);
 }
 
+/* 5 — the SIGNED artifact can ask for the microphone. Claude Code's voice mode records inside our
+   PTYs, and macOS charges that to this app, so under the hardened runtime it needs both halves:
+   the audio-input entitlement (without it the request is refused silently, no prompt ever shown)
+   and NSMicrophoneUsageDescription in Info.plist (without it the process is killed on first use).
+   Read from the artifact, not from build/: this is the gate that sees what electron-builder
+   actually signed. */
+try {
+  const ents = runBoth('codesign', ['-d', '--entitlements', ':-', appPath]);
+  if (!/<key>com\.apple\.security\.device\.audio-input<\/key>\s*<true\s*\/>/.test(ents)) {
+    fail('signed app lacks com.apple.security.device.audio-input — voice mode in a pane is refused without a prompt');
+  }
+  const usage = run('defaults', ['read', join(appPath, 'Contents', 'Info.plist'), 'NSMicrophoneUsageDescription']).trim();
+  if (!usage) fail('Info.plist has an empty NSMicrophoneUsageDescription');
+  console.log('✓ microphone: audio-input entitlement + usage description');
+} catch (e) {
+  fail(`microphone check: ${e.stderr || e.message}\n   (no NSMicrophoneUsageDescription in Info.plist — the first recording would kill the process.)`);
+}
+
 console.log('\n✅ verify-signing PASSED — safe to publish.\n');

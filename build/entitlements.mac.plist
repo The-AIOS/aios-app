@@ -25,10 +25,22 @@
          granting per-binary entitlements, so weigh before adding here).
 
   Rule: add on EVIDENCE (a real sign/launch failure), not preemptively.
+
+  GRANTED ON EVIDENCE — com.apple.security.device.audio-input.
+  Unlike the candidates above, this does not relax code-signing or memory protections: it is a
+  resource-access entitlement that only lets the app ASK for the microphone. The operator still
+  sees the macOS permission prompt and can refuse. It is needed because macOS attributes a PTY
+  child's microphone access to this app (the responsible process), so Claude Code's voice mode
+  records under OUR signature. Without it the hardened runtime refuses silently: measured on the
+  shipped 0.10.0, AVCaptureDevice.requestAccess(.audio) from a pane returned false in 0.01 s, no
+  prompt appeared and the app never showed up in Privacy → Microphone.
+  Guarded by src/test/macMicrophone.test.ts (config) and scripts/verify-signing.mjs (artifact).
 -->
 <plist version="1.0">
 <dict>
 	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
 	<true/>
 </dict>
 </plist>
