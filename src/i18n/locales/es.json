@@ -1046,7 +1046,7 @@
   "whatsnew.h2": "Mostrar en Finder, desde una terminal o una vista previa",
   "whatsnew.b2": "⌘⇧-clic en una ruta de archivo impresa en una terminal la muestra en su carpeta de Finder (⌘-clic sigue abriendo la vista previa), y cada vista previa tiene un botón Mostrar en Finder. Abrir un archivo muy grande o binario ya no congela la app; se muestra en Finder.",
   "whatsnew.h3": "Soltar cosas ya no agrega la carpeta equivocada",
-  "whatsnew.b3": "Soltar texto, un enlace o una imagen del navegador sobre la app podía agregar sin avisar todo el disco o una carpeta temporal a tu espacio de trabajo. Ahora solo los archivos reales de Finder pueden traer su carpeta, y las carpetas temporales nunca se agregan.",
+  "whatsnew.b3": "Soltar texto, un enlace o una imagen del navegador sobre la app podía agregar sin avisar todo el disco o una carpeta temporal a tu espacio de trabajo. Ahora un archivo que arrastras desde Finder simplemente se abre, sin agregar su carpeta, y solo una carpeta que arrastras se vuelve carpeta de trabajo. El texto soltado recibe un solo aviso en lugar de uno por línea.",
   "whatsnew.more": "Notas completas en GitHub →",
   "whatsnew.skipped": "También te saltaste {versions}. Lo que cambió está en las notas de cada versión.",
   "menu.whatsnew": "Novedades",

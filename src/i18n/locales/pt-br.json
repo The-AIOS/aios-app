@@ -1046,7 +1046,7 @@
   "whatsnew.h2": "Mostrar no Finder, de um terminal ou de uma prévia",
   "whatsnew.b2": "⌘⇧-clique num caminho de arquivo impresso num terminal para mostrá-lo na pasta do Finder (⌘-clique ainda abre a prévia), e toda prévia tem um botão Mostrar no Finder. Abrir um arquivo muito grande ou binário não congela mais o app; ele é mostrado no Finder.",
   "whatsnew.h3": "Soltar coisas não adiciona a pasta errada",
-  "whatsnew.b3": "Soltar texto, um link ou uma imagem do navegador no app podia adicionar sem avisar o disco inteiro ou uma pasta temporária ao seu espaço de trabalho. Agora só arquivos reais do Finder trazem sua pasta, e pastas temporárias nunca são adicionadas.",
+  "whatsnew.b3": "Soltar texto, um link ou uma imagem do navegador no app podia adicionar sem avisar o disco inteiro ou uma pasta temporária ao seu espaço de trabalho. Agora um arquivo que você arrasta do Finder simplesmente abre, sem adicionar a pasta dele, e só uma pasta que você arrasta vira pasta de trabalho. Texto solto recebe um único aviso em vez de um por linha.",
   "whatsnew.more": "Notas completas no GitHub →",
   "whatsnew.skipped": "Você também pulou {versions}. O que mudou está nas notas de cada versão.",
   "menu.whatsnew": "Novidades",

@@ -1046,7 +1046,7 @@
   "whatsnew.h2": "Reveal in Finder, from a terminal or a preview",
   "whatsnew.b2": "⌘⇧-click a file path printed in a terminal to show it in its Finder folder (⌘-click still opens the preview), and every preview has a Reveal in Finder button. Opening a very large or binary file no longer freezes the App; it's shown in Finder instead.",
   "whatsnew.h3": "Drops can't add the wrong folder",
-  "whatsnew.b3": "Dropping text, a link or an image from the browser onto the App could quietly add your whole disk or a temporary folder to your workspace. Now only real files from Finder can bring their folder in, and temporary folders are never added.",
+  "whatsnew.b3": "Dropping text, a link or an image from the browser onto the App could quietly add your whole disk or a temporary folder to your workspace. Now a file you drag in from Finder simply opens, without adding its folder, and only a folder you drag in becomes a workspace folder. Dropped text gets one short message instead of one per line.",
   "whatsnew.more": "Full release notes on GitHub →",
   "whatsnew.skipped": "You also skipped {versions}. What they changed is in the release notes.",
   "menu.whatsnew": "What's New",
