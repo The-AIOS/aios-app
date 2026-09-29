@@ -40,9 +40,8 @@ test('a drop says where its paths came from; only real desktop files are "files"
   assert.equal(run(dt({ 'application/x-aios-path': '/v/n.md' }), win, id).source, 'own');
 });
 
-test('the editor zone widens to a folder ONLY for desktop files (Dolores, 2026-09-28)', () => {
-  assert.match(app, /const fromDesktopFiles = dropOpts && dropOpts\.source === 'files';/);
-  assert.match(app, /if \(!fromDesktopFiles\) \{ void openViewer\(dropped\); continue; \}\s*[\s\S]{0,200}addFolderPath\(dropped\)/,
-    'the check sits BEFORE the first addFolderPath, so the parent-widening below it is unreachable for text');
-  assert.match(app, /void onPath\(paths, draggedIsDir\(ev\), \{ \.\.\.opts, source: paths\.source \}\);/);
+test('the editor zone: text is one message, a Finder file is granted and shown, a Finder folder is added', () => {
+  assert.match(app, /if \(source === 'text'\) \{[\s\S]{0,300}toast\(t\('drop\.textNotFile'\)\); return; \}/, 'dropped text → one toast, not one per line');
+  assert.match(app, /if \(source === 'files'\) \{[\s\S]{0,400}addFolderPath\(dropped\)[\s\S]{0,900}grantDroppedFiles/, 'folders still become workspace folders; files are granted');
+  assert.match(app, /void onPath\(paths, draggedIsDir\(ev\), \{ \.\.\.opts, source: paths\.source, files: paths\.files \}\);/);
 });

@@ -109,6 +109,7 @@
   "drop.hintEditor": "Drop to open",
   "drop.hintTerminal": "Drop to insert the path",
   "drop.folderAdded": "Added {name} to your workspace",
+  "drop.textNotFile": "That's text, not a file. Drag a file from Finder to open it.",
   "ctx.reveal": "Reveal in Finder",
   "ctx.copyPath": "Copy path",
   "ctx.openTerminalHere": "Open terminal here",

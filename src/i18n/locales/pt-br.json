@@ -109,6 +109,7 @@
   "drop.hintEditor": "Solte para abrir",
   "drop.hintTerminal": "Solte para inserir o caminho",
   "drop.folderAdded": "{name} adicionada ao seu espaço de trabalho",
+  "drop.textNotFile": "Isso é texto, não um arquivo. Arraste um arquivo do Finder para abri-lo.",
   "ctx.reveal": "Mostrar no Finder",
   "ctx.copyPath": "Copiar caminho",
   "ctx.openTerminalHere": "Abrir terminal aqui",

@@ -2467,7 +2467,15 @@ function logicalLine(term, y) {
   };
 }
 
-function attachPathLinks(term, cwd) {
+/* The folder a relative path is resolved against. A pane knows the folder it STARTED in; after a
+   `cd` that was wrong, so a file listed in the new folder never became a link (operator-noticed
+   2026-09-29: "terminals don't have the ⌘-click"). Main reads the shell's CURRENT folder from the
+   OS, cached briefly, and the start folder stays the fallback. */
+function linkBase(paneId, startCwd) {
+  if (paneId == null || !window.glassShell.ptyCwd) return Promise.resolve(startCwd);
+  return window.glassShell.ptyCwd(paneId).then((c) => c || startCwd).catch(() => startCwd);
+}
+function attachPathLinks(term, startCwd, paneId) {
   term.registerLinkProvider({
     provideLinks(y, cb) {
       const line = term.buffer.active.getLine(y - 1);
@@ -2496,7 +2504,8 @@ function attachPathLinks(term, cwd) {
         console.log('[link] candidates=' + JSON.stringify(hits.map((h) => [h.value, ...h.alts])));
       }
       if (!hits.length) { cb(undefined); return; }
-      const key = (cwd || '') + '\n' + text;   // logical line, so wrapped rows share one entry
+      void linkBase(paneId, startCwd).then((cwd) => {
+      const key = (cwd || '') + '\n' + text;   // logical line, so wrapped rows share one entry (and one folder)
       const build = (map) => {
         const links = [];
         for (const m of hits) {
@@ -2544,6 +2553,7 @@ function attachPathLinks(term, cwd) {
         linkCache.set(key, map || {});
         build(map || {});
       }).catch(() => cb(undefined));
+      });
     },
   });
 }
@@ -3458,7 +3468,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // the pane under the pointer is the one the operator meant)
   attachDropZone(el, (paths) => { window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id); });
   term.onData((d) => window.glassShell.ptyWrite(id, d));
-  attachPathLinks(term, cwd);
+  attachPathLinks(term, cwd, id);
   /* AI-64: the session tells us its own name through the tty title. */
   /* Titles CONFIRM a session; only the REGISTRY can declare one over.
      My last two attempts both got this wrong in opposite directions. Keying off the launch
@@ -4873,7 +4883,7 @@ function droppedPaths(ev) {
      preferring text/plain (as the first cut did) handed a URL to the opener, which failed,
      and the File branch that actually works was never reached. */
   const files = [...(dt.files || [])].map((f) => window.glassShell.pathForFile(f)).filter(Boolean);
-  if (files.length) return tag(files, 'files');
+  if (files.length) return Object.assign(tag(files, 'files'), { files: [...dt.files] });
   // Last resort: a URI list, which some sources give instead of File objects.
   const list = dt.getData('text/uri-list') || dt.getData('text/plain') || '';
   return tag(list.split(/\r?\n/).map((u) => u.trim()).filter((u) => u && !u.startsWith('#'))
@@ -4954,7 +4964,7 @@ function attachDropZone(elm, onPath, opts = {}) {
     const paths = droppedPaths(ev);
     if (!paths.length) return;
     ev.preventDefault(); ev.stopPropagation();
-    void onPath(paths, draggedIsDir(ev), { ...opts, source: paths.source });
+    void onPath(paths, draggedIsDir(ev), { ...opts, source: paths.source, files: paths.files });
   });
 }
 
@@ -5770,30 +5780,32 @@ function noteSlowRepos(list) {
   }
 }
 attachDropZone(document.getElementById('panes'), async (paths, isDir, dropOpts) => {
-  const fromDesktopFiles = dropOpts && dropOpts.source === 'files';
+  const source = dropOpts && dropOpts.source;
+  /* DROPPED TEXT IS NOT A LIST OF FILES. Every line used to become a "path" and fail on its own,
+     so a paragraph produced a stack of "cannot open" toasts (operator, 2026-09-29). Lines that
+     look like paths are still tried (a path dragged out of a terminal); anything else is one
+     message for the whole drop. */
+  if (source === 'text') {
+    const pathy = paths.filter((p) => /^(\/|~\/|[A-Za-z]:[\\/])/.test(p));
+    if (!pathy.length) { toast(t('drop.textNotFile')); return; }
+    for (const p of pathy) void openViewer(p);
+    return;
+  }
   for (const dropped of paths) {
     // one of ours, and a folder: nothing to view, so reveal it in the tree
     if (isDir) { void revealPath(dropped); continue; }
-    // An OS drop can be a folder too — that becomes a workspace folder, which is how an
-    // outside project comes in.
-    // Only a real file from the desktop can bring a folder into the workspace. Text, a URL or a
-    // browser image is never a folder to add.
-    if (!fromDesktopFiles) { void openViewer(dropped); continue; }
-    const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
-    if (folderRefused(addedDir)) continue;
-    if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
-    /* A file the reader refuses is simply outside every allowed root — which is most things
-       dragged from Finder. Rather than dead-ending on "cannot open", bring its folder into
-       scope: the same widening the Add-folder dialog performs, except the drop IS the
-       consent, and the folder appears in the explorer where it can be removed again. */
-    const readable = await window.glassShell.fsRead(dropped).catch(() => null);
-    if (!readable) {
-      const parent = xDirOf(dropped);
-      const widened = await window.glassShell.addFolderPath(parent).catch(() => null);
-      /* Dropping a file that sits directly in home (or at the disk root) used to add its PARENT
-         — the whole home folder — as a workspace folder. Refused now; say why, don't open. */
-      if (folderRefused(widened)) continue;
-      if (widened) { toast(t('drop.folderAdded', { name: xBase(parent) })); void paintExplorer(); }
+    if (source === 'files') {
+      /* A FOLDER dragged from Finder is an explicit "bring this project in": it becomes a
+         workspace folder, as before. */
+      const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
+      if (folderRefused(addedDir)) continue;
+      if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
+      /* A FILE dragged from Finder is shown, and nothing else changes. It used to add the file's
+         FOLDER to the workspace so the viewer was allowed to read it: an action the operator never
+         asked for (2026-09-29). The drop itself is the consent, for that one file: the preload
+         grants exactly the dropped files (it can only be handed real File objects, which a page
+         only gets from a user's drag), for this session, and no folder is added. */
+      await window.glassShell.grantDroppedFiles(dropOpts.files || []).catch(() => null);
     }
     void openViewer(dropped);
   }
