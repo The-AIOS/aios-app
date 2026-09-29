@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session } from 'electron';
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
+import { installWebPermissionPolicy } from './webPermissions';
 import * as path from 'path';
 import * as os from 'os';
-import { pathToFileURL } from 'url';
-import { classifyForRead } from './preview';   // main builds the file:// URL itself — see shell:openPathExternal
+import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
+import { classifyForRead } from './preview';   // the fs:read gate (#39)
 import * as pty from 'node-pty';
 import { PanelHost } from './panelHost';
 import { installMenu } from './menu';
@@ -1052,7 +1053,11 @@ if (process.platform === 'win32') {
   try { app.setAppUserModelId(APP_ID); } catch { /* older Electron — the default id stands */ }
 }
 
+/* Every session the App creates, including a browser pane's, gets the web permission policy
+   before any page can ask for anything (webPermissions.ts explains why the default is not safe). */
+app.on('session-created', (s) => installWebPermissionPolicy(s));
 app.whenReady().then(() => {
+  installWebPermissionPolicy(session.defaultSession);
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
   const win = createWindow();

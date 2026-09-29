@@ -4861,18 +4861,23 @@ function droppedPaths(ev) {
   const dt = ev.dataTransfer;
   if (!dt) return [];
   // ours first — unambiguous
+  /* Each result says WHERE it came from (`.source`), because only a real file from the desktop may
+     widen the workspace to its folder. Dropped TEXT reached the last-resort branch below, was read
+     as a "path", and its parent became `/` (xDirOf of a string with no slash) or a browser temp
+     folder (operator-reported 2026-09-28). */
+  const tag = (arr, source) => Object.assign(arr, { source });
   const own = dt.getData('application/x-aios-path');
-  if (own) return [own];
+  if (own) return tag([own], 'own');
   /* Then the File list, resolved through webUtils. This ORDER matters: a Finder drag also
      populates text/plain, and on macOS that is a `file://` URL rather than a path — so
      preferring text/plain (as the first cut did) handed a URL to the opener, which failed,
      and the File branch that actually works was never reached. */
   const files = [...(dt.files || [])].map((f) => window.glassShell.pathForFile(f)).filter(Boolean);
-  if (files.length) return files;
+  if (files.length) return tag(files, 'files');
   // Last resort: a URI list, which some sources give instead of File objects.
   const list = dt.getData('text/uri-list') || dt.getData('text/plain') || '';
-  return list.split(/\r?\n/).map((u) => u.trim()).filter((u) => u && !u.startsWith('#'))
-    .map(fileUrlToPath);
+  return tag(list.split(/\r?\n/).map((u) => u.trim()).filter((u) => u && !u.startsWith('#'))
+    .map(fileUrlToPath), 'text');
 }
 
 /* While ANY drag is in flight, mark the body so the drop zones can announce themselves.
@@ -4949,7 +4954,7 @@ function attachDropZone(elm, onPath, opts = {}) {
     const paths = droppedPaths(ev);
     if (!paths.length) return;
     ev.preventDefault(); ev.stopPropagation();
-    void onPath(paths, draggedIsDir(ev), opts);
+    void onPath(paths, draggedIsDir(ev), { ...opts, source: paths.source });
   });
 }
 
@@ -5750,7 +5755,7 @@ document.getElementById('railLayout').addEventListener('click', (e) => {
    and says which. Returns true when it was refused, after telling the operator. */
 function folderRefused(r) {
   if (!r || typeof r !== 'object' || !r.refused) return false;
-  toast(t('explorer.tooBroad', { path: r.path }));
+  toast(t(r.refused === 'temporary' ? 'explorer.tempFolder' : 'explorer.tooBroad', { path: r.path }));
   return true;
 }
 /* A repo where `git status` takes over 30s loses its change markers (main keeps the App
@@ -5764,12 +5769,16 @@ function noteSlowRepos(list) {
     toast(t('explorer.gitSlow', { name: xBase(r) }));
   }
 }
-attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
+attachDropZone(document.getElementById('panes'), async (paths, isDir, dropOpts) => {
+  const fromDesktopFiles = dropOpts && dropOpts.source === 'files';
   for (const dropped of paths) {
     // one of ours, and a folder: nothing to view, so reveal it in the tree
     if (isDir) { void revealPath(dropped); continue; }
     // An OS drop can be a folder too — that becomes a workspace folder, which is how an
     // outside project comes in.
+    // Only a real file from the desktop can bring a folder into the workspace. Text, a URL or a
+    // browser image is never a folder to add.
+    if (!fromDesktopFiles) { void openViewer(dropped); continue; }
     const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
     if (folderRefused(addedDir)) continue;
     if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
@@ -6199,7 +6208,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
