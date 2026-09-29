@@ -42,7 +42,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   sortState: (): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:sortState'),
   setSort: (folder: string, mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setSort', folder, mode),
   setMasterSort: (mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setMasterSort', mode),
-  fsRead: (p: string): Promise<{ path: string; content: string } | null> => ipcRenderer.invoke('fs:read', p),
+  fsRead: (p: string): Promise<{ path: string; content: string | null; unreadable?: 'binary' | 'large'; size?: number } | null> => ipcRenderer.invoke('fs:read', p),
   resolveNote: (name: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveNote', name),
   resolveFile: (cand: string, base?: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveFile', cand, base),
   dirtyLines: (abs: string): Promise<Array<[number, number]>> => ipcRenderer.invoke('fs:dirtyLines', abs),

@@ -2,7 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'ele
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import * as path from 'path';
 import * as os from 'os';
-import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
+import { pathToFileURL } from 'url';
+import { classifyForRead } from './preview';   // main builds the file:// URL itself — see shell:openPathExternal
 import * as pty from 'node-pty';
 import { PanelHost } from './panelHost';
 import { installMenu } from './menu';
@@ -660,7 +661,17 @@ ipcMain.handle('shell:copyText', (_e, t: string) => { clipboard.writeText(String
 ipcMain.handle('fs:read', (_e, relOrAbs: string) => {
   const abs = resolveIn(relOrAbs);
   if (!abs) return null;
-  try { return { path: abs, content: fs.readFileSync(abs, 'utf8') }; } catch { return null; }
+  try {
+    /* GATE BEFORE READING. This handler once read whatever it was handed, as utf8, whole: a
+       ⌘-click on a 123 MB .dmg printed in a terminal froze the window (operator-reported; force
+       quit). Assets render from their path and are never read; binaries and oversize text come
+       back as a FLAG the viewer acts on — reveal in the folder — rather than as a string it
+       would try to lay out. `src/main/preview.ts` holds the rule and its tests. */
+    const c = classifyForRead(abs);
+    if (c.kind === 'asset') return { path: abs, content: '' };
+    if (c.kind !== 'text') return { path: abs, content: null, unreadable: c.kind, size: c.size };
+    return { path: abs, content: fs.readFileSync(abs, 'utf8') };
+  } catch { return null; }
 });
 ipcMain.handle('aios:lists', () => ({
   agents: aios.discoverAgents(),
