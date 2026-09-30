@@ -238,6 +238,7 @@
   "status.errorTitle": "Error — reveal it",
   "status.ready": "ready",
   "status.readyTitle": "Idle — ready / waiting for you",
+  "status.unseenTitle": "Finished — not opened yet",
   "theater.working": "Working",
   "theater.for": "for {time}",
   "theater.workedFor": "Worked for {time}",

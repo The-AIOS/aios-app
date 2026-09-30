@@ -1429,9 +1429,30 @@ function statusInfo(raw) {
    session indistinguishable from a bare shell — the one distinction the grey rule exists for.
    Revisit when the group stripe actually ships.
 
-   FINISHED-UNSEEN is a MARKER, not a sixth colour: a ring around whichever dot is already
-   there. A new hue would have to compete with four meanings the operator has already learned,
-   and unread is orthogonal to all of them — a session can be idle-and-unread or error-and-unread. */
+   FINISHED-UNSEEN is a MARKER, not a sixth colour — and not on the dot at all: the tab NAME goes
+   bold. A new hue would have to compete with four meanings the operator has already learned, and
+   unread is orthogonal to all of them — a session can be idle-and-unread or error-and-unread. */
+
+/* SEEN = the pane has been on screen, in a focused window, for SEEN_AFTER_MS. Operator-reported:
+   "green is also the colour that stays after I've checked what the chat has done, so I find
+   myself rechecking the same tabs again". Clicking past a tab on the way to another does not
+   count as reading it, so a flicked-over result keeps its marker. Measured on the 2s pulse, so
+   in practice a tab clears on the second tick it is watched. */
+const SEEN_AFTER_MS = 3000;
+function paneWatched(id, p) {
+  if (document.hidden || !document.hasFocus()) return false;
+  const z = zoneOf(p);
+  return !!zones[z] && zones[z].visible.includes(id);
+}
+/* A finish is a busy → idle/error transition the operator did NOT watch happen. Pure so the rule
+   is testable without a window: returns the pane's next { unseen, watchedSince }. */
+function nextUnseen(prevCls, cls, unseen, watched, watchedSince, now) {
+  if (cls === 'busy' || cls === 'input') return { unseen: false, watchedSince: 0 };  // working or asking: not finished
+  let u = unseen || (prevCls === 'busy' && !watched);
+  let since = watched ? (watchedSince || now) : 0;
+  if (u && watched && now - since >= SEEN_AFTER_MS) u = false;
+  return { unseen: u, watchedSince: since };
+}
 function paintTabStates(m) {
   const running = m.running || [];
   /* BY IDENTITY, NOT BY NAME. Names are not unique and nothing makes them so — the registry is
@@ -1446,7 +1467,7 @@ function paintTabStates(m) {
      is unambiguous. With a duplicate, guessing is exactly the bug; showing no state is honest. */
   const nameCount = new Map();
   for (const a of running) nameCount.set(a.name, (nameCount.get(a.name) || 0) + 1);
-  for (const [, p] of panes) {
+  for (const [id, p] of panes) {
     if (!p.tab) continue;
     const dot = p.tab.querySelector('.tdot');
     if (!dot) continue;
@@ -1485,10 +1506,13 @@ function paintTabStates(m) {
     if (nm) nm.classList.toggle('shimverb', !p.exited && info.cls === 'busy');
     /* NO RING for finished-unseen. It was drawn with `box-shadow`, which is also what the pulse
        animates — so the two fought and a dot came out ringed, pulsing, or both depending on which
-       won the frame. Unread now lives in the badge alone; if it needs a tab marker later, a
-       bolder tab NAME would not compete with the dot or with the group stripe to come. */
+       won the frame. The marker is a bolder tab NAME instead, which competes with neither the dot
+       nor the group stripe to come. */
+    const seen = nextUnseen(p.lastCls, info.cls, p.unseen, paneWatched(id, p), p.watchedSince, Date.now());
+    p.unseen = seen.unseen; p.watchedSince = seen.watchedSince; p.lastCls = info.cls;
+    if (nm) nm.classList.toggle('unseen', p.unseen);
     dot.className = 'tdot ' + info.cls;
-    dot.title = info.title;
+    dot.title = p.unseen ? info.title + ' · ' + t('status.unseenTitle') : info.title;
   }
 }
 

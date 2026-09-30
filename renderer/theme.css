@@ -249,6 +249,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tab .ticon { display: inline-flex; color: var(--subtle); }
 .tab.active .ticon { color: var(--accent); }
 .tab .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Finished while you were elsewhere — cleared once the tab has been on screen ~3s (#unseen).
+   On the NAME, never the dot: the dot's pixel belongs to state, and a ring there fought the pulse. */
+.tab .tname.unseen { font-weight: 700; color: var(--ink); }
 .tab .tx { color: var(--subtle); opacity: 0; width: 12px; text-align: center; border-radius: 4px; transition: opacity .12s; }
 .tab:hover .tx { opacity: 1; }
 /* #24.2b — session state on the tab. Its own element, never the icon's colour: the group stripe
