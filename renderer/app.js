@@ -1744,11 +1744,29 @@ async function closeAllSessions(sessions) {
    ending one `update` closed the other. Now the registry entry is found by `id`, the pane by
    `paneId` or `paneOf`, and a name shared by two live sessions with no id to tell them apart is
    never resolved at all — it waits out the deadline and is reported, like any session this
-   loop cannot be sure about. */
+   loop cannot be sure about.
+
+   "DONE" IS A STATUS THAT CHANGED AFTER WE TYPED — not a busy we happened to sample. The
+   original test was seen-busy → idle, and `busy` is only ever SAMPLED: the registry reaches
+   this loop through a 2s pulse, read every 1.5s after a 2.5s grace. A capture that turns over
+   between two samples, or a pulse that lags, and the loop never sees busy — the session sits
+   idle, the capture already written, and the tab stays open until the deadline with nothing
+   on screen but a toast three minutes later (operator-reported on 0.10.0: × → Capture & close,
+   the capture landed in ~10s, the tab never closed; they clicked again at 3m54s). The registry
+   already carries the fact the sample was standing in for: `statusUpdatedAt`, when the
+   CURRENT status was entered. An idle status entered after the capture was typed can only
+   exist because a turn ran and ended, so it counts exactly like a seen busy.
+
+   AND "DONE" MEANS IDLE — not merely "not busy". A capture that stops on a permission prompt
+   reads `waiting`, which is not busy, so after one seen busy the old test closed the pane in
+   the middle of the capture it was waiting to protect. Only an idle-class status (idle,
+   shell) — or the session leaving the registry — ends the wait. */
 async function watchThenKill(targets) {
   const pending = new Set(targets.map((x) => (typeof x === 'string' ? { name: x } : x)));
   const seenBusy = new Set();
-  const deadline = Date.now() + 180000;
+  const typedAt = Date.now();
+  const deadline = typedAt + 180000;
+  const last = new Map();   // target → last status seen, for the deadline report
   await new Promise((r) => setTimeout(r, 2500)); // grace: let close-session start
   while (pending.size && Date.now() < deadline) {
     const running = ((pulse.lastRunning || {}).running) || [];
@@ -1760,9 +1778,12 @@ async function watchThenKill(targets) {
         if (same.length > 1) continue;   // cannot tell which one is ours — never guess
         a = same[0];
       }
+      if (a) last.set(tg, a.status + '@' + (a.statusUpdatedAt || '?'));
       if (a && statusInfo(a.status).cls === 'busy') { seenBusy.add(tg); continue; }
       const gone = !a;
-      if (!gone && !seenBusy.has(tg)) continue;
+      if (!gone && statusInfo(a.status).cls !== 'idle') continue;   // waiting on a prompt: mid-capture
+      const turned = !gone && Number(a.statusUpdatedAt) >= typedAt;
+      if (!gone && !seenBusy.has(tg) && !turned) continue;
       pending.delete(tg);
       const id = tg.paneId != null && panes.has(tg.paneId) ? tg.paneId : (paneOf(tg.name, tg.id) || [null])[0];
       if (id !== null) closePane(id);
@@ -1770,6 +1791,9 @@ async function watchThenKill(targets) {
     }
     if (pending.size) await new Promise((r) => setTimeout(r, 1500));
   }
+  /* The toast says WHICH; the console says WHY — the app has no other log, and a tab left open
+     with no recorded reason cannot be diagnosed after the fact. */
+  if (pending.size) console.warn('[watchThenKill] left open at deadline:', [...pending].map((x) => `${x.name} (${x.id || 'no id'}) last=${last.get(x) || 'never seen'} typedAt=${typedAt} seenBusy=${seenBusy.has(x)}`).join('; '));
   if (pending.size) toast(t('pulse.closeAllKillTimeout', { names: [...pending].map((x) => x.name).join(', ') }));
 }
 
