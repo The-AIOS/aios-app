@@ -1227,7 +1227,7 @@ export function dailyNotePath(iso: string): string | undefined {
 
 // ── shell settings (.glass/shell.json — synced beside state.json) ───────────
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1248,7 +1248,10 @@ export function shellSettings(): ShellSettings {
        banner. Defaults to banner — the whole point of the counter is that you find out
        without looking, and an operator who prefers silence can say so. */
     attention: normalizeNotifyLevel(raw.attention),
-    showMemory: raw.showMemory !== false,     // default on (Sessions card shows process-tree RAM)
+    showMemory: raw.showMemory !== false,
+    // what a command-bus spawn/send does to the screen: 'stay' (default) keeps the operator where
+    // they are and marks the target tab; 'follow' is the old behaviour (switch to it)
+    busFocus: raw.busFocus === 'follow' ? 'follow' : 'stay',     // default on (Sessions card shows process-tree RAM)
     theme: raw.theme === 'light' ? 'light' : 'dark',
     termFontSize: Number(raw.termFontSize) || 12.5,
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.

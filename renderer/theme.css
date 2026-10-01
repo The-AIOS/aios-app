@@ -1412,3 +1412,6 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .tab.restoring .tname { opacity: .6; font-style: italic; }
 .pane.restorecard { display: flex; align-items: center; justify-content: center; }
 .restoremsg { color: var(--subtle); font-size: 12px; }
+
+/* command-bus activity: a session opened or messaged in the background (busFocus: 'stay') */
+.tab.tab-activity .tname::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--accent, #4ea1ff); vertical-align: middle; }
