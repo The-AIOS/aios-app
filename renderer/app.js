@@ -247,6 +247,7 @@ void window.glassShell.shellConfig().then((c) => {
   applyTheme(c.theme || 'dark');
   EXPLORER.icons = c.fileIcons !== false;
   EXPLORER.autoReveal = c.autoReveal !== false;
+  BUS_FOCUS = c.busFocus === 'follow' ? 'follow' : 'stay';
   SHOWWK = c.showWeekNumbers !== false;
   if (pulse.lastMonth) paintCalendar(); // config may resolve after the first month message
 });
@@ -2124,6 +2125,30 @@ const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — g
 const zones = { main: { visible: [], frac: [] }, term: { visible: [], frac: [] } };
 const zoneSplit = (z) => zones[z].visible.length > 1;
 const active = { main: null, term: null };
+/* COMMAND-BUS PANES STAY IN THE BACKGROUND (setting `busFocus`, default 'stay').
+   Agents open sessions and pass messages between them through the spawn-inbox all day. Each one
+   used to switch the operator's screen to the target tab — in the middle of whatever they were
+   typing or reading. An agent's request is not the operator asking to look: the pane is created
+   (and sized) behind the current one, the target tab gets an activity mark, and the operator
+   switches when they choose. 'follow' restores the old behaviour. */
+let BUS_FOCUS = 'stay';
+const busBackground = (m) => !!(m && m.background) && BUS_FOCUS !== 'follow';
+function markActivity(id) {
+  const p = panes.get(id);
+  if (p && active[zoneOf(p)] !== id) p.tab.classList.add('tab-activity');
+}
+/* What the operator is looking at and typing into, so a background pane can be sized (sizing
+   needs it visible for one synchronous layout pass) and the view handed straight back before the
+   browser paints — no visible switch. */
+function snapshotFocus() { return { main: active.main, term: active.term, el: document.activeElement }; }
+function restoreFocus(snap, exceptId) {
+  // through setActive, the one chokepoint for tab switches (split-zone visibility, persistence)
+  for (const z of ['main', 'term']) {
+    const id = snap[z];
+    if (id !== null && id !== exceptId && panes.has(id) && active[z] !== id) setActive(id);
+  }
+  if (snap.el && document.contains(snap.el) && typeof snap.el.focus === 'function') snap.el.focus();
+}
 let viewSeq = 0;
 
 const zoneOf = (p) => (split && (p.kind === 'term' || p.kind === 'restore') ? 'term' : 'main');
@@ -2737,6 +2762,7 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
+  p.tab.classList.remove('tab-activity');   // the operator looked: clear the background mark
   if (p.sessionId) persistSessions();   // #28 — which one to resume first, next launch
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
@@ -3196,7 +3222,7 @@ async function ensurePersonalized(cmd) {
   return false;
 }
 
-async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } = {}) {
+async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false } = {}) {
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
@@ -3231,7 +3257,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
-  homePane(id, p, { fresh: true });
+  const snap = background ? snapshotFocus() : null;
+  homePane(id, p, { fresh: !background });
   // raw tty fills the pane — type straight into the session; drag with the mouse
   // to select, which copies to the clipboard (xterm-native, no composer bar).
   const twrap = document.createElement('div'); twrap.className = 'twrap';
@@ -3314,6 +3341,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   fit.fit();
   ensureTermRoom(id, p);
   pushPtyGeom(id, p);
+  // sized against the real pane (the TUI must start at its true geometry), now hand the view back
+  if (snap) { restoreFocus(snap, id); markActivity(id); }
   /* ONLY NOW run the opening command. Everything above establishes the real geometry — fit
      measures the pane, ensureTermRoom may grow the dock, pushPtyGeom tells the pty. Launching
      the command before this point ran it at 80×24 and then resized underneath it, which is
@@ -5796,7 +5825,7 @@ const paneOf = (name, id) => {
 window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
     case 'terminal':
-      await createPane({ name: m.name || 'terminal', cmd: m.cmd });
+      await createPane({ name: m.name || 'terminal', cmd: m.cmd, background: busBackground(m) });
       return;
     case 'spawnWorker': void spawnWorkerFlow(); return;
     case 'launchPrimary': { const c = await window.glassShell.shellConfig(); launchPrimary(c.primary || 'aios'); return; }
@@ -5817,7 +5846,8 @@ window.glassShell.onIntent(async (m) => {
          landing on the wrong pane is visible and one keystroke from corrected, whereas refusing
          to navigate at all is a dead control. */
       const hit = byName(m.name, m.id);
-      if (hit) setActive(hit[0]);
+      if (hit && busBackground(m)) markActivity(hit[0]);   // an agent's reveal marks, never switches
+      else if (hit) setActive(hit[0]);
       else toast(`"${m.name ?? m.pid}" isn't a pane in this window`);
       return;
     }
@@ -5861,7 +5891,8 @@ window.glassShell.onIntent(async (m) => {
       if (!p || p.exited) { window.glassShell.busSendResult(m.name, false, 'no pane by that name in this surface'); return; }
       if (!p.isSession) { window.glassShell.busSendResult(m.name, false, 'that pane is no longer running the session (its Claude exited; it is a shell now)'); return; }
       submitToPty(hit[0], m.text);
-      setActive(hit[0]);
+      // a bus send is agent-to-agent: deliver it in the background unless the operator chose 'follow'
+      if (BUS_FOCUS === 'follow') setActive(hit[0]); else markActivity(hit[0]);
       window.glassShell.busSendResult(m.name, true, '');
       return;
     }

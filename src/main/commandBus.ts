@@ -783,14 +783,18 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
           try { fs.writeFileSync(taskFile, req.prompt as string); } catch { taskFile = undefined; }
         }
         const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile });
-        emit(win(), 'terminal', { name: req.name, cmd });
+        // background: the new session opens as a tab with an activity mark; the operator's
+      // current tab and keyboard focus stay where they are (setting `busFocus`).
+      emit(win(), 'terminal', { name: req.name, cmd, background: true });
         log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${taskFile ? ' (via file)' : ''}`);
         try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
         return;
       }
       runSpawn(win, heldPath, req);
     } else if (targetByName(req.name)) {
-      emit(win(), 'focusByName', { name: req.name });   // reveal, never duplicate
+      /* Never duplicate — but never steal the screen either. An agent's request is not the operator
+         asking to look somewhere: the pane is marked, and the operator chooses when to switch. */
+      emit(win(), 'focusByName', { name: req.name, background: true });
       log(`'${req.name}' already running — revealed`);
     } else {
       runSpawn(win, heldPath, req);
