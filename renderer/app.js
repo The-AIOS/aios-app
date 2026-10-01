@@ -2181,9 +2181,16 @@ const active = { main: null, term: null };
    switches when they choose. 'follow' restores the old behaviour. */
 let BUS_FOCUS = 'stay';
 const busBackground = (m) => !!(m && m.background) && BUS_FOCUS !== 'follow';
+/* An agent opened or messaged this pane behind the operator's back. ONE marker for "something
+   happened here you have not seen": #45's bold tab name, rather than a second dot beside the
+   status dot. A session put to work goes busy (amber) right away, and when it finishes unseen the
+   name goes bold; a pane merely revealed is bold until it has been watched. */
 function markActivity(id) {
   const p = panes.get(id);
-  if (p && active[zoneOf(p)] !== id) p.tab.classList.add('tab-activity');
+  if (!p || active[zoneOf(p)] === id) return;
+  p.unseen = true;
+  const nm = p.tab && p.tab.querySelector('.tname');
+  if (nm) nm.classList.add('unseen');
 }
 /* What the operator is looking at and typing into, so a background pane can be sized (sizing
    needs it visible for one synchronous layout pass) and the view handed straight back before the
@@ -2820,7 +2827,6 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
-  p.tab.classList.remove('tab-activity');   // the operator looked: clear the background mark
   if (p.sessionId) persistSessions();   // #28 — which one to resume first, next launch
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
@@ -3280,7 +3286,7 @@ async function ensurePersonalized(cmd) {
   return false;
 }
 
-async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false } = {}) {
+async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false, noProfile = false } = {}) {
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
@@ -3310,7 +3316,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // cwd powers "open terminal here"; main validates it against the allowed roots and
   // falls back to the framework root. It was accepted there and silently dropped here.
   // `name` travels as data, not smuggled inside the command string — see termEnv().
-  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name });
+  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile });
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
   panes.set(id, p);
@@ -4812,7 +4818,10 @@ async function bannerPath() {
   if (BANNER) return BANNER;
   try {
     BANNER = await window.glassShell.bannerScript({
-      ok: t('term.doneOk'), okSub: t('term.doneOkSub'), fail: t('term.doneFail'), failSub: t('term.doneFailSub'),
+      /* #43 — on WINDOWS the App must be reopened: new terminals inherit its old PATH, so tools the
+         setup just installed are not found until it restarts. macOS/Linux terminals are login
+         shells that pick them up, so there it is still "go back to Setup and continue". */
+      ok: t(IS_WIN ? 'term.doneOkWin' : 'term.doneOk'), okSub: t(IS_WIN ? 'term.doneOkSubWin' : 'term.doneOkSub'), fail: t('term.doneFail'), failSub: t('term.doneFailSub'),
     }) || '';
   } catch { BANNER = ''; }
   return BANNER;
@@ -6708,6 +6717,13 @@ function openSettingsTab() {
     killSel.value = cfg.killBehavior || 'ask';
     killSel.addEventListener('change', async () => { await window.glassShell.setSetting('killBehavior', killSel.value); KILLBEHAVIOR = killSel.value; toast(t('settings.saved')); });
     row(wrap, t('settings.killBehavior'), killSel, t('settings.killBehaviorHint'));
+    // #47: what a spawn-inbox request does to the screen. 'stay' (default) builds the pane behind you.
+    const busSel = document.createElement('select');
+    busSel.className = 'tinput';
+    for (const [l, v] of [[t('busFocus.stay'), 'stay'], [t('busFocus.follow'), 'follow']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; busSel.appendChild(o); }
+    busSel.value = cfg.busFocus === 'follow' ? 'follow' : 'stay';
+    busSel.addEventListener('change', async () => { await window.glassShell.setSetting('busFocus', busSel.value); BUS_FOCUS = busSel.value; toast(t('settings.saved')); });
+    row(wrap, t('settings.busFocus'), busSel, t('settings.busFocusHint'));
     /* AI-132. Same shape as killBehavior above — a select whose change writes through immediately.
        `auto` first because it is the default and the one an operator would pick if they thought
        about it; main drops any override when this changes, so switching modes never leaves the
@@ -7248,7 +7264,9 @@ function openSetupTab() {
     };
     const fixPane = async (name, cmd) => {
       // bypassReady: these buttons exist precisely BECAUSE something is missing
-      const pid = await createPane({ name: PANE_NAME[name] || name, cmd: await withDoneBanner(cmd), bypassReady: true });
+      /* noProfile (#44): a company-managed laptop blocks the user's PowerShell profile, and loading
+         it printed a red error before setup did anything. Setup needs nothing from the profile. */
+      const pid = await createPane({ name: PANE_NAME[name] || name, cmd: await withDoneBanner(cmd), bypassReady: true, noProfile: true });
       if (pid != null) onboardingFixPanes.add(pid);
     };
     const mkBtn = (parent, label, fn, { primary = false, title = '' } = {}) => {

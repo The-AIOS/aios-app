@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session } from 'electron';
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
+import { shellArgs } from './shellArgs';
 import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
@@ -211,12 +212,11 @@ function defaultShell(): string {
    node-pty exits code 1 on an unknown arg — the exact "[session ended]" failure the shell fix
    above prevents, one argument over — so pass -NoLogo (drop the banner) there; cmd.exe (COMSPEC)
    takes no such flag. */
-function loginArgs(shell: string): string[] {
-  if (os.platform() === 'win32') return /powershell|pwsh/i.test(shell) ? ['-NoLogo'] : [];
-  return ['-l'];
+function loginArgs(shell: string, noProfile = false): string[] {
+  return shellArgs(shell, os.platform(), noProfile);   // shellArgs.ts: per platform, and #44's setup-only -NoProfile
 }
 
-ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }) => {
+ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean }) => {
   const shell = defaultShell();
   /* The working directory must EXIST, or node-pty exits immediately with code 1 and every
      terminal is born "[session ended]". The old fallback was ~/aios unconditionally, so on
@@ -231,7 +231,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   };
   const requested = opts.cwd && inAllowed(opts.cwd) ? opts.cwd : undefined;
   const cwd = [requested, aios.frameworkRoot(), os.homedir()].find(usable) as string;
-  const p = pty.spawn(shell, loginArgs(shell), {
+  const p = pty.spawn(shell, loginArgs(shell, !!opts.noProfile), {
     name: 'xterm-256color',
     cols: opts.cols, rows: opts.rows,
     cwd,

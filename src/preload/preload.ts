@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('glassShell', {
     return ipcRenderer.invoke('fs:grantDropped', paths);
   },
   addFolderPath: (p: string): Promise<string | { refused: string; path: string } | null> => ipcRenderer.invoke('fs:addFolderPath', p),
-  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
+  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
   /* App self-update. `updater.ts` has emitted on `shell:updater` since it was written and
      NOTHING listened — its own comment called the renderer surface a "future" one. These
      three lines are that surface's whole cost. */

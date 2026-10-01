@@ -111,7 +111,7 @@ test('the dead e.git entry field is gone — fs:list never populated it', () => 
 test('"open terminal here" actually reaches the pty as a cwd', () => {
   // main validated and honoured `cwd` all along; the renderer's destructure dropped it, so
   // every "open terminal here" silently landed in the framework root instead
-  assert.match(app, /async function createPane\(\{ name = 'terminal', cmd, cwd, bypassReady = false(?:, background = false)? \} = \{\}\)/);
+  assert.match(app, /async function createPane\(\{ name = 'terminal', cmd, cwd, bypassReady = false(?:, background = false)?(?:, noProfile = false)? \} = \{\}\)/);
   // Asserts the INTENT (cwd reaches the pty), not the literal argument list — the list grew
   // a `name` for AI-64 and a shape-exact regex made an unrelated test fail.
   assert.match(app, /ptySpawn\(\{[^}]*\bcwd\b[^}]*\}\)/);

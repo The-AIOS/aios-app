@@ -43,8 +43,13 @@ test('a bus send types in the background; the operator\'s own navigation still s
   assert.match(app, /if \(hit && busBackground\(m\)\) markActivity\(hit\[0\]\);[^\n]*\n\s+else if \(hit\) setActive\(hit\[0\]\);/);
 });
 
-test('the activity mark clears when the operator opens the tab, and is drawn', () => {
-  const setActive = /function setActive\(id\) \{[\s\S]*?\n\}/.exec(app)?.[0] ?? '';
-  assert.match(setActive, /p\.tab\.classList\.remove\('tab-activity'\)/);
-  assert.match(css, /\.tab\.tab-activity \.tname::after/);
+test('the activity mark IS #45\'s unseen marker: one meaning, one marker, cleared by watching', () => {
+  /* Follow-up to this PR (merged): a second coral dot beside the status dot and #45's bold name
+     both meant "something happened here you have not seen". markActivity now sets the same
+     unseen state, which #45's nextUnseen clears once the pane has been watched. */
+  const mark = /function markActivity\(id\) \{[\s\S]*?\n\}/.exec(app)?.[0] ?? '';
+  assert.match(mark, /p\.unseen = true;/);
+  assert.match(mark, /nm\.classList\.add\('unseen'\)/);
+  assert.doesNotMatch(css, /tab-activity/, 'no second marker on the tab');
+  assert.match(app, /const seen = nextUnseen\(p\.lastCls, info\.cls, p\.unseen,/, 'cleared by the same watched-for-3s rule');
 });

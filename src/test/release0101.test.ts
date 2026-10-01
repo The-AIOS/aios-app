@@ -45,3 +45,17 @@ test('the editor zone: text is one message, a Finder file is granted and shown, 
   assert.match(app, /if \(source === 'files'\) \{[\s\S]{0,400}addFolderPath\(dropped\)[\s\S]{0,900}grantDroppedFiles/, 'folders still become workspace folders; files are granted');
   assert.match(app, /void onPath\(paths, draggedIsDir\(ev\), \{ \.\.\.opts, source: paths\.source, files: paths\.files \}\);/);
 });
+
+/* #44 — the setup terminal skips the user's PowerShell profile; every other terminal is unchanged. */
+import { shellArgs } from '../main/shellArgs';
+test('#44: only setup terminals start PowerShell with -NoProfile; macOS/Linux and ordinary terminals unchanged', () => {
+  assert.deepEqual(shellArgs('powershell.exe', 'win32', true), ['-NoLogo', '-NoProfile'], 'setup on Windows');
+  assert.deepEqual(shellArgs('powershell.exe', 'win32', false), ['-NoLogo'], 'an ordinary Windows terminal still loads the profile');
+  assert.deepEqual(shellArgs('pwsh', 'win32', true), ['-NoLogo', '-NoProfile']);
+  assert.deepEqual(shellArgs('C:\\Windows\\System32\\cmd.exe', 'win32', true), [], 'cmd.exe takes no such flag');
+  assert.deepEqual(shellArgs('/bin/zsh', 'darwin', true), ['-l'], 'macOS keeps its login shell, setup or not');
+  assert.deepEqual(shellArgs('/bin/bash', 'linux', false), ['-l']);
+  assert.match(app, /bypassReady: true, noProfile: true \}\);/, 'the setup fix panes ask for it');
+  const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
+  assert.match(main, /pty\.spawn\(shell, loginArgs\(shell, !!opts\.noProfile\),/);
+});

@@ -784,8 +784,8 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
         }
         const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile });
         // background: the new session opens as a tab with an activity mark; the operator's
-      // current tab and keyboard focus stay where they are (setting `busFocus`).
-      emit(win(), 'terminal', { name: req.name, cmd, background: true });
+        // current tab and keyboard focus stay where they are (setting `busFocus`).
+        emit(win(), 'terminal', { name: req.name, cmd, background: true });
         log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${taskFile ? ' (via file)' : ''}`);
         try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
         return;
