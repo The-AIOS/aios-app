@@ -59,3 +59,17 @@ test('#44: only setup terminals start PowerShell with -NoProfile; macOS/Linux an
   const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
   assert.match(main, /pty\.spawn\(shell, loginArgs\(shell, !!opts\.noProfile\),/);
 });
+
+test('EVERY command-bus path that opens a terminal does it in the background (#47) — a fresh spawn included', () => {
+  const bus = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'commandBus.ts'), 'utf8');
+  const emits = [...bus.matchAll(/emit\(win\(\), 'terminal', \{([^}]*)\}\)/g)].map((m) => m[1]);
+  assert.ok(emits.length >= 2, `found ${emits.length} terminal emits — the extractor is broken`);
+  for (const e of emits) assert.match(e, /background: true/, `a bus terminal emit without background: { ${e} }`);
+});
+
+test('choosing a tab and staying 1s clears its bold, without waiting out the pulse', () => {
+  const sa = /function setActive\(id\) \{[\s\S]*?\n\}/.exec(app)![0];
+  assert.match(sa, /if \(p\.unseen\) \{[\s\S]{0,300}setTimeout\([\s\S]{0,200}if \(active\[zoneOf\(p\)\] !== id \|\| document\.hidden\) return;[\s\S]{0,200}p\.unseen = false;/,
+    'cleared only if the tab is still the active one when the second is up (a flick past it does not count)');
+  assert.match(app, /const UNSEEN_CLEAR_ON_CHOOSE_MS = 1000;/);
+});

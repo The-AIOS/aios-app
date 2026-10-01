@@ -1440,6 +1440,7 @@ function statusInfo(raw) {
    count as reading it, so a flicked-over result keeps its marker. Measured on the 2s pulse, so
    in practice a tab clears on the second tick it is watched. */
 const SEEN_AFTER_MS = 3000;
+const UNSEEN_CLEAR_ON_CHOOSE_MS = 1000;   // a tab you clicked and stayed on for this long has been seen
 function paneWatched(id, p) {
   if (document.hidden || !document.hasFocus()) return false;
   const z = zoneOf(p);
@@ -2827,6 +2828,20 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
+  /* Choosing a tab IS looking at it. The pulse-measured 3s (#45) meant staying ~4–6s without
+     leaving, and every return restarted the clock, so a tab could stay bold through several
+     visits (operator-tested on 0.10.1). Now staying on a tab you clicked for 1s clears it; the
+     pulse rule remains for a pane that is merely visible in a split. A flick past a tab on the
+     way to another still does not count. */
+  if (p.unseen) {
+    clearTimeout(p.unseenTimer);
+    p.unseenTimer = setTimeout(() => {
+      if (active[zoneOf(p)] !== id || document.hidden) return;
+      p.unseen = false; p.watchedSince = 0;
+      const nm = p.tab && p.tab.querySelector('.tname');
+      if (nm) nm.classList.remove('unseen');
+    }, UNSEEN_CLEAR_ON_CHOOSE_MS);
+  }
   if (p.sessionId) persistSessions();   // #28 — which one to resume first, next launch
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window

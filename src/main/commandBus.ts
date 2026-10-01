@@ -726,7 +726,9 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
       task: req.task || 'Start session', model, taskFile,
     });
-    emit(win(), 'terminal', { name: req.name, cmd });
+    // background like every other bus path (#47): a fresh spawn was the one that still switched the
+    // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
+    emit(win(), 'terminal', { name: req.name, cmd, background: true });
     log(`spawn '${req.name}'${req.task ? ' with task' : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
 
