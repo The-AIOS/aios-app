@@ -247,6 +247,7 @@ void window.glassShell.shellConfig().then((c) => {
   applyTheme(c.theme || 'dark');
   EXPLORER.icons = c.fileIcons !== false;
   EXPLORER.autoReveal = c.autoReveal !== false;
+  BUS_FOCUS = c.busFocus === 'follow' ? 'follow' : 'stay';
   SHOWWK = c.showWeekNumbers !== false;
   if (pulse.lastMonth) paintCalendar(); // config may resolve after the first month message
 });
@@ -1429,9 +1430,30 @@ function statusInfo(raw) {
    session indistinguishable from a bare shell — the one distinction the grey rule exists for.
    Revisit when the group stripe actually ships.
 
-   FINISHED-UNSEEN is a MARKER, not a sixth colour: a ring around whichever dot is already
-   there. A new hue would have to compete with four meanings the operator has already learned,
-   and unread is orthogonal to all of them — a session can be idle-and-unread or error-and-unread. */
+   FINISHED-UNSEEN is a MARKER, not a sixth colour — and not on the dot at all: the tab NAME goes
+   bold. A new hue would have to compete with four meanings the operator has already learned, and
+   unread is orthogonal to all of them — a session can be idle-and-unread or error-and-unread. */
+
+/* SEEN = the pane has been on screen, in a focused window, for SEEN_AFTER_MS. Operator-reported:
+   "green is also the colour that stays after I've checked what the chat has done, so I find
+   myself rechecking the same tabs again". Clicking past a tab on the way to another does not
+   count as reading it, so a flicked-over result keeps its marker. Measured on the 2s pulse, so
+   in practice a tab clears on the second tick it is watched. */
+const SEEN_AFTER_MS = 3000;
+function paneWatched(id, p) {
+  if (document.hidden || !document.hasFocus()) return false;
+  const z = zoneOf(p);
+  return !!zones[z] && zones[z].visible.includes(id);
+}
+/* A finish is a busy → idle/error transition the operator did NOT watch happen. Pure so the rule
+   is testable without a window: returns the pane's next { unseen, watchedSince }. */
+function nextUnseen(prevCls, cls, unseen, watched, watchedSince, now) {
+  if (cls === 'busy' || cls === 'input') return { unseen: false, watchedSince: 0 };  // working or asking: not finished
+  let u = unseen || (prevCls === 'busy' && !watched);
+  let since = watched ? (watchedSince || now) : 0;
+  if (u && watched && now - since >= SEEN_AFTER_MS) u = false;
+  return { unseen: u, watchedSince: since };
+}
 function paintTabStates(m) {
   const running = m.running || [];
   /* BY IDENTITY, NOT BY NAME. Names are not unique and nothing makes them so — the registry is
@@ -1446,7 +1468,7 @@ function paintTabStates(m) {
      is unambiguous. With a duplicate, guessing is exactly the bug; showing no state is honest. */
   const nameCount = new Map();
   for (const a of running) nameCount.set(a.name, (nameCount.get(a.name) || 0) + 1);
-  for (const [, p] of panes) {
+  for (const [id, p] of panes) {
     if (!p.tab) continue;
     const dot = p.tab.querySelector('.tdot');
     if (!dot) continue;
@@ -1485,10 +1507,13 @@ function paintTabStates(m) {
     if (nm) nm.classList.toggle('shimverb', !p.exited && info.cls === 'busy');
     /* NO RING for finished-unseen. It was drawn with `box-shadow`, which is also what the pulse
        animates — so the two fought and a dot came out ringed, pulsing, or both depending on which
-       won the frame. Unread now lives in the badge alone; if it needs a tab marker later, a
-       bolder tab NAME would not compete with the dot or with the group stripe to come. */
+       won the frame. The marker is a bolder tab NAME instead, which competes with neither the dot
+       nor the group stripe to come. */
+    const seen = nextUnseen(p.lastCls, info.cls, p.unseen, paneWatched(id, p), p.watchedSince, Date.now());
+    p.unseen = seen.unseen; p.watchedSince = seen.watchedSince; p.lastCls = info.cls;
+    if (nm) nm.classList.toggle('unseen', p.unseen);
     dot.className = 'tdot ' + info.cls;
-    dot.title = info.title;
+    dot.title = p.unseen ? info.title + ' · ' + t('status.unseenTitle') : info.title;
   }
 }
 
@@ -1744,11 +1769,29 @@ async function closeAllSessions(sessions) {
    ending one `update` closed the other. Now the registry entry is found by `id`, the pane by
    `paneId` or `paneOf`, and a name shared by two live sessions with no id to tell them apart is
    never resolved at all — it waits out the deadline and is reported, like any session this
-   loop cannot be sure about. */
+   loop cannot be sure about.
+
+   "DONE" IS A STATUS THAT CHANGED AFTER WE TYPED — not a busy we happened to sample. The
+   original test was seen-busy → idle, and `busy` is only ever SAMPLED: the registry reaches
+   this loop through a 2s pulse, read every 1.5s after a 2.5s grace. A capture that turns over
+   between two samples, or a pulse that lags, and the loop never sees busy — the session sits
+   idle, the capture already written, and the tab stays open until the deadline with nothing
+   on screen but a toast three minutes later (operator-reported on 0.10.0: × → Capture & close,
+   the capture landed in ~10s, the tab never closed; they clicked again at 3m54s). The registry
+   already carries the fact the sample was standing in for: `statusUpdatedAt`, when the
+   CURRENT status was entered. An idle status entered after the capture was typed can only
+   exist because a turn ran and ended, so it counts exactly like a seen busy.
+
+   AND "DONE" MEANS IDLE — not merely "not busy". A capture that stops on a permission prompt
+   reads `waiting`, which is not busy, so after one seen busy the old test closed the pane in
+   the middle of the capture it was waiting to protect. Only an idle-class status (idle,
+   shell) — or the session leaving the registry — ends the wait. */
 async function watchThenKill(targets) {
   const pending = new Set(targets.map((x) => (typeof x === 'string' ? { name: x } : x)));
   const seenBusy = new Set();
-  const deadline = Date.now() + 180000;
+  const typedAt = Date.now();
+  const deadline = typedAt + 180000;
+  const last = new Map();   // target → last status seen, for the deadline report
   await new Promise((r) => setTimeout(r, 2500)); // grace: let close-session start
   while (pending.size && Date.now() < deadline) {
     const running = ((pulse.lastRunning || {}).running) || [];
@@ -1760,9 +1803,12 @@ async function watchThenKill(targets) {
         if (same.length > 1) continue;   // cannot tell which one is ours — never guess
         a = same[0];
       }
+      if (a) last.set(tg, a.status + '@' + (a.statusUpdatedAt || '?'));
       if (a && statusInfo(a.status).cls === 'busy') { seenBusy.add(tg); continue; }
       const gone = !a;
-      if (!gone && !seenBusy.has(tg)) continue;
+      if (!gone && statusInfo(a.status).cls !== 'idle') continue;   // waiting on a prompt: mid-capture
+      const turned = !gone && Number(a.statusUpdatedAt) >= typedAt;
+      if (!gone && !seenBusy.has(tg) && !turned) continue;
       pending.delete(tg);
       const id = tg.paneId != null && panes.has(tg.paneId) ? tg.paneId : (paneOf(tg.name, tg.id) || [null])[0];
       if (id !== null) closePane(id);
@@ -1770,6 +1816,9 @@ async function watchThenKill(targets) {
     }
     if (pending.size) await new Promise((r) => setTimeout(r, 1500));
   }
+  /* The toast says WHICH; the console says WHY — the app has no other log, and a tab left open
+     with no recorded reason cannot be diagnosed after the fact. */
+  if (pending.size) console.warn('[watchThenKill] left open at deadline:', [...pending].map((x) => `${x.name} (${x.id || 'no id'}) last=${last.get(x) || 'never seen'} typedAt=${typedAt} seenBusy=${seenBusy.has(x)}`).join('; '));
   if (pending.size) toast(t('pulse.closeAllKillTimeout', { names: [...pending].map((x) => x.name).join(', ') }));
 }
 
@@ -2124,6 +2173,30 @@ const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — g
 const zones = { main: { visible: [], frac: [] }, term: { visible: [], frac: [] } };
 const zoneSplit = (z) => zones[z].visible.length > 1;
 const active = { main: null, term: null };
+/* COMMAND-BUS PANES STAY IN THE BACKGROUND (setting `busFocus`, default 'stay').
+   Agents open sessions and pass messages between them through the spawn-inbox all day. Each one
+   used to switch the operator's screen to the target tab — in the middle of whatever they were
+   typing or reading. An agent's request is not the operator asking to look: the pane is created
+   (and sized) behind the current one, the target tab gets an activity mark, and the operator
+   switches when they choose. 'follow' restores the old behaviour. */
+let BUS_FOCUS = 'stay';
+const busBackground = (m) => !!(m && m.background) && BUS_FOCUS !== 'follow';
+function markActivity(id) {
+  const p = panes.get(id);
+  if (p && active[zoneOf(p)] !== id) p.tab.classList.add('tab-activity');
+}
+/* What the operator is looking at and typing into, so a background pane can be sized (sizing
+   needs it visible for one synchronous layout pass) and the view handed straight back before the
+   browser paints — no visible switch. */
+function snapshotFocus() { return { main: active.main, term: active.term, el: document.activeElement }; }
+function restoreFocus(snap, exceptId) {
+  // through setActive, the one chokepoint for tab switches (split-zone visibility, persistence)
+  for (const z of ['main', 'term']) {
+    const id = snap[z];
+    if (id !== null && id !== exceptId && panes.has(id) && active[z] !== id) setActive(id);
+  }
+  if (snap.el && document.contains(snap.el) && typeof snap.el.focus === 'function') snap.el.focus();
+}
 let viewSeq = 0;
 
 const zoneOf = (p) => (split && (p.kind === 'term' || p.kind === 'restore') ? 'term' : 'main');
@@ -2737,6 +2810,7 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
+  p.tab.classList.remove('tab-activity');   // the operator looked: clear the background mark
   if (p.sessionId) persistSessions();   // #28 — which one to resume first, next launch
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
@@ -3196,7 +3270,7 @@ async function ensurePersonalized(cmd) {
   return false;
 }
 
-async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } = {}) {
+async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false } = {}) {
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
@@ -3231,7 +3305,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
-  homePane(id, p, { fresh: true });
+  const snap = background ? snapshotFocus() : null;
+  homePane(id, p, { fresh: !background });
   // raw tty fills the pane — type straight into the session; drag with the mouse
   // to select, which copies to the clipboard (xterm-native, no composer bar).
   const twrap = document.createElement('div'); twrap.className = 'twrap';
@@ -3314,6 +3389,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false } =
   fit.fit();
   ensureTermRoom(id, p);
   pushPtyGeom(id, p);
+  // sized against the real pane (the TUI must start at its true geometry), now hand the view back
+  if (snap) { restoreFocus(snap, id); markActivity(id); }
   /* ONLY NOW run the opening command. Everything above establishes the real geometry — fit
      measures the pane, ensureTermRoom may grow the dock, pushPtyGeom tells the pty. Launching
      the command before this point ran it at 80×24 and then resized underneath it, which is
@@ -5796,7 +5873,7 @@ const paneOf = (name, id) => {
 window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
     case 'terminal':
-      await createPane({ name: m.name || 'terminal', cmd: m.cmd });
+      await createPane({ name: m.name || 'terminal', cmd: m.cmd, background: busBackground(m) });
       return;
     case 'spawnWorker': void spawnWorkerFlow(); return;
     case 'launchPrimary': { const c = await window.glassShell.shellConfig(); launchPrimary(c.primary || 'aios'); return; }
@@ -5817,7 +5894,8 @@ window.glassShell.onIntent(async (m) => {
          landing on the wrong pane is visible and one keystroke from corrected, whereas refusing
          to navigate at all is a dead control. */
       const hit = byName(m.name, m.id);
-      if (hit) setActive(hit[0]);
+      if (hit && busBackground(m)) markActivity(hit[0]);   // an agent's reveal marks, never switches
+      else if (hit) setActive(hit[0]);
       else toast(`"${m.name ?? m.pid}" isn't a pane in this window`);
       return;
     }
@@ -5861,7 +5939,8 @@ window.glassShell.onIntent(async (m) => {
       if (!p || p.exited) { window.glassShell.busSendResult(m.name, false, 'no pane by that name in this surface'); return; }
       if (!p.isSession) { window.glassShell.busSendResult(m.name, false, 'that pane is no longer running the session (its Claude exited; it is a shell now)'); return; }
       submitToPty(hit[0], m.text);
-      setActive(hit[0]);
+      // a bus send is agent-to-agent: deliver it in the background unless the operator chose 'follow'
+      if (BUS_FOCUS === 'follow') setActive(hit[0]); else markActivity(hit[0]);
       window.glassShell.busSendResult(m.name, true, '');
       return;
     }

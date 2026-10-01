@@ -249,6 +249,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tab .ticon { display: inline-flex; color: var(--subtle); }
 .tab.active .ticon { color: var(--accent); }
 .tab .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Finished while you were elsewhere — cleared once the tab has been on screen ~3s (#unseen).
+   On the NAME, never the dot: the dot's pixel belongs to state, and a ring there fought the pulse. */
+.tab .tname.unseen { font-weight: 700; color: var(--ink); }
 .tab .tx { color: var(--subtle); opacity: 0; width: 12px; text-align: center; border-radius: 4px; transition: opacity .12s; }
 .tab:hover .tx { opacity: 1; }
 /* #24.2b — session state on the tab. Its own element, never the icon's colour: the group stripe
@@ -1409,3 +1412,6 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .tab.restoring .tname { opacity: .6; font-style: italic; }
 .pane.restorecard { display: flex; align-items: center; justify-content: center; }
 .restoremsg { color: var(--subtle); font-size: 12px; }
+
+/* command-bus activity: a session opened or messaged in the background (busFocus: 'stay') */
+.tab.tab-activity .tname::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--accent, #4ea1ff); vertical-align: middle; }

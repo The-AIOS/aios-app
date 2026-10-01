@@ -162,7 +162,9 @@ test('reveal-on-open must be driven by the operator, never by a repaint', () => 
   assert.match(applySplit, /for \(const \[id, p\] of panes\) homePane\(id, p\);/);
   assert.doesNotMatch(applySplit, /fresh/, 'a repaint is not an operator action');
   // and every genuine creation path must opt in, or opening into a crushed zone regresses
-  assert.equal((app.match(/homePane\(id, (?:p|paneObj), \{ fresh: true \}\)/g) || []).length, 4,
+  // (a command-bus terminal is the one exception: it opens behind the operator's view, so
+  // createPane passes `fresh: !background` — see busFocus.test.ts)
+  assert.equal((app.match(/homePane\(id, (?:p|paneObj), \{ fresh: (?:true|!background) \}\)/g) || []).length, 4,
     'all four pane-creation sites pass fresh');
 });
 

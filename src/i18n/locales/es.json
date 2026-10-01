@@ -238,6 +238,7 @@
   "status.errorTitle": "Error — ábrelo",
   "status.ready": "listo",
   "status.readyTitle": "Inactivo — listo / esperándote",
+  "status.unseenTitle": "Terminado — aún sin abrir",
   "theater.working": "Trabajando",
   "theater.for": "desde hace {time}",
   "theater.workedFor": "Trabajó durante {time}",
