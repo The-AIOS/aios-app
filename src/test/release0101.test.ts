@@ -73,3 +73,18 @@ test('choosing a tab and staying 1s clears its bold, without waiting out the pul
     'cleared only if the tab is still the active one when the second is up (a flick past it does not count)');
   assert.match(app, /const UNSEEN_CLEAR_ON_CHOOSE_MS = 1000;/);
 });
+
+test('the + menu offers Resume a session, the same picker as the panel button', () => {
+  assert.match(app, /item\(t\('newtab\.resume'\), \(\) => batchResume\(\)\);/);
+});
+
+test('hovering a row in a picker never scrolls the list (the bump on the way to "Resume selected")', () => {
+  const hovers = app.match(/r\.addEventListener\('mousemove', \(\) => \{ if \(sel !== idx\) \{ sel = idx; HOVER_PAINT = true; try \{ paint\(\); \} finally \{ HOVER_PAINT = false; \} \} \}\);/g) || [];
+  assert.ok(hovers.length >= 3, `every picker's hover is flagged (found ${hovers.length})`);
+  assert.doesNotMatch(app, /if \(on\) on\.scrollIntoView\(\{ block: 'nearest' \}\);/, 'no picker scrolls on a hover repaint');
+});
+
+test('"Full release notes" always opens the releases list', () => {
+  assert.match(app, /openExternal\('https:\/\/github\.com\/The-AIOS\/aios-app\/releases'\)\);/);
+  assert.doesNotMatch(app, /releases\/tag\/v' \+ v/);
+});

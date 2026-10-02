@@ -3715,12 +3715,19 @@ window.glassShell.onPtyExit((m) => {
 });
 window.addEventListener('resize', fitTerms);
 // The + button → a small menu: session (a claude session) · terminal (shell) · browser (in-app webview) — #15
+/* A repaint caused by the mouse moving over a row must not SCROLL the list. Hover changes the
+   selection, and every selection change used to scroll the selected row into view, so moving the
+   pointer down to "Resume selected" crossed a half-visible last row, which was scrolled into view
+   and bumped the list by one (operator, 2026-10-01). Keyboard moves still scroll; painting is
+   synchronous, so this flag cannot leak into another modal. */
+let HOVER_PAINT = false;
 let newTabMenuEl = null;
 function newTabMenu() {
   if (newTabMenuEl) return newTabMenuEl;
   newTabMenuEl = el('div', 'xctx'); newTabMenuEl.hidden = true;
   const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { newTabMenuEl.hidden = true; void fn(); }); newTabMenuEl.appendChild(b); };
   item(t('newtab.session'), () => spawnWorkerFlow());
+  item(t('newtab.resume'), () => batchResume());   // the same picker as the panel's Resume button
   item(t('newtab.terminal'), () => createPane({ name: 'terminal' }));
   item(t('newtab.file'), () => quickOpen());   // the ⌘P dialog — same door as the loupe
   item(t('newtab.browser'), async () => {
@@ -6217,9 +6224,10 @@ function openWhatsNewTab() {
     /* Skipped a release? Say which, and send them to the list of every release, not just this tag. */
     if (skipped.length) foot.appendChild(el('div', 'wnskip', t('whatsnew.skipped', { versions: skipped.join(', ') })));
     const link = el('button', 'wnlink', t('whatsnew.more'));
-    link.addEventListener('click', () => void window.glassShell.openExternal(skipped.length
-      ? 'https://github.com/The-AIOS/aios-app/releases'
-      : 'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
+    /* Always the releases LIST (operator, 2026-10-01): it opens on the newest release, shows each
+       one's changes and contributors, and the ones before it are right below. A single tag hid
+       anything the operator had skipped. */
+    link.addEventListener('click', () => void window.glassShell.openExternal('https://github.com/The-AIOS/aios-app/releases'));
     foot.appendChild(link);
     wrap.appendChild(foot);
   });
@@ -7852,7 +7860,7 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
              from it replaced the node, which fired mouseenter again: an endless rebuild loop, and
              the click never completed on a stable element. That is why both action rows looked
              inert. Reported 2026-07-30. */
-          r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+          r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
           list.appendChild(r);
           return;
         }
@@ -7865,12 +7873,12 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
         r.appendChild(lb);
         if (it.desc) { const d = document.createElement('span'); d.className = 'pdesc'; d.textContent = it.desc; r.appendChild(d); }
         r.addEventListener('click', () => { it.on = !it.on; paint(); paintGo(); });
-        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
         list.appendChild(r);
       });
       paintTail();
       const on = list.querySelector('.prow.on');
-      if (on) on.scrollIntoView({ block: 'nearest' });
+      if (on && !HOVER_PAINT) on.scrollIntoView({ block: 'nearest' });
     }
     input.addEventListener('input', () => {
       const q = input.value.trim().toLowerCase();
@@ -8023,11 +8031,11 @@ function listModal(title, items, placeholder) {
           r.appendChild(b);
         }
         r.addEventListener('click', () => done(it.value));
-        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
         list.appendChild(r);
       });
       const on = list.querySelector('.prow.on');
-      if (on) on.scrollIntoView({ block: 'nearest' });
+      if (on && !HOVER_PAINT) on.scrollIntoView({ block: 'nearest' });
       paintTail();
     }
     function filter() {
