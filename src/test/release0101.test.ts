@@ -74,8 +74,13 @@ test('choosing a tab and staying 1s clears its bold, without waiting out the pul
   assert.match(app, /const UNSEEN_CLEAR_ON_CHOOSE_MS = 1000;/);
 });
 
-test('the + menu offers Resume a session, the same picker as the panel button', () => {
-  assert.match(app, /item\(t\('newtab\.resume'\), \(\) => batchResume\(\)\);/);
+test('the + menu: sessions first (new, then resume), a divider, then the other kinds of tab', () => {
+  const menu = /function newTabMenu\(\) \{[\s\S]*?\n\}/.exec(app)![0];
+  const at = (re: RegExp) => menu.search(re);
+  const order = [at(/newtab\.session/), at(/newtab\.resume/), at(/sep\.className = 'lsep'/), at(/newtab\.terminal/), at(/newtab\.file/), at(/newtab\.browser/)];
+  assert.ok(order.every((i) => i >= 0), `every entry present: ${order}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'in that order');
+  assert.match(menu, /batchResume\(\)/, 'Resume is the same picker as the panel button');
 });
 
 test('hovering a row in a picker never scrolls the list (the bump on the way to "Resume selected")', () => {

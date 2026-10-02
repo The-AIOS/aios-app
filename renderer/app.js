@@ -3728,6 +3728,9 @@ function newTabMenu() {
   const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { newTabMenuEl.hidden = true; void fn(); }); newTabMenuEl.appendChild(b); };
   item(t('newtab.session'), () => spawnWorkerFlow());
   item(t('newtab.resume'), () => batchResume());   // the same picker as the panel's Resume button
+  /* Sessions above, every other kind of tab below. The same divider as the layout menu, so the two
+     menus read alike; new before resume, the familiar "New / Open recent" order. */
+  { const sep = document.createElement('div'); sep.className = 'lsep'; newTabMenuEl.appendChild(sep); }
   item(t('newtab.terminal'), () => createPane({ name: 'terminal' }));
   item(t('newtab.file'), () => quickOpen());   // the ⌘P dialog — same door as the loupe
   item(t('newtab.browser'), async () => {
