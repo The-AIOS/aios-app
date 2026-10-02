@@ -1440,6 +1440,7 @@ function statusInfo(raw) {
    count as reading it, so a flicked-over result keeps its marker. Measured on the 2s pulse, so
    in practice a tab clears on the second tick it is watched. */
 const SEEN_AFTER_MS = 3000;
+const UNSEEN_CLEAR_ON_CHOOSE_MS = 1000;   // a tab you clicked and stayed on for this long has been seen
 function paneWatched(id, p) {
   if (document.hidden || !document.hasFocus()) return false;
   const z = zoneOf(p);
@@ -2181,9 +2182,16 @@ const active = { main: null, term: null };
    switches when they choose. 'follow' restores the old behaviour. */
 let BUS_FOCUS = 'stay';
 const busBackground = (m) => !!(m && m.background) && BUS_FOCUS !== 'follow';
+/* An agent opened or messaged this pane behind the operator's back. ONE marker for "something
+   happened here you have not seen": #45's bold tab name, rather than a second dot beside the
+   status dot. A session put to work goes busy (amber) right away, and when it finishes unseen the
+   name goes bold; a pane merely revealed is bold until it has been watched. */
 function markActivity(id) {
   const p = panes.get(id);
-  if (p && active[zoneOf(p)] !== id) p.tab.classList.add('tab-activity');
+  if (!p || active[zoneOf(p)] === id) return;
+  p.unseen = true;
+  const nm = p.tab && p.tab.querySelector('.tname');
+  if (nm) nm.classList.add('unseen');
 }
 /* What the operator is looking at and typing into, so a background pane can be sized (sizing
    needs it visible for one synchronous layout pass) and the view handed straight back before the
@@ -2467,7 +2475,15 @@ function logicalLine(term, y) {
   };
 }
 
-function attachPathLinks(term, cwd) {
+/* The folder a relative path is resolved against. A pane knows the folder it STARTED in; after a
+   `cd` that was wrong, so a file listed in the new folder never became a link (operator-noticed
+   2026-09-29: "terminals don't have the ⌘-click"). Main reads the shell's CURRENT folder from the
+   OS, cached briefly, and the start folder stays the fallback. */
+function linkBase(paneId, startCwd) {
+  if (paneId == null || !window.glassShell.ptyCwd) return Promise.resolve(startCwd);
+  return window.glassShell.ptyCwd(paneId).then((c) => c || startCwd).catch(() => startCwd);
+}
+function attachPathLinks(term, startCwd, paneId) {
   term.registerLinkProvider({
     provideLinks(y, cb) {
       const line = term.buffer.active.getLine(y - 1);
@@ -2496,7 +2512,8 @@ function attachPathLinks(term, cwd) {
         console.log('[link] candidates=' + JSON.stringify(hits.map((h) => [h.value, ...h.alts])));
       }
       if (!hits.length) { cb(undefined); return; }
-      const key = (cwd || '') + '\n' + text;   // logical line, so wrapped rows share one entry
+      void linkBase(paneId, startCwd).then((cwd) => {
+      const key = (cwd || '') + '\n' + text;   // logical line, so wrapped rows share one entry (and one folder)
       const build = (map) => {
         const links = [];
         for (const m of hits) {
@@ -2544,6 +2561,7 @@ function attachPathLinks(term, cwd) {
         linkCache.set(key, map || {});
         build(map || {});
       }).catch(() => cb(undefined));
+      });
     },
   });
 }
@@ -2810,7 +2828,20 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
-  p.tab.classList.remove('tab-activity');   // the operator looked: clear the background mark
+  /* Choosing a tab IS looking at it. The pulse-measured 3s (#45) meant staying ~4–6s without
+     leaving, and every return restarted the clock, so a tab could stay bold through several
+     visits (operator-tested on 0.10.1). Now staying on a tab you clicked for 1s clears it; the
+     pulse rule remains for a pane that is merely visible in a split. A flick past a tab on the
+     way to another still does not count. */
+  if (p.unseen) {
+    clearTimeout(p.unseenTimer);
+    p.unseenTimer = setTimeout(() => {
+      if (active[zoneOf(p)] !== id || document.hidden) return;
+      p.unseen = false; p.watchedSince = 0;
+      const nm = p.tab && p.tab.querySelector('.tname');
+      if (nm) nm.classList.remove('unseen');
+    }, UNSEEN_CLEAR_ON_CHOOSE_MS);
+  }
   if (p.sessionId) persistSessions();   // #28 — which one to resume first, next launch
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
@@ -3270,7 +3301,7 @@ async function ensurePersonalized(cmd) {
   return false;
 }
 
-async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false } = {}) {
+async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false, noProfile = false } = {}) {
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
@@ -3300,7 +3331,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // cwd powers "open terminal here"; main validates it against the allowed roots and
   // falls back to the framework root. It was accepted there and silently dropped here.
   // `name` travels as data, not smuggled inside the command string — see termEnv().
-  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name });
+  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile });
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
   panes.set(id, p);
@@ -3458,7 +3489,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // the pane under the pointer is the one the operator meant)
   attachDropZone(el, (paths) => { window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id); });
   term.onData((d) => window.glassShell.ptyWrite(id, d));
-  attachPathLinks(term, cwd);
+  attachPathLinks(term, cwd, id);
   /* AI-64: the session tells us its own name through the tty title. */
   /* Titles CONFIRM a session; only the REGISTRY can declare one over.
      My last two attempts both got this wrong in opposite directions. Keying off the launch
@@ -3684,12 +3715,22 @@ window.glassShell.onPtyExit((m) => {
 });
 window.addEventListener('resize', fitTerms);
 // The + button → a small menu: session (a claude session) · terminal (shell) · browser (in-app webview) — #15
+/* A repaint caused by the mouse moving over a row must not SCROLL the list. Hover changes the
+   selection, and every selection change used to scroll the selected row into view, so moving the
+   pointer down to "Resume selected" crossed a half-visible last row, which was scrolled into view
+   and bumped the list by one (operator, 2026-10-01). Keyboard moves still scroll; painting is
+   synchronous, so this flag cannot leak into another modal. */
+let HOVER_PAINT = false;
 let newTabMenuEl = null;
 function newTabMenu() {
   if (newTabMenuEl) return newTabMenuEl;
   newTabMenuEl = el('div', 'xctx'); newTabMenuEl.hidden = true;
   const item = (label, fn) => { const b = el('button', '', label); b.addEventListener('click', () => { newTabMenuEl.hidden = true; void fn(); }); newTabMenuEl.appendChild(b); };
   item(t('newtab.session'), () => spawnWorkerFlow());
+  item(t('newtab.resume'), () => batchResume());   // the same picker as the panel's Resume button
+  /* Sessions above, every other kind of tab below. The same divider as the layout menu, so the two
+     menus read alike; new before resume, the familiar "New / Open recent" order. */
+  { const sep = document.createElement('div'); sep.className = 'lsep'; newTabMenuEl.appendChild(sep); }
   item(t('newtab.terminal'), () => createPane({ name: 'terminal' }));
   item(t('newtab.file'), () => quickOpen());   // the ⌘P dialog — same door as the loupe
   item(t('newtab.browser'), async () => {
@@ -4802,7 +4843,10 @@ async function bannerPath() {
   if (BANNER) return BANNER;
   try {
     BANNER = await window.glassShell.bannerScript({
-      ok: t('term.doneOk'), okSub: t('term.doneOkSub'), fail: t('term.doneFail'), failSub: t('term.doneFailSub'),
+      /* #43 — on WINDOWS the App must be reopened: new terminals inherit its old PATH, so tools the
+         setup just installed are not found until it restarts. macOS/Linux terminals are login
+         shells that pick them up, so there it is still "go back to Setup and continue". */
+      ok: t(IS_WIN ? 'term.doneOkWin' : 'term.doneOk'), okSub: t(IS_WIN ? 'term.doneOkSubWin' : 'term.doneOkSub'), fail: t('term.doneFail'), failSub: t('term.doneFailSub'),
     }) || '';
   } catch { BANNER = ''; }
   return BANNER;
@@ -4861,18 +4905,23 @@ function droppedPaths(ev) {
   const dt = ev.dataTransfer;
   if (!dt) return [];
   // ours first — unambiguous
+  /* Each result says WHERE it came from (`.source`), because only a real file from the desktop may
+     widen the workspace to its folder. Dropped TEXT reached the last-resort branch below, was read
+     as a "path", and its parent became `/` (xDirOf of a string with no slash) or a browser temp
+     folder (operator-reported 2026-09-28). */
+  const tag = (arr, source) => Object.assign(arr, { source });
   const own = dt.getData('application/x-aios-path');
-  if (own) return [own];
+  if (own) return tag([own], 'own');
   /* Then the File list, resolved through webUtils. This ORDER matters: a Finder drag also
      populates text/plain, and on macOS that is a `file://` URL rather than a path — so
      preferring text/plain (as the first cut did) handed a URL to the opener, which failed,
      and the File branch that actually works was never reached. */
   const files = [...(dt.files || [])].map((f) => window.glassShell.pathForFile(f)).filter(Boolean);
-  if (files.length) return files;
+  if (files.length) return Object.assign(tag(files, 'files'), { files: [...dt.files] });
   // Last resort: a URI list, which some sources give instead of File objects.
   const list = dt.getData('text/uri-list') || dt.getData('text/plain') || '';
-  return list.split(/\r?\n/).map((u) => u.trim()).filter((u) => u && !u.startsWith('#'))
-    .map(fileUrlToPath);
+  return tag(list.split(/\r?\n/).map((u) => u.trim()).filter((u) => u && !u.startsWith('#'))
+    .map(fileUrlToPath), 'text');
 }
 
 /* While ANY drag is in flight, mark the body so the drop zones can announce themselves.
@@ -4949,7 +4998,7 @@ function attachDropZone(elm, onPath, opts = {}) {
     const paths = droppedPaths(ev);
     if (!paths.length) return;
     ev.preventDefault(); ev.stopPropagation();
-    void onPath(paths, draggedIsDir(ev), opts);
+    void onPath(paths, draggedIsDir(ev), { ...opts, source: paths.source, files: paths.files });
   });
 }
 
@@ -5750,7 +5799,7 @@ document.getElementById('railLayout').addEventListener('click', (e) => {
    and says which. Returns true when it was refused, after telling the operator. */
 function folderRefused(r) {
   if (!r || typeof r !== 'object' || !r.refused) return false;
-  toast(t('explorer.tooBroad', { path: r.path }));
+  toast(t(r.refused === 'temporary' ? 'explorer.tempFolder' : 'explorer.tooBroad', { path: r.path }));
   return true;
 }
 /* A repo where `git status` takes over 30s loses its change markers (main keeps the App
@@ -5764,27 +5813,33 @@ function noteSlowRepos(list) {
     toast(t('explorer.gitSlow', { name: xBase(r) }));
   }
 }
-attachDropZone(document.getElementById('panes'), async (paths, isDir) => {
+attachDropZone(document.getElementById('panes'), async (paths, isDir, dropOpts) => {
+  const source = dropOpts && dropOpts.source;
+  /* DROPPED TEXT IS NOT A LIST OF FILES. Every line used to become a "path" and fail on its own,
+     so a paragraph produced a stack of "cannot open" toasts (operator, 2026-09-29). Lines that
+     look like paths are still tried (a path dragged out of a terminal); anything else is one
+     message for the whole drop. */
+  if (source === 'text') {
+    const pathy = paths.filter((p) => /^(\/|~\/|[A-Za-z]:[\\/])/.test(p));
+    if (!pathy.length) { toast(t('drop.textNotFile')); return; }
+    for (const p of pathy) void openViewer(p);
+    return;
+  }
   for (const dropped of paths) {
     // one of ours, and a folder: nothing to view, so reveal it in the tree
     if (isDir) { void revealPath(dropped); continue; }
-    // An OS drop can be a folder too — that becomes a workspace folder, which is how an
-    // outside project comes in.
-    const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
-    if (folderRefused(addedDir)) continue;
-    if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
-    /* A file the reader refuses is simply outside every allowed root — which is most things
-       dragged from Finder. Rather than dead-ending on "cannot open", bring its folder into
-       scope: the same widening the Add-folder dialog performs, except the drop IS the
-       consent, and the folder appears in the explorer where it can be removed again. */
-    const readable = await window.glassShell.fsRead(dropped).catch(() => null);
-    if (!readable) {
-      const parent = xDirOf(dropped);
-      const widened = await window.glassShell.addFolderPath(parent).catch(() => null);
-      /* Dropping a file that sits directly in home (or at the disk root) used to add its PARENT
-         — the whole home folder — as a workspace folder. Refused now; say why, don't open. */
-      if (folderRefused(widened)) continue;
-      if (widened) { toast(t('drop.folderAdded', { name: xBase(parent) })); void paintExplorer(); }
+    if (source === 'files') {
+      /* A FOLDER dragged from Finder is an explicit "bring this project in": it becomes a
+         workspace folder, as before. */
+      const addedDir = await window.glassShell.addFolderPath(dropped).catch(() => null);
+      if (folderRefused(addedDir)) continue;
+      if (addedDir) { toast(t('drop.folderAdded', { name: xBase(addedDir) })); void paintExplorer(); continue; }
+      /* A FILE dragged from Finder is shown, and nothing else changes. It used to add the file's
+         FOLDER to the workspace so the viewer was allowed to read it: an action the operator never
+         asked for (2026-09-29). The drop itself is the consent, for that one file: the preload
+         grants exactly the dropped files (it can only be handed real File objects, which a page
+         only gets from a user's drag), for this session, and no folder is added. */
+      await window.glassShell.grantDroppedFiles(dropOpts.files || []).catch(() => null);
     }
     void openViewer(dropped);
   }
@@ -6172,9 +6227,10 @@ function openWhatsNewTab() {
     /* Skipped a release? Say which, and send them to the list of every release, not just this tag. */
     if (skipped.length) foot.appendChild(el('div', 'wnskip', t('whatsnew.skipped', { versions: skipped.join(', ') })));
     const link = el('button', 'wnlink', t('whatsnew.more'));
-    link.addEventListener('click', () => void window.glassShell.openExternal(skipped.length
-      ? 'https://github.com/The-AIOS/aios-app/releases'
-      : 'https://github.com/The-AIOS/aios-app/releases/tag/v' + v));
+    /* Always the releases LIST (operator, 2026-10-01): it opens on the newest release, shows each
+       one's changes and contributors, and the ones before it are right below. A single tag hid
+       anything the operator had skipped. */
+    link.addEventListener('click', () => void window.glassShell.openExternal('https://github.com/The-AIOS/aios-app/releases'));
     foot.appendChild(link);
     wrap.appendChild(foot);
   });
@@ -6199,7 +6255,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -6687,6 +6743,13 @@ function openSettingsTab() {
     killSel.value = cfg.killBehavior || 'ask';
     killSel.addEventListener('change', async () => { await window.glassShell.setSetting('killBehavior', killSel.value); KILLBEHAVIOR = killSel.value; toast(t('settings.saved')); });
     row(wrap, t('settings.killBehavior'), killSel, t('settings.killBehaviorHint'));
+    // #47: what a spawn-inbox request does to the screen. 'stay' (default) builds the pane behind you.
+    const busSel = document.createElement('select');
+    busSel.className = 'tinput';
+    for (const [l, v] of [[t('busFocus.stay'), 'stay'], [t('busFocus.follow'), 'follow']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; busSel.appendChild(o); }
+    busSel.value = cfg.busFocus === 'follow' ? 'follow' : 'stay';
+    busSel.addEventListener('change', async () => { await window.glassShell.setSetting('busFocus', busSel.value); BUS_FOCUS = busSel.value; toast(t('settings.saved')); });
+    row(wrap, t('settings.busFocus'), busSel, t('settings.busFocusHint'));
     /* AI-132. Same shape as killBehavior above — a select whose change writes through immediately.
        `auto` first because it is the default and the one an operator would pick if they thought
        about it; main drops any override when this changes, so switching modes never leaves the
@@ -7227,7 +7290,9 @@ function openSetupTab() {
     };
     const fixPane = async (name, cmd) => {
       // bypassReady: these buttons exist precisely BECAUSE something is missing
-      const pid = await createPane({ name: PANE_NAME[name] || name, cmd: await withDoneBanner(cmd), bypassReady: true });
+      /* noProfile (#44): a company-managed laptop blocks the user's PowerShell profile, and loading
+         it printed a red error before setup did anything. Setup needs nothing from the profile. */
+      const pid = await createPane({ name: PANE_NAME[name] || name, cmd: await withDoneBanner(cmd), bypassReady: true, noProfile: true });
       if (pid != null) onboardingFixPanes.add(pid);
     };
     const mkBtn = (parent, label, fn, { primary = false, title = '' } = {}) => {
@@ -7798,7 +7863,7 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
              from it replaced the node, which fired mouseenter again: an endless rebuild loop, and
              the click never completed on a stable element. That is why both action rows looked
              inert. Reported 2026-07-30. */
-          r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+          r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
           list.appendChild(r);
           return;
         }
@@ -7811,12 +7876,12 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
         r.appendChild(lb);
         if (it.desc) { const d = document.createElement('span'); d.className = 'pdesc'; d.textContent = it.desc; r.appendChild(d); }
         r.addEventListener('click', () => { it.on = !it.on; paint(); paintGo(); });
-        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
         list.appendChild(r);
       });
       paintTail();
       const on = list.querySelector('.prow.on');
-      if (on) on.scrollIntoView({ block: 'nearest' });
+      if (on && !HOVER_PAINT) on.scrollIntoView({ block: 'nearest' });
     }
     input.addEventListener('input', () => {
       const q = input.value.trim().toLowerCase();
@@ -7969,11 +8034,11 @@ function listModal(title, items, placeholder) {
           r.appendChild(b);
         }
         r.addEventListener('click', () => done(it.value));
-        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; paint(); } });
+        r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
         list.appendChild(r);
       });
       const on = list.querySelector('.prow.on');
-      if (on) on.scrollIntoView({ block: 'nearest' });
+      if (on && !HOVER_PAINT) on.scrollIntoView({ block: 'nearest' });
       paintTail();
     }
     function filter() {

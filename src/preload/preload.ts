@@ -16,8 +16,15 @@ contextBridge.exposeInMainWorld('glassShell', {
      so this is the only way to resolve a Finder drop — without it, external drags look
      like they work and then do nothing. */
   pathForFile: (f: File): string => { try { return webUtils.getPathForFile(f); } catch { return ''; } },
+  /* The drop IS the consent to read those files. Takes File objects (a page only gets real ones from
+     a user's drag or a file picker) and sends their paths; a string path from the page is never
+     accepted as a grant. */
+  grantDroppedFiles: (files: File[]): Promise<boolean> => {
+    const paths = (files || []).map((f) => { try { return webUtils.getPathForFile(f); } catch { return ''; } }).filter(Boolean);
+    return ipcRenderer.invoke('fs:grantDropped', paths);
+  },
   addFolderPath: (p: string): Promise<string | { refused: string; path: string } | null> => ipcRenderer.invoke('fs:addFolderPath', p),
-  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
+  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
   /* App self-update. `updater.ts` has emitted on `shell:updater` since it was written and
      NOTHING listened — its own comment called the renderer surface a "future" one. These
      three lines are that surface's whole cost. */
@@ -42,6 +49,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   sortState: (): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:sortState'),
   setSort: (folder: string, mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setSort', folder, mode),
   setMasterSort: (mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setMasterSort', mode),
+  ptyCwd: (id: number): Promise<string | null> => ipcRenderer.invoke('pty:cwd', id),
   fsRead: (p: string): Promise<{ path: string; content: string | null; unreadable?: 'binary' | 'large'; size?: number } | null> => ipcRenderer.invoke('fs:read', p),
   resolveNote: (name: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveNote', name),
   resolveFile: (cand: string, base?: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveFile', cand, base),

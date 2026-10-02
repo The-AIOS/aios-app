@@ -1,9 +1,12 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session } from 'electron';
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
+import { installWebPermissionPolicy } from './webPermissions';
+import { shellArgs } from './shellArgs';
 import * as path from 'path';
 import * as os from 'os';
-import { pathToFileURL } from 'url';
-import { classifyForRead } from './preview';   // main builds the file:// URL itself — see shell:openPathExternal
+import { execFile } from 'child_process';
+import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
+import { classifyForRead } from './preview';   // the fs:read gate (#39)
 import * as pty from 'node-pty';
 import { PanelHost } from './panelHost';
 import { installMenu } from './menu';
@@ -209,12 +212,11 @@ function defaultShell(): string {
    node-pty exits code 1 on an unknown arg — the exact "[session ended]" failure the shell fix
    above prevents, one argument over — so pass -NoLogo (drop the banner) there; cmd.exe (COMSPEC)
    takes no such flag. */
-function loginArgs(shell: string): string[] {
-  if (os.platform() === 'win32') return /powershell|pwsh/i.test(shell) ? ['-NoLogo'] : [];
-  return ['-l'];
+function loginArgs(shell: string, noProfile = false): string[] {
+  return shellArgs(shell, os.platform(), noProfile);   // shellArgs.ts: per platform, and #44's setup-only -NoProfile
 }
 
-ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string }) => {
+ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean }) => {
   const shell = defaultShell();
   /* The working directory must EXIST, or node-pty exits immediately with code 1 and every
      terminal is born "[session ended]". The old fallback was ~/aios unconditionally, so on
@@ -229,7 +231,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   };
   const requested = opts.cwd && inAllowed(opts.cwd) ? opts.cwd : undefined;
   const cwd = [requested, aios.frameworkRoot(), os.homedir()].find(usable) as string;
-  const p = pty.spawn(shell, loginArgs(shell), {
+  const p = pty.spawn(shell, loginArgs(shell, !!opts.noProfile), {
     name: 'xterm-256color',
     cols: opts.cols, rows: opts.rows,
     cwd,
@@ -272,7 +274,22 @@ function allowedRoots(): string[] {
   out.push(...aios.workspaceFolders());
   return out;
 }
+/* Files the operator dropped onto the App: readable for this session, one by one, without adding
+   their folder to the workspace (see grantDroppedFiles in preload). Bounded; regular files only. */
+const droppedGrants = new Set<string>();
+ipcMain.handle('fs:grantDropped', (_e, paths: unknown) => {
+  if (!Array.isArray(paths)) return false;
+  for (const p of paths.slice(0, 50)) {
+    try {
+      const abs = fs.realpathSync(String(p));
+      if (fs.statSync(abs).isFile()) droppedGrants.add(abs);
+    } catch { /* gone or unreadable: nothing to grant */ }
+  }
+  if (droppedGrants.size > 500) droppedGrants.clear();
+  return true;
+});
 function inAllowed(abs: string): boolean {
+  try { if (droppedGrants.size && droppedGrants.has(fs.realpathSync(abs))) return true; } catch { /* not a file */ }
   /* Windows needs TWO normalizations the POSIX path never did, or a legitimately-allowed file is
      rejected and fs:read/write/list/openViewer/"open terminal here" fail with "not allowed":
      (1) SEPARATOR — callers pass both `C:\a` (native) and `C:/a` (e.g. the renderer, which works
@@ -579,6 +596,28 @@ ipcMain.handle('fs:list', (_e, dirPath: string) => {
    terminal output is full of things that look like paths, and only underlining the ones that
    actually resolve is what stops the whole screen from lighting up. Returns the absolute path
    or null — deliberately not the content, because this runs on hover. */
+/* The shell's CURRENT folder for a pane, so a relative path printed after `cd` resolves where the
+   shell actually is (the pane only knows where it started). macOS/Linux only: Windows has no
+   cheap equivalent, and the renderer falls back to the start folder. Cached ~1.5s because the
+   link provider asks once per hovered line. */
+const ptyCwdCache = new Map<number, { at: number; cwd: string | null }>();
+ipcMain.handle('pty:cwd', async (_e, id: number) => {
+  const p = ptys.get(Number(id));
+  if (!p || process.platform === 'win32') return null;
+  const hit = ptyCwdCache.get(p.pid);
+  if (hit && Date.now() - hit.at < 1500) return hit.cwd;
+  let cwd: string | null = null;
+  try {
+    if (process.platform === 'linux') cwd = fs.readlinkSync(`/proc/${p.pid}/cwd`);
+    else {
+      const out = await new Promise<string>((res) => execFile('lsof', ['-a', '-p', String(p.pid), '-d', 'cwd', '-Fn'], { timeout: 1500 }, (_err, o) => res(String(o || ''))));
+      const line = out.split('\n').find((l) => l.startsWith('n'));
+      cwd = line ? line.slice(1) : null;
+    }
+  } catch { cwd = null; }
+  ptyCwdCache.set(p.pid, { at: Date.now(), cwd });
+  return cwd;
+});
 ipcMain.handle('fs:resolveFile', (_e, cand: string, base?: string) => {
   try {
     let c = String(cand || '').trim().replace(/[)\]},.;:'"]+$/, '');   // trailing punctuation from prose
@@ -1052,7 +1091,11 @@ if (process.platform === 'win32') {
   try { app.setAppUserModelId(APP_ID); } catch { /* older Electron — the default id stands */ }
 }
 
+/* Every session the App creates, including a browser pane's, gets the web permission policy
+   before any page can ask for anything (webPermissions.ts explains why the default is not safe). */
+app.on('session-created', (s) => installWebPermissionPolicy(s));
 app.whenReady().then(() => {
+  installWebPermissionPolicy(session.defaultSession);
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
   const win = createWindow();

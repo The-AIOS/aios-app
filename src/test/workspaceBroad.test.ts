@@ -56,7 +56,7 @@ function withFramework(folders: string[], fn: (cfg: string) => void) {
 const stored = (cfg: string) => JSON.parse(fs.readFileSync(cfg, 'utf8')).workspaceFolders as string[];
 
 test('adding / is refused and nothing is written; a real folder is added', () => {
-  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-proj-'));
+  const proj = fs.mkdtempSync(path.join(process.cwd(), '.aios-proj-test-'))   /* not in a temp dir: those are refused since 0.10.1 */;
   try {
     withFramework([], (cfg) => {
       assert.equal(aios.addWorkspaceFolder('/'), 'root');
@@ -69,7 +69,7 @@ test('adding / is refused and nothing is written; a real folder is added', () =>
 });
 
 test('a config that ALREADY has / is protected before any cleanup, then cleaned once', () => {
-  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-proj-'));
+  const proj = fs.mkdtempSync(path.join(process.cwd(), '.aios-proj-test-'))   /* not in a temp dir: those are refused since 0.10.1 */;
   try {
     withFramework(['/', proj, os.homedir()], (cfg) => {
       assert.deepEqual(aios.workspaceFolders(), [proj], 'never watched or readable, even before the prune');
@@ -79,4 +79,13 @@ test('a config that ALREADY has / is protected before any cleanup, then cleaned 
       assert.deepEqual(aios.pruneBroadWorkspaceFolders(), [], 'second run: nothing to say');
     });
   } finally { fs.rmSync(proj, { recursive: true, force: true }); }
+});
+
+test('0.10.1: a system temp folder is refused as a workspace folder (where browser-dropped images land)', () => {
+  const b = (p: string) => aios.tooBroadFolder(p, HOME_MAC, 'darwin');
+  assert.equal(b('/private/var/folders/pc/65tl31/T/some-drop'), 'temporary');
+  assert.equal(b('/var/folders/pc/65tl31/T'), 'temporary');
+  assert.equal(b('/tmp/x'), 'temporary');
+  assert.equal(aios.tooBroadFolder(os.tmpdir(), os.homedir(), process.platform), 'temporary', 'this machine\'s own temp dir');
+  assert.equal(b(HOME_MAC + '/Desktop'), null, 'a normal folder is still fine');
 });

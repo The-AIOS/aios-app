@@ -1248,10 +1248,10 @@ export function shellSettings(): ShellSettings {
        banner. Defaults to banner — the whole point of the counter is that you find out
        without looking, and an operator who prefers silence can say so. */
     attention: normalizeNotifyLevel(raw.attention),
-    showMemory: raw.showMemory !== false,
+    showMemory: raw.showMemory !== false,     // default on (Sessions card shows process-tree RAM)
     // what a command-bus spawn/send does to the screen: 'stay' (default) keeps the operator where
     // they are and marks the target tab; 'follow' is the old behaviour (switch to it)
-    busFocus: raw.busFocus === 'follow' ? 'follow' : 'stay',     // default on (Sessions card shows process-tree RAM)
+    busFocus: raw.busFocus === 'follow' ? 'follow' : 'stay',
     theme: raw.theme === 'light' ? 'light' : 'dark',
     termFontSize: Number(raw.termFontSize) || 12.5,
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.
@@ -2671,7 +2671,7 @@ export function modelLabel(value: string): string {
  * Refused: a filesystem root, the home folder, anything above home (`/Users`), a mounted volume's
  * root, and macOS's data-volume root. A project folder INSIDE any of those is fine.
  */
-export type BroadReason = 'root' | 'home' | 'aboveHome' | 'volume';
+export type BroadReason = 'root' | 'home' | 'aboveHome' | 'volume' | 'temporary';
 export function tooBroadFolder(p: string, home: string = os.homedir(), platform: NodeJS.Platform = process.platform): BroadReason | null {
   const pathMod = platform === 'win32' ? path.win32 : path.posix;
   let abs = p;
@@ -2688,6 +2688,11 @@ export function tooBroadFolder(p: string, home: string = os.homedir(), platform:
   if (a === h) return 'home';
   if (h.startsWith(a + pathMod.sep)) return 'aboveHome';
   if (platform === 'darwin' && /^\/volumes\/[^/]+$/.test(a)) return 'volume';
+  /* A system temp folder is never a workspace: its contents vanish, and it is where a browser
+     image dropped on the App lands (operator-reported 2026-09-28). */
+  const temps = [os.tmpdir(), '/tmp', '/private/tmp', '/private/var/folders', '/var/folders'].map(fold);
+  if (platform !== 'win32' && temps.some((t) => a === t || a.startsWith(t + pathMod.sep))) return 'temporary';
+  if (platform === 'win32' && platform === process.platform && (a === fold(os.tmpdir()) || a.startsWith(fold(os.tmpdir()) + pathMod.sep))) return 'temporary';
   return null;
 }
 

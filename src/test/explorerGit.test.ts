@@ -10,6 +10,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 const app = fs.readFileSync('renderer/app.js', 'utf8');
 const css = fs.readFileSync('renderer/theme.css', 'utf8');
@@ -110,7 +111,7 @@ test('the dead e.git entry field is gone — fs:list never populated it', () => 
 test('"open terminal here" actually reaches the pty as a cwd', () => {
   // main validated and honoured `cwd` all along; the renderer's destructure dropped it, so
   // every "open terminal here" silently landed in the framework root instead
-  assert.match(app, /async function createPane\(\{ name = 'terminal', cmd, cwd, bypassReady = false(?:, background = false)? \} = \{\}\)/);
+  assert.match(app, /async function createPane\(\{ name = 'terminal', cmd, cwd, bypassReady = false(?:, background = false)?(?:, noProfile = false)? \} = \{\}\)/);
   // Asserts the INTENT (cwd reaches the pty), not the literal argument list — the list grew
   // a `name` for AI-64 and a shape-exact regex made an unrelated test fail.
   assert.match(app, /ptySpawn\(\{[^}]*\bcwd\b[^}]*\}\)/);
@@ -249,13 +250,17 @@ test('OS drops resolve File objects BEFORE text/plain — Finder puts a URL ther
   assert.match(app, /filter\(\(u\) => u && !u\.startsWith\('#'\)\)/, 'uri-list comments are not paths');
 });
 
-test('a dropped file outside every root widens scope instead of dead-ending', () => {
-  // inAllowed restricts reads to the framework, vault and workspace folders — so most things
-  // dragged from Finder are unreadable. Adding the parent folder is the same widening the
-  // Add-folder dialog does; the drop is the consent, and it shows up removable in the tree.
-  assert.match(app, /const readable = await window\.glassShell\.fsRead\(dropped\)\.catch/);
-  assert.match(app, /const parent = xDirOf\(dropped\);/);
-  assert.match(app, /const widened = await window\.glassShell\.addFolderPath\(parent\)/);
+test('a dropped file outside every root is SHOWN, and no folder is added (0.10.1)', () => {
+  /* Superseded behaviour: this used to add the file's parent folder to the workspace so the
+     viewer could read it. The operator: "we just wanted the file to show, not the folder added;
+     that's an unwanted action" (2026-09-29). The drop is consent for THAT file only: preload
+     grants the dropped File objects' paths and main admits exactly those. */
+  assert.doesNotMatch(app, /const parent = xDirOf\(dropped\);/, 'no parent-folder widening');
+  assert.match(app, /await window\.glassShell\.grantDroppedFiles\(dropOpts\.files \|\| \[\]\)/);
+  const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
+  assert.match(main, /if \(droppedGrants\.size && droppedGrants\.has\(fs\.realpathSync\(abs\)\)\) return true;/, 'inAllowed admits exactly the granted files');
+  const pre = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'preload', 'preload.ts'), 'utf8');
+  assert.match(pre, /grantDroppedFiles: \(files: File\[\]\)[\s\S]{0,200}webUtils\.getPathForFile\(f\)/, 'grants come from File objects, never from a string path');
 });
 
 test('drop markers clear after an EXTERNAL drop, which never sends dragend', () => {
