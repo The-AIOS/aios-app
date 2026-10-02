@@ -18,7 +18,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { platform } from 'node:os';
 
 if (platform() !== 'darwin') {
@@ -131,7 +131,10 @@ try {
   if (!/<key>com\.apple\.security\.device\.audio-input<\/key>\s*<true\s*\/>/.test(ents)) {
     fail('signed app lacks com.apple.security.device.audio-input — voice mode in a pane is refused without a prompt');
   }
-  const usage = run('defaults', ['read', join(appPath, 'Contents', 'Info.plist'), 'NSMicrophoneUsageDescription']).trim();
+  // ABSOLUTE path: `defaults read` treats anything else as a preferences DOMAIN name, so the
+  // relative dist/… path made it answer "does not exist" for a key that was there (v0.10.1's first
+  // release run failed exactly this way; the same app read fine with an absolute path).
+  const usage = run('defaults', ['read', resolve(appPath, 'Contents', 'Info.plist'), 'NSMicrophoneUsageDescription']).trim();
   if (!usage) fail('Info.plist has an empty NSMicrophoneUsageDescription');
   console.log('✓ microphone: audio-input entitlement + usage description');
 } catch (e) {
