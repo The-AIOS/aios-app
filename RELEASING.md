@@ -93,6 +93,20 @@ git push --follow-tags
 to the GitHub Release → confirm the assets landed. Verify runs *before* publish,
 so a broken signature never reaches a user.
 
+## Before you tag — What's New, seen in the App (operator rule, 0.11.0)
+
+The LAST step before any version tag. What's New is written when a release is scoped, and the release
+keeps changing under it: 0.11.0 was tagged describing features its own test rounds had removed or
+renamed, and was caught only because the release gate held the draft.
+
+```bash
+npm run whatsnew:shot     # renders What's New in the real App (isolated) → ~/Downloads/AIOS-<v>-whats-new-<n>.png (one per scroll page) + .txt
+```
+
+Show both to the operator, re-read them against every test round of the release, and tag only after
+their yes. Rank the copy by what someone notices in their first ten minutes after updating; plumbing
+belongs in the GitHub notes, not What's New.
+
 ## How auto-update works (electron-updater, not Tauri)
 
 - The `publish` block in `package.json` (`provider: github`, `The-AIOS/aios-app`)

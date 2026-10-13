@@ -22,7 +22,8 @@
     "dist:win": "npm run compile && electron-builder --win --config.npmRebuild=false --publish never && npm run verify:package",
     "verify:package": "node scripts/verify-package.mjs",
     "start:isolated": "npm run compile && electron . --user-data-dir=.dev-userdata",
-    "demo": "npm run compile && node scripts/demo.mjs"
+    "demo": "npm run compile && node scripts/demo.mjs",
+    "whatsnew:shot": "npm run compile && node scripts/whatsnew-shot.mjs"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",

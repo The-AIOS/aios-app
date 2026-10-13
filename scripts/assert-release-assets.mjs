@@ -24,6 +24,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const arg = (name, fallback) => {
@@ -55,7 +56,25 @@ if (!feed) {
   process.exit(1);
 }
 
-const manifestPath = path.join('dist', feed.manifest);
+/* Where the manifest TEXT comes from follows the mode, like the asset list does. Local mode reads the
+   build's dist/. Release mode reads the manifest ATTACHED to the release: the gate checks all three
+   platforms from whichever runner finishes last, and the other two platforms' manifests only exist on
+   the release, never in that runner's dist/ (v0.11.0's first gate run refused a complete release for
+   exactly this — it failed safe, a draft stayed a draft). It is also the more honest check: the
+   manifest users' updaters will read is the attached one. */
+const localMode = process.argv.includes('--local');
+let manifestPath = path.join('dist', feed.manifest);
+if (!localMode) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-feed-'));
+  try {
+    execFileSync('gh', ['release', 'download', tag, '--pattern', feed.manifest, '--dir', dir, '--clobber'], { stdio: 'pipe' });
+    manifestPath = path.join(dir, feed.manifest);
+  } catch (e) {
+    console.error(`assert-release-assets: ✗ ${feed.manifest} is not attached to ${tag} — `
+      + `${feed.updater} would have no feed to read`);
+    process.exit(1);
+  }
+}
 if (!fs.existsSync(manifestPath)) {
   console.error(`assert-release-assets: ✗ ${manifestPath} was not produced by the build — `
     + `${feed.updater} would have no feed to read`);
@@ -69,7 +88,7 @@ if (!fs.existsSync(manifestPath)) {
               catch v0.7.1 — the build produced a correct zip, and the publish step simply did
               not upload it. A local check cannot see that, and a remote check cannot run early.
               Both are needed; neither is redundant. */
-const local = process.argv.includes('--local');
+const local = localMode;
 let assets;
 if (local) {
   assets = fs.readdirSync('dist').filter((f) => fs.statSync(path.join('dist', f)).isFile());
