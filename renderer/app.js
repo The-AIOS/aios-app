@@ -2289,7 +2289,7 @@ const SPLIT_GAP_PX = 10;      // must equal core's SPLIT_GAP — guarded in spli
 const MAX_VISIBLE_PANES = 3;  // must equal core's MAX_VISIBLE — guarded there too
 const MIN_PANE_PX = 320;      // must equal core's MIN_PANE_PX — ~30 columns MEASURED; guarded there too
 const PANE_EDGE_PX = 10;      // must equal `.pane`'s own horizontal inset — guarded there too
-const MIN_TERM_COLS = 60;     // must equal core's MIN_TERM_COLS — the terminal floor in COLUMNS (#24)
+const MIN_TERM_COLS = 40;     // must equal core's MIN_TERM_COLS — the terminal floor in COLUMNS (#24)
 const PANE_CHROME_PX = 45;    // must equal core's PANE_CHROME_PX — measured padding + border of a pane
 /* #24: in the terminal zone the floor follows the font — 60 columns at the live cell width, never
    below MIN_PANE_PX. Mirrors core's minTermPanePx(); split.test.ts asserts the two agree.
@@ -2963,6 +2963,10 @@ function splitWithPane(z, next) {
   const nextCount = vis.length + 1;
   const room = nextCount <= MAX_VISIBLE_PANES
     && (zoneW - SPLIT_GAP_PX * (nextCount - 1)) / nextCount >= minPaneFor(z);
+  /* ONE PANE AND NO ROOM FOR A SECOND: refuse, and SAY so. Swapping the one visible pane for `next`
+     looked like nothing at all (setVisible snaps back to the focused pane), so 0.11.0's 60-column
+     floor made split view read as broken on every laptop, with no message. */
+  if (!room && vis.length < 2) { toast(t('split.noRoomToSplit')); return; }
   if (room) {
     const at = vis.indexOf(beside);
     zones[z].visible = at < 0 ? [...vis, next] : [...vis.slice(0, at + 1), next, ...vis.slice(at + 1)];
@@ -6609,7 +6613,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {

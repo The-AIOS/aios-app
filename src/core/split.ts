@@ -79,8 +79,12 @@ export function fitsAnother(count: number, zoneWidth: number, minPanePx: number 
  * padding and border. The issue asked for 80 — at that font a two-pane split needs a ~1,640px
  * terminal zone, i.e. none on a laptop — so it went to the operator, who chose **60 columns**
  * (0.11.0): ~621px per pane at 16px, so two panes need a ~1,250px terminal zone.
+ * 0.11.1 — revised to **40**. At the DEFAULT font (12.5px, 7.5px cells) 60 columns is 495px a pane, and
+ * a laptop's terminal zone with the sidebar and explorer open is ~760-1,000px: a two-pane split was
+ * impossible on every laptop, and the operator reported split view as broken. 40 columns is 345px a
+ * pane at the default font, so two fit from a 1,280px window.
  */
-export const MIN_TERM_COLS = 60;
+export const MIN_TERM_COLS = 40;
 export const PANE_CHROME_PX = 45;
 export function minTermPanePx(cellWidth: number | undefined): number {
   if (!cellWidth || !Number.isFinite(cellWidth) || cellWidth <= 0) return MIN_PANE_PX;
