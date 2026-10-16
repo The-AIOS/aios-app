@@ -9165,7 +9165,7 @@ function inputModal(title, placeholder, chips, opts) {
         const rec = el('div', 'mrecent');
         rec.appendChild(el('span', 'mrecentlbl', t('ask.recent')));
         for (const v of opts.recent) {
-          const a = el('button', 'mrecentitem', v);
+          const a = el('button', 'mrecentitem', v.replace(/\s+/g, ' '));   // a pasted paragraph reads as one line
           a.type = 'button';
           a.title = v;
           a.addEventListener('click', () => { input.value = v; input.dispatchEvent(new Event('input')); input.focus(); });
