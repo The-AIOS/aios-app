@@ -9032,26 +9032,21 @@ window.addEventListener('keydown', (e) => { if (handleChord(e)) { e.preventDefau
    keystroke. A handler here would be shadowed on macOS and drift from the menu. */
 
 /* ── ask modal + toasts ───────────────────────────────────────────────────── */
-/* Recent asks — at most 3, shown as quiet text under the session-name field rather than as chips
-   above it (operator, 0.12.0 test: the chip buttons read as part of the form). */
-const RECENT_ASKS_MAX = 3;
-function recentAsks() {
-  try { return JSON.parse(localStorage.getItem('recentAsks') || '[]').slice(0, RECENT_ASKS_MAX); } catch { return []; }
-}
-function pushRecentAsk(v) {
-  try { localStorage.setItem('recentAsks', JSON.stringify([v, ...recentAsks().filter((x) => x !== v)].slice(0, RECENT_ASKS_MAX))); } catch { /* ignore */ }
-}
+/* No recent-ask list (operator, 0.12.0 test: tried as chips, as a line, as a stack — all read as
+   clutter). A job worth re-running belongs in Frequent Tasks, so the dialog points there instead.
+   The prompts stored by earlier versions are cleared once. */
+try { localStorage.removeItem('recentAsks'); } catch { /* storage unavailable */ }
 /* app#66: Ask AIOS asks for the session's NAME too, pre-filled. A sentence-derived name broke an
    operator whose vault addresses sessions by identity (`atlas-TT-MM-JJ`); the suggestion now picks
    a dated identity the intent names, folds letters instead of dropping them, and is editable —
    once the operator types in it, it stops following the prompt. Resolves { intent, name } or null. */
 async function askWithChips() {
+  const keys = /Mac/i.test(navigator.platform) ? '⌘⇧F' : 'Ctrl+Shift+F';   // the menu's accelerator (menu.ts)
   const v = await inputModal(t('ask.title'), t('ask.placeholder'), null, {
-    recent: recentAsks(),
+    hint: { before: t('ask.frequentHintBefore'), link: t('ask.frequentHintLink'), after: t('ask.frequentHintAfter', { keys }), onLink: () => void pickFrequent() },
     nameField: { label: t('ask.nameLabel'), suggest: (text) => window.glassShell.askName(text).catch(() => '') },
   });
   if (!v || !v.value) return null;
-  pushRecentAsk(v.value);
   return { intent: v.value, name: v.name };
 }
 /** A session name that is safe on a command line and in the registry, whatever was typed. */
@@ -9159,21 +9154,21 @@ function inputModal(title, placeholder, chips, opts) {
       };
       input.addEventListener('input', follow);
       wrap.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', follow));
-      /* opts.recent — earlier prompts as quiet text links under the name; a click fills the prompt
-         (and so the suggested name), never runs it. */
-      if (opts.recent && opts.recent.length) {
-        const rec = el('div', 'mrecent');
-        rec.appendChild(el('span', 'mrecentlbl', t('ask.recent')));
-        for (const v of opts.recent) {
-          const a = el('button', 'mrecentitem', v.replace(/\s+/g, ' '));   // a pasted paragraph reads as one line
-          a.type = 'button';
-          a.title = v;
-          a.addEventListener('click', () => { input.value = v; input.dispatchEvent(new Event('input')); input.focus(); });
-          rec.appendChild(a);
-        }
-        wrap.querySelector('.mhint').before(rec);
-      }
+
       nameIn.addEventListener('input', () => { touched = true; });
+    }
+    /* opts.hint — one italic line above "Enter to run", with an optional link that leaves this dialog
+       for somewhere better suited (Ask → Frequent Tasks for a job that recurs). */
+    if (opts && opts.hint) {
+      const h = el('div', 'maskhint');
+      h.append(document.createTextNode(opts.hint.before || ''));
+      if (opts.hint.link) {
+        const l = el('button', 'maskhintlink', opts.hint.link); l.type = 'button';
+        l.addEventListener('click', () => { wrap.remove(); resolve(null); if (opts.hint.onLink) opts.hint.onLink(); });
+        h.appendChild(l);
+      }
+      h.append(document.createTextNode(opts.hint.after || ''));
+      wrap.querySelector('.mhint').before(h);
     }
     input.focus();
     const done = (val) => { wrap.remove(); resolve(val); };

@@ -396,13 +396,10 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 /* app#66 — the session-name row under the Ask field: smaller, monospace, so it reads as a handle */
 .mname { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .mnamelbl { color: var(--subtle); font-size: 11.5px; white-space: nowrap; }
-/* recent asks — a short quiet list, one ask per line, each cut to the full width (operator test:
-   on one shared line a single long ask squeezed the others to "Pl…") */
-.mrecent { display: flex; flex-direction: column; align-items: stretch; gap: 2px; margin-top: 10px; font-size: 11.5px; min-width: 0; }
-.mrecentlbl { color: var(--faint); font-size: 10.5px; margin-bottom: 1px; }
-.mrecentitem { background: none; border: 0; padding: 1px 0; color: var(--subtle); font: inherit; cursor: pointer; text-align: left;
-  width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mrecentitem:hover { color: var(--accent-ink); }
+/* the italic hint under the Ask fields — pointing a recurring job to Frequent Tasks */
+.maskhint { margin-top: 10px; color: var(--subtle); font-size: 11.5px; font-style: italic; }
+.maskhintlink { background: none; border: 0; padding: 0; font: inherit; color: var(--accent-ink); cursor: pointer; }
+.maskhintlink:hover { text-decoration: underline; }
 .modal .mnamein { padding: 6px 10px; font-size: 12.5px; font-family: var(--mono, ui-monospace, Menlo, monospace); }
 .mhint { color: var(--subtle); font-size: 11px; margin-top: 9px; }
 
