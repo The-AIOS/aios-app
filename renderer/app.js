@@ -1099,8 +1099,39 @@ async function refreshHealth() {
       H.appendChild(r);
     }
   }
+  /* "OK, BUT THEN?" — a red or amber dot with no next step (operator test, 0.12.0). One button for
+     the whole card, shown only when something is not green: it opens a helper session whose brief
+     carries the ACTUAL findings, and which asks before every command (`default` mode, the
+     github-help pattern). One session, not one per row: problems are often related. */
+  const notGreen = rows.filter((c) => c.status !== 'pass');
+  const badJobs = jobs.filter((j) => j.status !== 'ok' && j.status !== 'waiting');
+  if (notGreen.length || badJobs.length) {
+    const help = el('button', 'phhelp', t('health.askClaude'));
+    help.type = 'button';
+    help.title = t('health.askClaudeHint');
+    help.addEventListener('click', () => void openHealthHelp(notGreen, badJobs));
+    H.appendChild(help);
+  }
   H.style.display = rows.length || jobs.length ? '' : 'none';
   feedPrime('health');
+}
+
+/** The health helper: a brief built from what is actually wrong, delivered through the private
+ *  handoff file (never typed), run in `default` mode so it asks before every command. */
+async function openHealthHelp(notGreen, badJobs) {
+  const lines = [
+    ...notGreen.map((c) => `- ${c.label}: ${c.message}${c.repairHint ? ` (the App suggests: ${c.repairHint})` : ''}`),
+    // the status line already carries the detail for warn/fail; an overdue job's last detail is added once
+    ...badJobs.map((j) => `- scheduled job "${j.name}": ${routineHealthText(j)}${j.detail && j.status === 'overdue' ? ` — last detail: ${j.detail}` : ''} (status file: ~/.aios/health/${j.name}.json)`),
+  ];
+  const brief = 'Help me fix my AIOS health. These items in the AIOS App\'s Health card are not green:\n'
+    + lines.join('\n') + '\n\n'
+    + 'For each one: find the cause, explain it in plain words, and propose the fix. Ask me before you run any command or change anything. '
+    + 'Scheduled jobs write their status with hooks/aios-health.py at the end of each run; a job is fixed when its NEXT run writes a fresh "ok", so tell me how to trigger it or when it is due — never edit or delete a status file to make it look green. '
+    + 'When you are done, tell me to press ↻ on the Health card to re-check.';
+  const handed = await window.glassShell.taskHandoff(brief, 'health-help').catch((e) => ({ error: String(e && e.message || e) }));
+  if (handed && typeof handed === 'object') { toast(t('handoff.failed', { why: handed.error })); return; }
+  spawnNamed('health-help', handed, undefined, 'default');
 }
 
 /** One line for a scheduled job, in the operator's language (canonical's wording, aios-health.py line()). */
@@ -3640,7 +3671,7 @@ const needsSetup = (cmd) => {
   /* The remedies are exempt, or the operator could never climb out. Three of them:
      /login and /logout fix the account; the aios-setup session IS the setup; and the
      cold-start interview is what writes the declared context the gate asks for. */
-  return !/\/(login|logout)\b/.test(c) && !/--name\s+(aios-setup|github-help)\b/.test(c) && !/cold-start-interview/.test(c);
+  return !/\/(login|logout)\b/.test(c) && !/--name\s+(aios-setup|github-help|health-help)\b/.test(c) && !/cold-start-interview/.test(c);
 };
 
 /* One gate for every runnable action. Before this, a missing prerequisite surfaced as

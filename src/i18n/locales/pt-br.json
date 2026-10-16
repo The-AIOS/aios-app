@@ -1072,7 +1072,7 @@
   "whatsnew.h2": "Encontre e organize suas sessões",
   "whatsnew.b2": "Retomar encontra uma sessão por qualquer nome que ela já teve, então uma que se renomeou não se perde mais, e cada linha mostra o tamanho dela. No painel lateral, passe o cursor sobre uma sessão em andamento e use ▲ / ▼ para mover a aba dela: o painel e as abas sempre mostram a mesma ordem, usando as setas ou arrastando uma aba.",
   "whatsnew.h3": "Mais silencioso e mais difícil de perder",
-  "whatsnew.b3": "Uma mensagem não entregue é avisada uma vez, não a cada poucos minutos. Fechar uma sessão a partir de outro agente funciona mesmo depois que ela foi renomeada. E uma sessão esperando por você não pode mais ficar escondida por um status desatualizado, então a notificação dela chega. O cartão de Saúde agora mostra suas tarefas agendadas (o monitor de cota do AIOS é a primeira) e avisa quando uma falhou ou parou de reportar. Obrigado a todos que reportaram e sugeriram essas melhorias.",
+  "whatsnew.b3": "Uma mensagem não entregue é avisada uma vez, não a cada poucos minutos. Fechar uma sessão a partir de outro agente funciona mesmo depois que ela foi renomeada. E uma sessão esperando por você não pode mais ficar escondida por um status desatualizado, então a notificação dela chega. O cartão de Saúde agora mostra suas tarefas agendadas (o monitor de cota do AIOS é a primeira) e avisa quando uma falhou ou parou de reportar; quando algo não está verde, Deixe o Claude ajudar abre uma sessão que explica e propõe a correção. Obrigado a todos que reportaram e sugeriram essas melhorias.",
   "whatsnew.more": "Notas completas no GitHub →",
   "whatsnew.skipped": "Você também pulou {versions}. O que mudou está nas notas de cada versão.",
   "menu.whatsnew": "Novidades",
@@ -1161,5 +1161,7 @@
   "health.job.neverRan": "instalada, nenhuma execução completa ainda (esperada até {time})",
   "health.job.overdue": "sem resultado desde {time}",
   "health.job.lastResult": "(último resultado: {state})",
-  "health.job.unreadable": "arquivo de status ilegível ({why})"
+  "health.job.unreadable": "arquivo de status ilegível ({why})",
+  "health.askClaude": "Deixe o Claude ajudar com isso",
+  "health.askClaudeHint": "Abre uma sessão que analisa o que não está verde, explica e propõe correções; pergunta antes de cada comando"
 }

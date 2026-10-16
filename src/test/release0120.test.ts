@@ -21,3 +21,12 @@ test('the hidden-waiting note logs the PROJECT, never the full path — the trai
   assert.doesNotMatch(body, /\$\{a\.cwd/, 'no raw cwd in the line');
   assert.match(body, /project \$\{projOf\(a\.cwd \|\| ''\) \|\| '\?'\}/);
 });
+
+test('a Health card that is not all green offers "Let Claude help" — a briefed helper that asks first', () => {
+  const src = app();
+  assert.match(src, /if \(notGreen\.length \|\| badJobs\.length\) \{/, 'only when something is not green');
+  assert.match(src, /spawnNamed\('health-help', handed, undefined, 'default'\)/, 'ask-before-every-command mode');
+  assert.match(src, /window\.glassShell\.taskHandoff\(brief, 'health-help'\)/, 'the brief travels as a private file, never typed');
+  assert.match(src, /never edit or delete a status file to make it look green/, 'the helper may not fake a green');
+  assert.match(src, /--name\\s\+\(aios-setup\|github-help\|health-help\)/, 'a remedy is exempt from the setup gate');
+});

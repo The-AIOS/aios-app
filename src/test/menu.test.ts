@@ -224,7 +224,7 @@ test('an action that needs setup routes to Setup instead of failing in a termina
   // the remedies are exempt, or the operator could never climb out
   // the remedies stay exempt — and there are three of them now, so assert the set, not one line
   assert.match(app, /login\|logout/, '/login and /logout fix the account');
-  assert.match(app, /--name\\s\+\(aios-setup\|github-help\)/, 'the setup session IS the remedy, and so is the GitHub helper');
+  assert.match(app, /--name\\s\+\(aios-setup\|github-help\|health-help\)/, 'the setup session IS the remedy, and so are the GitHub and health helpers');
   assert.match(app, /cold-start-interview/, 'the interview writes the context the gate wants');
   /* Assert the INTENT, not the argument list. The literal-source version of this broke on
      every refactor of the same working behaviour (three times in one session), which trains
