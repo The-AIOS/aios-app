@@ -27,7 +27,8 @@ export function foldName(s: string): string {
 }
 
 /* Filler words dropped from the descriptive name, in the languages AIOS operators write in. Compared
-   against FOLDED words, so German entries are spelled folded (für → fuer). "Prepara el reporte
+   against FOLDED words, so German entries are spelled folded (für → fuer) — and also as typed without
+   the umlaut (fur), which is how it arrives from a keyboard that has none. "Prepara el reporte
    semanal" → ask-prepara-reporte-semanal, not ask-prepara-el-reporte. */
 const STOP = new Set([
   // en
@@ -37,7 +38,7 @@ const STOP = new Set([
   // pt
   'os', 'as', 'um', 'uma', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'sem', 'e', 'ou', 'meu', 'minha', 'seu', 'sua', 'eu', 'voce', 'preciso', 'quero', 'faca', 'pode',
   // de
-  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'oder', 'fuer', 'mit', 'von', 'zu', 'im', 'am', 'an', 'auf', 'ich', 'du', 'mein', 'meine', 'bitte', 'mir', 'mich', 'ist', 'sind',
+  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'oder', 'fuer', 'fur', 'mit', 'von', 'zu', 'im', 'am', 'an', 'auf', 'ich', 'du', 'mein', 'meine', 'bitte', 'mir', 'mich', 'ist', 'sind',
 ]);
 
 /** The descriptive name: content words of the intent, folded. "i need a social media strategy" → ask-social-media-strategy. */

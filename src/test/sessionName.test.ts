@@ -30,6 +30,7 @@ test('Spanish, Portuguese and German filler words are dropped like English ones'
   assert.equal(askSlug('Prepara el reporte semanal'), 'ask-prepara-reporte-semanal');
   assert.equal(askSlug('Preciso de uma proposta para o cliente'), 'ask-proposta-cliente');
   assert.equal(askSlug('Bitte die Rechnung für den Kunden'), 'ask-rechnung-kunden');
+  assert.equal(askSlug('plan fur morgen'), 'ask-plan-morgen', 'für typed without the umlaut');
 });
 
 test('a plain identity is never auto-picked — it names the live session being talked ABOUT', () => {
