@@ -992,6 +992,8 @@ body.no-hints .xsectsub { display: none; }
 /* ═══ movable pulse cards — ↑↓ on hover (⌥↑↓ from the keyboard) ═══ */
 .pmove { margin-left: auto; display: inline-flex; gap: 1px; opacity: 0; transition: opacity .12s; }
 .ptitle:hover .pmove, .ptitle:focus .pmove { opacity: 1; }
+/* #60 — the same ↑/↓ inside a session row's hover group, which already handles its own reveal */
+.runacts .prowmove { margin-left: 0; opacity: 1; }
 .pmove button { background: transparent; border: 0; color: var(--subtle); cursor: pointer; font-size: 11px;
                 line-height: 1; padding: 1px 3px; border-radius: 4px; font-family: var(--font); }
 .pmove button:hover { color: var(--accent-ink); background: var(--surface-2); }

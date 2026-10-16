@@ -1768,7 +1768,9 @@ function renderPulseRunning(m) {
     /* Keyed by IDENTITY. `FEED.seen` returns early for a key it has already marked, so two rows
      sharing a name meant the SECOND one silently skipped its entry animation — the last thing
      in the session display still keyed on a label instead of on what the session is. */
-  for (const a of sessions) { const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); box.appendChild(r); }
+  /* #60: in TAB order, so moving a row and dragging a tab are the same act seen from two places. */
+  const inTabOrder = sessions.map((a, i) => ({ a, i, k: sessionTabPos(a) })).sort((x, y) => x.k - y.k || x.i - y.i).map((x) => x.a);
+  for (const a of inTabOrder) { const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); box.appendChild(r); }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
     /* Review 13: AI-203's scope can be wrong, and a wrong HIDE is invisible unless it is counted.
        So the panel says how many it hid and can show them — plain rows, never notifying. */
@@ -2142,10 +2144,56 @@ function sessionRow(a) {
   // Kill: behavior is configurable (Glass killBehavior parity). One decision site,
   // shared with the tab × — see endSession().
   actBtn('trash', t('session.kill'), 'kill', () => void endSession({ name: a.name, pid: a.pid, sessionId: a.id }));
+  /* #60 — reorder from the panel: ↑/↓ (and ⌥↑/⌥↓ on a focused row) move this session's TAB, the
+     card-title pattern applied to rows. Only a session with a pane here can move — an external
+     one has no tab to put anywhere. The panel lists sessions in tab order, so the two cannot
+     disagree: there is one order (tabOrder), shown twice. */
+  r.dataset.sid = a.key || a.name;
+  if (ownPane) {
+    const mv = el('span', 'pmove prowmove');
+    const up = el('button', '', '↑'); up.title = t('pulse.moveUp');
+    const dn = el('button', '', '↓'); dn.title = t('pulse.moveDown');
+    up.addEventListener('click', (e) => { e.stopPropagation(); moveSessionTab(ownPane.id, -1, r.dataset.sid); });
+    dn.addEventListener('click', (e) => { e.stopPropagation(); moveSessionTab(ownPane.id, 1, r.dataset.sid); });
+    mv.append(up, dn);
+    acts.prepend(mv);
+  }
   r.appendChild(acts);
   r.addEventListener('click', open);
-  r.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  r.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') open();
+    else if (ownPane && e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      moveSessionTab(ownPane.id, e.key === 'ArrowUp' ? -1 : 1, r.dataset.sid);
+    }
+  });
   return r;
+}
+/** #60 — where a session's pane sits in the strips (editor zone first), for the panel's order. */
+function sessionTabPos(a) {
+  const hit = byName(a.name, a.id);
+  if (!hit || panes.get(hit[0]).exited) return 1e12;   // no pane here: after every tab, in registry order
+  const z = zoneOf(panes.get(hit[0]));
+  return (z === 'main' ? 0 : 1e6) + tabOrder[z].indexOf(hit[0]);
+}
+/** #60 — move a session's tab one step among the SESSION tabs of its strip (plain terminals and
+ *  files keep their places relative to each other), then repaint the panel and keep focus. */
+function moveSessionTab(paneId, dir, sid) {
+  const p = panes.get(paneId);
+  if (!p) return;
+  const z = zoneOf(p);
+  const live = (pulse.lastRunning && pulse.lastRunning.running) || [];
+  /* name-ok: a set-membership test ("is this pane a live session at all?") that only decides which
+     tabs count as session tabs; it never picks one session, so duplicate names cannot mislead it. */
+  const isSession = (id) => { const q = panes.get(id); return !!q && !q.exited && live.some((a) => (a.id && q.sessionId === a.id) || a.name === q.name); };
+  const order = tabOrder[z].filter(isSession);
+  const i = order.indexOf(paneId);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= order.length) return;
+  moveTab(z, paneId, order[j], dir > 0);
+  renderPulseRunning();
+  const row = [...document.querySelectorAll('#pRun .prow2')].find((x) => x.dataset.sid === sid);
+  if (row) row.focus();
 }
 function terminalRow(tid, p) {
   const r = el('div', 'prow2'); r.tabIndex = 0;
