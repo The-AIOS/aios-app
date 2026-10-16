@@ -193,7 +193,7 @@ test('the phase 1 script is handed out as a REAL path, never one inside app.asar
   const src = fs.readFileSync('src/main/aios.ts', 'utf8');
   assert.match(src, /app\.asar\.unpacked/, 'prefer a genuinely unpacked copy when present');
   assert.match(src, /fs\.readFileSync\(packaged, 'utf8'\)/, 'otherwise read it out of the archive');
-  assert.match(src, /mode: 0o700/);
+  assert.match(src, /writePrivateFile\(dir, file, body, 0o700\)/, 'materialised as a private, executable run file (privateRun)');
   assert.match(src, /!p\.includes\('app\.asar' \+ path\.sep\)/, 'never return an in-archive path');
   // and the returned path, in dev, must be executable by bash right now
   const handed = aios.phase1Script();

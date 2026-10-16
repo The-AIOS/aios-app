@@ -5,6 +5,7 @@ import { withDefaultLocale } from './termLocale';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
 import { askSessionName } from '../core/sessionName';
+import { runDir, writePrivateFile } from './privateRun';
 import { speakable, lastAnswer, guessLang } from '../core/speakable';
 import { answerPlain } from '../core/answerPlain';
 import { t } from '../i18n';
@@ -791,18 +792,17 @@ ipcMain.handle('feedback:snapshot', (_e, name: string, text: string) => {
   sweepReportSnapshots();
   try {
     const slug = String(name || 'terminal').replace(/[^a-z0-9-]+/gi, '-').slice(0, 40) || 'terminal';
-    const f = path.join(os.tmpdir(), `aios-report-${slug}-${Date.now()}.txt`);
     /* Review should-fix 12: written ALREADY REDACTED — token shapes, keys, credentials in URLs. The
-       agent still scrubs; the App no longer depends on it. */
-    fs.writeFileSync(f, redactSecrets(String(text ?? '').slice(0, 200_000)), { mode: 0o600 });
-    return f;
+       agent still scrubs; the App no longer depends on it. A private run file (privateRun), like
+       every file a session is told to read. */
+    return writePrivateFile(runDir(), `aios-report-${slug}-${Date.now()}.txt`, redactSecrets(String(text ?? '').slice(0, 200_000)));
   } catch { return ''; }
 });
 /* Snapshots are read once, by the session the report opened. Any older than a day is an orphan
    (a report abandoned, or one dropped because the feedback pane already existed) — remove it. */
 function sweepReportSnapshots(maxAgeMs = 24 * 60 * 60 * 1000): void {
   try {
-    const dir = os.tmpdir();
+    const dir = runDir();
     for (const n of fs.readdirSync(dir)) {
       if (!/^aios-report-.*\.txt$/.test(n)) continue;
       const f = path.join(dir, n);
@@ -958,9 +958,10 @@ ipcMain.handle('task:handoff', (_e, req: { prompt: string; name?: string }) => {
   if (!prompt) return '';
   if (!needsTaskFile(prompt)) return prompt;
   const slug = (String(req?.name ?? 'task').toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'task').slice(0, 40);
-  const file = path.join(os.tmpdir(), `aios-task-${slug}.md`);
-  try { fs.writeFileSync(file, prompt); } catch { return prompt; }  // fall back to inline
-  return taskFileInstruction(file);
+  /* A private run file (privateRun). A failed write is REFUSED, never "fall back to inline": typing
+     a long prompt is the mangling this handoff exists to prevent. The renderer says why. */
+  try { return taskFileInstruction(writePrivateFile(runDir(), `aios-task-${slug}.md`, prompt)); }
+  catch (e) { return { error: (e as Error).message }; }
 });
 /* app#66 — the suggested session name for an Ask AIOS intent: a dated USER.md identity the intent
    names, else the descriptive ask-… name; letters folded, never a name already running. The Ask
@@ -977,9 +978,8 @@ ipcMain.handle('designer:handoff', (_e, req: { kind: DesignerKind; fields: Desig
   });
   if (!brief) return null;
   const slug = slugify(req.fields?.name || '') || 'unit';
-  const file = path.join(os.tmpdir(), `aios-designer-${req.kind}-${slug}.md`);
-  try { fs.writeFileSync(file, brief); } catch { return null; }
-  return { file, prompt: taskFileInstruction(file) };
+  try { const file = writePrivateFile(runDir(), `aios-designer-${req.kind}-${slug}.md`, brief); return { file, prompt: taskFileInstruction(file) }; }
+  catch (e) { return { error: (e as Error).message }; }
 });
 ipcMain.handle('designer:brief', (_e, req: { kind: DesignerKind; fields: DesignerFields; mode: 'create' | 'update'; templatePath?: string; targetPath?: string }) => {
   if (!req || !['agent', 'skill', 'command'].includes(req.kind)) return '';

@@ -208,8 +208,8 @@ test('buildSpawnCmd: bare · task · resolved model · never an empty --model ·
   }
   // task-file replaces the inline task with a read-instruction
   assert.equal(
-    buildSpawnCmd('claude', 'heron', { task: 'huge...', taskFile: '/tmp/aios-spawn-task-heron.md' }),
-    `claude --name heron ${shq(taskFileInstruction('/tmp/aios-spawn-task-heron.md'))}`,
+    buildSpawnCmd('claude', 'heron', { task: 'huge...', taskFile: '/home/op/.aios/run/aios-spawn-task-heron.md' }),
+    `claude --name heron ${shq(taskFileInstruction('/home/op/.aios/run/aios-spawn-task-heron.md'))}`,
   );
   // a custom claudeCmd is honored (Settings override)
   assert.ok(buildSpawnCmd('claude-fast', 'heron', {}).startsWith('claude-fast '));

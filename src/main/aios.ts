@@ -1,6 +1,7 @@
 import { freshness, parseLsRemote } from '../core/freshness';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
+import { runDir, writePrivateFile } from './privateRun';
 import * as fs from 'fs';
 import * as os from 'os';
 import {
@@ -3039,15 +3040,14 @@ if ($Ok -eq 'True') {
 }
 `;
     try {
-      const out = path.join(os.tmpdir(), 'aios-setup', 'done.ps1');
-      fs.mkdirSync(path.dirname(out), { recursive: true });
+      const dir = runDir('setup');   // private: this file is EXECUTED (privateRun)
       /* A BOM, and it is load-bearing. These four strings are LOCALIZED, so they carry em
          dashes and accents the moment the operator is on Spanish or Portuguese — and Windows
          PowerShell 5.1 decodes a BOM-less file as the ANSI codepage, where an em dash's third
          UTF-8 byte (0x94) becomes CP1252's RIGHT DOUBLE QUOTATION MARK, which PowerShell honours
          as a string DELIMITER. Without the BOM a Spanish banner does not merely look wrong, it
          fails to parse, and the operator's step ends in a red wall instead of a verdict. */
-      fs.writeFileSync(out, String.fromCharCode(0xFEFF) + psBody, 'utf8');
+      const out = writePrivateFile(dir, 'done.ps1', String.fromCharCode(0xFEFF) + psBody);
       return psRunHint(out);
     } catch { return ''; }
   }
@@ -3060,10 +3060,9 @@ else
 fi
 `;
   try {
-    const out = path.join(os.tmpdir(), 'aios-setup', 'done.sh');
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, body, { mode: 0o700 });
-    return out;
+    /* Private, because it is EXECUTED: in a shared /tmp/aios-setup another local user could have
+       created the folder first and controlled what runs (privateRun). */
+    return writePrivateFile(runDir('setup'), 'done.sh', body, 0o700);
   } catch { return ''; }
 }
 
@@ -3100,16 +3099,15 @@ function setupScriptPath(file: string): string {
   }
   try {
     const body = fs.readFileSync(packaged, 'utf8');       // works: fs is shimmed for asar
-    /* os.tmpdir(), not app.getPath('userData'): this module is deliberately electron-free so
-       the doctor suite can import it outside an Electron process, and the compiler caught the
-       import the moment I reached for it. A transient, idempotent script is exactly what a temp
-       dir is for. */
-    const out = path.join(os.tmpdir(), 'aios-setup', file);
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, body, { mode: 0o700 });
+    /* A private run dir (privateRun), not app.getPath('userData'): this module is deliberately
+       electron-free so the doctor suite can import it outside an Electron process. Not os.tmpdir()
+       either: on Linux that is the shared /tmp, and these scripts are executed. */
+    /* Private, because these scripts are EXECUTED (privateRun): ~/.aios/run/setup on macOS/Linux. */
+    const dir = runDir('setup');
+    const out = writePrivateFile(dir, file, body, 0o700);
     for (const sib of fs.readdirSync(path.dirname(packaged))) {
       if (sib === file) continue;
-      try { fs.writeFileSync(path.join(path.dirname(out), sib), fs.readFileSync(path.join(path.dirname(packaged), sib), 'utf8'), { mode: 0o700 }); } catch { /* the one asked for is what matters */ }
+      try { writePrivateFile(dir, sib, fs.readFileSync(path.join(path.dirname(packaged), sib), 'utf8'), 0o700); } catch { /* the one asked for is what matters */ }
     }
     return out;
   } catch { return ''; }

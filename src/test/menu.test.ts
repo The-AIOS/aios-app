@@ -523,7 +523,7 @@ test('the command an operator sees is the command, not a wall of escape codes', 
   // and if the helper cannot be written, the command must still run
   const aios = fs.readFileSync('src/main/aios.ts', 'utf8');
   assert.match(aios, /export function bannerScript\(/);
-  assert.match(aios, /mode: 0o700/);
+  assert.match(aios, /writePrivateFile\(runDir\('setup'\), 'done\.sh', body, 0o700\)/, 'the verdict script is a private, executable run file');
 });
 
 test('returning to the Setup tab re-verifies it', () => {

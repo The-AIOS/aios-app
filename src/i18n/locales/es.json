@@ -1151,5 +1151,6 @@
   "readAloud.off": "La lectura en voz alta está apagada para esta sesión.",
   "readAloud.rest": "El resto está en pantalla.",
   "pulse.updTesting": "en prueba",
-  "rail.updateTesting": "En prueba {branch}, por delante de main: no se ofrece actualización mientras pruebas. Haz clic para volver a verificar."
+  "rail.updateTesting": "En prueba {branch}, por delante de main: no se ofrece actualización mientras pruebas. Haz clic para volver a verificar.",
+  "handoff.failed": "No se pudo escribir el archivo de la tarea de forma segura, así que no se inició nada: {why}"
 }

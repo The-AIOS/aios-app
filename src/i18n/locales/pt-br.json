@@ -1151,5 +1151,6 @@
   "readAloud.off": "A leitura em voz alta está desligada para esta sessão.",
   "readAloud.rest": "O resto está na tela.",
   "pulse.updTesting": "em teste",
-  "rail.updateTesting": "Testando {branch}, à frente da main: nenhuma atualização é oferecida enquanto você testa. Clique para verificar novamente."
+  "rail.updateTesting": "Testando {branch}, à frente da main: nenhuma atualização é oferecida enquanto você testa. Clique para verificar novamente.",
+  "handoff.failed": "Não foi possível gravar o arquivo da tarefa com segurança, então nada foi iniciado: {why}"
 }

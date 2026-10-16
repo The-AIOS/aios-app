@@ -8840,6 +8840,7 @@ function openDesignerTab() {
       // the same indirection the spawn wrapper and the command bus use. Typing a long
       // multi-line brief into the pty mangled the shell quoting and truncated it.
       const h = await window.glassShell.designerHandoff({ kind: st.kind, fields, mode: st.mode, targetPath: st.targetPath || undefined }).catch(() => null);
+      if (h && h.error) { toast(t('handoff.failed', { why: h.error })); return; }
       if (!h) { toast(t('designer.needName')); return; }
       void createPane({ name: 'aios-builder', cmd: CLAUDE + ' --name aios-builder ' + shq('/aios:agent aios-builder — ' + h.prompt) });
       toast(t('designer.handedOff'));
@@ -9062,7 +9063,9 @@ async function launchAsk(ask) {
   const name = safeSessionName(ask.name, await window.glassShell.askName(ask.intent).catch(() => ''));
   const prompt = `Find the right AIOS action for this intent and run it: "${ask.intent}". Search my agents, /aios: commands, skills, and frequent tasks; pick the best match, tell me in one line which you chose and why, then execute it.`;
   // long prompts travel as a temp file, never typed into the pty (see task:handoff)
-  const handed = await window.glassShell.taskHandoff(prompt, name).catch(() => prompt);
+  /* Refused, not inlined, when the handoff file cannot be written safely (see task:handoff). */
+  const handed = await window.glassShell.taskHandoff(prompt, name).catch((e) => ({ error: String(e && e.message || e) }));
+  if (handed && typeof handed === 'object') { toast(t('handoff.failed', { why: handed.error })); return; }
   await createPane({ name, cmd: `${CLAUDE} --name ${shq(name)} ${shq(handed)}` });
 }
 
