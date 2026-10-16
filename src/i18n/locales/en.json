@@ -1072,7 +1072,7 @@
   "whatsnew.h2": "Find and arrange your sessions",
   "whatsnew.b2": "Resume finds a session by any name it ever had, so one that renamed itself is no longer lost, and each row shows how big it is. In the side panel, hover a running session and use ▲ / ▼ to move its tab: the panel and the tabs always show the same order, whether you use the arrows or drag a tab.",
   "whatsnew.h3": "Quieter, and harder to miss",
-  "whatsnew.b3": "An undelivered message is reported once, not every few minutes. Closing a session from another agent works even after it was renamed. And a session waiting on you can no longer be hidden by an out-of-date status, so its notification fires. Thanks to everyone who reported and suggested these.",
+  "whatsnew.b3": "An undelivered message is reported once, not every few minutes. Closing a session from another agent works even after it was renamed. And a session waiting on you can no longer be hidden by an out-of-date status, so its notification fires. The Health card now lists your scheduled jobs (AIOS's quota watcher is the first) and says when one failed or went quiet. Thanks to everyone who reported and suggested these.",
   "whatsnew.more": "Full release notes on GitHub →",
   "whatsnew.skipped": "You also skipped {versions}. What they changed is in the release notes.",
   "menu.whatsnew": "What's New",
@@ -1152,5 +1152,14 @@
   "readAloud.rest": "The rest is on screen.",
   "pulse.updTesting": "testing",
   "rail.updateTesting": "Testing {branch}, ahead of main — no update is offered while you test. Click to re-check.",
-  "handoff.failed": "Couldn't write the task file safely, so nothing was started: {why}"
+  "handoff.failed": "Couldn't write the task file safely, so nothing was started: {why}",
+  "health.jobs": "Scheduled jobs",
+  "health.job.ok": "ok · {time}",
+  "health.job.waiting": "waiting for its first run (due {time})",
+  "health.job.warn": "warning{detail} · {time}",
+  "health.job.fail": "failed{detail} · {time}",
+  "health.job.neverRan": "installed, no completed run yet (expected by {time})",
+  "health.job.overdue": "no result since {time}",
+  "health.job.lastResult": "(last result: {state})",
+  "health.job.unreadable": "unreadable status file ({why})"
 }

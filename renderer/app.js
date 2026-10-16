@@ -1079,8 +1079,46 @@ async function refreshHealth() {
     feedMark(r, 'health', c.id + '|' + c.status);
     H.appendChild(r);
   }
-  H.style.display = rows.length ? '' : 'none';
+  /* #27 — SCHEDULED JOBS, from canonical's status files (~/.aios/health, hooks/aios-health.py).
+     Shown only when a job has written one; a machine with no scheduled jobs sees nothing new. A
+     job past its deadline reads "no result since …" — never "didn't run": it may have run and
+     failed to write. No notification: the card is where you look, the rituals already speak up. */
+  let jobs = [];
+  try { jobs = await window.glassShell.routineHealth(); } catch { jobs = []; }
+  if (jobs.length) {
+    H.appendChild(el('div', 'phgroup', t('health.jobs')));
+    for (const j of jobs) {
+      const r = el('div', 'phrow two');   // two lines: the job's full name, its status beneath (a cut name hides WHICH job)
+      const dot = j.status === 'ok' ? 'st-ok' : j.status === 'waiting' ? 'st-mute' : j.status === 'fail' ? 'st-error' : 'st-warn';
+      r.appendChild(el('span', 'phdot ' + dot));
+      r.appendChild(el('span', 'phlab', j.name));
+      const msg = el('span', 'phsub', routineHealthText(j));
+      msg.title = [routineHealthText(j), j.detail].filter(Boolean).join('\n');
+      r.appendChild(msg);
+      feedMark(r, 'health', 'job:' + j.name + '|' + j.status);
+      H.appendChild(r);
+    }
+  }
+  H.style.display = rows.length || jobs.length ? '' : 'none';
   feedPrime('health');
+}
+
+/** One line for a scheduled job, in the operator's language (canonical's wording, aios-health.py line()). */
+function routineHealthText(j) {
+  const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : 'en-US';
+  const when = (ms) => (ms ? new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?');
+  const detail = j.detail ? ': ' + j.detail : '';
+  switch (j.status) {
+    case 'ok': return t('health.job.ok', { time: when(j.writtenAt) });
+    case 'waiting': return t('health.job.waiting', { time: when(j.validUntil) });
+    case 'warn': return t('health.job.warn', { detail, time: when(j.writtenAt) });
+    case 'fail': return t('health.job.fail', { detail, time: when(j.writtenAt) });
+    case 'overdue':
+      if (j.state === 'pending') return t('health.job.neverRan', { time: when(j.validUntil) });
+      return t('health.job.overdue', { time: when(j.writtenAt) }) + (j.state && j.state !== 'ok' ? ' ' + t('health.job.lastResult', { state: j.state }) : '');
+    default: return t('health.job.unreadable', { why: j.why || '' });
+  }
 }
 
 function healthFixButton(c) {

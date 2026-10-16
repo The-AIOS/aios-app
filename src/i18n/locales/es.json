@@ -1072,7 +1072,7 @@
   "whatsnew.h2": "Encuentra y ordena tus sesiones",
   "whatsnew.b2": "Reanudar encuentra una sesión por cualquier nombre que haya tenido, así que una que se renombró ya no se pierde, y cada fila muestra cuánto pesa. En el panel lateral, pasa el cursor sobre una sesión en curso y usa ▲ / ▼ para mover su pestaña: el panel y las pestañas siempre muestran el mismo orden, uses las flechas o arrastres una pestaña.",
   "whatsnew.h3": "Más tranquilo y más difícil de pasar por alto",
-  "whatsnew.b3": "Un mensaje no entregado se avisa una vez, no cada pocos minutos. Cerrar una sesión desde otro agente funciona aunque se haya renombrado. Y una sesión que te está esperando ya no puede quedar oculta por un estado viejo, así que su notificación llega. Gracias a todos los que reportaron y sugirieron estas mejoras.",
+  "whatsnew.b3": "Un mensaje no entregado se avisa una vez, no cada pocos minutos. Cerrar una sesión desde otro agente funciona aunque se haya renombrado. Y una sesión que te está esperando ya no puede quedar oculta por un estado viejo, así que su notificación llega. La tarjeta de Salud ahora muestra tus tareas programadas (el vigilante de cuota de AIOS es la primera) y te dice cuando una falló o dejó de reportar. Gracias a todos los que reportaron y sugirieron estas mejoras.",
   "whatsnew.more": "Notas completas en GitHub →",
   "whatsnew.skipped": "También te saltaste {versions}. Lo que cambió está en las notas de cada versión.",
   "menu.whatsnew": "Novedades",
@@ -1152,5 +1152,14 @@
   "readAloud.rest": "El resto está en pantalla.",
   "pulse.updTesting": "en prueba",
   "rail.updateTesting": "En prueba {branch}, por delante de main: no se ofrece actualización mientras pruebas. Haz clic para volver a verificar.",
-  "handoff.failed": "No se pudo escribir el archivo de la tarea de forma segura, así que no se inició nada: {why}"
+  "handoff.failed": "No se pudo escribir el archivo de la tarea de forma segura, así que no se inició nada: {why}",
+  "health.jobs": "Tareas programadas",
+  "health.job.ok": "bien · {time}",
+  "health.job.waiting": "esperando su primera ejecución (antes de {time})",
+  "health.job.warn": "advertencia{detail} · {time}",
+  "health.job.fail": "falló{detail} · {time}",
+  "health.job.neverRan": "instalada, sin ninguna ejecución completa (se esperaba antes de {time})",
+  "health.job.overdue": "sin resultado desde {time}",
+  "health.job.lastResult": "(último resultado: {state})",
+  "health.job.unreadable": "archivo de estado ilegible ({why})"
 }

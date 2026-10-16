@@ -1026,6 +1026,7 @@ ipcMain.handle('onboarding:storePat', async (_e, pat: string): Promise<'verified
 // doctor: headless repair + re-run-the-same-check proof (see aios.repairCheck)
 ipcMain.handle('doctor:repair', (_e, id: string) => aios.repairCheck(String(id)));
 ipcMain.handle('doctor:health', () => aios.computeHealth());
+ipcMain.handle('health:routines', () => aios.routineHealth());   // #27
 // "Having issues?" — one battery + a plan per failing tool → the next ACTION, not a report.
 ipcMain.handle('doctor:triage', () => aios.setupTriage(app.getVersion()));
 

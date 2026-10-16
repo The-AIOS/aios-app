@@ -1,6 +1,7 @@
 import { freshness, parseLsRemote } from '../core/freshness';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
+import { routineRows, type RoutineRow } from '../core/routineHealth';
 import { runDir, writePrivateFile } from './privateRun';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -2320,6 +2321,20 @@ export async function repairCheck(id: string): Promise<CheckResult | null> {
  *  the ongoing "is my AIOS wired?" readout — Setup is day one, this is every
  *  day after. Order = display order on the pulse card. */
 export const HEALTH_IDS = ['framework', 'vault', 'account', 'skills', 'claude', 'gh'] as const;
+
+/** #27 — scheduled-job health from canonical's status files ($AIOS_HEALTH_DIR or ~/.aios/health).
+ *  Read only; the jobs themselves (hooks/aios-health.py) write them. No directory → no rows. */
+export function routineHealth(now = Date.now()): RoutineRow[] {
+  const dir = process.env.AIOS_HEALTH_DIR || path.join(os.homedir(), '.aios', 'health');
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const files = names.filter((f) => f.endsWith('.json') && !f.startsWith('.')).map((file) => {
+    let text = '';
+    try { text = fs.readFileSync(path.join(dir, file), 'utf8'); } catch (e) { text = `\u0000unreadable: ${(e as Error).message}`; }
+    return { file, text };
+  });
+  return routineRows(files, now);
+}
 
 export async function computeHealth(): Promise<CheckResult[]> {
   const all = await setupChecks();

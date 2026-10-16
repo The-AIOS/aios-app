@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('glassShell', {
     supportOnly: boolean; report: string;
   }> => ipcRenderer.invoke('doctor:triage'),
   doctorHealth: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('doctor:health'),
+  routineHealth: (): Promise<Array<{ name: string; status: string; state?: string; detail?: string; writtenAt?: number; validUntil?: number; why?: string }>> => ipcRenderer.invoke('health:routines'),
   // Connectors card: list / connect / disconnect / add one the framework does not bundle
   connectorsList: (): Promise<{ rows: ConnRow[]; foreign: { id: string }[]; other: { id: string; custom: boolean; tracked: boolean }[] }> => ipcRenderer.invoke('connectors:list'),
   connectorsConnect: (id: string, answers?: Record<string, string>): Promise<ConnResult> => ipcRenderer.invoke('connectors:connect', id, answers),
