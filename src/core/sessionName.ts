@@ -91,8 +91,14 @@ export interface AskNameOptions {
 const SESSION_NOUN = '(?:session|sesion|sessao|sitzung|agent|agente)';
 const NAMING = '(?:named|called|name it|nombrada|nombrado|llamada|llamado|que se llame|con nombre|con el nombre|chamada|chamado|com o nome|namens|genannt|mit dem namen)';
 const NAMED = new RegExp(`(?:^|[^a-z0-9])${SESSION_NOUN}(?:\\s+[a-z0-9-]+){0,2}?\\s+${NAMING}\\s+["'“‘«]?([a-z0-9][a-z0-9._-]*)`);
+/* The VERB-FIRST form: "llama a esta sesión perro", "call this session perro", "chama esta sessão de
+   perro", "nenne diese Sitzung perro" (operator test, 0.12.0). A naming verb, up to two words, the
+   session word, an optional "de/como/as", then the name. */
+const NAMING_VERB = '(?:call|name|llama|llamale|nombra|nombrale|ponle de nombre|chama|chame|nomeia|nomeie|nenne|benenne)';
+const NAMED_VERB_FIRST = new RegExp(`(?:^|[^a-z0-9])${NAMING_VERB}(?:\\s+[a-z0-9-]+){0,2}?\\s+${SESSION_NOUN}\\s+(?:(?:de|como|as)\\s+)?["'“‘«]?([a-z0-9][a-z0-9._-]*)`);
 export function explicitName(intent: string): string | undefined {
-  const m = NAMED.exec(foldName(intent));
+  const folded = foldName(intent);
+  const m = NAMED.exec(folded) ?? NAMED_VERB_FIRST.exec(folded);
   if (!m) return undefined;
   const n = m[1].replace(/^[-.]+|[-.]+$/g, '').slice(0, 48);
   return n && !STOP.has(n) ? n : undefined;

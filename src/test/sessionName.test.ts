@@ -62,6 +62,16 @@ test('a naming word only names the SESSION — "llamada" is also a phone call, "
   assert.equal(explicitName('spawn an agent called scout'), 'scout');
   // filler is never a name, even right after a session word
   assert.equal(explicitName('una sesión llamada para revisar'), undefined);
+  // verb first: "call this session X"
+  assert.equal(explicitName('llama a esta sesion perro y luego'), 'perro');
+  assert.equal(explicitName('llama a esta sesión perro'), 'perro');
+  assert.equal(explicitName('call this session perro'), 'perro');
+  assert.equal(explicitName('name the session perro'), 'perro');
+  assert.equal(explicitName('chama esta sessão de perro'), 'perro');
+  assert.equal(explicitName('nenne diese Sitzung perro'), 'perro');
+  // and a call that is not about the session still names nothing
+  assert.equal(explicitName('llama a Diego para la sesion de mañana'), undefined, 'the word after the session noun is filler');
+  assert.equal(explicitName('call the client about the session'), undefined);
 });
 
 test('a plain identity is never auto-picked — it names the live session being talked ABOUT', () => {
