@@ -9032,25 +9032,18 @@ window.addEventListener('keydown', (e) => { if (handleChord(e)) { e.preventDefau
    keystroke. A handler here would be shadowed on macOS and drift from the menu. */
 
 /* ── ask modal + toasts ───────────────────────────────────────────────────── */
-function recentAsks() {
-  try { return JSON.parse(localStorage.getItem('recentAsks') || '[]'); } catch { return []; }
-}
-function pushRecentAsk(t) {
-  try {
-    const r = [t, ...recentAsks().filter((x) => x !== t)].slice(0, 4);
-    localStorage.setItem('recentAsks', JSON.stringify(r));
-  } catch { /* ignore */ }
-}
+/* Recent-ask chips removed (0.12.0, operator: "cleaner without these re-runs"). The stored list
+   is cleared once so nothing old lingers. */
+try { localStorage.removeItem('recentAsks'); } catch { /* storage unavailable */ }
 /* app#66: Ask AIOS asks for the session's NAME too, pre-filled. A sentence-derived name broke an
    operator whose vault addresses sessions by identity (`atlas-TT-MM-JJ`); the suggestion now picks
    a dated identity the intent names, folds letters instead of dropping them, and is editable —
    once the operator types in it, it stops following the prompt. Resolves { intent, name } or null. */
 async function askWithChips() {
-  const v = await inputModal(t('ask.title'), t('ask.placeholder'), recentAsks(), {
+  const v = await inputModal(t('ask.title'), t('ask.placeholder'), null, {
     nameField: { label: t('ask.nameLabel'), suggest: (text) => window.glassShell.askName(text).catch(() => '') },
   });
   if (!v || !v.value) return null;
-  pushRecentAsk(v.value);
   return { intent: v.value, name: v.name };
 }
 /** A session name that is safe on a command line and in the registry, whatever was typed. */
