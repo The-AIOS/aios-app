@@ -1153,7 +1153,6 @@
   "pulse.updTesting": "en prueba",
   "rail.updateTesting": "En prueba {branch}, por delante de main: no se ofrece actualización mientras pruebas. Haz clic para volver a verificar.",
   "handoff.failed": "No se pudo escribir el archivo de la tarea de forma segura, así que no se inició nada: {why}",
-  "health.jobs": "Tareas programadas",
   "health.job.ok": "bien · {time}",
   "health.job.waiting": "esperando su primera ejecución (antes de {time})",
   "health.job.warn": "advertencia{detail} · {time}",
@@ -1163,5 +1162,6 @@
   "health.job.lastResult": "(último resultado: {state})",
   "health.job.unreadable": "archivo de estado ilegible ({why})",
   "health.askClaude": "Que Claude te ayude con esto",
-  "health.askClaudeHint": "Abre una sesión que revisa lo que no está en verde, lo explica y propone cómo arreglarlo; pregunta antes de cada comando"
+  "health.askClaudeHint": "Abre una sesión que revisa lo que no está en verde, lo explica y propone cómo arreglarlo; pregunta antes de cada comando",
+  "health.jobTip": "Una tarea programada: reporta su resultado después de cada ejecución"
 }

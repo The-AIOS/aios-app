@@ -1153,7 +1153,6 @@
   "pulse.updTesting": "testing",
   "rail.updateTesting": "Testing {branch}, ahead of main — no update is offered while you test. Click to re-check.",
   "handoff.failed": "Couldn't write the task file safely, so nothing was started: {why}",
-  "health.jobs": "Scheduled jobs",
   "health.job.ok": "ok · {time}",
   "health.job.waiting": "waiting for its first run (due {time})",
   "health.job.warn": "warning{detail} · {time}",
@@ -1163,5 +1162,6 @@
   "health.job.lastResult": "(last result: {state})",
   "health.job.unreadable": "unreadable status file ({why})",
   "health.askClaude": "Let Claude help with these",
-  "health.askClaudeHint": "Opens a session that looks into what is not green, explains it and proposes fixes — it asks before every command"
+  "health.askClaudeHint": "Opens a session that looks into what is not green, explains it and proposes fixes — it asks before every command",
+  "health.jobTip": "A scheduled job — it reports its result after each run"
 }

@@ -1086,12 +1086,13 @@ async function refreshHealth() {
   let jobs = [];
   try { jobs = await window.glassShell.routineHealth(); } catch { jobs = []; }
   if (jobs.length) {
-    H.appendChild(el('div', 'phgroup', t('health.jobs')));
+    /* No group heading (operator, 0.12.0): the two-line rows already read as a different kind, and
+       "scheduled jobs" is our word, not theirs. What a row IS lives in the name's tooltip. */
     for (const j of jobs) {
       const r = el('div', 'phrow two');   // two lines: the job's full name, its status beneath (a cut name hides WHICH job)
       const dot = j.status === 'ok' ? 'st-ok' : j.status === 'waiting' ? 'st-mute' : j.status === 'fail' ? 'st-error' : 'st-warn';
       r.appendChild(el('span', 'phdot ' + dot));
-      r.appendChild(el('span', 'phlab', j.name));
+      const lab = el('span', 'phlab', j.name); lab.title = t('health.jobTip'); r.appendChild(lab);
       const msg = el('span', 'phsub', routineHealthText(j));
       msg.title = [routineHealthText(j), j.detail].filter(Boolean).join('\n');
       r.appendChild(msg);

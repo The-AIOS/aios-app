@@ -1153,7 +1153,6 @@
   "pulse.updTesting": "em teste",
   "rail.updateTesting": "Testando {branch}, à frente da main: nenhuma atualização é oferecida enquanto você testa. Clique para verificar novamente.",
   "handoff.failed": "Não foi possível gravar o arquivo da tarefa com segurança, então nada foi iniciado: {why}",
-  "health.jobs": "Tarefas agendadas",
   "health.job.ok": "ok · {time}",
   "health.job.waiting": "aguardando a primeira execução (até {time})",
   "health.job.warn": "aviso{detail} · {time}",
@@ -1163,5 +1162,6 @@
   "health.job.lastResult": "(último resultado: {state})",
   "health.job.unreadable": "arquivo de status ilegível ({why})",
   "health.askClaude": "Deixe o Claude ajudar com isso",
-  "health.askClaudeHint": "Abre uma sessão que analisa o que não está verde, explica e propõe correções; pergunta antes de cada comando"
+  "health.askClaudeHint": "Abre uma sessão que analisa o que não está verde, explica e propõe correções; pergunta antes de cada comando",
+  "health.jobTip": "Uma tarefa agendada: ela informa o resultado após cada execução"
 }
