@@ -992,8 +992,12 @@ body.no-hints .xsectsub { display: none; }
 /* ═══ movable pulse cards — ↑↓ on hover (⌥↑↓ from the keyboard) ═══ */
 .pmove { margin-left: auto; display: inline-flex; gap: 1px; opacity: 0; transition: opacity .12s; }
 .ptitle:hover .pmove, .ptitle:focus .pmove { opacity: 1; }
-/* #60 — the same ↑/↓ inside a session row's hover group, which already handles its own reveal */
-.runacts .prowmove { margin-left: 0; opacity: 1; }
+/* #60 — reorder arrows, left of the status dot, on hover only (no space at rest, like #23's actions) */
+.prow2 .rowmove { display: none; flex-direction: column; gap: 0; margin: -2px -2px -2px -2px; }
+.prow2:hover .rowmove, .prow2:focus-within .rowmove { display: inline-flex; }
+.prow2 .rowmove button { background: transparent; border: 0; color: var(--subtle); cursor: pointer; font-size: 9px;
+  line-height: 1; padding: 1px 4px; border-radius: 3px; }
+.prow2 .rowmove button:hover { color: var(--accent-ink); background: var(--surface); }
 .pmove button { background: transparent; border: 0; color: var(--subtle); cursor: pointer; font-size: 11px;
                 line-height: 1; padding: 1px 3px; border-radius: 4px; font-family: var(--font); }
 .pmove button:hover { color: var(--accent-ink); background: var(--surface-2); }

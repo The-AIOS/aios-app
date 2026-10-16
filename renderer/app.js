@@ -2061,10 +2061,25 @@ function sessionRow(a) {
   const r = el('div', 'prow2'); r.tabIndex = 0;
   const s = statusInfo(a.status);
   const dot = el('span', 'pdot ' + s.cls); dot.title = s.title;
-  r.appendChild(dot);
-  r.appendChild(el('span', 'rname', a.name));
   const stt = theater.get(a.key || a.name) || { busySince: 0, lastDur: 0 };
   const ownPane = (() => { const hit = byName(a.name, a.id); return hit && !panes.get(hit[0]).exited ? { id: hit[0], p: panes.get(hit[0]) } : null; })();
+  /* #60 — reorder from the panel. The ↑/↓ sit LEFT of the status dot and show on hover (the
+     operator's placement): they are about the row's position, so they live at its edge, apart
+     from the actions about the session. Only a session with a tab here can move — an external
+     one has no tab to put anywhere. The panel lists sessions in tab order, so the two cannot
+     disagree: one order (tabOrder), shown twice. */
+  r.dataset.sid = a.key || a.name;
+  if (ownPane) {
+    const mv = el('span', 'rowmove');
+    const up = el('button', '', '▲'); up.title = t('pulse.moveUp');
+    const dn = el('button', '', '▼'); dn.title = t('pulse.moveDown');
+    up.addEventListener('click', (e) => { e.stopPropagation(); moveSessionTab(ownPane.id, -1, r.dataset.sid); });
+    dn.addEventListener('click', (e) => { e.stopPropagation(); moveSessionTab(ownPane.id, 1, r.dataset.sid); });
+    mv.append(up, dn);
+    r.appendChild(mv);
+  }
+  r.appendChild(dot);
+  r.appendChild(el('span', 'rname', a.name));
   if (s.cls === 'busy') {
     // live-run theater: shimmer verb + honest elapsed; pty ticker when we own the stream
     const pst = el('span', 'pst');
@@ -2144,20 +2159,6 @@ function sessionRow(a) {
   // Kill: behavior is configurable (Glass killBehavior parity). One decision site,
   // shared with the tab × — see endSession().
   actBtn('trash', t('session.kill'), 'kill', () => void endSession({ name: a.name, pid: a.pid, sessionId: a.id }));
-  /* #60 — reorder from the panel: ↑/↓ (and ⌥↑/⌥↓ on a focused row) move this session's TAB, the
-     card-title pattern applied to rows. Only a session with a pane here can move — an external
-     one has no tab to put anywhere. The panel lists sessions in tab order, so the two cannot
-     disagree: there is one order (tabOrder), shown twice. */
-  r.dataset.sid = a.key || a.name;
-  if (ownPane) {
-    const mv = el('span', 'pmove prowmove');
-    const up = el('button', '', '↑'); up.title = t('pulse.moveUp');
-    const dn = el('button', '', '↓'); dn.title = t('pulse.moveDown');
-    up.addEventListener('click', (e) => { e.stopPropagation(); moveSessionTab(ownPane.id, -1, r.dataset.sid); });
-    dn.addEventListener('click', (e) => { e.stopPropagation(); moveSessionTab(ownPane.id, 1, r.dataset.sid); });
-    mv.append(up, dn);
-    acts.prepend(mv);
-  }
   r.appendChild(acts);
   r.addEventListener('click', open);
   r.addEventListener('keydown', (e) => {
@@ -2190,8 +2191,7 @@ function moveSessionTab(paneId, dir, sid) {
   const i = order.indexOf(paneId);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= order.length) return;
-  moveTab(z, paneId, order[j], dir > 0);
-  renderPulseRunning();
+  moveTab(z, paneId, order[j], dir > 0);   // repaints the panel too
   const row = [...document.querySelectorAll('#pRun .prow2')].find((x) => x.dataset.sid === sid);
   if (row) row.focus();
 }
@@ -2847,6 +2847,9 @@ function moveTab(z, dragId, overId, after) {
      a condition that silently stops being true the day the caller changes. */
   setVisible(z);
   saveLayout();
+  /* #60: the panel lists sessions in tab order — repaint it now, so a dragged tab and the row move
+     together instead of on the next poll. Guarded: a move can come before the panel exists. */
+  if (document.getElementById('pRun')) { try { renderPulseRunning(); } catch { /* panel not ready */ } }
 }
 
 /* AI-69 — A TERMINAL COMING BACK INTO VIEW MUST BE REPAINTED, and fit() cannot do it.
@@ -9138,19 +9141,24 @@ function inputModal(title, placeholder, chips, opts) {
       nameIn.spellcheck = false;
       row.appendChild(nameIn);
       wrap.querySelector('.mhint').before(row);
+      /* ONCE TOUCHED, IT IS THEIRS — even emptied. Clearing it used to hand it back to the
+         suggestion, which refilled it mid-edit: the operator could not rewrite the name (operator
+         test, 0.12.0). The suggestion keeps updating as the PLACEHOLDER, and an empty field at
+         Enter launches with it (launchAsk), so leaving it blank still means "your suggestion". */
       let touched = false, seq = 0, timer = 0;
       const follow = () => {
-        if (touched) return;
         clearTimeout(timer);
         timer = setTimeout(async () => {
           const my = ++seq;
           const s = await opts.nameField.suggest(input.value.trim());
-          if (my === seq && !touched && document.contains(nameIn)) nameIn.value = s || '';
+          if (my !== seq || !document.contains(nameIn)) return;
+          nameIn.placeholder = s || '';
+          if (!touched) nameIn.value = s || '';
         }, 120);
       };
       input.addEventListener('input', follow);
       wrap.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', follow));
-      nameIn.addEventListener('input', () => { touched = nameIn.value.trim() !== ''; if (!touched) follow(); });
+      nameIn.addEventListener('input', () => { touched = true; });
     }
     input.focus();
     const done = (val) => { wrap.remove(); resolve(val); };
