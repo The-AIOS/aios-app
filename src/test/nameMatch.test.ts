@@ -17,3 +17,13 @@ test('security: a registry name with shell characters is never returned', () => 
   assert.equal(resolveSessionName('market-desk', ['Market-desk$(whoami)', 'Market-desk']), 'Market-desk', 'only the safe one is a candidate');
   assert.equal(resolveSessionName('a', ['a`id`']), undefined);
 });
+
+test('app#65: a kill can reach a renamed session by its former name — only when unambiguous', async () => {
+  const { resolveFormerName } = await import('../core/nameMatch');
+  const live = [{ name: 'atlas-11-10-26', formerNames: ['atlas'] }, { name: 'buddai' }];
+  assert.equal(resolveFormerName('atlas', live), 'atlas-11-10-26');
+  assert.equal(resolveFormerName('Atlas', live), 'atlas-11-10-26', 'case-insensitive like current names');
+  assert.equal(resolveFormerName('atlas', [...live, { name: 'atlas-12-10-26', formerNames: ['atlas'] }]), undefined, 'two candidates → none');
+  assert.equal(resolveFormerName('nobody', live), undefined);
+  assert.equal(resolveFormerName('atlas', [{ name: 'x; rm -rf ~', formerNames: ['atlas'] }]), undefined, 'unsafe names are never handed on');
+});

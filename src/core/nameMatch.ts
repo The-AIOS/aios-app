@@ -24,3 +24,16 @@ export function resolveSessionName(want: string, live: readonly string[]): strin
   const hits = [...new Set(safe.filter((n) => sessionKey(n) === k))];
   return hits.length === 1 ? hits[0] : undefined;
 }
+
+/**
+ * app#65 — a session renamed after it started keeps its earlier names in the registry
+ * (`formerNames`). A kill addressed to the old name found no live session and reported
+ * "no live pid; pane close only" while the process lived on. The current name always wins; this
+ * is only the fallback, and only when exactly ONE live session ever carried that name.
+ */
+export function resolveFormerName(want: string, live: readonly { name: string; formerNames?: readonly string[] }[]): string | undefined {
+  const k = sessionKey(want);
+  if (!k) return undefined;
+  const hits = [...new Set(live.filter((a) => SAFE.test(a.name) && (a.formerNames ?? []).some((f) => sessionKey(f) === k)).map((a) => a.name))];
+  return hits.length === 1 ? hits[0] : undefined;
+}

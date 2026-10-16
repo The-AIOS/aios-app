@@ -381,7 +381,14 @@ export function countNotes(kind: 'declared' | 'observed' | 'projects'): number {
    which is why it is invisible on a machine whose sessions are all idle — that absence is the
    field working, not the field missing. `statusUpdatedAt` is when the CURRENT status was
    entered, so it answers "blocked longest" without us having to remember anything. */
-export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; kind: string; entrypoint: string; }
+export interface RunningAgent { pid: number; name: string; status: string; sessionId: string; cwd: string; startedAt: number; updatedAt: number; waitingFor?: string; statusUpdatedAt?: number; kind: string; entrypoint: string; formerNames?: string[]; }
+
+/** app#65: `formerNames` as the registry writes it — strings, or `{ name }` objects; anything else ignored. */
+export function formerNamesOf(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((x) => (typeof x === 'string' ? x : x && typeof x === 'object' && typeof (x as { name?: unknown }).name === 'string' ? (x as { name: string }).name : ''))
+    .map((s) => s.trim()).filter(Boolean);
+}
 
 /** Claude Code's config folder. It honours CLAUDE_CONFIG_DIR, so the App reads where Claude Code
  *  actually writes (the registry, transcripts, settings). Unset — every Finder launch — it is ~/.claude. */
@@ -395,7 +402,7 @@ export function listRunningAgents(): RunningAgent[] {
   try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')); } catch { return []; }
   const out: RunningAgent[] = [];
   for (const f of files) {
-    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number; kind?: string; entrypoint?: string };
+    let d: { pid?: number; name?: string; status?: string; sessionId?: string; cwd?: string; startedAt?: number; updatedAt?: number; waitingFor?: string; statusUpdatedAt?: number; kind?: string; entrypoint?: string; formerNames?: unknown };
     try { d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     const pid = Number(d?.pid ?? path.basename(f, '.json'));
     if (!Number.isInteger(pid) || pid <= 0 || !isAlive(pid)) continue;
@@ -412,6 +419,7 @@ export function listRunningAgents(): RunningAgent[] {
       // Missing = an older CLI that predates the field; those were all terminal sessions.
       kind: String(d?.kind ?? '').trim() || 'interactive',
       entrypoint: String(d?.entrypoint ?? '').trim(),
+      ...(formerNamesOf(d?.formerNames).length ? { formerNames: formerNamesOf(d?.formerNames) } : {}),
     });
   }
   const seen = new Set<number>();

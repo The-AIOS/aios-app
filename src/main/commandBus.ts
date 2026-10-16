@@ -12,7 +12,7 @@ import { needsConsultBlock, ADVISOR_CONSULT_BLOCK } from '../core/advisor';
 import { normalizeVerb } from '../core/busVerbs';
 import { ResumeIndex } from './resumeIndex';
 import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '../core/supersede';
-import { resolveSessionName, sessionKey } from '../core/nameMatch';
+import { resolveSessionName, resolveFormerName, sessionKey } from '../core/nameMatch';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import {
   INBOX_CONTRACT, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
@@ -884,10 +884,15 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
     if (req.action === 'kill') {
       // Registry pid → SIGTERM reaches resumed/external sessions too; closeByName also
       // tears down the app pane if this session owns one.
-      const t = targetByName(req.name);
+      /* app#65: a session renamed after it started is still reachable by the name it had — the
+         kill used to log "no live pid" and leave it running. Current names always win. */
+      let t = targetByName(req.name);
+      const renamed = t ? undefined : resolveFormerName(req.name, aios.listRunningAgents());
+      if (!t && renamed) t = targetByName(renamed);
       if (t) { try { process.kill(t.pid, 'SIGTERM'); } catch { /* already gone */ } }
-      emit(win(), 'closeByName', { name: req.name });
-      log(`kill '${req.name}'${t ? ` (pid ${t.pid})` : ' (no live pid; pane close only)'}`);
+      emit(win(), 'closeByName', { name: t ? t.name : req.name });
+      log(`kill '${req.name}'${t ? `${renamed ? ` → renamed '${t.name}'` : ''} (pid ${t.pid})`
+        : ' — no live session has that name or was renamed from it; closed any pane of that name'}`);
     } else if (req.action === 'resume') {
       /* ALREADY AWAKE → reveal and deliver, never reopen. The caller asked for a specific
          someone; that someone is already running, so resuming would create a SECOND process for
@@ -1058,13 +1063,15 @@ function surfaceDeadLetters(getWin: () => BrowserWindow | undefined): void {
     } catch { /* unreadable — still worth reporting that it exists */ }
     return { file: f, to, reason, at };
   });
-  for (const it of items) log(`DEAD LETTER — a message to '${it.to}' was never delivered: ${it.reason} (${it.file})`);
-  /* Notify ONCE per dead letter, not every sweep. Repeating an alert the operator has already
-     read trains them to dismiss it unseen, which is how the next one gets missed — the very
-     failure this exists to prevent. The log still records every sweep; only the interruption
-     is deduplicated. */
+  /* ONCE per dead letter — the notification AND the log line. Repeating an alert the operator has
+     already read trains them to dismiss it unseen, which is how the next one gets missed. The log
+     line repeated too, every sweep, and app#65 found one message written to the log thirty times
+     over 2.5 hours: noise that buried the line that mattered. The file on disk stays the record. */
   const fresh = items.filter((it) => !announcedDeadLetters.has(it.file));
-  for (const it of fresh) announcedDeadLetters.add(it.file);
+  for (const it of fresh) {
+    announcedDeadLetters.add(it.file);
+    log(`DEAD LETTER — a message to '${it.to}' was never delivered: ${it.reason} (${it.file})`);
+  }
   if (fresh.length) emit(getWin(), 'deadLetters', { items: fresh });
 }
 
