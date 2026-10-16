@@ -1068,17 +1068,17 @@ async function refreshHealth() {
     mv.prepend(re);
   }
   H.appendChild(title);
-  /* ONE RULE FOR EVERY ROW (operator, 0.12.0): GREEN IS ONE LINE, anything else gets TWO. A row
-     that is fine keeps its full name and lets the detail ellipsize; a row that needs you shows its
-     whole message beneath the name, because that message is what you act on. At the panel's
-     normal width the names were being crushed to "V…" and "Clau…" to make room for detail no one
-     needed. */
+  /* ONE RULE FOR EVERY ROW, WHATEVER ITS COLOUR (operator, 0.12.0): a dot and the full name; the
+     detail appears on hover, full text in the tooltip. Operators are mostly non-technical — the
+     colour tells them something needs attention and "Let Claude help" is what they act on; a
+     message like "run skills/setup.sh" is extra information for whoever wants it. Names had been
+     crushed to "V…" and "Clau…" to make room for that detail. */
   for (const c of rows) {
     const ok = c.status === 'pass';
-    const r = el('div', ok ? 'phrow' : 'phrow two');
+    const r = el('div', 'phrow');
     r.appendChild(el('span', 'phdot ' + (ok ? 'st-ok' : 'st-warn')));
     r.appendChild(el('span', 'phlab', c.label));
-    const msg = el('span', ok ? 'phmsg' : 'phsub', c.message);
+    const msg = el('span', 'phmsg', c.message);
     msg.title = c.message + (c.repairHint ? '\n→ ' + c.repairHint : '');
     r.appendChild(msg);
     if (c.status !== 'pass' && (c.canRepair || c.repairCmd)) r.appendChild(healthFixButton(c));
@@ -1095,12 +1095,11 @@ async function refreshHealth() {
     /* No group heading (operator, 0.12.0): the two-line rows already read as a different kind, and
        "scheduled jobs" is our word, not theirs. What a row IS lives in the name's tooltip. */
     for (const j of jobs) {
-      const fine = j.status === 'ok' || j.status === 'waiting';
-      const r = el('div', fine ? 'phrow' : 'phrow two');   // same rule as the checks above
+      const r = el('div', 'phrow');   // same rule as the checks above
       const dot = j.status === 'ok' ? 'st-ok' : j.status === 'waiting' ? 'st-mute' : j.status === 'fail' ? 'st-error' : 'st-warn';
       r.appendChild(el('span', 'phdot ' + dot));
       const lab = el('span', 'phlab', j.name); lab.title = t('health.jobTip'); r.appendChild(lab);
-      const msg = el('span', fine ? 'phmsg' : 'phsub', routineHealthText(j));
+      const msg = el('span', 'phmsg', routineHealthText(j));
       msg.title = [routineHealthText(j), j.detail].filter(Boolean).join('\n');
       r.appendChild(msg);
       feedMark(r, 'health', 'job:' + j.name + '|' + j.status);

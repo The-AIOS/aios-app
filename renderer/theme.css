@@ -842,10 +842,10 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
    pushed Disconnect off the Connectors card — but at a fifth of the detail's rate, so the detail
    ellipsizes first and a name survives unless it is very long. */
 .phlab { flex: 0 0.2 auto; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* In the HEALTH card a green row's name never yields at all: the names are our own short labels (or
-   job names, capped), and the detail of a row that is fine is what may go. Scoped here so the
-   Connectors card keeps a shrinkable name for long service labels. */
-#pHealth .phrow:not(.two) .phlab { flex-shrink: 0; max-width: 65%; }
+/* In the HEALTH card a name never yields: the names are our own short labels (or job names,
+   capped), and the detail is hover-only anyway. Scoped here so the Connectors card keeps a
+   shrinkable name for long service labels. */
+#pHealth .phrow .phlab { flex-shrink: 0; max-width: 65%; }
 
 /* State colour must beat .phdot's own default.
    `.st-warn` and `.phdot` are BOTH one class (0,1,0) and .phdot is declared ~630 lines later, so
@@ -871,11 +871,10 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
          font-family: var(--mono); line-height: 1.35; overflow-wrap: anywhere; }
 .phmsg { flex: 1 1 auto; min-width: 0; color: var(--subtle); font-size: 10px; font-family: var(--mono);
          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-/* A green row's detail only on hover (operator, 0.12.0): a row that is fine is its name and its dot.
-   Visibility, not display, so the row does not move when it appears. A row that needs you keeps
-   its message visible — that message is what you act on. */
-#pHealth .phrow:not(.two) .phmsg { opacity: 0; transition: opacity .12s; }
-#pHealth .phrow:not(.two):hover .phmsg, #pHealth .phrow:not(.two):focus-within .phmsg { opacity: 1; }
+/* Every Health row's detail only on hover, whatever its colour (operator, 0.12.0): the colour and
+   "Let Claude help" are what an operator acts on; the detail is extra. Opacity, so nothing moves. */
+#pHealth .phrow .phmsg { opacity: 0; transition: opacity .12s; }
+#pHealth .phrow:hover .phmsg, #pHealth .phrow:focus-within .phmsg { opacity: 1; }
 .phfix { flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--subtle); cursor: pointer;
          border-radius: 6px; font-size: 9.5px; padding: 2px 8px; font-family: var(--font); letter-spacing: .05em;
          text-transform: uppercase; }
