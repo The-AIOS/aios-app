@@ -1068,7 +1068,7 @@
   "whatsnew.title": "What's new in AIOS {version}",
   "whatsnew.sub": "Name a session as you ask for it, find any session by any name it had, and arrange them from the panel.",
   "whatsnew.h1": "Name it as you ask",
-  "whatsnew.b1": "Ask AIOS now shows the session's name before it starts. Say it in your request (\"a session named rumi\") and that's what it's called; otherwise it suggests one from what you typed, picks today's session for a daily identity in your USER.md (daily-DD-MM-YY → daily-16-10-26), keeps accented letters, and never reuses a name that's running. Change it if you like. And for a job you repeat, a hint points you to Frequent Tasks.",
+  "whatsnew.b1": "Ask AIOS now shows the session's name before it starts. Say it in your request (\"a session named rumi\") and that's what it's called; otherwise it suggests one from what you typed, keeps accented letters, and never reuses a name that's running. Change it if you like. And for a job you repeat, a hint points you to Frequent Tasks.",
   "whatsnew.h2": "Find and arrange your sessions",
   "whatsnew.b2": "Resume finds a session by any name it ever had, so one that renamed itself is no longer lost, and each row shows how big it is. In the side panel, hover a running session and use ▲ / ▼ to move its tab: the panel and the tabs always show the same order, whether you use the arrows or drag a tab.",
   "whatsnew.h3": "Quieter, and harder to miss",

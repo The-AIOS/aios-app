@@ -1068,7 +1068,7 @@
   "whatsnew.title": "Novedades de AIOS {version}",
   "whatsnew.sub": "Ponle nombre a una sesión al pedirla, encuentra cualquier sesión por cualquier nombre que haya tenido y ordénalas desde el panel.",
   "whatsnew.h1": "Ponle nombre al pedirla",
-  "whatsnew.b1": "Pregúntale a AIOS ahora muestra el nombre de la sesión antes de abrirla. Dilo en tu petición (\"una sesión llamada rumi\") y así se llamará; si no, sugiere uno a partir de lo que escribiste, elige la sesión de hoy para una identidad diaria de tu USER.md (diaria-DD-MM-YY → diaria-16-10-26), conserva las letras con acento y nunca reutiliza un nombre que ya está corriendo. Cámbialo si quieres. Y para un trabajo que repites, una sugerencia te lleva a Tareas frecuentes.",
+  "whatsnew.b1": "Pregúntale a AIOS ahora muestra el nombre de la sesión antes de abrirla. Dilo en tu petición (\"una sesión llamada rumi\") y así se llamará; si no, sugiere uno a partir de lo que escribiste, conserva las letras con acento y nunca reutiliza un nombre que ya está corriendo. Cámbialo si quieres. Y para un trabajo que repites, una sugerencia te lleva a Tareas frecuentes.",
   "whatsnew.h2": "Encuentra y ordena tus sesiones",
   "whatsnew.b2": "Reanudar encuentra una sesión por cualquier nombre que haya tenido, así que una que se renombró ya no se pierde, y cada fila muestra cuánto pesa. En el panel lateral, pasa el cursor sobre una sesión en curso y usa ▲ / ▼ para mover su pestaña: el panel y las pestañas siempre muestran el mismo orden, uses las flechas o arrastres una pestaña.",
   "whatsnew.h3": "Más tranquilo y más difícil de pasar por alto",

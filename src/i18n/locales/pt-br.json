@@ -1068,7 +1068,7 @@
   "whatsnew.title": "Novidades do AIOS {version}",
   "whatsnew.sub": "Dê nome a uma sessão ao pedi-la, encontre qualquer sessão por qualquer nome que ela já teve e organize-as pelo painel.",
   "whatsnew.h1": "Dê nome ao pedir",
-  "whatsnew.b1": "Pergunte ao AIOS agora mostra o nome da sessão antes de abri-la. Diga no seu pedido (\"uma sessão chamada rumi\") e ela vai se chamar assim; senão, ele sugere um a partir do que você digitou, escolhe a sessão de hoje para uma identidade diária do seu USER.md (diaria-DD-MM-YY → diaria-16-10-26), mantém as letras com acento e nunca reutiliza um nome que já está rodando. Mude se quiser. E para um trabalho que você repete, uma dica leva você a Tarefas frequentes.",
+  "whatsnew.b1": "Pergunte ao AIOS agora mostra o nome da sessão antes de abri-la. Diga no seu pedido (\"uma sessão chamada rumi\") e ela vai se chamar assim; senão, ele sugere um a partir do que você digitou, mantém as letras com acento e nunca reutiliza um nome que já está rodando. Mude se quiser. E para um trabalho que você repete, uma dica leva você a Tarefas frequentes.",
   "whatsnew.h2": "Encontre e organize suas sessões",
   "whatsnew.b2": "Retomar encontra uma sessão por qualquer nome que ela já teve, então uma que se renomeou não se perde mais, e cada linha mostra o tamanho dela. No painel lateral, passe o cursor sobre uma sessão em andamento e use ▲ / ▼ para mover a aba dela: o painel e as abas sempre mostram a mesma ordem, usando as setas ou arrastando uma aba.",
   "whatsnew.h3": "Mais silencioso e mais difícil de perder",
