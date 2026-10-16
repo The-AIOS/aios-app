@@ -99,12 +99,15 @@ The LAST step before any version tag. What's New is written when a release is sc
 keeps changing under it: 0.11.0 was tagged describing features its own test rounds had removed or
 renamed, and was caught only because the release gate held the draft.
 
+Preferred: the operator opens What's New in the dev window they are already testing in (menu → What's
+New), at the exact commit about to be tagged. A live view beats screenshots (operator, 0.12.0). When
+there is no test window, or the copy needs reviewing away from the Mac:
+
 ```bash
 npm run whatsnew:shot     # renders What's New in the real App (isolated) → ~/Downloads/AIOS-<v>-whats-new-<n>.png (one per scroll page) + .txt
 ```
 
-Show both to the operator, re-read them against every test round of the release, and tag only after
-their yes. Rank the copy by what someone notices in their first ten minutes after updating; plumbing
+Either way, re-read it against every test round of the release, and tag only after the operator's yes. Rank the copy by what someone notices in their first ten minutes after updating; plumbing
 belongs in the GitHub notes, not What's New.
 
 ## How auto-update works (electron-updater, not Tauri)
