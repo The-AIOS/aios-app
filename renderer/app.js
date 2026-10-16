@@ -9048,7 +9048,7 @@ async function askWithChips() {
   const keys = /Mac/i.test(navigator.platform) ? '⌘⇧F' : 'Ctrl+Shift+F';   // the menu's accelerator (menu.ts)
   const v = await inputModal(t('ask.title'), t('ask.placeholder'), null, {
     hint: { before: t('ask.frequentHintBefore'), link: t('ask.frequentHintLink'), after: t('ask.frequentHintAfter', { keys }), onLink: () => void pickFrequent() },
-    nameField: { label: t('ask.nameLabel'), suggest: (text) => window.glassShell.askName(text).catch(() => '') },
+    nameField: { label: t('ask.nameLabel'), suggest: (text) => window.glassShell.askName(text, openPaneNames()).catch(() => '') },
   });
   if (!v || !v.value) return null;
   return { intent: v.value, name: v.name };
@@ -9058,9 +9058,15 @@ function safeSessionName(raw, fallback) {
   const s = String(raw || '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 48);
   return s || fallback || 'ask-intent';
 }
+/** Names of the tabs open in this window that are not ended — part of what "a running name" means. */
+function openPaneNames() { return [...panes.values()].filter((p) => !p.exited && p.name).map((p) => p.name); }
 /** The one launch path for an Ask AIOS intent (Home card, command bus, palette). */
 async function launchAsk(ask) {
-  const name = safeSessionName(ask.name, await window.glassShell.askName(ask.intent).catch(() => ''));
+  /* Typed or suggested, the final name never duplicates a running session or an open tab — the bus
+     addresses sessions by name, so two of one name is one it cannot reach reliably. */
+  const panesNow = openPaneNames();
+  const wanted = safeSessionName(ask.name, await window.glassShell.askName(ask.intent, panesNow).catch(() => ''));
+  const name = await window.glassShell.askUnique(wanted, panesNow).catch(() => wanted);
   const prompt = `Find the right AIOS action for this intent and run it: "${ask.intent}". Search my agents, /aios: commands, skills, and frequent tasks; pick the best match, tell me in one line which you chose and why, then execute it.`;
   // long prompts travel as a temp file, never typed into the pty (see task:handoff)
   /* Refused, not inlined, when the handoff file cannot be written safely (see task:handoff). */

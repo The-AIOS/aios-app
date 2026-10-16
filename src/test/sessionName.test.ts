@@ -1,7 +1,7 @@
 /** app#66, both surfaces: an Ask AIOS session is named for the identity it asks for, and keeps its letters. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { askSessionName, askSlug, foldName, datedIdentity, identityNamesIn, explicitName } from '../core/sessionName';
+import { askSessionName, askSlug, foldName, datedIdentity, identityNamesIn, explicitName, uniqueName } from '../core/sessionName';
 
 const OCT16 = new Date(2026, 9, 16);
 const USER_MD = [
@@ -47,6 +47,23 @@ test('a name the operator SAYS wins: "a session named rumi" → rumi', () => {
   assert.equal(explicitName('una sesión con nombre rumi'), 'rumi');
 });
 
+test('a naming word only names the SESSION — "llamada" is also a phone call, "called" also a document', () => {
+  // reviewer, measured on the 0.12.0 candidate: each of these became a session named after the next word
+  assert.equal(explicitName('prepara la llamada con Cavimex'), undefined);
+  assert.equal(explicitName('agenda una llamada para mañana con Diego'), undefined);
+  assert.equal(explicitName('resume la chamada com o cliente'), undefined);
+  assert.equal(explicitName('summarize the doc called Q3 plan'), undefined);
+  assert.equal(explicitName('open the file named report.pdf'), undefined, '"named" a file is not naming the session');
+  // and the descriptive name is what they get instead
+  assert.equal(askSessionName('prepara la llamada con Cavimex'), 'ask-prepara-llamada-cavimex');
+  // the session word may have a word or two before the naming phrase
+  assert.equal(explicitName('start a new session named rumi'), 'rumi');
+  assert.equal(explicitName('abre una sesión nueva llamada rumi'), 'rumi');
+  assert.equal(explicitName('spawn an agent called scout'), 'scout');
+  // filler is never a name, even right after a session word
+  assert.equal(explicitName('una sesión llamada para revisar'), undefined);
+});
+
 test('a plain identity is never auto-picked — it names the live session being talked ABOUT', () => {
   const identities = identityNamesIn(USER_MD);
   assert.equal(askSessionName('ask buddai to review the deck', { identities, now: OCT16 }), 'ask-ask-buddai-review');
@@ -68,4 +85,10 @@ test('date placeholders: DD/TT, MM, YY/JJ, YYYY/JJJJ; a name without a full date
 test('no intent words → ask-intent, as before', () => {
   assert.equal(askSessionName('please help me do it'), 'ask-intent');
   assert.equal(askSessionName('i need a social media strategy'), 'ask-social-media-strategy');
+});
+
+test('uniqueName: a name an open tab or live session already has gets -2, -3…', () => {
+  assert.equal(uniqueName('buddai', ['buddai']), 'buddai-2');
+  assert.equal(uniqueName('buddai', ['Buddai', 'buddai-2']), 'buddai-3', 'case-insensitive, and skips taken suffixes');
+  assert.equal(uniqueName('rumi', []), 'rumi');
 });

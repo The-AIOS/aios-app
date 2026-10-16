@@ -4,7 +4,7 @@ import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
-import { askSessionName } from '../core/sessionName';
+import { askSessionName, uniqueName } from '../core/sessionName';
 import { runDir, writePrivateFile } from './privateRun';
 import { speakable, lastAnswer, guessLang } from '../core/speakable';
 import { answerPlain } from '../core/answerPlain';
@@ -966,8 +966,17 @@ ipcMain.handle('task:handoff', (_e, req: { prompt: string; name?: string }) => {
 /* app#66 — the suggested session name for an Ask AIOS intent: a dated USER.md identity the intent
    names, else the descriptive ask-… name; letters folded, never a name already running. The Ask
    dialog shows it in an editable field, so the operator always sees and can change it. */
-ipcMain.handle('ask:name', (_e, intent: unknown) =>
-  askSessionName(String(intent ?? ''), { identities: aios.primaryNames(), live: aios.listRunningAgents().map((a) => a.name) }));
+/* "Live" = the registry AND this window's open tabs: a tab opened a moment ago may not have
+   registered yet, and a second session under its name is one the bus cannot tell apart. */
+const liveNames = (panes: unknown): string[] => [
+  ...aios.listRunningAgents().map((a) => a.name),
+  ...(Array.isArray(panes) ? panes.filter((x): x is string => typeof x === 'string') : []),
+];
+ipcMain.handle('ask:name', (_e, intent: unknown, panes?: unknown) =>
+  askSessionName(String(intent ?? ''), { identities: aios.primaryNames(), live: liveNames(panes) }));
+/* The FINAL name, after the operator edited it: the same never-a-running-name rule (reviewer,
+   0.12.0 — typing `buddai` while buddai is live started a second one). */
+ipcMain.handle('ask:unique', (_e, name: unknown, panes?: unknown) => uniqueName(String(name ?? ''), liveNames(panes)));
 ipcMain.handle('designer:handoff', (_e, req: { kind: DesignerKind; fields: DesignerFields; mode: 'create' | 'update'; targetPath?: string }) => {
   if (!req || !['agent', 'skill', 'command'].includes(req.kind)) return null;
   const brief = composeBuilderBrief(req.kind, req.fields, {

@@ -324,11 +324,13 @@ export class PanelHost {
      filter is the one thing between the registry and the banner. Said once per session, in the
      trail an operator already sends, so "my notifications stopped" is answerable from a log
      rather than from guesses (0.12.0, after a report from one Windows machine). */
-  private noteHiddenWaiting(hidden: readonly aios.RunningAgent[]): void {
+  /* The PROJECT, never the full cwd: this trail is what operators attach to feedback, and a path
+     carries client folder names and the machine's layout (reviewer, 0.12.0). */
+  private noteHiddenWaiting(hidden: readonly aios.RunningAgent[], projOf: (cwd: string) => string): void {
     for (const a of hidden) {
       if (a.status !== 'waiting' || this.toldHiddenWaiting.has(a.sessionId)) continue;
       this.toldHiddenWaiting.add(a.sessionId);
-      appLog('attention', `'${a.name}' is waiting on you but is outside this App's scope (cwd ${a.cwd || '?'}) — it is listed under "hidden" and does not notify`);
+      appLog('attention', `'${a.name}' is waiting on you but is outside this App's scope (project ${projOf(a.cwd || '') || '?'}) — it is listed under "hidden" and does not notify`);
     }
   }
   private usageFor(sessionId: string): ToolUsage | undefined { return this.usage.get(sessionId); }
@@ -360,7 +362,7 @@ export class PanelHost {
       hidden: ((): Array<{ name: string; id: string; status: string; proj: string }> => {
         const h = aios.listRunningAgents().filter(aios.isOperatorSession)
           .filter((a) => !registry.some((r) => r.sessionId === a.sessionId));
-        this.noteHiddenWaiting(h);
+        this.noteHiddenWaiting(h, projOf);
         return h.map((a) => ({ name: a.name, id: a.sessionId, status: a.status, proj: projOf(a.cwd) }));
       })(),
       running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid], waitingFor: a.waitingFor, statusUpdatedAt: a.statusUpdatedAt, modelSwitch: switchParts(switches.get(a.sessionId), a.startedAt), used: (() => { const u = this.usageFor(a.sessionId); return u ? { chip: usageChip(u), skills: u.skills, agents: u.agents } : undefined; })() })),

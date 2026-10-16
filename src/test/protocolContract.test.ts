@@ -597,3 +597,10 @@ test('PROTOCOL: private run files are written by byte-identical code in both sur
   assert.equal(crypto.createHash('sha256').update(src).digest('hex').slice(0, 16), PRIVATE_RUN_SHA,
     'privateRun.ts changed: make the same edit in the sibling repo and update PRIVATE_RUN_SHA in BOTH.');
 });
+
+const SESSION_NAME_SHA = '47129a4eeb46aab1';
+test('PROTOCOL: Ask AIOS names sessions with byte-identical code in both surfaces', () => {
+  const src = fs.readFileSync('src/core/sessionName.ts', 'utf8');
+  assert.equal(crypto.createHash('sha256').update(src).digest('hex').slice(0, 16), SESSION_NAME_SHA,
+    'sessionName.ts changed: edit it in Glass, run sync-core in the App, and update SESSION_NAME_SHA in BOTH.');
+});

@@ -80,23 +80,36 @@ export interface AskNameOptions {
 }
 
 /* A name the operator SAID wins over any guess: "run a session named rumi and …" → rumi (operator
-   test, 0.12.0, which got ask-run-session-named). The word right after a naming phrase, in the
-   languages AIOS operators write in; folded and reduced to a safe handle. */
-const NAMED = /(?:^|[\s,(])(?:named|called|name it|nombrada|nombrado|llamada|llamado|que se llame|con nombre|con el nombre|chamada|chamado|com o nome|namens|genannt|mit dem namen)\s+["'“‘«]?([\p{L}\p{N}][\p{L}\p{N}._-]*)/iu;
+   test, 0.12.0, which got ask-run-session-named).
+
+   ONLY WHEN IT NAMES THE SESSION. "llamada"/"chamada" are also "a phone call", and "named"/"called"
+   name files and documents too: "prepara la llamada con Cavimex" became `con`, "summarize the doc
+   called Q3 plan" became `q3` (reviewer, 0.12.0). So a naming phrase counts only after a SESSION
+   word — "session", "sesión", "sessão", "Sitzung", "agent" — with up to two words between ("a new
+   session named rumi"), and a captured word that is filler (con, para, com…) is never a name.
+   Matched on the FOLDED intent, so "sesión" and "sessão" need no accented spellings here. */
+const SESSION_NOUN = '(?:session|sesion|sessao|sitzung|agent|agente)';
+const NAMING = '(?:named|called|name it|nombrada|nombrado|llamada|llamado|que se llame|con nombre|con el nombre|chamada|chamado|com o nome|namens|genannt|mit dem namen)';
+const NAMED = new RegExp(`(?:^|[^a-z0-9])${SESSION_NOUN}(?:\\s+[a-z0-9-]+){0,2}?\\s+${NAMING}\\s+["'“‘«]?([a-z0-9][a-z0-9._-]*)`);
 export function explicitName(intent: string): string | undefined {
-  const m = NAMED.exec(String(intent ?? ''));
+  const m = NAMED.exec(foldName(intent));
   if (!m) return undefined;
-  const n = foldName(m[1]).replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 48);
-  return n || undefined;
+  const n = m[1].replace(/^[-.]+|[-.]+$/g, '').slice(0, 48);
+  return n && !STOP.has(n) ? n : undefined;
+}
+
+/** `base`, or `base-2`, `base-3`… — the first that no live session (or open tab) already has. */
+export function uniqueName(base: string, live: Iterable<string>, max = 48): string {
+  const taken = new Set([...live].map((n) => foldName(n)));
+  if (!taken.has(foldName(base))) return base;
+  for (let n = 2; n < 100; n++) { const v = `${base.slice(0, max - String(n).length - 1)}-${n}`; if (!taken.has(v)) return v; }
+  return base;
 }
 
 export function askSessionName(intent: string, opts: AskNameOptions = {}): string {
   const live = new Set([...(opts.live ?? [])].map((n) => foldName(n)));
   const said = explicitName(intent);
-  if (said) {
-    if (!live.has(said)) return said;
-    for (let n = 2; n < 100; n++) { const v = `${said.slice(0, 45)}-${n}`; if (!live.has(v)) return v; }
-  }
+  if (said) return uniqueName(said, live);
   const words = ' ' + foldName(intent).replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
   /* Longest stem first, so `parallel-atlas-…` wins over `atlas-…` for "start parallel atlas". */
   const dated = [...(opts.identities ?? [])].map(datedIdentity).filter((x): x is NonNullable<typeof x> => !!x)
@@ -106,10 +119,7 @@ export function askSessionName(intent: string, opts: AskNameOptions = {}): strin
     const name = id.fill(opts.now ?? new Date());
     if (!live.has(name)) return name;
   }
-  const base = askSlug(intent);
-  if (!live.has(base)) return base;
-  for (let n = 2; n < 100; n++) { const v = `${base.slice(0, 25)}-${n}`; if (!live.has(v)) return v; }
-  return base;
+  return uniqueName(askSlug(intent), live, 28);
 }
 
 /** Names from USER.md's Identity table — under `## Identity`, or found by its header row anywhere. Lowercased. */
