@@ -544,6 +544,7 @@
   "ask.title": "✨ Pregúntale a AIOS",
   "ask.placeholder": "¿Qué necesitas? Claude lo conecta con el contexto y las herramientas correctas",
   "ask.nameLabel": "Nombre de la sesión",
+  "ask.recent": "Recientes:",
   "viewer.fullScreen": "Pantalla completa",
   "viewer.exitFullScreen": "Salir de pantalla completa (Esc)",
   "viewer.cannotOpen": "No se puede abrir: {name}",
