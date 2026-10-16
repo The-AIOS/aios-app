@@ -79,8 +79,24 @@ export interface AskNameOptions {
   now?: Date;
 }
 
+/* A name the operator SAID wins over any guess: "run a session named rumi and …" → rumi (operator
+   test, 0.12.0, which got ask-run-session-named). The word right after a naming phrase, in the
+   languages AIOS operators write in; folded and reduced to a safe handle. */
+const NAMED = /(?:^|[\s,(])(?:named|called|name it|nombrada|nombrado|llamada|llamado|que se llame|con nombre|con el nombre|chamada|chamado|com o nome|namens|genannt|mit dem namen)\s+["'“‘«]?([\p{L}\p{N}][\p{L}\p{N}._-]*)/iu;
+export function explicitName(intent: string): string | undefined {
+  const m = NAMED.exec(String(intent ?? ''));
+  if (!m) return undefined;
+  const n = foldName(m[1]).replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 48);
+  return n || undefined;
+}
+
 export function askSessionName(intent: string, opts: AskNameOptions = {}): string {
   const live = new Set([...(opts.live ?? [])].map((n) => foldName(n)));
+  const said = explicitName(intent);
+  if (said) {
+    if (!live.has(said)) return said;
+    for (let n = 2; n < 100; n++) { const v = `${said.slice(0, 45)}-${n}`; if (!live.has(v)) return v; }
+  }
   const words = ' ' + foldName(intent).replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
   /* Longest stem first, so `parallel-atlas-…` wins over `atlas-…` for "start parallel atlas". */
   const dated = [...(opts.identities ?? [])].map(datedIdentity).filter((x): x is NonNullable<typeof x> => !!x)

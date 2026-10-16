@@ -8284,6 +8284,7 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
+    claimModal(wrap, () => done(null));
     wrap.innerHTML = `<div class="modal"><div class="mtitle"></div><div class="msub"></div>
       <input id="checkInput" /><div class="plist"></div>
       <div class="mfoot"><span class="mhint"></span><button class="vbtn primary mgo"></button></div></div>`;
@@ -8432,6 +8433,7 @@ function confirmModal(title, message, confirmLabel) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
+    claimModal(wrap, () => done(false));
     wrap.innerHTML = `<div class="modal confirm"><div class="mtitle"></div>
       <div class="mbody"></div>
       <div class="macts"><button class="vbtn cancel"></button><button class="vbtn danger"></button></div></div>`;
@@ -8459,6 +8461,7 @@ function listModal(title, items, placeholder) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
+    claimModal(wrap, () => done(null));
     wrap.innerHTML = `<div class="modal"><div class="mtitle"></div>
       <input id="pickInput" /><div class="plist"></div>
       <div class="mhint"></div></div>`;
@@ -9071,6 +9074,7 @@ async function openSessionNotes(name) {
   let notes = await window.glassShell.notesGet(name).catch(() => []);
   const wrap = document.createElement('div');
   wrap.className = 'modal-wrap';
+  claimModal(wrap, () => done());
   wrap.innerHTML = `<div class="modal"><div class="mtitle"></div><div class="noteslist"></div><input class="notesinput tinput" /><div class="mhint"></div></div>`;
   wrap.querySelector('.mtitle').textContent = t('session.notesTitle', { name });
   wrap.querySelector('.mhint').textContent = t('session.notesHint');
@@ -9100,10 +9104,22 @@ async function openSessionNotes(name) {
   wrap.addEventListener('click', (e) => { if (e.target === wrap) done(); });
 }
 
+/* ONE DIALOG AT A TIME. Shortcuts open dialogs from anywhere, so ⌘⇧F with Ask open stacked Frequent
+   Tasks on top of it (operator test, 0.12.0) — two dialogs, Esc closing only the front one. Every
+   dialog claims the slot as it opens: whatever is already open is CANCELLED (its caller gets the
+   same answer as Esc), never just removed, so no caller is left waiting on a dialog that is gone. */
+function claimModal(wrap, cancel) {
+  for (const w of document.querySelectorAll('.modal-wrap')) {
+    if (w === wrap) continue;
+    if (typeof w.__cancel === 'function') { try { w.__cancel(); } catch { w.remove(); } } else w.remove();
+  }
+  wrap.__cancel = cancel;
+}
 function inputModal(title, placeholder, chips, opts) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
+    claimModal(wrap, () => done(null));
     wrap.innerHTML = `<div class="modal"><div class="mtitle"></div>
       <input id="askInput" />
       <div class="mhint"></div></div>`;

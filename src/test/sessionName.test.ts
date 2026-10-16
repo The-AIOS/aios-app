@@ -1,7 +1,7 @@
 /** app#66, both surfaces: an Ask AIOS session is named for the identity it asks for, and keeps its letters. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { askSessionName, askSlug, foldName, datedIdentity, identityNamesIn } from '../core/sessionName';
+import { askSessionName, askSlug, foldName, datedIdentity, identityNamesIn, explicitName } from '../core/sessionName';
 
 const OCT16 = new Date(2026, 9, 16);
 const USER_MD = [
@@ -31,6 +31,20 @@ test('Spanish, Portuguese and German filler words are dropped like English ones'
   assert.equal(askSlug('Preciso de uma proposta para o cliente'), 'ask-proposta-cliente');
   assert.equal(askSlug('Bitte die Rechnung für den Kunden'), 'ask-rechnung-kunden');
   assert.equal(askSlug('plan fur morgen'), 'ask-plan-morgen', 'für typed without the umlaut');
+});
+
+test('a name the operator SAYS wins: "a session named rumi" → rumi', () => {
+  assert.equal(askSessionName('run a session named rumi and help me derive a new poem from my projects'), 'rumi');
+  assert.equal(askSessionName('abre una sesión llamada Poesía para escribir'), 'poesia');
+  assert.equal(askSessionName('crie uma sessão chamada relatorio-semanal'), 'relatorio-semanal');
+  assert.equal(askSessionName('starte eine Sitzung namens Übersicht'), 'uebersicht');
+  assert.equal(askSessionName('open a session called "deck-v2"'), 'deck-v2');
+  assert.equal(askSessionName('run a session named rumi', { live: ['rumi'] }), 'rumi-2', 'a live name is never reused');
+  assert.equal(explicitName('rename the file'), undefined, 'a word merely containing "name" is not a naming phrase');
+  assert.equal(explicitName('help me name my startup'), undefined, '"name my" is not "named X"');
+  assert.equal(explicitName('dame el nombre del cliente'), undefined, 'a bare "nombre" is content, not a naming phrase');
+  assert.equal(explicitName('qual é o nome do projeto'), undefined, 'nor a bare "nome"');
+  assert.equal(explicitName('una sesión con nombre rumi'), 'rumi');
 });
 
 test('a plain identity is never auto-picked — it names the live session being talked ABOUT', () => {
