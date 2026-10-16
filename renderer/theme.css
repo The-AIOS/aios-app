@@ -871,6 +871,11 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
          font-family: var(--mono); line-height: 1.35; overflow-wrap: anywhere; }
 .phmsg { flex: 1 1 auto; min-width: 0; color: var(--subtle); font-size: 10px; font-family: var(--mono);
          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+/* A green row's detail only on hover (operator, 0.12.0): a row that is fine is its name and its dot.
+   Visibility, not display, so the row does not move when it appears. A row that needs you keeps
+   its message visible — that message is what you act on. */
+#pHealth .phrow:not(.two) .phmsg { opacity: 0; transition: opacity .12s; }
+#pHealth .phrow:not(.two):hover .phmsg, #pHealth .phrow:not(.two):focus-within .phmsg { opacity: 1; }
 .phfix { flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--subtle); cursor: pointer;
          border-radius: 6px; font-size: 9.5px; padding: 2px 8px; font-family: var(--font); letter-spacing: .05em;
          text-transform: uppercase; }
