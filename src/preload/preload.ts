@@ -121,6 +121,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   // Agent/Skill Designer: compose file + registry entry for live preview + save
   designerCatalog: (kind: string): Promise<{ name: string; description: string; group: string; path: string; custom: boolean }[]> => ipcRenderer.invoke('designer:catalog', kind),
   taskHandoff: (prompt: string, name?: string): Promise<string> => ipcRenderer.invoke('task:handoff', { prompt, name }),
+  askName: (intent: string): Promise<string> => ipcRenderer.invoke('ask:name', intent),
   designerHandoff: (req: { kind: string; fields: { name: string; description: string; keywords?: string; tier?: string; body: string }; mode: string; targetPath?: string }): Promise<{ file: string; prompt: string } | null> => ipcRenderer.invoke('designer:handoff', req),
   designerRead: (relPath: string): Promise<{ description: string; body: string } | null> => ipcRenderer.invoke('designer:read', relPath),
   designerBrief: (req: { kind: string; fields: { name: string; description: string; keywords?: string; tier?: string; body: string }; mode: string; templatePath?: string; targetPath?: string }): Promise<string> => ipcRenderer.invoke('designer:brief', req),

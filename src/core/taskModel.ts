@@ -49,14 +49,5 @@ export function stepText(t: FreqTask, n: number): string {
   return `${n}. ${t.target}`; // prompt-kind carries its full instruction in target
 }
 
-/**
- * Session name for an Ask AIOS intent — from the intent's CONTENT words, not its
- * filler: "i need a social media strategy" → ask-social-media-strategy.
- */
-const STOP = new Set(['i', 'a', 'an', 'the', 'to', 'for', 'of', 'on', 'in', 'at', 'by', 'my', 'me', 'our', 'we', 'us', 'you', 'your', 'it', 'is', 'are', 'am', 'and', 'or', 'with', 'about', 'need', 'needs', 'want', 'wants', 'please', 'can', 'could', 'should', 'would', 'like', 'help', 'make', 'create', 'do', 'get', 'give', 'let', 'lets', 'some', 'this', 'that', 'new', 'have', 'has']);
-
-export function askSessionName(intent: string): string {
-  const words = intent.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w && !STOP.has(w));
-  const core = (words.length ? words : ['intent']).slice(0, 3).join('-');
-  return ('ask-' + core).slice(0, 28).replace(/-+$/, '');
-}
+/** Session naming for Ask AIOS lives in ./sessionName (app#66); re-exported so existing imports keep working. */
+export { askSessionName, askSlug, foldName } from './sessionName';

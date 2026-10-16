@@ -1032,11 +1032,8 @@ function renderActionCards(m) {
 }
 
 async function onIntentAsk() {
-  const intent = await askWithChips();
-  if (!intent) return;
-  const slugged = ('ask-' + intent.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 28).replace(/-+$/, '');
-  const prompt = `Find the right AIOS action for this intent and run it: "${intent}". Search my agents, /aios: commands, skills, and frequent tasks; pick the best match, tell me in one line which you chose and why, then execute it.`;
-  await createPane({ name: slugged, cmd: `${CLAUDE} --name ${slugged} ${shq(prompt)}` });
+  const ask = await askWithChips();
+  if (ask) await launchAsk(ask);
 }
 
 async function openFrameworkDoc(file) {
@@ -6365,14 +6362,8 @@ window.glassShell.onIntent(async (m) => {
       return;
     }
     case 'ask': {
-      const intent = await askWithChips();
-      if (intent) {
-        const slugged = ('ask-' + intent.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 28).replace(/-+$/, '');
-        const prompt = `Find the right AIOS action for this intent and run it: "${intent}". Search my agents, /aios: commands, skills, and frequent tasks; pick the best match, tell me in one line which you chose and why, then execute it.`;
-        // long prompts travel as a temp file, never typed into the pty (see task:handoff)
-        const handed = await window.glassShell.taskHandoff(prompt, slugged).catch(() => prompt);
-        await createPane({ name: slugged, cmd: `${CLAUDE} --name ${slugged} ${shq(handed)}` });
-      }
+      const ask = await askWithChips();
+      if (ask) await launchAsk(ask);
       return;
     }
     case 'openFile':
@@ -8632,7 +8623,7 @@ async function openPalette() {
   const v = await listModal(t('palette.title'), items, t('palette.placeholder'));
   if (!v) return;
   if (v.t === 'pane') void createPane({ name: v.name, cmd: v.cmd });
-  else if (v.t === 'ask') { const i = await askWithChips(); if (i) { const slug = ('ask-' + i.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 28).replace(/-+$/, ''); const p2 = 'Find the right AIOS action for this intent and run it: "' + i + '". Pick the best match, say which in one line, then execute.'; const h2 = await window.glassShell.taskHandoff(p2, slug).catch(() => p2); void createPane({ name: slug, cmd: CLAUDE + ' --name ' + slug + ' ' + shq(h2) }); } }
+  else if (v.t === 'ask') { const ask = await askWithChips(); if (ask) void launchAsk(ask); }
   else if (v.t === 'settings') openSettingsTab();
   else if (v.t === 'setup') openSetupTab();
   else if (v.t === 'plugins') openPluginsTab();
@@ -8995,10 +8986,30 @@ function pushRecentAsk(t) {
     localStorage.setItem('recentAsks', JSON.stringify(r));
   } catch { /* ignore */ }
 }
+/* app#66: Ask AIOS asks for the session's NAME too, pre-filled. A sentence-derived name broke an
+   operator whose vault addresses sessions by identity (`atlas-TT-MM-JJ`); the suggestion now picks
+   a dated identity the intent names, folds letters instead of dropping them, and is editable —
+   once the operator types in it, it stops following the prompt. Resolves { intent, name } or null. */
 async function askWithChips() {
-  const v = await inputModal(t('ask.title'), t('ask.placeholder'), recentAsks());
-  if (v) pushRecentAsk(v);
-  return v;
+  const v = await inputModal(t('ask.title'), t('ask.placeholder'), recentAsks(), {
+    nameField: { label: t('ask.nameLabel'), suggest: (text) => window.glassShell.askName(text).catch(() => '') },
+  });
+  if (!v || !v.value) return null;
+  pushRecentAsk(v.value);
+  return { intent: v.value, name: v.name };
+}
+/** A session name that is safe on a command line and in the registry, whatever was typed. */
+function safeSessionName(raw, fallback) {
+  const s = String(raw || '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|-+$/g, '').slice(0, 48);
+  return s || fallback || 'ask-intent';
+}
+/** The one launch path for an Ask AIOS intent (Home card, command bus, palette). */
+async function launchAsk(ask) {
+  const name = safeSessionName(ask.name, await window.glassShell.askName(ask.intent).catch(() => ''));
+  const prompt = `Find the right AIOS action for this intent and run it: "${ask.intent}". Search my agents, /aios: commands, skills, and frequent tasks; pick the best match, tell me in one line which you chose and why, then execute it.`;
+  // long prompts travel as a temp file, never typed into the pty (see task:handoff)
+  const handed = await window.glassShell.taskHandoff(prompt, name).catch(() => prompt);
+  await createPane({ name, cmd: `${CLAUDE} --name ${shq(name)} ${shq(handed)}` });
 }
 
 // A minimal choice modal (reuses the input-modal chrome + chip styling): a title
@@ -9063,14 +9074,46 @@ function inputModal(title, placeholder, chips, opts) {
       }
       input.after(cw);
     }
+    /* opts.nameField — a second, smaller field for the session's name (app#66). It follows the
+       main field through `suggest` until the operator types in it; from then on it is theirs. With
+       it, the modal resolves { value, name } instead of a string. */
+    let nameIn = null;
+    if (opts && opts.nameField) {
+      const row = el('label', 'mname');
+      row.appendChild(el('span', 'mnamelbl', opts.nameField.label));
+      nameIn = document.createElement('input');
+      nameIn.className = 'mnamein';
+      nameIn.spellcheck = false;
+      row.appendChild(nameIn);
+      wrap.querySelector('.mhint').before(row);
+      let touched = false, seq = 0, timer = 0;
+      const follow = () => {
+        if (touched) return;
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const my = ++seq;
+          const s = await opts.nameField.suggest(input.value.trim());
+          if (my === seq && !touched && document.contains(nameIn)) nameIn.value = s || '';
+        }, 120);
+      };
+      input.addEventListener('input', follow);
+      wrap.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', follow));
+      nameIn.addEventListener('input', () => { touched = nameIn.value.trim() !== ''; if (!touched) follow(); });
+    }
     input.focus();
     const done = (val) => { wrap.remove(); resolve(val); };
+    const submit = () => {
+      const v = input.value.trim();
+      done(nameIn ? { value: v, name: nameIn.value.trim() } : v);
+    };
     // Enter resolves the (trimmed) string — '' is a valid "submit blank" (e.g. spawn → adj-animal
     // handle); only Escape / backdrop resolve null (cancel). Callers distinguish '' from null.
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); done(input.value.trim()); }
-      else if (e.key === 'Escape') { e.preventDefault(); done(null); }
-    });
+    for (const f of [input, nameIn].filter(Boolean)) {
+      f.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      });
+    }
     wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
   });
 }

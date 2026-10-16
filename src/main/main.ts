@@ -4,6 +4,7 @@ import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
+import { askSessionName } from '../core/sessionName';
 import { speakable, lastAnswer, guessLang } from '../core/speakable';
 import { answerPlain } from '../core/answerPlain';
 import { t } from '../i18n';
@@ -940,6 +941,11 @@ ipcMain.handle('task:handoff', (_e, req: { prompt: string; name?: string }) => {
   try { fs.writeFileSync(file, prompt); } catch { return prompt; }  // fall back to inline
   return taskFileInstruction(file);
 });
+/* app#66 — the suggested session name for an Ask AIOS intent: a dated USER.md identity the intent
+   names, else the descriptive ask-… name; letters folded, never a name already running. The Ask
+   dialog shows it in an editable field, so the operator always sees and can change it. */
+ipcMain.handle('ask:name', (_e, intent: unknown) =>
+  askSessionName(String(intent ?? ''), { identities: aios.primaryNames(), live: aios.listRunningAgents().map((a) => a.name) }));
 ipcMain.handle('designer:handoff', (_e, req: { kind: DesignerKind; fields: DesignerFields; mode: 'create' | 'update'; targetPath?: string }) => {
   if (!req || !['agent', 'skill', 'command'].includes(req.kind)) return null;
   const brief = composeBuilderBrief(req.kind, req.fields, {
