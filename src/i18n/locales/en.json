@@ -959,6 +959,7 @@
   "resume.none": "No closed sessions to resume",
   "resume.noneSelected": "Nothing selected",
   "resume.unnamed": "unnamed",
+  "resume.was": "was {names}",
   "resume.started": "Resuming {n} session(s)",
   "menu.zoom": "Editor Zoom",
   "zoom.in": "Zoom In",

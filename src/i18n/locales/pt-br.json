@@ -959,6 +959,7 @@
   "resume.none": "Nenhuma sessão fechada para retomar",
   "resume.noneSelected": "Nada selecionado",
   "resume.unnamed": "sem nome",
+  "resume.was": "antes {names}",
   "resume.started": "Retomando {n} sessão(ões)",
   "menu.zoom": "Zoom do editor",
   "zoom.in": "Aumentar",

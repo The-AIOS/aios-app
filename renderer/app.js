@@ -4602,13 +4602,17 @@ async function batchResume() {
      as you type: the opening view is "most recent", typing reaches the rest.
      Unnamed sessions are excluded on purpose — see the note in main.ts — and the hint below says
      how many, so their absence is stated rather than discovered. */
+  /* AI-209: a session is found by ANY name it had — "boston" reaches `fortress-companion`, which
+     was born `boston-companion` — and the row says so, plus how big it is (a 600 MB transcript is
+     a slow resume, worth knowing before ticking it). */
+  const mb = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? Math.round(n / 1e6) + ' MB' : Math.max(1, Math.round((n || 0) / 1e3)) + ' KB');
   const items = data.items.map((r) => ({
     label: r.name,
-    desc: agoLabel(r.at) + (r.proj ? ' · ' + r.proj : ''),
+    desc: [agoLabel(r.at), r.proj, r.size ? mb(r.size) : '', (r.was && r.was.length) ? t('resume.was', { names: r.was.join(', ') }) : ''].filter(Boolean).join(' · '),
     icon: 'term',
     value: { kind: 'sess', r },
     picked: false,          // NEVER pre-ticked — each tick spawns a process
-    hay: [r.name, r.proj, r.id].filter(Boolean).join(' '),   // an id can still be pasted in
+    hay: [r.name, ...(r.was || []), r.proj, r.id].filter(Boolean).join(' '),   // an id can still be pasted in
   }));
   const chosen = await checkModal(t('resume.title'), items, {
     hint: t('resume.sub3', { named: data.named, unnamed: data.unnamed }),

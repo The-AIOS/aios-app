@@ -412,14 +412,25 @@ function resolveIn(relOrAbs: string): string | null {
    re-read because its mtime moved.
    The archive is still never READ on the app's own initiative — only when this picker is opened,
    and nothing resumes without being ticked (AI-67's constraint). */
-const nameCache = new Map<string, string>();
+const nameCache = new Map<string, { name: string; was: string[] }>();
 const RESUMABLE_CAP = 2000;      // a backstop, not a page: far above any real archive
 
-function sessionNameFromTranscript(file: string, mtime: number): string {
+/* AI-209 — WHAT A SESSION WAS CALLED, not only what it is called now. Measured: "boston" in the
+   picker found nothing, because `boston-companion` renamed itself `fortress-companion` in its last
+   minutes, and the list matched current names only. A session is recognised by any name the
+   operator ever knew it by, so the reader also returns the earlier ones — the name it was BORN
+   with (its first agent-name row, from the head it already reads) plus any others in the tail
+   window — and the picker searches and shows them. No extra reads: same tail, same head. */
+const agentNameOf = (line: string): string => {
+  if (!line.includes('"agent-name"')) return '';
+  try { const j = JSON.parse(line); return j && typeof j.agentName === 'string' ? j.agentName : ''; } catch { return ''; /* a chunk boundary split this line */ }
+};
+function sessionNamesFromTranscript(file: string, mtime: number): { name: string; was: string[] } {
   const key = file + ':' + mtime;
   const hit = nameCache.get(key);
   if (hit !== undefined) return hit;
   let name = '';
+  const seen: string[] = [];
   let fd = -1;
   try {
     fd = fs.openSync(file, 'r');
@@ -444,26 +455,30 @@ function sessionNameFromTranscript(file: string, mtime: number): string {
       fs.readSync(fd, buf, 0, buf.length, start);
       const lines = buf.toString('utf8').split('\n');
       for (let k = lines.length - 1; k >= 0; k--) {
-        if (!lines[k].includes('"agent-name"')) continue;
-        try { const j = JSON.parse(lines[k]); if (j && typeof j.agentName === 'string') { name = j.agentName; break; } } catch { /* a chunk boundary split this line */ }
+        const n = agentNameOf(lines[k]);
+        if (!n) continue;
+        if (!name) name = n;
+        if (!seen.includes(n)) seen.push(n);    // the rest of this chunk is free: other names it held
       }
       if (start === 0) break;
     }
-    if (!name) {
-      // Nothing in the tail — fall back to the head, which is where a never-renamed session
-      // declares itself.
-      const b = Buffer.alloc(16 * 1024);
-      const n = fs.readSync(fd, b, 0, b.length, 0);
-      for (const line of b.subarray(0, n).toString('utf8').split('\n')) {
-        if (!line.includes('"agent-name"')) continue;
-        try { const j = JSON.parse(line); if (j && typeof j.agentName === 'string') { name = j.agentName; break; } } catch { /* partial line */ }
-      }
+    /* The head: where a never-renamed session declares itself, and where a renamed one says what it
+       was born as. */
+    const b = Buffer.alloc(16 * 1024);
+    const nb = fs.readSync(fd, b, 0, b.length, 0);
+    for (const line of b.subarray(0, nb).toString('utf8').split('\n')) {
+      const n = agentNameOf(line);
+      if (!n) continue;
+      if (!name) name = n;
+      if (!seen.includes(n)) seen.push(n);
+      break;
     }
   } catch { /* unreadable — list it unnamed rather than hide it */ } finally {
     if (fd >= 0) { try { fs.closeSync(fd); } catch { /* already closed */ } }
   }
-  nameCache.set(key, name);
-  return name;
+  const out = { name, was: seen.filter((n) => n !== name) };
+  nameCache.set(key, out);
+  return out;
 }
 
 /* #28 — WHERE EACH SESSION WE ARE ABOUT TO OFFER STANDS NOW. Not `sessions:resumable`: that list
@@ -490,7 +505,7 @@ ipcMain.handle('sessions:locate', (_e, ids: unknown) => {
 
 ipcMain.handle('sessions:resumable', () => {
   const dir = path.join(aios.claudeConfigDir(), 'projects');
-  let files: Array<{ file: string; at: number }> = [];
+  let files: Array<{ file: string; at: number; size: number }> = [];
   try {
     for (const proj of fs.readdirSync(dir)) {
       const pdir = path.join(dir, proj);
@@ -498,7 +513,7 @@ ipcMain.handle('sessions:resumable', () => {
       try { entries = fs.readdirSync(pdir); } catch { continue; }
       for (const f of entries) {
         if (!f.endsWith('.jsonl')) continue;
-        try { files.push({ file: path.join(pdir, f), at: fs.statSync(path.join(pdir, f)).mtimeMs }); } catch { /* vanished */ }
+        try { const st = fs.statSync(path.join(pdir, f)); files.push({ file: path.join(pdir, f), at: st.mtimeMs, size: st.size }); } catch { /* vanished */ }
       }
     }
   } catch { return { items: [], total: 0, named: 0 }; }
@@ -507,12 +522,17 @@ ipcMain.handle('sessions:resumable', () => {
   files = files.filter((f) => !liveIds.has(path.basename(f.file, '.jsonl')));
   files.sort((a2, b2) => b2.at - a2.at);
   const total = files.length;
-  const all = files.slice(0, RESUMABLE_CAP).map((f) => ({
-    id: path.basename(f.file, '.jsonl'),
-    name: sessionNameFromTranscript(f.file, f.at),
-    proj: path.basename(path.dirname(f.file)).replace(/^-Users-[^-]+-/, ''),
-    at: f.at,
-  }));
+  const all = files.slice(0, RESUMABLE_CAP).map((f) => {
+    const n = sessionNamesFromTranscript(f.file, f.at);
+    return {
+      id: path.basename(f.file, '.jsonl'),
+      name: n.name,
+      was: n.was,
+      proj: path.basename(path.dirname(f.file)).replace(/^-Users-[^-]+-/, ''),
+      at: f.at,
+      size: f.size,
+    };
+  });
   /* NAMED SESSIONS ONLY. Of 593 transcripts here, 384 never wrote an `agent-name` row — those
      could only ever be labelled `project · a3f9c2b1`, which identifies nothing and is 65% of the
      list you have to scroll past to find what you meant. Resuming is an act of recognition, so
