@@ -16,7 +16,7 @@ const USER_MD = [
 test('letters are folded, never dropped (für → fuer, not f-r)', () => {
   assert.equal(foldName('für Straße Ärger'), 'fuer strasse aerger');
   assert.equal(foldName('canción niño'), 'cancion nino');
-  assert.equal(askSlug('Plan für morgen'), 'ask-plan-fuer-morgen');
+  assert.equal(askSlug('Plan für morgen'), 'ask-plan-morgen', 'German filler dropped after folding');
 });
 
 test('the reported case: a German sentence naming a dated identity gets today\'s session', () => {
@@ -24,6 +24,12 @@ test('the reported case: a German sentence naming a dated identity gets today\'s
   assert.deepEqual([...identities], ['atlas-tt-mm-jj', 'parallel-atlas-tt-mm-jj', 'buddai']);
   assert.equal(askSessionName('Starte bitte atlas für den Tag', { identities, now: OCT16 }), 'atlas-16-10-26');
   assert.equal(askSessionName('start parallel atlas', { identities, now: OCT16 }), 'parallel-atlas-16-10-26', 'longest stem wins');
+});
+
+test('Spanish, Portuguese and German filler words are dropped like English ones', () => {
+  assert.equal(askSlug('Prepara el reporte semanal'), 'ask-prepara-reporte-semanal');
+  assert.equal(askSlug('Preciso de uma proposta para o cliente'), 'ask-proposta-cliente');
+  assert.equal(askSlug('Bitte die Rechnung für den Kunden'), 'ask-rechnung-kunden');
 });
 
 test('a plain identity is never auto-picked — it names the live session being talked ABOUT', () => {

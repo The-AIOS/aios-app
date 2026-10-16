@@ -26,7 +26,19 @@ export function foldName(s: string): string {
     .toLowerCase();
 }
 
-const STOP = new Set(['i', 'a', 'an', 'the', 'to', 'for', 'of', 'on', 'in', 'at', 'by', 'my', 'me', 'our', 'we', 'us', 'you', 'your', 'it', 'is', 'are', 'am', 'and', 'or', 'with', 'about', 'need', 'needs', 'want', 'wants', 'please', 'can', 'could', 'should', 'would', 'like', 'help', 'make', 'create', 'do', 'get', 'give', 'let', 'lets', 'some', 'this', 'that', 'new', 'have', 'has']);
+/* Filler words dropped from the descriptive name, in the languages AIOS operators write in. Compared
+   against FOLDED words, so German entries are spelled folded (für → fuer). "Prepara el reporte
+   semanal" → ask-prepara-reporte-semanal, not ask-prepara-el-reporte. */
+const STOP = new Set([
+  // en
+  'i', 'a', 'an', 'the', 'to', 'for', 'of', 'on', 'in', 'at', 'by', 'my', 'me', 'our', 'we', 'us', 'you', 'your', 'it', 'is', 'are', 'am', 'and', 'or', 'with', 'about', 'need', 'needs', 'want', 'wants', 'please', 'can', 'could', 'should', 'would', 'like', 'help', 'make', 'create', 'do', 'get', 'give', 'let', 'lets', 'some', 'this', 'that', 'new', 'have', 'has',
+  // es
+  'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'en', 'por', 'para', 'con', 'sin', 'y', 'o', 'que', 'mi', 'mis', 'tu', 'tus', 'su', 'sus', 'te', 'se', 'lo', 'le', 'les', 'es', 'son', 'este', 'esta', 'esto', 'ese', 'esa', 'eso', 'favor', 'necesito', 'quiero', 'ayudame', 'ayuda', 'hazme', 'haz', 'dame', 'puedes', 'podrias', 'sobre',
+  // pt
+  'os', 'as', 'um', 'uma', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'sem', 'e', 'ou', 'meu', 'minha', 'seu', 'sua', 'eu', 'voce', 'preciso', 'quero', 'faca', 'pode',
+  // de
+  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'und', 'oder', 'fuer', 'mit', 'von', 'zu', 'im', 'am', 'an', 'auf', 'ich', 'du', 'mein', 'meine', 'bitte', 'mir', 'mich', 'ist', 'sind',
+]);
 
 /** The descriptive name: content words of the intent, folded. "i need a social media strategy" → ask-social-media-strategy. */
 export function askSlug(intent: string): string {
