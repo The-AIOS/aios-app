@@ -71,6 +71,12 @@ export function overlayProgramStatus<T extends { sessionId: string; status: stri
     if (!s || s.at < (a.statusUpdatedAt ?? 0)) return a;
     const r = registryStatusOf(s);
     if (!r) return a;
+    /* A WAITING REGISTRY WITH NO CLOCK IS NOT OVERRIDDEN by a signal that says anything else. With
+       no `statusUpdatedAt` there is nothing to compare against, so the signal always won — and a
+       stale "working" could mask "waiting on you", which is the one status that notifies. Hiding a
+       block costs the operator the prompt; showing one a moment late costs nothing. (Hardening
+       after a report that banners stopped on one Windows machine after 0.11.0.) */
+    if (a.status === 'waiting' && !a.statusUpdatedAt && r.status !== 'waiting') return a;
     const out = { ...a, status: r.status, statusUpdatedAt: s.at } as T;
     if (r.waitingFor) out.waitingFor = r.waitingFor; else delete out.waitingFor;
     return out;

@@ -15,9 +15,10 @@ import { execFile } from 'child_process';
 import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
 import { classifyForRead } from './preview';   // the fs:read gate (#39)
 import * as pty from 'node-pty';
-import { PanelHost } from './panelHost';
+import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
-import { initCommandBus } from './commandBus';
+import { initCommandBus, appLog } from './commandBus';
+setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
 import { composeBuilderBrief, slugify, type DesignerKind, type DesignerFields } from '../core/designer';
 import { taskFileInstruction, needsTaskFile } from '../core/commandBus';

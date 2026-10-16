@@ -80,6 +80,8 @@ function busLogAppend(msg: string): void {
   } catch { /* a trail is a nice-to-have; delivery is not */ }
 }
 const log = (msg: string): void => { console.log(`[command-bus] ${msg}`); busLogAppend(msg); };
+/** The same trail, for other main-process modules: the one log an operator already knows to send. */
+export const appLog = (tag: string, msg: string): void => { console.log(`[${tag}] ${msg}`); busLogAppend(`${tag}: ${msg}`); };
 
 /*
  * These timings are CONTRACT, not tuning — they must match the Glass extension's, because

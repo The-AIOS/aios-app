@@ -12,6 +12,11 @@ import { t } from '../i18n';
 import { Attention } from './attention';
 import { sessionKey } from '../core/attention';
 
+/* Where panel notes go. main.ts points this at the bus trail (the log an operator already sends);
+   a hook rather than an import, so loading the panel never drags in the command bus. */
+let appLog: (tag: string, msg: string) => void = (tag, msg) => console.log(`[${tag}] ${msg}`);
+export function setPanelLog(fn: (tag: string, msg: string) => void): void { appLog = fn; }
+
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
 const UPD_MIN_GAP_MS = 60_000;
@@ -313,6 +318,19 @@ export class PanelHost {
   /** AI-171 — what each session used. The shared reader (core/usageReader) reads ASYNC, bounded per
    *  tick, prunes ended sessions and byte-splits at newlines (review should-fix 17). */
   private usage = new UsageReader(fsUsageIo);
+  /** Sessions already reported as "waiting but outside scope", so each is said once. */
+  private toldHiddenWaiting = new Set<string>();
+  /* A session the operator is waiting on that the scope filter (AI-203) HID never notifies — the
+     filter is the one thing between the registry and the banner. Said once per session, in the
+     trail an operator already sends, so "my notifications stopped" is answerable from a log
+     rather than from guesses (0.12.0, after a report from one Windows machine). */
+  private noteHiddenWaiting(hidden: readonly aios.RunningAgent[]): void {
+    for (const a of hidden) {
+      if (a.status !== 'waiting' || this.toldHiddenWaiting.has(a.sessionId)) continue;
+      this.toldHiddenWaiting.add(a.sessionId);
+      appLog('attention', `'${a.name}' is waiting on you but is outside this App's scope (cwd ${a.cwd || '?'}) — it is listed under "hidden" and does not notify`);
+    }
+  }
   private usageFor(sessionId: string): ToolUsage | undefined { return this.usage.get(sessionId); }
 
   postRunning(): void {
@@ -339,9 +357,12 @@ export class PanelHost {
       /* Review 13: what AI-203's scope HID, so a false negative is visible ("N hidden · show all")
          instead of silently missing. Interactive sessions only — headless/daemon runs (AI-165) are
          never the operator's and never listed, even here. These rows never notify. */
-      hidden: aios.listRunningAgents().filter(aios.isOperatorSession)
-        .filter((a) => !registry.some((r) => r.sessionId === a.sessionId))
-        .map((a) => ({ name: a.name, id: a.sessionId, status: a.status, proj: projOf(a.cwd) })),
+      hidden: ((): Array<{ name: string; id: string; status: string; proj: string }> => {
+        const h = aios.listRunningAgents().filter(aios.isOperatorSession)
+          .filter((a) => !registry.some((r) => r.sessionId === a.sessionId));
+        this.noteHiddenWaiting(h);
+        return h.map((a) => ({ name: a.name, id: a.sessionId, status: a.status, proj: projOf(a.cwd) }));
+      })(),
       running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid], waitingFor: a.waitingFor, statusUpdatedAt: a.statusUpdatedAt, modelSwitch: switchParts(switches.get(a.sessionId), a.startedAt), used: (() => { const u = this.usageFor(a.sessionId); return u ? { chip: usageChip(u), skills: u.skills, agents: u.agents } : undefined; })() })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }

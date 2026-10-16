@@ -46,6 +46,18 @@ test('the newer of the two sources wins, so neither pins a stale state on the ot
   assert.equal(answered[0].waitingFor, undefined, 'answering the prompt clears what it was waiting for');
 });
 
+test('a waiting registry with no clock is never masked by a signal that says otherwise', () => {
+  /* Hardening (0.12.0): with no statusUpdatedAt there is nothing to compare, so any signal won and
+     a stale "working" could hide "waiting on you" — the only status that notifies. */
+  const reg = [{ sessionId: 's1', status: 'waiting', waitingFor: 'approve Bash' }];
+  assert.deepEqual(overlayProgramStatus(reg, new Map([['s1', { state: 'working', at: 9e12 }]])), reg, 'working does not hide waiting');
+  assert.deepEqual(overlayProgramStatus(reg, new Map([['s1', { state: 'done', at: 9e12 }]])), reg, 'neither does done');
+  const blocked = overlayProgramStatus(reg, new Map([['s1', { state: 'blocked', msg: 'approve Write: a', at: 9e12 }]]));
+  assert.equal(blocked[0].waitingFor, 'approve Write: a', 'a blocked signal may still sharpen WHAT it waits for');
+  const busy = [{ sessionId: 's2', status: 'busy' }];
+  assert.equal(overlayProgramStatus(busy, new Map([['s2', { state: 'blocked', at: 1 }]]))[0].status, 'waiting', 'a signal can still RAISE a block on a clockless registry');
+});
+
 test('the App answers the probe in every terminal, and relays statuses by session id', () => {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   assert.match(app, /term\.parser\.registerOscHandler\(7501, \(data\) => programStatusOsc\(oscPane, data\)\);\s*const id = await window\.glassShell\.ptySpawn/, 'registered before the pty can emit');
