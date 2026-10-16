@@ -83,7 +83,7 @@ export interface AskNameOptions {
    test, 0.12.0, which got ask-run-session-named).
 
    ONLY WHEN IT NAMES THE SESSION. "llamada"/"chamada" are also "a phone call", and "named"/"called"
-   name files and documents too: "prepara la llamada con Cavimex" became `con`, "summarize the doc
+   name files and documents too: "prepara la llamada con Acme" became `con`, "summarize the doc
    called Q3 plan" became `q3` (reviewer, 0.12.0). So a naming phrase counts only after a SESSION
    word — "session", "sesión", "sessão", "Sitzung", "agent" — with up to two words between ("a new
    session named rumi"), and a captured word that is filler (con, para, com…) is never a name.

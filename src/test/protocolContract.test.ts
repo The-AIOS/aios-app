@@ -598,7 +598,7 @@ test('PROTOCOL: private run files are written by byte-identical code in both sur
     'privateRun.ts changed: make the same edit in the sibling repo and update PRIVATE_RUN_SHA in BOTH.');
 });
 
-const SESSION_NAME_SHA = '55005c27adc09b92';
+const SESSION_NAME_SHA = 'aaf47fb9c1d027da';
 test('PROTOCOL: Ask AIOS names sessions with byte-identical code in both surfaces', () => {
   const src = fs.readFileSync('src/core/sessionName.ts', 'utf8');
   assert.equal(crypto.createHash('sha256').update(src).digest('hex').slice(0, 16), SESSION_NAME_SHA,

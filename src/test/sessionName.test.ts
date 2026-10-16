@@ -49,13 +49,13 @@ test('a name the operator SAYS wins: "a session named rumi" → rumi', () => {
 
 test('a naming word only names the SESSION — "llamada" is also a phone call, "called" also a document', () => {
   // reviewer, measured on the 0.12.0 candidate: each of these became a session named after the next word
-  assert.equal(explicitName('prepara la llamada con Cavimex'), undefined);
-  assert.equal(explicitName('agenda una llamada para mañana con Diego'), undefined);
+  assert.equal(explicitName('prepara la llamada con Acme'), undefined);
+  assert.equal(explicitName('agenda una llamada para mañana con Marta'), undefined);
   assert.equal(explicitName('resume la chamada com o cliente'), undefined);
   assert.equal(explicitName('summarize the doc called Q3 plan'), undefined);
   assert.equal(explicitName('open the file named report.pdf'), undefined, '"named" a file is not naming the session');
   // and the descriptive name is what they get instead
-  assert.equal(askSessionName('prepara la llamada con Cavimex'), 'ask-prepara-llamada-cavimex');
+  assert.equal(askSessionName('prepara la llamada con Acme'), 'ask-prepara-llamada-acme');
   // the session word may have a word or two before the naming phrase
   assert.equal(explicitName('start a new session named rumi'), 'rumi');
   assert.equal(explicitName('abre una sesión nueva llamada rumi'), 'rumi');
@@ -70,7 +70,7 @@ test('a naming word only names the SESSION — "llamada" is also a phone call, "
   assert.equal(explicitName('chama esta sessão de perro'), 'perro');
   assert.equal(explicitName('nenne diese Sitzung perro'), 'perro');
   // and a call that is not about the session still names nothing
-  assert.equal(explicitName('llama a Diego para la sesion de mañana'), undefined, 'the word after the session noun is filler');
+  assert.equal(explicitName('llama a Marta para la sesion de mañana'), undefined, 'the word after the session noun is filler');
   assert.equal(explicitName('call the client about the session'), undefined);
 });
 
