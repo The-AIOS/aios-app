@@ -15,6 +15,7 @@ import * as os from 'os';
 import { execFile } from 'child_process';
 import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
 import { classifyForRead } from './preview';   // the fs:read gate (#39)
+import { resolveLinkTargets, revealable } from './pathLinks';   // terminal links: open vs reveal
 import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
@@ -668,25 +669,17 @@ ipcMain.handle('fs:resolveFile', (_e, cand: string, base?: string) => {
   } catch { return null; }
 });
 /* Plural form: a hovered terminal line can hold a dozen path-shaped tokens, and resolving
-   them one IPC at a time is what made the first hover feel slow. */
-ipcMain.handle('fs:resolveFiles', (_e, cands: string[], base?: string) => {
-  const out: Record<string, string> = {};
-  for (const c of (Array.isArray(cands) ? cands : []).slice(0, 24)) {
-    try {
-      let v = String(c || '').trim().replace(/[)\]},.;:'"]+$/, '');
-      if (!v) continue;
-      v = v.replace(/:\d+(?::\d+)?$/, '');
-      if (v.startsWith('~')) v = path.join(os.homedir(), v.slice(1));
-      const bases = [base, aios.frameworkRoot(), os.homedir()].filter(Boolean) as string[];
-      const tries = path.isAbsolute(v) ? [v] : bases.map((b) => path.resolve(b, v));
-      for (const abs of tries) {
-        if (!inAllowed(abs)) continue;
-        try { if (fs.statSync(abs).isFile()) { out[c] = abs; break; } } catch { /* next */ }
-      }
-    } catch { /* skip */ }
-  }
-  return out;
-});
+   them one IPC at a time is what made the first hover feel slow. Answers TWO maps — what the
+   viewer may open, and what Finder may only reveal (a folder, or a file outside the allowed
+   roots) — see pathLinks.ts for why the second one has no roots gate. */
+const statOrNull = (abs: string) => { try { return fs.statSync(abs); } catch { return null; } };
+ipcMain.handle('fs:resolveFiles', (_e, cands: string[], base?: string) =>
+  resolveLinkTargets(cands, {
+    allowed: inAllowed,
+    bases: [base, aios.frameworkRoot(), os.homedir()].filter(Boolean) as string[],
+    home: os.homedir(),
+    stat: statOrNull,
+  }));
 ipcMain.handle('fs:sortState', () => ({ master: aios.masterSort(), overrides: aios.folderSorts() }));
 ipcMain.handle('fs:setSort', (_e, folder: string, mode: string) => {
   if (typeof folder !== 'string' || !inAllowed(folder)) return { master: aios.masterSort(), overrides: aios.folderSorts() };
@@ -717,7 +710,13 @@ ipcMain.handle('html:toPng', async (_e, filePath: string) => {
     return { out, w: img.getSize().width, h: img.getSize().height };
   } catch { return null; } finally { off.destroy(); }
 });
-ipcMain.handle('shell:reveal', (_e, p: string) => { if (resolveIn(p)) shell.showItemInFolder(p); return true; });
+/* Reveal reads nothing, so it is not held to the allowed roots: an absolute path that exists is
+   enough (a relative one still resolves inside them, as the explorer's callers expect). */
+ipcMain.handle('shell:reveal', (_e, p: string) => {
+  const abs = revealable(p, statOrNull) ?? resolveIn(p);
+  if (abs) shell.showItemInFolder(abs);
+  return true;
+});
 ipcMain.handle('shell:readText', () => clipboard.readText());
 /* Interface scale via Electron's NATIVE zoom, never CSS `body { zoom }`. CSS zoom scales
    painting but not the coordinate space, so getBoundingClientRect() and a component's own

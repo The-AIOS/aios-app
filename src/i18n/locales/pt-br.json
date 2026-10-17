@@ -927,6 +927,8 @@
   "term.cmdClickOpenWin": "Ctrl+clique para abrir",
   "term.cmdShiftClickReveal": "⌘⇧-clique para mostrar no Finder",
   "term.cmdShiftClickRevealWin": "Ctrl+Shift+clique para mostrar no Explorador",
+  "term.cmdClickReveal": "⌘-clique para mostrar no Finder",
+  "term.cmdClickRevealWin": "Ctrl+clique para mostrar no Explorador",
   "viewer.changes": "{n} alterações",
   "tab.endedSession": "{name} (encerrada)",
   "bus.deadLetter": "Uma mensagem para {name} nunca foi entregue — veja o log",

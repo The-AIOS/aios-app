@@ -59,7 +59,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   resolveNote: (name: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveNote', name),
   resolveFile: (cand: string, base?: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveFile', cand, base),
   dirtyLines: (abs: string): Promise<Array<[number, number]>> => ipcRenderer.invoke('fs:dirtyLines', abs),
-  resolveFiles: (cands: string[], base?: string): Promise<Record<string, string>> => ipcRenderer.invoke('fs:resolveFiles', cands, base),
+  resolveFiles: (cands: string[], base?: string): Promise<{ open: Record<string, string>; reveal: Record<string, string> }> => ipcRenderer.invoke('fs:resolveFiles', cands, base),
   /* One flag only, and a diagnostic one: AIOS_NO_WEBGL disables the GPU renderer so a
      rendering artifact can be attributed or ruled out. Deliberately not the whole env. */
   env: { AIOS_NO_WEBGL: process.env.AIOS_NO_WEBGL || '' },

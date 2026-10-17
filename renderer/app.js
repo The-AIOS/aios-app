@@ -2737,7 +2737,7 @@ function joinAcrossBreak(hits, next, nextRow) {
 
 const NO_WEBGL = !!(window.glassShell.env && window.glassShell.env.AIOS_NO_WEBGL);
 const LINK_DEBUG = false;  // flip on to have the provider narrate what it sees
-const linkCache = new Map();   // `${cwd}\n${lineText}` → { token: absPath }
+const linkCache = new Map();   // `${cwd}\n${lineText}` → { open: { token: absPath }, reveal: { token: absPath } }
 
 let pathTip = null;
 function showPathTip(x, y, text) {
@@ -2812,18 +2812,24 @@ function attachPathLinks(term, startCwd, paneId) {
       if (!hits.length) { cb(undefined); return; }
       void linkBase(paneId, startCwd).then((cwd) => {
       const key = (cwd || '') + '\n' + text;   // logical line, so wrapped rows share one entry (and one folder)
+      /* `map` is { open, reveal } (fs:resolveFiles): a file the viewer may read, or — for a folder
+         or a file outside the allowed roots — a path only the desktop may show. */
       const build = (map) => {
         const links = [];
+        const lookup = (cand) => (map.open[cand] ? { abs: map.open[cand], open: true }
+          : map.reveal[cand] ? { abs: map.reveal[cand], open: false } : null);
         for (const m of hits) {
           /* Longest wins: a filename containing spaces must beat the shorter prefix that also
              happens to exist (a directory, usually). Shortest-match would link the folder. */
           let best = null;
           for (const cand of [...m.alts].sort((a2, b2) => b2.length - a2.length)) {
-            if (map[cand]) { best = { text: cand, abs: map[cand] }; break; }
+            const hit = lookup(cand);
+            if (hit) { best = { text: cand, ...hit }; break; }
           }
-          if (!best && map[m.value]) best = { text: m.value, abs: map[m.value] };
+          if (!best && lookup(m.value)) best = { text: m.value, ...lookup(m.value) };
           if (!best) continue;
           const abs = best.abs;
+          const canOpen = best.open;
           links.push({
             /* A joined candidate ends on the NEXT row, so its range must too — xterm ranges
                may span rows, and clamping to this one would underline only half the path. */
@@ -2832,7 +2838,9 @@ function attachPathLinks(term, startCwd, paneId) {
               : { start: at(m.index), end: at(m.index + best.text.length - 1) },
             text: best.text,
             decorations: { pointerCursor: true, underline: true },
-            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + t(IS_WIN ? 'term.cmdClickOpenWin' : 'term.cmdClickOpen') + '  ·  ' + t(IS_WIN ? 'term.cmdShiftClickRevealWin' : 'term.cmdShiftClickReveal')),
+            hover: (ev) => showPathTip(ev.clientX, ev.clientY, abs + '  ·  ' + (canOpen
+              ? t(IS_WIN ? 'term.cmdClickOpenWin' : 'term.cmdClickOpen') + '  ·  ' + t(IS_WIN ? 'term.cmdShiftClickRevealWin' : 'term.cmdShiftClickReveal')
+              : t(IS_WIN ? 'term.cmdClickRevealWin' : 'term.cmdClickReveal'))),
             leave: () => hidePathTip(),
             activate: (ev) => {
               hidePathTip();
@@ -2845,6 +2853,9 @@ function attachPathLinks(term, startCwd, paneId) {
                  operator-reported while uploading a generated avatar. Same modifier family as
                  the preview, so a plain click still selects text. */
               if (ev.shiftKey) { void window.glassShell.revealInOS(abs); return; }
+              /* A folder, or a file outside the allowed roots: there is nothing the viewer may
+                 show, so ⌘-click reveals too rather than doing nothing. */
+              if (!canOpen) { void window.glassShell.revealInOS(abs); return; }
               void openViewer(abs);
             },
           });
@@ -2856,8 +2867,9 @@ function attachPathLinks(term, startCwd, paneId) {
       window.glassShell.resolveFiles(hits.flatMap((m) => [m.value, ...m.alts]), cwd).then((map) => {
         if (linkCache.size > 400) linkCache.clear();   // bounded; the buffer scrolls forever
         if (LINK_DEBUG && /espacios|03 -/.test(text)) console.log('[link] resolved=' + JSON.stringify(map));
-        linkCache.set(key, map || {});
-        build(map || {});
+        const got = { open: (map && map.open) || {}, reveal: (map && map.reveal) || {} };
+        linkCache.set(key, got);
+        build(got);
       }).catch(() => cb(undefined));
       });
     },
