@@ -20,6 +20,15 @@ test('the bus marks its spawns and reveals as background', () => {
   assert.match(bus, /emit\(win\(\), 'focusByName', \{ name: req\.name, background: true \}\)/);
 });
 
+test('a resume aimed at a session that is already running reveals it in the background', () => {
+  /* A finished worker reports to its coordinator with `resume`. The coordinator is live, so this
+     branch reveals and delivers; it was the one bus reveal still sent without the flag. */
+  const live = /if \(live\) \{[\s\S]*?revealing and delivering/.exec(bus)?.[0] ?? '';
+  assert.ok(live, 'the resume-to-a-live-session branch exists');
+  assert.match(live, /emit\(win\(\), 'focusByName', \{ name: req\.name, background: true \}\)/);
+  assert.doesNotMatch(bus, /emit\(win\(\), 'focusByName', \{ name: req\.name \}\)/, 'no bus reveal without the flag');
+});
+
 test("default is 'stay'; only an explicit 'follow' restores switching", () => {
   assert.match(aios, /busFocus: raw\.busFocus === 'follow' \? 'follow' : 'stay'/);
   assert.match(app, /BUS_FOCUS = c\.busFocus === 'follow' \? 'follow' : 'stay';/);

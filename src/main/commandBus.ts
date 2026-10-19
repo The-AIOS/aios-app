@@ -914,7 +914,10 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
          `{"action":"send"}` would take. */
       const live = targetByName(req.name);
       if (live) {
-        emit(win(), 'focusByName', { name: req.name });
+        /* Background, like every other bus reveal. A worker that finishes reports to its
+           coordinator with exactly this request, so without the flag every finished worker pulled
+           the operator's screen onto the coordinator's tab, mid-sentence. */
+        emit(win(), 'focusByName', { name: req.name, background: true });
         log(`resume '${req.name}' — already running, revealing and delivering${req.effort || req.advisor ? ' (effort/advisor NOT applied: a running session cannot change them)' : ''}`);
         if (req.prompt) void runSend(win, heldPath, { ...req, action: 'send' }, Date.now());
         else try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
