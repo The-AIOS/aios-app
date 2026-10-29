@@ -2433,6 +2433,17 @@ const restoreOnLaunch = (() => {
     return raw && Array.isArray(raw.sessions) ? raw : null;
   } catch { return null; }
 })();
+/* Unattended mode — for a machine nobody is sitting at (a home server running sessions around
+   the clock). Declared here for the same temporal-dead-zone reason as the restore state above:
+   onPtyData reads it from the first byte any terminal prints.
+
+   MACHINE-LOCAL (localStorage), like the terminal renderer and the restore list, and never in
+   .glass/shell.json: in some vaults that file travels between machines, and a mode that answers
+   Claude's prompts by itself must not switch on in the operator's laptop because a server has it.
+   'off' is the default and does exactly what the app did before the mode existed. */
+const UNATTENDED_KEY = 'unattendedMode';
+function unattendedModeOf(v) { return v === 'summary' || v === 'full' ? v : 'off'; }
+let UNATTENDED = (() => { try { return unattendedModeOf(localStorage.getItem(UNATTENDED_KEY)); } catch { return 'off'; } })();
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
 /* AI-82 — `active` is now FOCUS, not visibility.
    It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
@@ -3825,7 +3836,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile });
   oscPane = id;
   const tab = makeTab(id, name, 'term');
-  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
+  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd), bornAt: Date.now() };
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
   const snap = background ? snapshotFocus() : null;
@@ -4251,6 +4262,7 @@ window.glassShell.onPtyData((m) => {
   const p = panes.get(m.id);
   if (!p || p.kind !== 'term') return;
   p.term.write(m.data);
+  if (UNATTENDED !== 'off' && p.isSession && !p.uaDone) unattendedScan(m.id, p, m.data);
   if (p.scheduleAtlasClear) p.scheduleAtlasClear((m.data || '').length);   // volume-gated; see its definition
   // pty-grade theater: tail the latest meaningful output line into the ticker
   // (throttled — TUI spinners redraw constantly; the ticker breathes, not thrashes)
@@ -4979,21 +4991,23 @@ function createRestoreTab(s) {
   return id;
 }
 
-/** Turn a placeholder into the real session, in the same place in the strip. */
+/** Turn a placeholder into the real session, in the same place in the strip.
+    Resolves true when the session is running (here or elsewhere), false when it could not start —
+    the unattended sequence reads that; every other caller ignores it. */
 async function materializeRestore(id) {
   const ph = panes.get(id);
-  if (!ph || ph.kind !== 'restore' || ph.materializing) return;
+  if (!ph || ph.kind !== 'restore' || ph.materializing) return false;
   ph.materializing = true;
   /* app#59 — never start a second process on a transcript that is already live (a bus `resume`
      may have reopened it first, or another terminal holds it). Two processes on one transcript fork
      the conversation and make the name ambiguous to the bus. Already in one of our tabs → go there;
      running elsewhere → say so, and drop the placeholder instead of duplicating it. */
   const openHere = [...panes.entries()].find(([pid, q]) => pid !== id && q.kind === 'term' && !q.exited && q.sessionId === ph.sessionId);
-  if (openHere) { closePane(id); setActive(openHere[0]); return; }
+  if (openHere) { closePane(id); setActive(openHere[0]); return true; }
   if (await window.glassShell.sessionIsLive(ph.sessionId).catch(() => false)) {
     closePane(id);
     toast(t('restore.alreadyRunning', { name: ph.name }));
-    return;
+    return true;
   }
   const cmd = `${CLAUDE} --resume ${shq(ph.sessionId)}`;
   const newId = await createPane({ name: ph.name, cmd, cwd: ph.cwd || undefined });
@@ -5004,7 +5018,7 @@ async function materializeRestore(id) {
     /* A TOAST, not text in the placeholder: the placeholder is never the visible pane (opening it
        is what replaces it), so a message written into it would be read by nobody. */
     toast(t('restore.failed', { name: ph.name }));
-    return;
+    return false;
   }
   const np = panes.get(newId);
   if (np) {
@@ -5022,6 +5036,7 @@ async function materializeRestore(id) {
   paintStrip(z);
   setActive(newId);
   persistSessions();
+  return true;
 }
 
 /** On launch: offer back what was open, lazily. */
@@ -5045,6 +5060,21 @@ async function offerRestore() {
   if (!ready.length) {
     if (missing.length || elsewhere.length) toast(report(0));
     try { localStorage.removeItem(RESTORE_KEY); } catch { /* */ }
+    return;
+  }
+  if (UNATTENDED !== 'off') {
+    /* Nobody is there to answer the offer, and a placeholder tab has no process: the bus, the
+       session registry and anything addressing a session by name cannot reach it. So everything
+       that can come back does, and every tab is started — the one the operator was in first, as
+       the offer does, then the rest. NOT awaited: What's New and the rest of launch go on. */
+    const order = [...ready].sort((a, b) => (b.sessionId === saved.active) - (a.sessionId === saved.active));
+    const ids = order.map(createRestoreTab);
+    persistSessions();
+    toast([t('unattended.restoring', { n: String(order.length) }), report(0)].filter(Boolean).join(' · '));
+    void materializeInSequence(ids).then(() => {
+      const back = [...panes.entries()].find(([, q]) => q.kind === 'term' && !q.exited && q.sessionId === saved.active);
+      if (back) setActive(back[0]);
+    }).catch((e) => console.error('[unattended] restore sequence failed', e));
     return;
   }
   const items = ready.map((x) => ({
@@ -5071,6 +5101,98 @@ async function offerRestore() {
   void materializeRestore(ids[at >= 0 ? at : 0]);
   persistSessions();
   toast(report(picked.length));
+}
+
+/* ── UNATTENDED MODE ───────────────────────────────────────────────────────────
+   Two things stop a reopened app on a machine nobody watches, and this answers both — only when
+   the operator turned the mode on, in Settings, on that machine.
+
+   1. Restored tabs are placeholders with no process (see the restore note above). On a server
+      that is not "cheap", it is unreachable: the bus, the registry and every name-addressed
+      message miss a session that is not running. So they are started — ONE AT A TIME, the next
+      when the previous is live in the registry or a cap runs out. That keeps the reasoning of the
+      lazy default (each session is a heavy process; eight at once contend for memory, rate limit
+      and first paint) while still ending with all of them running.
+
+   2. Claude Code can stop a resumed session on a question before it loads:
+        A  "This session is <age> old and <n> tokens." — Resume from summary (focused) /
+           Resume full session as-is / Don't ask me again
+        B  "Resume this conversation?" — Resume / Start a new conversation
+      'summary' takes A's first row (Enter), 'full' its second (Down, Enter). "Don't ask me again"
+      is never chosen: it writes a global flag that changes every later resume on the machine.
+      B is answered with Esc, which Claude Code maps to "dismiss" and treats as keeping the
+      resumed conversation — Enter is NOT safe there, the focus can start on "Start a new
+      conversation". Any other prompt, the workspace-trust question above all, is left alone.
+
+   MATCHED ON TEXT, WITH THE SPACES GONE. Claude Code's renderer does not print the spaces
+   between words: it moves the cursor to each word's column (ESC[<n>G), so the visible sentence
+   never exists as bytes. Measured on a live session. Stripping escapes and whitespace from both
+   sides is what makes "Resume from summary" findable at all. If Claude Code rewords a dialog the
+   pattern stops matching and the mode does nothing — the safe failure, and the reason the
+   patterns are literal rather than loose. */
+const UNATTENDED_WINDOW_MS = 120000;    // a resume question comes up while the session loads, not later
+const UNATTENDED_GRACE_MS = 1500;       // B can swallow keys that arrive right after it appears
+const UNATTENDED_KEY_GAP_MS = 300;
+const UNATTENDED_LIVE_CAP_MS = 90000;   // a tab that never shows up in the registry stops blocking the rest
+const UNATTENDED_POLL_MS = 2000;
+const UNATTENDED_NEXT_MS = 4000;        // breathing room between two sessions starting
+const RESUME_SUMMARY_DIALOG = /Thissessionis.{1,40}?oldand.{1,20}?tokens\..{0,400}?❯(?:\d+\.)?Resumefromsummary\((?:instant,)?recommended\)(?:\d+\.)?Resumefullsessionas-is(?:\d+\.)?Don'taskmeagain/;
+const RESUME_QUOTA_DIALOG = /Resumethisconversation\?.{0,600}?Thisconversationhasbeeninactivefor.{0,600}?(?:\d+\.)?Resume❯?(?:\d+\.)?Startanewconversation/;
+/** Pty output as comparable text: escapes out, every whitespace out (see the note above). */
+function ptyPlain(s) {
+  return String(s || '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '')
+    .replace(/\x1b./g, '')
+    .replace(/\s+/g, '');
+}
+/** The keys that answer the resume question on screen, or null to leave the screen alone. */
+function resumeDialogKeys(plain, mode) {
+  if (mode !== 'summary' && mode !== 'full') return null;
+  if (RESUME_SUMMARY_DIALOG.test(plain)) return mode === 'summary' ? ['\r'] : ['\x1b[B', '\r'];
+  if (RESUME_QUOTA_DIALOG.test(plain)) return ['\x1b'];
+  return null;
+}
+/** Watches one claude tab's first output for a resume question; answers it once, at most. */
+function unattendedScan(id, p, data) {
+  if (Date.now() - (p.bornAt || 0) > UNATTENDED_WINDOW_MS) { p.uaDone = true; p.uaRaw = ''; return; }
+  p.uaRaw = ((p.uaRaw || '') + (data || '')).slice(-16384);
+  const keys = resumeDialogKeys(ptyPlain(p.uaRaw), UNATTENDED);
+  if (!keys) return;
+  p.uaDone = true;
+  p.uaRaw = '';
+  const seenAt = Date.now();
+  console.info('[unattended] answering the resume question in', p.name, keys.length > 1 ? '(full)' : '');
+  keys.forEach((k, i) => setTimeout(() => {
+    /* Someone typed after the question appeared: it is theirs to answer, not ours. */
+    if (panes.get(id) !== p || p.exited || (p.lastKeyAt || 0) > seenAt) return;
+    window.glassShell.ptyWrite(id, k);
+  }, UNATTENDED_GRACE_MS + i * UNATTENDED_KEY_GAP_MS));
+}
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Start restored tabs one by one. A tab that fails is reported and skipped, never a stop. */
+async function materializeInSequence(ids) {
+  for (const id of ids) {
+    const ph = panes.get(id);
+    if (!ph || ph.kind !== 'restore') continue;
+    const { sessionId, name } = ph;
+    let started = false;
+    try { started = await materializeRestore(id); } catch (e) { console.error('[unattended] could not start', name, e); }
+    if (!started) { console.error('[unattended] could not start', name); continue; }   // materializeRestore toasted
+    const t0 = Date.now();
+    let live = false;
+    while (Date.now() - t0 < UNATTENDED_LIVE_CAP_MS) {
+      if (await window.glassShell.sessionIsLive(sessionId).catch(() => false)) { live = true; break; }
+      const open = [...panes.values()].find((q) => q.kind === 'term' && q.sessionId === sessionId);
+      if (!open || open.exited) break;
+      await sleepMs(UNATTENDED_POLL_MS);
+    }
+    if (!live) {
+      console.error('[unattended] not live after start', name, sessionId);
+      toast(t('unattended.notLive', { name }));
+    }
+    await sleepMs(UNATTENDED_NEXT_MS);
+  }
 }
 
 /* ── RECENTS ───────────────────────────────────────────────────────────────────
@@ -7691,6 +7813,23 @@ function openSettingsTab() {
     rendSel.value = termRenderer;
     rendSel.addEventListener('change', () => { setTermRenderer(rendSel.value); toast(t('settings.saved')); });
     row(wrap, t('settings.termRenderer'), rendSel, t('settings.termRendererHint'));
+
+    /* Unattended mode — per machine for the same reason as the renderer above, and more so: it
+       answers Claude's prompts by itself, so it must never ride a synced settings file onto a
+       machine where someone is sitting. Takes effect at once for new tabs, and at next launch
+       for the restore. */
+    const unSel = document.createElement('select');
+    unSel.className = 'tinput';
+    for (const [l, v] of [[t('unattended.off'), 'off'], [t('unattended.summary'), 'summary'], [t('unattended.full'), 'full']]) {
+      const o = document.createElement('option'); o.textContent = l; o.value = v; unSel.appendChild(o);
+    }
+    unSel.value = UNATTENDED;
+    unSel.addEventListener('change', () => {
+      UNATTENDED = unattendedModeOf(unSel.value);
+      try { localStorage.setItem(UNATTENDED_KEY, UNATTENDED); } catch { /* private mode: lasts this run */ }
+      toast(t('settings.saved'));
+    });
+    row(wrap, t('settings.unattended'), unSel, t('settings.unattendedHint'));
 
     const fontIn = document.createElement('input');
     fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = '18'; fontIn.style.width = '70px';
