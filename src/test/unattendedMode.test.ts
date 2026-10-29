@@ -168,6 +168,7 @@ function scanner(mode: string) {
   const panes = new Map<number, Record<string, unknown>>();
   const src = [
     CORE,
+    grab(/const RESUME_CMD = [\s\S]*?\nfunction dialogOnScreen\(rows\) \{[\s\S]*?\n\}/, 'the screen check'),
     grab(/function unattendedScan\(id, p, data\) \{[\s\S]*?\n\}/, 'unattendedScan'),
     'return unattendedScan;',
   ].join('\n');
@@ -177,13 +178,51 @@ function scanner(mode: string) {
     { now: () => clock.now }, { info: () => { /* */ } }, mode) as (id: number, p: object, d: string) => void;
   const tick = (ms: number) => {
     clock.now += ms;
-    for (const t of timers.splice(0).sort((a, b) => a.at - b.at)) { if (t.at <= clock.now) t.fn(); else timers.push(t); }
+    /* Until nothing is due: a timer that fires can schedule one that is due already. */
+    for (let due = timers.filter((t) => t.at <= clock.now); due.length; due = timers.filter((t) => t.at <= clock.now)) {
+      due.sort((a, b) => a.at - b.at);
+      for (const t of due) { timers.splice(timers.indexOf(t), 1); t.fn(); }
+    }
   };
-  const pane = (id: number) => { const p = { name: 'worker', bornAt: clock.now, exited: false } as Record<string, unknown>; panes.set(id, p); return p; };
-  /* What onPtyData does: scan until the pane is answered. */
-  const feed = (id: number, p: Record<string, unknown>, d: string) => { if (!p.uaDone) scan(id, p, d); };
+  const pane = (id: number) => {
+    const p = { name: 'worker', bornAt: clock.now, exited: false, term: new FakeTerm() } as Record<string, unknown>;
+    panes.set(id, p);
+    return p;
+  };
+  /* What onPtyData does: draw it, then scan until the pane is answered. */
+  const feed = (id: number, p: Record<string, unknown>, d: string) => {
+    (p.term as FakeTerm).write(d);
+    if (!p.uaDone) scan(id, p, d);
+  };
   return { clock, tick, writes, pane, feed };
 }
+
+/* Just enough of a terminal for the screen check: the cursor moves Ink uses to lay words out
+   (ESC[<n>G, CR, LF), every other escape dropped, and a 24-row viewport over what was drawn. */
+class FakeTerm {
+  rows = 24;
+  private raw = '';   // parsed whole on each read, so an escape split across pty chunks stays whole
+  write(d: string) { this.raw += d; }
+  get buffer() {
+    const lines: string[][] = [[]];
+    let y = 0, x = 0;
+    const re = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[([0-?]*)[ -\/]*([@-~])|\x1b.|[\s\S]/gu;
+    for (let m; (m = re.exec(this.raw));) {
+      const s = m[0];
+      if (m[2] === 'G') x = Math.max(0, Number(m[1] || 1) - 1);
+      else if (s === '\r') x = 0;
+      else if (s === '\n') { y++; while (lines.length <= y) lines.push([]); }
+      else if (s[0] !== '\x1b') lines[y][x++] = s;
+    }
+    return { active: {
+      viewportY: Math.max(0, lines.length - this.rows),
+      getLine: (y: number) => lines[y] && { translateToString: () => Array.from(lines[y], (c) => c || ' ').join('').trimEnd() },
+    } };
+  }
+}
+/* What a resumed session settles on: its prompt box and status line, below whatever came before. */
+const PROMPT_BOX = '\x1b[38;5;246m────────\x1b[39m\r\r\n' + inkLine('❯') + '\x1b[38;5;246m────────\x1b[39m\r\r\n'
+  + inkLine('? for shortcuts');
 
 test('a question split across pty chunks is found, answered after the grace, once', () => {
   const s = scanner('summary');
@@ -235,6 +274,39 @@ test('a tab that ended before the grace ran out is not typed into', () => {
   p.exited = true;
   s.tick(5000);
   assert.deepEqual(s.writes, []);
+});
+
+test('history that quotes a question, with the prompt below it, is not answered — and the watch goes on', () => {
+  for (const mode of ['summary', 'full']) {
+    const s = scanner(mode);
+    const p = s.pane(8);
+    s.feed(8, p, summaryDialog() + BLANK + inkLine('Sure, here is the dialog you asked about.') + PROMPT_BOX);
+    s.tick(5000);
+    assert.deepEqual(s.writes, [], `${mode}: Enter or Down+Enter in the prompt would resend a prompt`);
+    assert.notEqual(p.uaDone, true, 'a false alarm does not spend the one answer');
+    s.feed(8, p, summaryDialog());
+    s.tick(1500); s.tick(300);
+    assert.equal(s.writes.length, mode === 'full' ? 2 : 1, `${mode}: the real question, drawn later, is still answered`);
+  }
+});
+
+test('the question going away between the two keys stops the second one', () => {
+  const s = scanner('full');
+  const p = s.pane(9);
+  s.feed(9, p, summaryDialog());
+  s.tick(1500);
+  assert.deepEqual(s.writes, [[9, '\x1b[B']]);
+  s.feed(9, p, PROMPT_BOX);
+  s.tick(300);
+  assert.deepEqual(s.writes, [[9, '\x1b[B']], 'no Enter once the screen shows something else');
+});
+
+test('only tabs started with --resume are watched: no other launch asks the question', () => {
+  const RESUME_CMD = new RegExp(/const RESUME_CMD = \/(.*)\/;/.exec(app)![1]);
+  for (const cmd of ["claude --resume 'abc'", 'claude --resume', "claude --add-dir '/x' --resume 'abc'"]) assert.match(cmd, RESUME_CMD);
+  for (const cmd of ["claude --name w 'task'", 'claude', "claude --name w '--resume-ish words'", undefined]) {
+    assert.doesNotMatch(cmd || '', RESUME_CMD);
+  }
 });
 
 /* ── the restore sequence, executed ────────────────────────────────────────── */
@@ -302,8 +374,8 @@ test('the mode is machine-local: localStorage, never the synced settings file', 
   assert.equal(core.unattendedModeOf(null), 'off', 'and nothing stored means off');
 });
 
-test('every claude tab is scanned while unanswered, and only when the mode is on', () => {
-  assert.match(app, /if \(UNATTENDED !== 'off' && p\.isSession && !p\.uaDone\) unattendedScan\(m\.id, p, m\.data\);/);
+test('every resumed claude tab is scanned while unanswered, and only when the mode is on', () => {
+  assert.match(app, /if \(UNATTENDED !== 'off' && p\.isSession && !p\.uaDone && RESUME_CMD\.test\(p\.cmd \|\| ''\)\) unattendedScan\(m\.id, p, m\.data\);/);
   assert.match(grab(/async function createPane\([\s\S]*?\n\}/, 'createPane'), /bornAt: Date\.now\(\)/,
     'the two-minute window is counted from the tab, so a bus resume is covered like a restore');
 });

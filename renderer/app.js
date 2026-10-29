@@ -4262,7 +4262,7 @@ window.glassShell.onPtyData((m) => {
   const p = panes.get(m.id);
   if (!p || p.kind !== 'term') return;
   p.term.write(m.data);
-  if (UNATTENDED !== 'off' && p.isSession && !p.uaDone) unattendedScan(m.id, p, m.data);
+  if (UNATTENDED !== 'off' && p.isSession && !p.uaDone && RESUME_CMD.test(p.cmd || '')) unattendedScan(m.id, p, m.data);
   if (p.scheduleAtlasClear) p.scheduleAtlasClear((m.data || '').length);   // volume-gated; see its definition
   // pty-grade theater: tail the latest meaningful output line into the ticker
   // (throttled — TUI spinners redraw constantly; the ticker breathes, not thrashes)
@@ -5153,21 +5153,55 @@ function resumeDialogKeys(plain, mode) {
   if (RESUME_QUOTA_DIALOG.test(plain)) return ['\x1b'];
   return null;
 }
-/** Watches one claude tab's first output for a resume question; answers it once, at most. */
+/* THE STREAM ONLY NOMINATES; THE SCREEN DECIDES. Output text is not a dialog: a resumed session
+   redraws its history, and that history (or anything a tool printed) can quote a question word
+   for word. Answering it then lands Enter, or Down+Enter, in the prompt, and Down+Enter resends
+   the previous prompt. So a match in the stream only schedules a look at the screen, and keys go
+   out only while the question is what the bottom of the screen shows — re-checked before each
+   one. Only tabs started with `--resume` are watched: no other launch asks the question. */
+const RESUME_CMD = /(?:^|\s)--resume(?:\s|$)/;
+const DIALOG_LAST_ROW = /Don'taskmeagain|Startanewconversation/;
+/** The viewport's rows as text, trailing blank rows dropped. */
+function screenRows(term) {
+  const b = term && term.buffer && term.buffer.active;
+  if (!b) return [];
+  const rows = [];
+  for (let y = b.viewportY; y < b.viewportY + term.rows; y++) {
+    const line = b.getLine(y);
+    rows.push(line ? line.translateToString(true) : '');
+  }
+  while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
+  return rows;
+}
+/** The bottom of the screen as comparable text when it ends in a resume question's options, else ''. */
+function dialogOnScreen(rows) {
+  const nonBlank = rows.filter((r) => r.trim());
+  if (!DIALOG_LAST_ROW.test(ptyPlain(nonBlank.slice(-3).join('')))) return '';
+  return ptyPlain(nonBlank.slice(-16).join(''));
+}
+/** Watches one resumed claude tab's first output for a resume question; answers it once, at most. */
 function unattendedScan(id, p, data) {
   if (Date.now() - (p.bornAt || 0) > UNATTENDED_WINDOW_MS) { p.uaDone = true; p.uaRaw = ''; return; }
+  if (p.uaPending) return;
   p.uaRaw = ((p.uaRaw || '') + (data || '')).slice(-16384);
-  const keys = resumeDialogKeys(ptyPlain(p.uaRaw), UNATTENDED);
-  if (!keys) return;
-  p.uaDone = true;
+  if (!resumeDialogKeys(ptyPlain(p.uaRaw), UNATTENDED)) return;
+  p.uaPending = true;
   p.uaRaw = '';
   const seenAt = Date.now();
-  console.info('[unattended] answering the resume question in', p.name, keys.length > 1 ? '(full)' : '');
-  keys.forEach((k, i) => setTimeout(() => {
-    /* Someone typed after the question appeared: it is theirs to answer, not ours. */
-    if (panes.get(id) !== p || p.exited || (p.lastKeyAt || 0) > seenAt) return;
-    window.glassShell.ptyWrite(id, k);
-  }, UNATTENDED_GRACE_MS + i * UNATTENDED_KEY_GAP_MS));
+  /* Someone typed after the question appeared: it is theirs to answer, not ours. */
+  const stillOurs = () => panes.get(id) === p && !p.exited && (p.lastKeyAt || 0) <= seenAt;
+  setTimeout(() => {
+    p.uaPending = false;
+    if (!stillOurs()) return;
+    const keys = resumeDialogKeys(dialogOnScreen(screenRows(p.term)), UNATTENDED);
+    if (!keys) return;   // the screen is not showing it: keep watching, the window still bounds this
+    p.uaDone = true;
+    console.info('[unattended] answering the resume question in', p.name, keys.length > 1 ? '(full)' : '');
+    keys.forEach((k, i) => setTimeout(() => {
+      if (!stillOurs() || !dialogOnScreen(screenRows(p.term))) return;
+      window.glassShell.ptyWrite(id, k);
+    }, i * UNATTENDED_KEY_GAP_MS));
+  }, UNATTENDED_GRACE_MS);
 }
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Start restored tabs one by one. A tab that fails is reported and skipped, never a stop. */
