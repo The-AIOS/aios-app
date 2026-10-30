@@ -7940,7 +7940,7 @@ const CHAT_METERS = [
 ];
 /* What the statusline payload may carry. The payload is GLOBAL (whichever session wrote it last), so the fields
    that describe ONE session are only taken when main says the payload is this tab's (sessionMatch === true). */
-const CHAT_STATUS_FIELDS = ['fiveHourPct', 'sevenDayPct', 'contextPct', 'model', 'effort', 'fiveHourResetsAt', 'sevenDayResetsAt', 'contextWindow'];
+const CHAT_STATUS_FIELDS = ['fiveHourPct', 'sevenDayPct', 'contextPct', 'model', 'effort', 'effortDefault', 'fiveHourResetsAt', 'sevenDayResetsAt', 'contextWindow'];
 const CHAT_STATUS_OWN = ['contextPct', 'model', 'effort', 'contextWindow'];
 const CHAT_RESET_OF = { fiveHourPct: 'fiveHourResetsAt', sevenDayPct: 'sevenDayResetsAt' };
 /* Neutral below 60, amber from 60, red from 85: the amber has to leave room to act before the red says "now". */
@@ -8062,7 +8062,7 @@ function chatPaintUsage(cs) {
   /* Effort: the value is only ever this tab's own (a payload with sessionMatch, or what the operator just picked here). Until
      there is one the segment is still a button — the effort has to be choosable even when it is not known — and shows a faint
      word, not a dash (a dash would read as a failure) and certainly not another session's value. */
-  const effort = cs.status.effort;
+  const effort = cs.status.effort || cs.status.effortDefault;   // the tab's own value, else the level new sessions start at
   const ep = parts.effort;
   const word = effort ? (CHAT_EFFORT_MENU.includes(String(effort)) ? t('chat.bar.effort.' + effort) : String(effort)) : t('chat.bar.effortWord');
   ep.v.textContent = word;

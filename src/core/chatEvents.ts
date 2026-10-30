@@ -24,6 +24,8 @@ export interface ChatStatus {
   contextWindow?: number;
   model?: string;
   effort?: string;
+  /** The effort a new session starts with (Claude settings `effortLevel`): shown until the session's own value is known. */
+  effortDefault?: string;
   /** Set by `scopeStatusToSession` and carried by `mergeStatus`: true when the statusline payload described the
    *  asking tab's own session, false when it described another one (or when either id is missing). Absent when
    *  nothing was scoped. When false, model/effort/contextPct/contextWindow are NOT in this object at all. */

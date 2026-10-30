@@ -507,6 +507,12 @@ ipcMain.handle('chat:status', async (_e, sessionId: unknown) => {
      the AIOS status line keeps the account's 5-hour and weekly windows in rate-limit-cache.json (claude-identity.sh cache),
      which the App already reads for the quota nudges. Fill what the payload did not give from there, so the meters are never
      empty on a stock AIOS machine (release round, 0.14.0). Account-wide numbers, so no session scoping applies. */
+  /* The effort every new session starts at, from Claude's settings: the bar shows it until this tab's own value is known
+     (0.14.0 round: the bare word "effort" read as broken). Never as the tab's value: a session may have changed it since. */
+  try {
+    const lvl = (JSON.parse(fs.readFileSync(path.join(aios.claudeConfigDir(), 'settings.json'), 'utf8')) as { effortLevel?: unknown }).effortLevel;
+    if (typeof lvl === 'string' && lvl.trim()) st.effortDefault = lvl.trim();
+  } catch { /* no settings: the bar keeps its word */ }
   const rl = aios.rateLimit();
   if (rl) {
     if (st.fiveHourPct === undefined) st.fiveHourPct = rl.fiveHourPct;
