@@ -23,7 +23,9 @@
     "verify:package": "node scripts/verify-package.mjs",
     "start:isolated": "npm run compile && electron . --user-data-dir=.dev-userdata",
     "demo": "npm run compile && node scripts/demo.mjs",
-    "whatsnew:shot": "npm run compile && node scripts/whatsnew-shot.mjs"
+    "whatsnew:shot": "npm run compile && node scripts/whatsnew-shot.mjs",
+    "chat:shot": "npm run compile && node scripts/chat-shot.mjs",
+    "chat:bench": "npm run compile && node scripts/chat-bench.mjs"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",

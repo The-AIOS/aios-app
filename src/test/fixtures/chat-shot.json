@@ -1,0 +1,2169 @@
+{
+  "$comment": "Hand-written, neutral fixture for the chat-view screenshot harness (format documented in the CHAT SHOT block of src/main/main.ts). Every name, path and line is invented; never paste real transcripts here. It lives beside the other fixtures in src/test/fixtures/: the unit suite validates it and the harness reads it at run time (a custom one can be passed with --fixture).",
+  "version": 1,
+  "settleMs": 450,
+  "streams": {
+    "conversation": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "u-1",
+            "role": "user",
+            "text": "Uploads to the sync service keep stalling after a few failures. Can you look at the retry logic and tell me why?"
+          },
+          {
+            "uuid": "t-1",
+            "role": "tool",
+            "tool": {
+              "id": "tool-1",
+              "name": "Read",
+              "summary": "src/sync/client.ts",
+              "status": "ok",
+              "output": "1  import { request } from './http';\n2  \n3  export async function uploadChunk(chunk: Buffer, attempt = 0) {\n4    try {\n5      return await request('PUT', chunk);\n6    } catch (err) {\n7      await sleep(delay(attempt));\n8      return uploadChunk(chunk, attempt + 1);\n9    }\n10 }"
+            }
+          },
+          {
+            "uuid": "a-1",
+            "role": "assistant",
+            "text": "## Why the uploads stall\n\nThe retry loop in `uploadChunk` waits for the *previous* delay to finish **before** it computes the next one, so a burst of failures compounds instead of spreading out. Two things make it worse:\n\n- the delay doubles on every attempt but is never capped\n- the jitter is added to the delay instead of replacing part of it\n\n### What I would change\n\n1. Cap the delay at 30 seconds\n2. Apply *full jitter*, a random value between zero and the capped delay\n3. Stop after `maxAttempts` and surface the last error\n\nHere is the shape of the fix:\n\n```ts\nexport function nextDelay(attempt: number, base = 500, cap = 30_000): number {\n  const ceiling = Math.min(cap, base * 2 ** attempt);\n  return Math.floor(Math.random() * ceiling);\n}\n```\n\nAnd how to check it from the command line:\n\n```bash\nnpm test -- --grep \"nextDelay\"\nnode scripts/simulate-retries.mjs --attempts 8 --seed 7\n```\n\n| Attempt | Old delay | New ceiling |\n|---------|-----------|-------------|\n| 1       | 500 ms    | 500 ms      |\n| 4       | 4 s       | 4 s         |\n| 8       | 64 s      | 30 s        |\n\n> Backoff without a cap is a polite way of waiting forever.\n\nThe reasoning follows the [exponential backoff guide](https://example.com/docs/retries), which recommends full jitter for exactly this case."
+          },
+          {
+            "uuid": "u-2",
+            "role": "user",
+            "text": "Good catch. Fix the backoff, but keep the public API unchanged."
+          },
+          {
+            "uuid": "a-2",
+            "role": "assistant",
+            "text": "I'll patch the delay calculation in `backoff.ts` and run the suite."
+          },
+          {
+            "uuid": "t-2",
+            "role": "tool",
+            "tool": {
+              "id": "tool-2",
+              "name": "Grep",
+              "summary": "delay( in src/ and test/",
+              "status": "ok",
+              "output": "src/sync/client.ts:7:      await sleep(delay(attempt));\nsrc/sync/backoff.ts:3:export function delay(attempt: number) {\nsrc/sync/backoff.ts:4:  return 500 * 2 ** attempt + Math.random() * 100;\ntest/sync/backoff.test.ts:12:  assert.ok(delay(10) > 60_000);"
+            }
+          },
+          {
+            "uuid": "t-3",
+            "role": "tool",
+            "tool": {
+              "id": "tool-3",
+              "name": "Edit",
+              "summary": "src/sync/backoff.ts",
+              "status": "error",
+              "output": "Error: the text to replace was not found in src/sync/backoff.ts.\nThe file changed since it was read; read it again before editing."
+            }
+          },
+          {
+            "uuid": "t-4",
+            "role": "tool",
+            "tool": {
+              "id": "tool-4",
+              "name": "Bash",
+              "summary": "npm test",
+              "status": "running",
+              "output": "> sync-client@1.4.0 test\n> node --test test/sync/*.test.js\n\n✔ delay grows with the attempt (2.1ms)\n✔ delay never exceeds the cap (0.8ms)\n▶ retries stop after maxAttempts"
+            }
+          },
+          {
+            "uuid": "u-3",
+            "role": "user",
+            "text": "When it passes, add a line to the changelog as well."
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      }
+    ],
+    "empty": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "sessionMatch": true
+      },
+      {
+        "type": "items",
+        "items": []
+      }
+    ],
+    "attention-prompt": [
+      {
+        "type": "prompt",
+        "kind": "permission",
+        "hint": "Run the unit tests of the sync client? npm test"
+      }
+    ],
+    "usage-high": [
+      {
+        "type": "status",
+        "fiveHourPct": 78,
+        "sevenDayPct": 93,
+        "fiveHourResetsAt": "+1500",
+        "sevenDayResetsAt": "+90000",
+        "contextWindow": 200000,
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 186000,
+        "model": "claude-sonnet-5-5"
+      }
+    ],
+    "connecting": [],
+    "error": [
+      {
+        "type": "error",
+        "code": "read-failed"
+      }
+    ],
+    "tools-dense": [
+      {
+        "type": "status",
+        "fiveHourPct": 31,
+        "sevenDayPct": 12,
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+11400",
+        "sevenDayResetsAt": "+420000",
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 52000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "d-u1",
+            "role": "user",
+            "text": "Find where the cache is invalidated and make the TTL configurable."
+          },
+          {
+            "uuid": "d-a1",
+            "role": "assistant",
+            "text": "Looking at the cache module first, then its callers."
+          },
+          {
+            "uuid": "d-1",
+            "role": "tool",
+            "tool": {
+              "id": "dt-1",
+              "name": "Glob",
+              "summary": "src/cache/**/*.ts",
+              "status": "ok",
+              "output": "src/cache/index.ts\nsrc/cache/store.ts\nsrc/cache/ttl.ts"
+            }
+          },
+          {
+            "uuid": "d-2",
+            "role": "tool",
+            "tool": {
+              "id": "dt-2",
+              "name": "Read",
+              "summary": "src/cache/ttl.ts",
+              "status": "ok",
+              "output": "1  export const DEFAULT_TTL = 300;\n2  export function ttlFor(key: string): number {\n3    return DEFAULT_TTL;\n4  }"
+            }
+          },
+          {
+            "uuid": "d-3",
+            "role": "tool",
+            "tool": {
+              "id": "dt-3",
+              "name": "Grep",
+              "summary": "ttlFor( in src/",
+              "status": "ok",
+              "output": "src/cache/store.ts:41:  const ttl = ttlFor(key);\nsrc/api/handlers.ts:88:  cache.set(id, body, ttlFor(id));"
+            }
+          },
+          {
+            "uuid": "d-4",
+            "role": "tool",
+            "tool": {
+              "id": "dt-4",
+              "name": "Read",
+              "summary": "src/cache/store.ts",
+              "status": "ok",
+              "output": "1  import { ttlFor } from \"./ttl\";\n2  \n3  export class Store {\n4    set(key: string, value: unknown) {"
+            }
+          },
+          {
+            "uuid": "d-5",
+            "role": "tool",
+            "tool": {
+              "id": "dt-5",
+              "name": "Edit",
+              "summary": "src/cache/ttl.ts",
+              "status": "ok",
+              "output": "The file src/cache/ttl.ts has been updated."
+            }
+          },
+          {
+            "uuid": "d-6",
+            "role": "tool",
+            "tool": {
+              "id": "dt-6",
+              "name": "Bash",
+              "summary": "npm test -- --grep ttl",
+              "status": "error",
+              "output": "1 failing\n  ttl\n    reads TTL_SECONDS from the environment\n      AssertionError: expected 300 to equal 60"
+            }
+          },
+          {
+            "uuid": "d-7",
+            "role": "tool",
+            "tool": {
+              "id": "dt-7",
+              "name": "mcp__tracker__create_issue",
+              "summary": "Follow-up: document TTL_SECONDS",
+              "status": "running",
+              "output": ""
+            }
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      }
+    ],
+    "streaming-base": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "s-u1",
+            "role": "user",
+            "text": "Add a regression test for the delay cap, then explain how the cap works."
+          },
+          {
+            "uuid": "s-a1",
+            "role": "assistant",
+            "text": "I'll read the backoff module first, then write the test."
+          },
+          {
+            "uuid": "t-s1",
+            "role": "tool",
+            "tool": {
+              "id": "tool-s1",
+              "name": "Read",
+              "summary": "src/sync/backoff.ts",
+              "status": "ok",
+              "output": "1  export function delay(attempt: number) {\n2    return 500 * 2 ** attempt + Math.random() * 100;\n3  }\n4  \n5  export function nextDelay(attempt: number, base = 500, cap = 30_000): number {\n6    const ceiling = Math.min(cap, base * 2 ** attempt);\n7    return Math.floor(Math.random() * ceiling);\n8  }"
+            }
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      }
+    ],
+    "streaming-half": [
+      {
+        "type": "stream",
+        "anchor": "the cap is enforced in nextdelay",
+        "headCut": false,
+        "text": "The cap is enforced in nextDelay: it takes the smaller of the exponential value and the ceiling, so a delay can never grow past thirty seconds.\n\nThe test I added checks three things:\n\n1. at attempt 1 the delay stays under the base\n2. at attempt 10 the delay never exceeds the cap\n3. with a seeded random source the sequence is repeat"
+      }
+    ],
+    "streaming-final": [
+      {
+        "type": "stream",
+        "text": null,
+        "adopt": "s-a2"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "s-a2",
+            "role": "assistant",
+            "text": "The cap is enforced in `nextDelay`: it takes the smaller of the exponential value and the ceiling, so a delay can never grow past thirty seconds.\n\nThe test I added checks three things:\n\n1. at attempt 1 the delay stays under the base\n2. at attempt 10 the delay never exceeds the cap\n3. with a seeded random source the sequence is repeatable\n\nRun it with `npm test -- --grep nextDelay`."
+          }
+        ]
+      }
+    ],
+    "permission-card": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "p-u1",
+            "role": "user",
+            "text": "Run the tests for the delay cap and tell me if they pass."
+          },
+          {
+            "uuid": "p-a1",
+            "role": "assistant",
+            "text": "I'll run only the tests that touch `nextDelay`."
+          },
+          {
+            "uuid": "t-p1",
+            "role": "tool",
+            "tool": {
+              "id": "tool-p1",
+              "name": "Bash",
+              "summary": "npm test -- --grep nextDelay",
+              "status": "running"
+            }
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      },
+      {
+        "type": "prompt",
+        "kind": "permission",
+        "hint": "Do you want to proceed?",
+        "question": "Do you want to proceed?",
+        "options": [
+          {
+            "n": 1,
+            "label": "Yes",
+            "selected": true,
+            "key": "1"
+          },
+          {
+            "n": 2,
+            "label": "Yes, and don't ask again for npm test commands in this project",
+            "selected": false,
+            "key": "2"
+          },
+          {
+            "n": 3,
+            "label": "No, and tell the assistant what to do differently",
+            "selected": false,
+            "key": "3"
+          }
+        ]
+      }
+    ],
+    "menu-card": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "m-u1",
+            "role": "user",
+            "text": "/model"
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      },
+      {
+        "type": "prompt",
+        "kind": "model",
+        "hint": "Select model",
+        "question": "Select model",
+        "options": [
+          {
+            "n": 1,
+            "label": "Default (recommended)",
+            "selected": true,
+            "key": "1"
+          },
+          {
+            "n": 2,
+            "label": "Sonnet 5.5 · balanced for everyday work",
+            "selected": false,
+            "key": "2"
+          },
+          {
+            "n": 3,
+            "label": "Opus 5.5 · deepest reasoning, slower",
+            "selected": false,
+            "key": "3"
+          },
+          {
+            "n": 4,
+            "label": "Haiku 5.5 · fastest, for small tasks",
+            "selected": false,
+            "key": "4"
+          }
+        ]
+      }
+    ],
+    "question-card": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "q-u1",
+            "role": "user",
+            "text": "Merge the two config loaders into one."
+          },
+          {
+            "uuid": "q-a1",
+            "role": "assistant",
+            "text": "Both loaders read `settings.json`, but they disagree on what an empty value means."
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      },
+      {
+        "type": "prompt",
+        "kind": "question",
+        "hint": "Which behaviour should an empty value keep?",
+        "question": "Which behaviour should an empty value keep?",
+        "options": [
+          {
+            "n": null,
+            "label": "Treat it as unset and use the default",
+            "selected": true,
+            "key": "\r"
+          },
+          {
+            "n": null,
+            "label": "Treat it as an explicit empty string",
+            "selected": false,
+            "key": "\u001b[B\r"
+          },
+          {
+            "n": null,
+            "label": "Type something.",
+            "selected": false,
+            "key": "\u001b[B\u001b[B",
+            "freeText": true
+          }
+        ]
+      }
+    ],
+    "bar-idle": [
+      {
+        "type": "turn",
+        "open": false
+      }
+    ],
+    "bar-hot": [
+      {
+        "type": "status",
+        "sessionMatch": true,
+        "fiveHourPct": 72,
+        "sevenDayPct": 38,
+        "model": "claude-opus-5-5",
+        "effort": "xhigh",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+2400",
+        "sevenDayResetsAt": "+250000"
+      },
+      {
+        "type": "usage",
+        "contextTokens": 182000,
+        "model": "claude-opus-5-5"
+      }
+    ],
+    "bubbles": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "b-u1",
+            "role": "user",
+            "text": "Can you tidy the changelog?"
+          },
+          {
+            "uuid": "b-a1",
+            "role": "assistant",
+            "text": "Yes. Two changes, nothing else:\n\n- merge the two entries that describe the same fix\n- write every date as `YYYY-MM-DD`\n\nThe new shape of an entry:\n\n```md\n## 1.4.0 - 2026-03-02\n- Fixed: uploads no longer stall after repeated failures\n```"
+          },
+          {
+            "uuid": "b-u2",
+            "role": "user",
+            "text": "Looks good.\nOne more thing: keep the older entries untouched, and do not reorder anything that has already shipped, because the release notes link to them by position."
+          },
+          {
+            "uuid": "b-t1",
+            "role": "tool",
+            "tool": {
+              "id": "tool-b1",
+              "name": "Read",
+              "summary": "CHANGELOG.md",
+              "status": "ok",
+              "output": "1  # Changelog\n2  \n3  ## 1.4.0\n4  - Fixed: uploads stall after repeated failures"
+            }
+          },
+          {
+            "uuid": "b-t2",
+            "role": "tool",
+            "tool": {
+              "id": "tool-b2",
+              "name": "Edit",
+              "summary": "CHANGELOG.md",
+              "status": "ok",
+              "output": "The file CHANGELOG.md has been updated."
+            }
+          },
+          {
+            "uuid": "b-a2",
+            "role": "assistant",
+            "text": "### What changed\n\nOnly the top entry moved. The older ones are byte-for-byte the same, so every link by position still lands where it did.\n\nIf you want, I can also add a short note at the top that explains the date format."
+          },
+          {
+            "uuid": "b-u3",
+            "role": "user",
+            "text": "Go ahead."
+          }
+        ]
+      }
+    ],
+    "tools-live": [
+      {
+        "type": "status",
+        "sessionMatch": true,
+        "fiveHourPct": 31,
+        "sevenDayPct": 12,
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+11400",
+        "sevenDayResetsAt": "+420000",
+        "model": "claude-sonnet-5-5",
+        "effort": "high"
+      },
+      {
+        "type": "usage",
+        "contextTokens": 52000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "g-u1",
+            "role": "user",
+            "text": "Make the cache TTL configurable from the environment and run the tests."
+          },
+          {
+            "uuid": "g-a1",
+            "role": "assistant",
+            "text": "I'll read the cache module and its callers, change the TTL lookup, then run the tests."
+          },
+          {
+            "uuid": "g-1",
+            "role": "tool",
+            "tool": {
+              "id": "gt-1",
+              "name": "Glob",
+              "summary": "src/cache/**/*.ts",
+              "status": "ok",
+              "output": "src/cache/index.ts\nsrc/cache/store.ts\nsrc/cache/ttl.ts"
+            }
+          },
+          {
+            "uuid": "g-2",
+            "role": "tool",
+            "tool": {
+              "id": "gt-2",
+              "name": "Read",
+              "summary": "src/cache/ttl.ts",
+              "status": "ok",
+              "output": "1  export const DEFAULT_TTL = 300;\n2  export function ttlFor(key: string): number {\n3    return DEFAULT_TTL;\n4  }"
+            }
+          },
+          {
+            "uuid": "g-3",
+            "role": "tool",
+            "tool": {
+              "id": "gt-3",
+              "name": "Grep",
+              "summary": "ttlFor( in src/",
+              "status": "ok",
+              "output": "src/cache/store.ts:41:  const ttl = ttlFor(key);\nsrc/api/handlers.ts:88:  cache.set(id, body, ttlFor(id));"
+            }
+          },
+          {
+            "uuid": "g-4",
+            "role": "tool",
+            "tool": {
+              "id": "gt-4",
+              "name": "Read",
+              "summary": "src/cache/store.ts",
+              "status": "ok",
+              "output": "1  import { ttlFor } from \"./ttl\";\n2  \n3  export class Store {\n4    set(key: string, value: unknown) {"
+            }
+          },
+          {
+            "uuid": "g-5",
+            "role": "tool",
+            "tool": {
+              "id": "gt-5",
+              "name": "Read",
+              "summary": "src/api/handlers.ts",
+              "status": "ok",
+              "output": "80  export async function handle(req: Request) {\n81    const id = req.params.id;\n82    const body = await load(id);\n83    return body;\n84  }"
+            }
+          },
+          {
+            "uuid": "g-6",
+            "role": "tool",
+            "tool": {
+              "id": "gt-6",
+              "name": "Edit",
+              "summary": "src/cache/ttl.ts",
+              "status": "ok",
+              "output": "The file src/cache/ttl.ts has been updated."
+            }
+          },
+          {
+            "uuid": "g-7",
+            "role": "tool",
+            "tool": {
+              "id": "gt-7",
+              "name": "Bash",
+              "summary": "npm test -- --grep ttl --reporter spec --runInBand",
+              "status": "running",
+              "output": ""
+            }
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": true
+      }
+    ],
+    "tools-fail": [
+      {
+        "type": "status",
+        "sessionMatch": true,
+        "fiveHourPct": 31,
+        "sevenDayPct": 12,
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+11400",
+        "sevenDayResetsAt": "+420000",
+        "model": "claude-sonnet-5-5",
+        "effort": "high"
+      },
+      {
+        "type": "usage",
+        "contextTokens": 52000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "g-u1",
+            "role": "user",
+            "text": "Make the cache TTL configurable from the environment and run the tests."
+          },
+          {
+            "uuid": "g-a1",
+            "role": "assistant",
+            "text": "I'll read the cache module and its callers, change the TTL lookup, then run the tests."
+          },
+          {
+            "uuid": "g-1",
+            "role": "tool",
+            "tool": {
+              "id": "gt-1",
+              "name": "Glob",
+              "summary": "src/cache/**/*.ts",
+              "status": "ok",
+              "output": "src/cache/index.ts\nsrc/cache/store.ts\nsrc/cache/ttl.ts"
+            }
+          },
+          {
+            "uuid": "g-2",
+            "role": "tool",
+            "tool": {
+              "id": "gt-2",
+              "name": "Read",
+              "summary": "src/cache/ttl.ts",
+              "status": "ok",
+              "output": "1  export const DEFAULT_TTL = 300;\n2  export function ttlFor(key: string): number {\n3    return DEFAULT_TTL;\n4  }"
+            }
+          },
+          {
+            "uuid": "g-3",
+            "role": "tool",
+            "tool": {
+              "id": "gt-3",
+              "name": "Grep",
+              "summary": "ttlFor( in src/",
+              "status": "ok",
+              "output": "src/cache/store.ts:41:  const ttl = ttlFor(key);\nsrc/api/handlers.ts:88:  cache.set(id, body, ttlFor(id));"
+            }
+          },
+          {
+            "uuid": "g-4",
+            "role": "tool",
+            "tool": {
+              "id": "gt-4",
+              "name": "Read",
+              "summary": "src/cache/store.ts",
+              "status": "ok",
+              "output": "1  import { ttlFor } from \"./ttl\";\n2  \n3  export class Store {\n4    set(key: string, value: unknown) {"
+            }
+          },
+          {
+            "uuid": "g-5",
+            "role": "tool",
+            "tool": {
+              "id": "gt-5",
+              "name": "Read",
+              "summary": "src/api/handlers.ts",
+              "status": "ok",
+              "output": "80  export async function handle(req: Request) {\n81    const id = req.params.id;\n82    const body = await load(id);\n83    return body;\n84  }"
+            }
+          },
+          {
+            "uuid": "g-6",
+            "role": "tool",
+            "tool": {
+              "id": "gt-6",
+              "name": "Edit",
+              "summary": "src/cache/ttl.ts",
+              "status": "ok",
+              "output": "The file src/cache/ttl.ts has been updated."
+            }
+          },
+          {
+            "uuid": "g-7",
+            "role": "tool",
+            "tool": {
+              "id": "gt-7",
+              "name": "Bash",
+              "summary": "npm test -- --grep ttl --reporter spec --runInBand",
+              "status": "error",
+              "output": "1 failing\n  ttl\n    reads TTL_SECONDS from the environment\n      AssertionError: expected 300 to equal 60\n      at Context.<anonymous> (test/ttl.test.ts:12:20)"
+            }
+          },
+          {
+            "uuid": "g-a2",
+            "role": "assistant",
+            "text": "One test still fails: the lookup ignores `TTL_SECONDS`. I'll read it from the environment next."
+          }
+        ]
+      },
+      {
+        "type": "turn",
+        "open": false
+      }
+    ],
+    "paths": [
+      {
+        "type": "status",
+        "fiveHourPct": 42,
+        "sevenDayPct": 71,
+        "contextPct": 38,
+        "model": "claude-sonnet-5-5",
+        "effort": "high",
+        "contextWindow": 200000,
+        "fiveHourResetsAt": "+8280",
+        "sevenDayResetsAt": "+190000",
+        "sessionMatch": true
+      },
+      {
+        "type": "usage",
+        "contextTokens": 84000,
+        "model": "claude-sonnet-5-5"
+      },
+      {
+        "type": "items",
+        "items": [
+          {
+            "uuid": "pu-1",
+            "role": "user",
+            "text": "Can you read notes/plan.md and tell me where the demo project stands?"
+          },
+          {
+            "uuid": "pt-1",
+            "role": "tool",
+            "tool": {
+              "id": "ptool-1",
+              "name": "Read",
+              "summary": "notes/plan.md",
+              "status": "ok",
+              "output": "1  # Plan\n2  \n3  - Draft the summary\n4  - Review with the team"
+            }
+          },
+          {
+            "uuid": "pa-1",
+            "role": "assistant",
+            "text": "The plan lives in `notes/plan.md` and the work itself is under projects/demo/. Two steps are still open: the summary draft and the team review.\n\nThe draft is at projects/demo/src/components/reports/quarterly-summary-final-draft.md, which is a long path and should be clipped rather than push the column wider.\n\nI also looked for `notes/missing-draft.md`, but that file does not exist yet, so it stays plain text."
+          }
+        ]
+      }
+    ]
+  },
+  "shots": [
+    {
+      "name": "chat-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "js": [
+        "const row = ctx.$('.chat-tool[data-kind=\"search\"] .ct-head');",
+        "row.click();",
+        "ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "chat-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "js": [
+        "const row = ctx.$('.chat-tool[data-kind=\"search\"] .ct-head');",
+        "row.click();",
+        "ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "attention-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "attention-prompt"
+      ],
+      "terminal": "\u001b[2m╭──────────────────────────────────────────────────────────────╮\u001b[0m\n\u001b[2m│\u001b[0m \u001b[1mBash command\u001b[0m                                                 \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m                                                              \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   npm test                                                   \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   \u001b[2mRun the unit tests of the sync client\u001b[0m                     \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m                                                              \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m Do you want to proceed?                                      \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m \u001b[36m❯ 1. Yes\u001b[0m                                                     \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   2. Yes, and don't ask again for npm test in this project   \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   3. No, and tell Claude what to do differently \u001b[2m(esc)\u001b[0m         \u001b[2m│\u001b[0m\n\u001b[2m╰──────────────────────────────────────────────────────────────╯\u001b[0m",
+      "clip": "pane"
+    },
+    {
+      "name": "attention-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "attention-prompt"
+      ],
+      "terminal": "\u001b[2m╭──────────────────────────────────────────────────────────────╮\u001b[0m\n\u001b[2m│\u001b[0m \u001b[1mBash command\u001b[0m                                                 \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m                                                              \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   npm test                                                   \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   \u001b[2mRun the unit tests of the sync client\u001b[0m                     \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m                                                              \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m Do you want to proceed?                                      \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m \u001b[36m❯ 1. Yes\u001b[0m                                                     \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   2. Yes, and don't ask again for npm test in this project   \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   3. No, and tell Claude what to do differently \u001b[2m(esc)\u001b[0m         \u001b[2m│\u001b[0m\n\u001b[2m╰──────────────────────────────────────────────────────────────╯\u001b[0m",
+      "clip": "pane"
+    },
+    {
+      "name": "empty-dark",
+      "theme": "dark",
+      "events": [
+        "empty"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "markdown-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "js": [
+        "// scroll the rich answer to the top of the log, as a reader who went back to it would",
+        "const row = ctx.$('.chat-row.who-claude');",
+        "ctx.cs.stick = false;",
+        "ctx.cs.log.scrollTop = row.offsetTop - 12;"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "narrow-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "size": {
+        "width": 1000,
+        "height": 780
+      },
+      "composer": "Short question?",
+      "clip": "window"
+    },
+    {
+      "name": "workbench-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "layout": "workbench",
+      "composer": "Also check that the retry count is logged",
+      "clip": "window"
+    },
+    {
+      "name": "settings-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "js": [
+        "openSettingsTab();",
+        "await ctx.sleep(400);",
+        "// the view lives here and nowhere on the tab: bring the selector into view, and FAIL the run if it is missing or does not say what the open tabs are doing",
+        "const sel = document.querySelector('[data-setting=\"claudeView\"]');",
+        "if (!sel) throw new Error('the Settings tab has no Claude view selector');",
+        "if (sel.tagName !== 'SELECT' || sel.value !== 'chat') throw new Error('the Claude view selector does not show the live mode');",
+        "if ((ctx.p.view === 'chat') !== (sel.value === 'chat')) throw new Error('the open Claude tab is not in the mode the selector shows');",
+        "const sample = document.querySelector('.chat-pref-sample');",
+        "if (!sample) throw new Error('the Settings tab has no chat font sample');",
+        "sel.scrollIntoView({ block: 'center' });",
+        "await ctx.sleep(250);",
+        "const sr = sample.getBoundingClientRect(), vr = sel.getBoundingClientRect();",
+        "if (!(sr.width > 40 && sr.height > 8 && sr.bottom <= window.innerHeight && vr.top >= 0)) throw new Error('the selector and the chat font sample are not on screen together');"
+      ],
+      "clip": "window",
+      "layout": "workbench"
+    },
+    {
+      "name": "settings-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "js": [
+        "openSettingsTab();",
+        "await ctx.sleep(400);",
+        "// the view lives here and nowhere on the tab: bring the selector into view, and FAIL the run if it is missing or does not say what the open tabs are doing",
+        "const sel = document.querySelector('[data-setting=\"claudeView\"]');",
+        "if (!sel) throw new Error('the Settings tab has no Claude view selector');",
+        "if (sel.tagName !== 'SELECT' || sel.value !== 'chat') throw new Error('the Claude view selector does not show the live mode');",
+        "if ((ctx.p.view === 'chat') !== (sel.value === 'chat')) throw new Error('the open Claude tab is not in the mode the selector shows');",
+        "const sample = document.querySelector('.chat-pref-sample');",
+        "if (!sample) throw new Error('the Settings tab has no chat font sample');",
+        "sel.scrollIntoView({ block: 'center' });",
+        "await ctx.sleep(250);",
+        "const sr = sample.getBoundingClientRect(), vr = sel.getBoundingClientRect();",
+        "if (!(sr.width > 40 && sr.height > 8 && sr.bottom <= window.innerHeight && vr.top >= 0)) throw new Error('the selector and the chat font sample are not on screen together');"
+      ],
+      "clip": "window",
+      "layout": "workbench"
+    },
+    {
+      "name": "tab-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await ctx.sleep(300);",
+        "// the tab of a Claude session in chat view: its name and close mark and nothing else. FAIL the run if a view switch is on it, or if the tab is not on screen.",
+        "if (ctx.p.tab.querySelector('.tview') || ctx.p.viewBtn) throw new Error('the tab has a view switch again');",
+        "const tr = ctx.p.tab.getBoundingClientRect();",
+        "if (!(tr.width > 40 && tr.height > 10 && tr.top >= 0 && tr.bottom <= window.innerHeight)) throw new Error('the Claude tab is not on screen');",
+        "if (ctx.p.view !== 'chat') throw new Error('the Claude tab is not in the chat view');"
+      ],
+      "clip": "window",
+      "layout": "workbench"
+    },
+    {
+      "name": "tab-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await ctx.sleep(300);",
+        "// the tab of a Claude session in chat view: its name and close mark and nothing else. FAIL the run if a view switch is on it, or if the tab is not on screen.",
+        "if (ctx.p.tab.querySelector('.tview') || ctx.p.viewBtn) throw new Error('the tab has a view switch again');",
+        "const tr = ctx.p.tab.getBoundingClientRect();",
+        "if (!(tr.width > 40 && tr.height > 10 && tr.top >= 0 && tr.bottom <= window.innerHeight)) throw new Error('the Claude tab is not on screen');",
+        "if (ctx.p.view !== 'chat') throw new Error('the Claude tab is not in the chat view');"
+      ],
+      "clip": "window",
+      "layout": "workbench"
+    },
+    {
+      "name": "settings-terminal-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "js": [
+        "// Terminal mode: the same page after the operator picked Terminal. The font and size only mean something in Chat, so their rows must step aside.",
+        "await chatSkinSetMode('terminal', { persist: false });",
+        "openSettingsTab();",
+        "await ctx.sleep(400);",
+        "// the view lives here and nowhere on the tab: bring the selector into view, and FAIL the run if it is missing or does not say what the open tabs are doing",
+        "const sel = document.querySelector('[data-setting=\"claudeView\"]');",
+        "if (!sel) throw new Error('the Settings tab has no Claude view selector');",
+        "if (sel.tagName !== 'SELECT' || sel.value !== 'terminal') throw new Error('the Claude view selector does not show the live mode');",
+        "if ((ctx.p.view === 'chat') !== (sel.value === 'chat')) throw new Error('the open Claude tab is not in the mode the selector shows');",
+        "const sample = document.querySelector('.chat-pref-sample');",
+        "if (!sample) throw new Error('the Settings tab has no chat font sample');",
+        "sel.scrollIntoView({ block: 'center' });",
+        "await ctx.sleep(250);",
+        "if (!sample.hidden || sample.getBoundingClientRect().height > 0) throw new Error('the chat font sample is still shown in Terminal mode');",
+        "const vr = sel.getBoundingClientRect();",
+        "if (!(vr.width > 40 && vr.top >= 0 && vr.bottom <= window.innerHeight)) throw new Error('the selector is not on screen');"
+      ],
+      "clip": "window",
+      "layout": "workbench"
+    },
+    {
+      "name": "settings-terminal-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "js": [
+        "// Terminal mode: the same page after the operator picked Terminal. The font and size only mean something in Chat, so their rows must step aside.",
+        "await chatSkinSetMode('terminal', { persist: false });",
+        "openSettingsTab();",
+        "await ctx.sleep(400);",
+        "// the view lives here and nowhere on the tab: bring the selector into view, and FAIL the run if it is missing or does not say what the open tabs are doing",
+        "const sel = document.querySelector('[data-setting=\"claudeView\"]');",
+        "if (!sel) throw new Error('the Settings tab has no Claude view selector');",
+        "if (sel.tagName !== 'SELECT' || sel.value !== 'terminal') throw new Error('the Claude view selector does not show the live mode');",
+        "if ((ctx.p.view === 'chat') !== (sel.value === 'chat')) throw new Error('the open Claude tab is not in the mode the selector shows');",
+        "const sample = document.querySelector('.chat-pref-sample');",
+        "if (!sample) throw new Error('the Settings tab has no chat font sample');",
+        "sel.scrollIntoView({ block: 'center' });",
+        "await ctx.sleep(250);",
+        "if (!sample.hidden || sample.getBoundingClientRect().height > 0) throw new Error('the chat font sample is still shown in Terminal mode');",
+        "const vr = sel.getBoundingClientRect();",
+        "if (!(vr.width > 40 && vr.top >= 0 && vr.bottom <= window.innerHeight)) throw new Error('the selector is not on screen');"
+      ],
+      "clip": "window",
+      "layout": "workbench"
+    },
+    {
+      "name": "markdown-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "js": [
+        "// scroll the rich answer to the top of the log, as a reader who went back to it would",
+        "const row = ctx.$('.chat-row.who-claude');",
+        "ctx.cs.stick = false;",
+        "ctx.cs.log.scrollTop = row.offsetTop - 12;"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "empty-light",
+      "theme": "light",
+      "events": [
+        "empty"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "meters-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "usage-high"
+      ],
+      "composer": "",
+      "clip": "pane"
+    },
+    {
+      "name": "wide-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "size": {
+        "width": 1760,
+        "height": 1000
+      },
+      "js": [
+        "const row = ctx.$('.chat-tool[data-kind=\"search\"] .ct-head');",
+        "row.click();",
+        "ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;"
+      ]
+    },
+    {
+      "name": "wide-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "size": {
+        "width": 1760,
+        "height": 1000
+      },
+      "js": [
+        "const row = ctx.$('.chat-tool[data-kind=\"search\"] .ct-head');",
+        "row.click();",
+        "ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;"
+      ]
+    },
+    {
+      "name": "tools-dense-dark",
+      "theme": "dark",
+      "events": [
+        "tools-dense"
+      ],
+      "js": [
+        "ctx.$('.cg-head').click();",
+        "ctx.$('.chat-tool[data-kind=\"search\"] .ct-head').click();",
+        "ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "tools-dense-light",
+      "theme": "light",
+      "events": [
+        "tools-dense"
+      ],
+      "js": [
+        "ctx.$('.cg-head').click();",
+        "ctx.$('.chat-tool[data-kind=\"search\"] .ct-head').click();",
+        "ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "slash-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.cs.input.value = \"/\";",
+        "ctx.cs.input.focus();",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "chatSkinSlashShow(ctx.cs, [{\"name\": \"deploy-staging\", \"description\": \"Push the branch to the staging environment\", \"argumentHint\": \"[branch]\", \"source\": \"project\"}, {\"name\": \"release-check\", \"description\": \"Run the pre-release checklist\", \"argumentHint\": \"<version>\", \"source\": \"project\"}, {\"name\": \"standup\", \"description\": \"Draft today's stand-up from yesterday's notes\", \"source\": \"user\"}, {\"name\": \"weekly:plan\", \"description\": \"Plan the week from the open threads\", \"argumentHint\": \"[focus]\", \"source\": \"plugin\", \"plugin\": \"weekly\"}, {\"name\": \"weekly:review\", \"description\": \"Review what shipped and what slipped\", \"source\": \"plugin\", \"plugin\": \"weekly\"}, {\"name\": \"clear\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.clear\", \"argumentHint\": \"[name]\", \"source\": \"builtin\"}, {\"name\": \"compact\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.compact\", \"argumentHint\": \"<optional custom summarization instructions>\", \"source\": \"builtin\"}, {\"name\": \"config\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.config\", \"source\": \"builtin\"}, {\"name\": \"context\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.context\", \"source\": \"builtin\"}, {\"name\": \"copy\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.copy\", \"source\": \"builtin\"}, {\"name\": \"diff\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.diff\", \"source\": \"builtin\"}, {\"name\": \"help\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.help\", \"source\": \"builtin\"}, {\"name\": \"init\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.init\", \"source\": \"builtin\"}, {\"name\": \"model\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.model\", \"argumentHint\": \"[model]\", \"source\": \"builtin\"}, {\"name\": \"resume\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.resume\", \"argumentHint\": \"[conversation id or search term]\", \"source\": \"builtin\"}, {\"name\": \"status\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.status\", \"source\": \"builtin\"}]);",
+        "chatSkinSlashMove(ctx.cs, 0, true);",
+        "await slashCheck(ctx, 0);"
+      ]
+    },
+    {
+      "name": "slash-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await slashShot(ctx, 9, { pane: 400 });"
+      ]
+    },
+    {
+      "name": "slash-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.cs.input.value = \"/\";",
+        "ctx.cs.input.focus();",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "chatSkinSlashShow(ctx.cs, [{\"name\": \"deploy-staging\", \"description\": \"Push the branch to the staging environment\", \"argumentHint\": \"[branch]\", \"source\": \"project\"}, {\"name\": \"release-check\", \"description\": \"Run the pre-release checklist\", \"argumentHint\": \"<version>\", \"source\": \"project\"}, {\"name\": \"standup\", \"description\": \"Draft today's stand-up from yesterday's notes\", \"source\": \"user\"}, {\"name\": \"weekly:plan\", \"description\": \"Plan the week from the open threads\", \"argumentHint\": \"[focus]\", \"source\": \"plugin\", \"plugin\": \"weekly\"}, {\"name\": \"weekly:review\", \"description\": \"Review what shipped and what slipped\", \"source\": \"plugin\", \"plugin\": \"weekly\"}, {\"name\": \"clear\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.clear\", \"argumentHint\": \"[name]\", \"source\": \"builtin\"}, {\"name\": \"compact\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.compact\", \"argumentHint\": \"<optional custom summarization instructions>\", \"source\": \"builtin\"}, {\"name\": \"config\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.config\", \"source\": \"builtin\"}, {\"name\": \"context\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.context\", \"source\": \"builtin\"}, {\"name\": \"copy\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.copy\", \"source\": \"builtin\"}, {\"name\": \"diff\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.diff\", \"source\": \"builtin\"}, {\"name\": \"help\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.help\", \"source\": \"builtin\"}, {\"name\": \"init\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.init\", \"source\": \"builtin\"}, {\"name\": \"model\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.model\", \"argumentHint\": \"[model]\", \"source\": \"builtin\"}, {\"name\": \"resume\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.resume\", \"argumentHint\": \"[conversation id or search term]\", \"source\": \"builtin\"}, {\"name\": \"status\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.status\", \"source\": \"builtin\"}]);",
+        "chatSkinSlashMove(ctx.cs, 0, true);",
+        "await slashCheck(ctx, 0);"
+      ]
+    },
+    {
+      "name": "slash-narrow-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await slashShot(ctx, 9, { pane: 400 });"
+      ]
+    },
+    {
+      "name": "bubble-dark",
+      "theme": "dark",
+      "events": [
+        "bubbles"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "slash-scrolled-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await slashShot(ctx, 11);"
+      ]
+    },
+    {
+      "name": "empty-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "empty"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = '400px'; ctx.p.el.style.alignSelf = 'flex-start';",
+        "await ctx.sleep(300);"
+      ]
+    },
+    {
+      "name": "bubble-light",
+      "theme": "light",
+      "events": [
+        "bubbles"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "slash-scrolled-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await slashShot(ctx, 11);"
+      ]
+    },
+    {
+      "name": "slash-filter-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.cs.input.value = \"/co\";",
+        "ctx.cs.input.focus();",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "chatSkinSlashShow(ctx.cs, [{\"name\": \"compact\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.compact\", \"argumentHint\": \"<optional custom summarization instructions>\", \"source\": \"builtin\"}, {\"name\": \"config\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.config\", \"argumentHint\": \"key=value\", \"source\": \"builtin\"}, {\"name\": \"context\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.context\", \"argumentHint\": \"[all]\", \"source\": \"builtin\"}, {\"name\": \"copy\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.copy\", \"source\": \"builtin\"}]);",
+        "chatSkinSlashMove(ctx.cs, 1, true);"
+      ]
+    },
+    {
+      "name": "slash-filter-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.cs.input.value = \"/co\";",
+        "ctx.cs.input.focus();",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "chatSkinSlashShow(ctx.cs, [{\"name\": \"compact\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.compact\", \"argumentHint\": \"<optional custom summarization instructions>\", \"source\": \"builtin\"}, {\"name\": \"config\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.config\", \"argumentHint\": \"key=value\", \"source\": \"builtin\"}, {\"name\": \"context\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.context\", \"argumentHint\": \"[all]\", \"source\": \"builtin\"}, {\"name\": \"copy\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.copy\", \"source\": \"builtin\"}]);",
+        "chatSkinSlashMove(ctx.cs, 0, true);"
+      ]
+    },
+    {
+      "name": "slash-live-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.cs.input.focus();",
+        "ctx.cs.input.value = '/comp';",
+        "ctx.cs.input.dispatchEvent(new Event('input', { bubbles: true }));",
+        "await ctx.sleep(600);"
+      ]
+    },
+    {
+      "name": "drop-over-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await ctx.sleep(250);",
+        "ctx.cs.input.focus();",
+        "ctx.cs.input.value = \"Compare these two screens\";",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "ctx.cs.box.classList.add('dropok');"
+      ]
+    },
+    {
+      "name": "drop-inserted-dark",
+      "theme": "dark",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await ctx.sleep(250);",
+        "ctx.cs.input.focus();",
+        "ctx.cs.input.value = \"What is different between\";",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "ctx.cs.input.setSelectionRange(ctx.cs.input.value.length, ctx.cs.input.value.length);",
+        "chatSkinInsertPaths(ctx.cs, ['/work/app/screens/Home before.png', '/work/app/screens/Home after.png']);"
+      ]
+    },
+    {
+      "name": "drop-over-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await ctx.sleep(250);",
+        "ctx.cs.input.focus();",
+        "ctx.cs.input.value = \"Compare these two screens\";",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "ctx.cs.box.classList.add('dropok');"
+      ]
+    },
+    {
+      "name": "drop-inserted-light",
+      "theme": "light",
+      "events": [
+        "conversation"
+      ],
+      "clip": "pane",
+      "js": [
+        "await ctx.sleep(250);",
+        "ctx.cs.input.focus();",
+        "ctx.cs.input.value = \"What is different between\";",
+        "chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+        "ctx.cs.input.setSelectionRange(ctx.cs.input.value.length, ctx.cs.input.value.length);",
+        "chatSkinInsertPaths(ctx.cs, ['/work/app/screens/Home before.png', '/work/app/screens/Home after.png']);"
+      ]
+    },
+    {
+      "name": "stream-half-dark",
+      "theme": "dark",
+      "events": [
+        "streaming-base",
+        "streaming-half"
+      ],
+      "clip": "pane",
+      "working": true
+    },
+    {
+      "name": "stream-final-dark",
+      "theme": "dark",
+      "events": [
+        "streaming-base",
+        "streaming-half",
+        "streaming-final",
+        {
+          "type": "turn",
+          "open": false
+        }
+      ],
+      "clip": "pane",
+      "working": false
+    },
+    {
+      "name": "dialog-permission-dark",
+      "theme": "dark",
+      "events": [
+        "permission-card"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "dialog-menu-dark",
+      "theme": "dark",
+      "events": [
+        "menu-card"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "dialog-question-dark",
+      "theme": "dark",
+      "events": [
+        "question-card"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "stream-half-light",
+      "theme": "light",
+      "events": [
+        "streaming-base",
+        "streaming-half"
+      ],
+      "clip": "pane",
+      "working": true
+    },
+    {
+      "name": "stream-final-light",
+      "theme": "light",
+      "events": [
+        "streaming-base",
+        "streaming-half",
+        "streaming-final",
+        {
+          "type": "turn",
+          "open": false
+        }
+      ],
+      "clip": "pane",
+      "working": false
+    },
+    {
+      "name": "dialog-permission-light",
+      "theme": "light",
+      "events": [
+        "permission-card"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "dialog-menu-light",
+      "theme": "light",
+      "events": [
+        "menu-card"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "dialog-question-light",
+      "theme": "light",
+      "events": [
+        "question-card"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "dialog-permission-used-dark",
+      "theme": "dark",
+      "events": [
+        "permission-card"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.cs.promptUsed = true;",
+        "chatSkinCardSync(ctx.cs);"
+      ]
+    },
+    {
+      "name": "dialog-terminal-dark",
+      "theme": "dark",
+      "events": [
+        "permission-card"
+      ],
+      "clip": "pane",
+      "terminal": "\u001b[2m╭──────────────────────────────────────────────────────────────╮\u001b[0m\n\u001b[2m│\u001b[0m \u001b[1mBash command\u001b[0m                                                 \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m                                                              \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   npm test                                                   \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   \u001b[2mRun the unit tests of the sync client\u001b[0m                     \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m                                                              \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m Do you want to proceed?                                      \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m \u001b[36m❯ 1. Yes\u001b[0m                                                     \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   2. Yes, and don't ask again for npm test in this project   \u001b[2m│\u001b[0m\n\u001b[2m│\u001b[0m   3. No, and tell Claude what to do differently \u001b[2m(esc)\u001b[0m         \u001b[2m│\u001b[0m\n\u001b[2m╰──────────────────────────────────────────────────────────────╯\u001b[0m",
+      "js": [
+        "ctx.$('.csd-link').click();"
+      ]
+    },
+    {
+      "name": "dialog-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "permission-card"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = '420px'; ctx.p.el.style.alignSelf = 'flex-start';",
+        "await ctx.sleep(300);"
+      ]
+    },
+    {
+      "name": "dialog-narrow-light",
+      "theme": "light",
+      "events": [
+        "permission-card"
+      ],
+      "clip": "pane",
+      "js": [
+        "ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = '420px'; ctx.p.el.style.alignSelf = 'flex-start';",
+        "await ctx.sleep(300);"
+      ]
+    },
+    {
+      "name": "bar-strip-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx);"
+      ]
+    },
+    {
+      "name": "bar-strip-light-narrow",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "Short question?",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx, { pane: 440 });"
+      ]
+    },
+    {
+      "name": "bar-strip-light-tip",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx, { tip: 'fiveHourPct' });"
+      ]
+    },
+    {
+      "name": "bar-strip-light-hot",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-hot"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx);"
+      ]
+    },
+    {
+      "name": "bar-strip-light-hot-tip",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-hot"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx, { tip: 'contextPct' });"
+      ]
+    },
+    {
+      "name": "bar-strip-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx);"
+      ]
+    },
+    {
+      "name": "bar-strip-dark-narrow",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "Short question?",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx, { pane: 440 });"
+      ]
+    },
+    {
+      "name": "bar-strip-dark-tip",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx, { tip: 'fiveHourPct' });"
+      ]
+    },
+    {
+      "name": "bar-strip-dark-hot",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-hot"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx);"
+      ]
+    },
+    {
+      "name": "bar-strip-dark-hot-tip",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-hot"
+      ],
+      "composer": "Also check that the retry count is logged",
+      "clip": "pane",
+      "js": [
+        "await barShot(ctx, { tip: 'contextPct' });"
+      ]
+    },
+    {
+      "name": "bar-none-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "",
+      "clip": "pane",
+      "js": [
+        "ctx.cs.status = {};",
+        "ctx.cs.ctxTokens = undefined;",
+        "ctx.cs.model = '';",
+        "chatPaintUsage(ctx.cs);",
+        "await barShot(ctx);"
+      ]
+    },
+    {
+      "name": "bar-nomatch-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "composer": "",
+      "clip": "pane",
+      "js": [
+        "// the conversation's own status (a matching payload) is wiped first, so the only payload this tab ever hears is one that is NOT its own",
+        "ctx.cs.status = {};",
+        "ctx.feed([{\"type\": \"status\", \"sessionMatch\": false, \"fiveHourPct\": 42, \"sevenDayPct\": 55, \"contextPct\": 97, \"model\": \"claude-opus-5-5\", \"effort\": \"max\", \"contextWindow\": 1000000, \"fiveHourResetsAt\": \"+8280\", \"sevenDayResetsAt\": \"+190000\"}]);",
+        "chatPaintUsage(ctx.cs);",
+        "await barShot(ctx);",
+        "if (ctx.cs.status.effort !== undefined || ctx.cs.status.model !== undefined || ctx.cs.status.contextWindow !== undefined) throw new Error('per-session fields were written from a payload that is not this tab\\'s');",
+        "if (ctx.cs.barParts.effort.v.textContent !== t('chat.bar.effortWord')) throw new Error('with no matching payload the effort shows only its dim word, never another session\\'s level: ' + ctx.cs.barParts.effort.v.textContent);",
+        "if (ctx.cs.barParts.model.v.textContent !== 'Sonnet 5.5') throw new Error('the model must come from the transcript: ' + ctx.cs.barParts.model.v.textContent);",
+        "if (ctx.cs.status.fiveHourPct !== 42) throw new Error('the account-wide 5 h reading must still be taken');"
+      ]
+    },
+    {
+      "name": "no-header-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await headerShot(ctx);"
+      ]
+    },
+    {
+      "name": "no-header-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await headerShot(ctx, { pane: 400 });"
+      ]
+    },
+    {
+      "name": "effort-menu-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await effortShot(ctx);"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "effort-menu-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await effortShot(ctx, { pane: 440 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-live-dark",
+      "theme": "dark",
+      "events": [
+        "tools-live"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'running' });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-live-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "tools-live"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'running', pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-done-fail-dark",
+      "theme": "dark",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error' });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-done-fail-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error', pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-open-row-dark",
+      "theme": "dark",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error', open: true });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-open-row-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error', open: true, pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "no-header-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await headerShot(ctx);"
+      ]
+    },
+    {
+      "name": "no-header-narrow-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await headerShot(ctx, { pane: 400 });"
+      ]
+    },
+    {
+      "name": "effort-menu-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await effortShot(ctx);"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "effort-menu-narrow-light",
+      "theme": "light",
+      "events": [
+        "conversation",
+        "bar-idle"
+      ],
+      "js": [
+        "await effortShot(ctx, { pane: 440 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-live-light",
+      "theme": "light",
+      "events": [
+        "tools-live"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'running' });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-live-narrow-light",
+      "theme": "light",
+      "events": [
+        "tools-live"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'running', pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-done-fail-light",
+      "theme": "light",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error' });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-done-fail-narrow-light",
+      "theme": "light",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error', pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-open-row-light",
+      "theme": "light",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error', open: true });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "group-open-row-narrow-light",
+      "theme": "light",
+      "events": [
+        "tools-fail"
+      ],
+      "js": [
+        "await groupShot(ctx, { state: 'error', open: true, pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "paths-dark",
+      "theme": "dark",
+      "events": [
+        "paths"
+      ],
+      "js": [
+        "await pathsShot(ctx);"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "paths-light",
+      "theme": "light",
+      "events": [
+        "paths"
+      ],
+      "js": [
+        "await pathsShot(ctx);"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "paths-narrow-dark",
+      "theme": "dark",
+      "events": [
+        "paths"
+      ],
+      "js": [
+        "await pathsShot(ctx, { pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "paths-narrow-light",
+      "theme": "light",
+      "events": [
+        "paths"
+      ],
+      "js": [
+        "await pathsShot(ctx, { pane: 400 });"
+      ],
+      "clip": "pane"
+    },
+    {
+      "name": "paths-hover-dark",
+      "theme": "dark",
+      "events": [
+        "paths"
+      ],
+      "js": [
+        "await pathsShot(ctx);"
+      ],
+      "hover": ".chat-md .cs-path.file",
+      "clip": "window"
+    },
+    {
+      "name": "paths-hover-light",
+      "theme": "light",
+      "events": [
+        "paths"
+      ],
+      "js": [
+        "await pathsShot(ctx);"
+      ],
+      "hover": ".chat-md .cs-path.file",
+      "clip": "window"
+    }
+  ],
+  "setup": [
+    "// The status-bar shots share one helper: optionally narrow the pane, focus the box (so the keys hint shows), force one detail card open and",
+    "// FAIL the run if that card reaches into the composer or past the bar: the whole point of the card is that it never covers what is being typed.",
+    "window.barShot = async (ctx, o) => {",
+    "  o = o || {};",
+    "  if (o.pane) { ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = o.pane + 'px'; ctx.p.el.style.alignSelf = 'flex-start'; }",
+    "  if (o.focus !== false) ctx.cs.input.focus();",
+    "  await ctx.sleep(450);",
+    "  if (!o.tip) return;",
+    "  const seg = ctx.cs.barParts[o.tip].seg;",
+    "  chatSkinTip(seg, true);",
+    "  await ctx.sleep(300);",
+    "  const r = (e) => e.getBoundingClientRect();",
+    "  const tip = r(seg.querySelector('.cb-tip')), bar = r(ctx.cs.bar), box = r(ctx.cs.box);",
+    "  if (tip.top < box.bottom - 1.5) throw new Error('the detail card reaches into the composer');",
+    "  if (tip.top < bar.top - 0.5 || tip.bottom > bar.bottom + 0.5 || tip.left < bar.left - 0.5 || tip.right > bar.right + 0.5) throw new Error('the detail card leaves the bar');",
+    "};",
+    "// The slash-popup shots share one list: 16 invented commands from every origin, usage hints of every length (one too long for its column).",
+    "window.slashMany = [{\"name\": \"deploy-staging\", \"description\": \"Push the branch to the staging environment\", \"argumentHint\": \"[branch]\", \"source\": \"project\"}, {\"name\": \"release-check\", \"description\": \"Run the pre-release checklist\", \"argumentHint\": \"<version>\", \"source\": \"project\"}, {\"name\": \"standup\", \"description\": \"Draft today's stand-up from yesterday's notes\", \"source\": \"user\"}, {\"name\": \"weekly:plan\", \"description\": \"Plan the week from the open threads\", \"argumentHint\": \"[focus]\", \"source\": \"plugin\", \"plugin\": \"weekly\"}, {\"name\": \"weekly:review\", \"description\": \"Review what shipped and what slipped\", \"source\": \"plugin\", \"plugin\": \"weekly\"}, {\"name\": \"clear\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.clear\", \"argumentHint\": \"[name]\", \"source\": \"builtin\"}, {\"name\": \"compact\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.compact\", \"argumentHint\": \"<optional custom summarization instructions>\", \"source\": \"builtin\"}, {\"name\": \"config\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.config\", \"source\": \"builtin\"}, {\"name\": \"context\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.context\", \"source\": \"builtin\"}, {\"name\": \"copy\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.copy\", \"source\": \"builtin\"}, {\"name\": \"diff\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.diff\", \"source\": \"builtin\"}, {\"name\": \"help\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.help\", \"source\": \"builtin\"}, {\"name\": \"init\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.init\", \"source\": \"builtin\"}, {\"name\": \"model\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.model\", \"argumentHint\": \"[model]\", \"source\": \"builtin\"}, {\"name\": \"resume\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.resume\", \"argumentHint\": \"[conversation id or search term]\", \"source\": \"builtin\"}, {\"name\": \"status\", \"description\": \"\", \"descKey\": \"chat.slash.cmd.status\", \"source\": \"builtin\"}];",
+    "window.slashShot = async (ctx, active, o) => {",
+    "  o = o || {};",
+    "  if (o.pane) { ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = o.pane + 'px'; ctx.p.el.style.alignSelf = 'flex-start'; await ctx.sleep(300); }",
+    "  ctx.cs.input.value = '/'; ctx.cs.input.focus(); chatSkinAutosize(ctx.cs); chatSkinControls(ctx.p);",
+    "  chatSkinSlashShow(ctx.cs, window.slashMany); chatSkinSlashMove(ctx.cs, active, true);",
+    "  await window.slashCheck(ctx, active, o);",
+    "};",
+    "window.slashCheck = async (ctx, active, o) => {",
+    "  o = o || {};",
+    "  await ctx.sleep(200);",
+    "  const list = ctx.cs.slash.list, vis = [...list.children].filter((r) => Math.min(r.offsetTop + r.offsetHeight, list.scrollTop + list.clientHeight) - Math.max(r.offsetTop, list.scrollTop) >= r.offsetHeight * 0.9).length;",
+    "  const on = list.children[active].getBoundingClientRect(), box = list.getBoundingClientRect();",
+    "  // FAIL the run when the popup shows more than seven whole rows (a row cut by the edge, under the fade, does not count) or the active row is not fully in view.",
+    "  if (!o.pane && vis > 7) throw new Error('slash popup shows ' + vis + ' rows (list ' + list.clientHeight + 'px, row ' + list.children[0].offsetHeight + 'px, top ' + list.scrollTop + ')');",
+    "  if (on.top < box.top - 1 || on.bottom > box.bottom + 1) throw new Error('the active slash row is out of view');",
+    "};",
+    "// The no-header shots: the pane has no title strip of its own any more, so the chat starts at the very top of the pane, and the tab carries no view switch either (the view is one setting, chosen in Settings).",
+    "window.headerShot = async (ctx, o) => {",
+    "  o = o || {};",
+    "  if (o.pane) { ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = o.pane + 'px'; ctx.p.el.style.alignSelf = 'flex-start'; }",
+    "  await ctx.sleep(350);",
+    "  // FAIL the run if a header came back, if a view switch came back onto the tab, or if the log does not start at the top edge of the chat",
+    "  if (ctx.$('.cs-head, .cs-switch, .cs-gear')) throw new Error('the chat view has a header again');",
+    "  if (ctx.p.tab.querySelector('.tview') || ctx.p.viewBtn) throw new Error('the tab has a view switch again');",
+    "  const r = (e) => e.getBoundingClientRect();",
+    "  if (r(ctx.cs.log).top - r(ctx.root).top > 1.5) throw new Error('there is a gap above the log where the header used to be');",
+    "  ctx.cs.log.scrollTop = 0;   // the start of the conversation: the first thing in the chat sits right under the tab strip",
+    "};",
+    "// The effort menu shots: open the popover from the segment on the bar (a real click), then FAIL the run if it is cut off, leaves the pane or does not show the current level as checked.",
+    "window.effortShot = async (ctx, o) => {",
+    "  o = o || {};",
+    "  if (o.pane) { ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = o.pane + 'px'; ctx.p.el.style.alignSelf = 'flex-start'; }",
+    "  ctx.cs.input.focus();",
+    "  await ctx.sleep(450);",
+    "  ctx.cs.effortSeg.click();",
+    "  await ctx.sleep(300);",
+    "  const r = (e) => e.getBoundingClientRect();",
+    "  const pop = ctx.$('.cb-pop'), pane = r(ctx.p.el), seg = r(ctx.cs.effortSeg);",
+    "  if (!pop || pop.hidden) throw new Error('the effort menu did not open');",
+    "  const pr = r(pop);",
+    "  if (pr.left < pane.left - 0.5 || pr.right > pane.right + 0.5 || pr.top < pane.top - 0.5) throw new Error('the effort menu is cut off by the pane');",
+    "  if (pr.bottom > seg.top + 0.5) throw new Error('the effort menu overlaps the bar instead of sitting above it');",
+    "  if (!ctx.$('.cbp-opt[aria-checked=\"true\"]')) throw new Error('no level is checked in the effort menu');",
+    "};",
+    "// The tool-group shots: wait for the folded row, optionally unfold it and open the failed inner row, then FAIL the run if the row is not in the expected state or its text overflows the row.",
+    "window.groupShot = async (ctx, o) => {",
+    "  o = o || {};",
+    "  if (o.pane) { ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = o.pane + 'px'; ctx.p.el.style.alignSelf = 'flex-start'; }",
+    "  await ctx.sleep(350);",
+    "  const g = ctx.$('.chat-tg');",
+    "  if (!g) throw new Error('the run of tool calls was not folded into a group');",
+    "  if (!g.classList.contains(o.state)) throw new Error('the group is not ' + o.state + ' (' + g.className + ')');",
+    "  if (o.open) {",
+    "    ctx.$('.cg-head').click();",
+    "    await ctx.sleep(120);",
+    "    ctx.$('.cg-body .chat-tool.error .ct-head').click();",
+    "    await ctx.sleep(120);",
+    "    if (!g.classList.contains('open') || !ctx.$('.cg-body .chat-tool.error .ct-body:not([hidden])')) throw new Error('the group did not unfold with the failed row open');",
+    "  } else if (g.classList.contains('open')) throw new Error('the group should be folded');",
+    "  const head = g.querySelector('.cg-head'), hr = head.getBoundingClientRect();",
+    "  for (const c of head.querySelectorAll('.cg-n, .cg-list, .cg-live, .cg-fail, .cg-state')) {",
+    "    const cr = c.getBoundingClientRect();",
+    "    if (cr.width && cr.right > hr.right + 0.5) throw new Error('the summary row text overflows its row: ' + c.className);",
+    "  }",
+    "  ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;",
+    "};",
+    "// The path-link shots: the three paths that exist must be links (a file, a folder, a long file), the one that does not exist must stay plain text, and nothing may carry an href. FAIL the run otherwise, so a picture of unlinked paths cannot pass for a picture of links.",
+    "window.pathsShot = async (ctx, o) => {",
+    "  o = o || {};",
+    "  if (o.pane) { ctx.p.el.style.flex = '0 0 auto'; ctx.p.el.style.width = o.pane + 'px'; ctx.p.el.style.alignSelf = 'flex-start'; await ctx.sleep(350); }",
+    "  const t0 = Date.now();",
+    "  while (ctx.$$('.chat-md .cs-path').length < 3 && Date.now() - t0 < 8000) await ctx.sleep(100);",
+    "  const links = ctx.$$('.cs-path');",
+    "  const text = (sel) => ctx.$$(sel).map((e) => e.textContent);",
+    "  if (!ctx.$('.chat-md .cs-path.file') || !ctx.$('.chat-md .cs-path.dir')) throw new Error('the reply has no linked file and linked folder');",
+    "  if (!ctx.$('.chat-md .cs-path.file.long')) throw new Error('the long path was not linked (or not marked long); links: ' + JSON.stringify(links.map((e) => e.className + ' ' + e.textContent)));",
+    "  if (links.some((e) => /missing-draft/.test(e.textContent))) throw new Error('a path that does not exist was linked');",
+    "  if (!ctx.$('.chat-md').textContent.includes('notes/missing-draft.md')) throw new Error('the missing path is no longer in the text');",
+    "  if (ctx.$('a[href^=\"file:\"], .cs-path[href]')) throw new Error('a path link carries an href');",
+    "  // In a narrow pane the long path must be CLIPPED with an ellipsis, not widen the column: its text is wider than its box, and the box stays inside the log.",
+    "  if (o.pane) {",
+    "    const lg = ctx.$('.chat-md .cs-path.long'), r = lg.getBoundingClientRect(), lr = ctx.cs.log.getBoundingClientRect();",
+    "    if (!(lg.scrollWidth > lg.clientWidth + 1)) throw new Error('the long path is not clipped in a narrow pane');",
+    "    if (r.right > lr.right + 0.5) throw new Error('the long path pushes past the edge of the log');",
+    "    if (ctx.cs.log.scrollWidth > ctx.cs.log.clientWidth + 1) throw new Error('the log scrolls sideways');",
+    "  }",
+    "  ctx.cs.log.scrollTop = ctx.cs.log.scrollHeight;",
+    "  await ctx.sleep(150);",
+    "};"
+  ]
+}

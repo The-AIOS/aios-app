@@ -29,6 +29,42 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const HELPERS = ['', ' (GPU)', ' (Renderer)', ' (Plugin)'];
+/* How long the packaged --smoke may run before the harness gives up on it. The fast gates take well
+   under a minute, but with AIOS_SMOKE_CHAT=1 the run also drives a REAL claude session (a model call,
+   /clear, /resume), which is slower and not the app's fault when it is. A kill at the old fixed 90 s
+   would read as "the packaged app failed" when it was the harness running out of patience, so the
+   limit is longer in that mode and AIOS_VERIFY_TIMEOUT_MS overrides it. */
+const SMOKE_TIMEOUT_MS = Number(process.env.AIOS_VERIFY_TIMEOUT_MS) || (process.env.AIOS_SMOKE_CHAT === '1' ? 300_000 : 90_000);
+/* Each packaged smoke runs in its own process group, so the kill below takes the claude session and
+   shell the gate spawned with it instead of leaving them behind. */
+const killTree = (p) => { try { process.kill(process.platform === 'win32' ? p.pid : -p.pid, 'SIGKILL'); } catch { try { p.kill('SIGKILL'); } catch { /* gone */ } } };
+
+/**
+ * What the packaged smoke said about the chat view, read from its own output. `verify-package` used to
+ * print the output only on failure, so a pass could not say whether the chat gate ran or skipped.
+ * - "chat assets" never skips: it needs no model, and proves marked / highlight.js / the stylesheet /
+ *   the preload bridge / the sanitizer work from inside app.asar. A packaged run without its OK line
+ *   is a failure, not a pass.
+ * - "chat view" drives a real claude session and may skip on a machine with no login. With
+ *   AIOS_SMOKE_CHAT=1 the app itself turns a skip into a failure; here it is reported either way.
+ */
+function chatGateLines(out) {
+  const lines = out.split('\n').map((l) => l.trim()).filter((l) => /^shell-smoke: chat (assets|view) (OK|SKIPPED|FAILED)/.test(l));
+  const assets = lines.some((l) => /^shell-smoke: chat assets OK/.test(l));
+  const view = lines.some((l) => /^shell-smoke: chat view OK/.test(l)) ? 'ran' : lines.some((l) => /^shell-smoke: chat view SKIPPED/.test(l)) ? 'skipped' : 'absent';
+  return { lines, assets, view };
+}
+
+/* Linux and Windows: print the chat gate lines of a smoke that exited 0 and require "chat assets OK" among them. It
+   needs no model, so it is the one chat gate a CI runner can hold to. The "chat view" gate (a real claude session) is
+   only reported, as on macOS without AIOS_SMOKE_CHAT. */
+function chatAssetsProven(out, label) {
+  const g = chatGateLines(out);
+  for (const l of g.lines) console.log(`verify-package:   ${l}`);
+  if (!g.assets) fail(`${label}: packaged --smoke exited 0 but never printed "chat assets OK" — the chat view's assets (marked, highlight.js, stylesheet, preload, sanitizer) were not proven inside the asar`);
+  return g.assets;
+}
+
 const fail = (msg) => { console.error(`verify-package: ✗ ${msg}`); process.exitCode = 1; };
 const ok = (msg) => console.log(`verify-package: ✓ ${msg}`);
 
@@ -148,22 +184,32 @@ function checkLive(app) {
   return new Promise((resolve) => {
     const p = spawn(bin, ['--smoke'], {
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
       // a packaged app must not be handed the dev tree's state
       env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
     });
     let out = '';
+    let timedOut = false;
     p.stdout.on('data', (d) => { out += d; });
     p.stderr.on('data', (d) => { out += d; });
-    const timer = setTimeout(() => { p.kill('SIGKILL'); }, 90_000);
+    const timer = setTimeout(() => { timedOut = true; killTree(p); }, SMOKE_TIMEOUT_MS);
     p.on('exit', (code, signal) => {
       clearTimeout(timer);
       const fatal = /FATAL|Unable to find helper app/.test(out);
       if (fatal) {
         fail(`${app}: the packaged app ABORTED at startup:\n    ${out.split('\n').filter(Boolean).slice(-3).join('\n    ')}`);
       } else if (code !== 0) {
-        fail(`${app}: packaged --smoke exited ${code}${signal ? ` (${signal})` : ''}:\n    ${out.split('\n').filter(Boolean).slice(-6).join('\n    ')}`);
+        fail(`${app}: packaged --smoke exited ${code}${signal ? ` (${signal})` : ''}${timedOut ? ` — the harness killed it after ${SMOKE_TIMEOUT_MS / 1000} s (AIOS_VERIFY_TIMEOUT_MS to change)` : ''}:\n    ${out.split('\n').filter(Boolean).slice(-6).join('\n    ')}`);
       } else {
-        ok(`${path.basename(path.dirname(app))}: packaged --smoke passed — the shipped artifact launches`);
+        const g = chatGateLines(out);
+        for (const l of g.lines) console.log(`verify-package:   ${l}`);
+        if (!g.assets) {
+          fail(`${app}: packaged --smoke exited 0 but never printed "chat assets OK" — the chat view's assets (marked, highlight.js, stylesheet, preload, sanitizer) were not proven inside the asar`);
+        } else if (process.env.AIOS_SMOKE_CHAT === '1' && g.view !== 'ran') {
+          fail(`${app}: AIOS_SMOKE_CHAT=1 but the real-session chat gate did not run (${g.view})`);
+        } else {
+          ok(`${path.basename(path.dirname(app))}: packaged --smoke passed — the shipped artifact launches (chat assets: proven; chat view with a real session: ${g.view})`);
+        }
       }
       resolve(!fatal && code === 0);
     });
@@ -258,12 +304,14 @@ function checkLiveLinux(tree) {
   return new Promise((resolve) => {
     const p = spawn(bin, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
       env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
     });
     let out = '';
+    let timedOut = false;
     p.stdout.on('data', (d) => { out += d; });
     p.stderr.on('data', (d) => { out += d; });
-    const timer = setTimeout(() => { p.kill('SIGKILL'); }, 90_000);
+    const timer = setTimeout(() => { timedOut = true; killTree(p); }, SMOKE_TIMEOUT_MS);
     p.on('exit', (code, signal) => {
       clearTimeout(timer);
       const fatal = /FATAL|Trace\/breakpoint trap/.test(out);
@@ -272,7 +320,7 @@ function checkLiveLinux(tree) {
       } else if (code !== 0) {
         fail(`${label}: packaged --smoke exited ${code}${signal ? ` (${signal})` : ''}:\n    ${out.split('\n').filter(Boolean).slice(-6).join('\n    ')}`);
       } else {
-        ok(`${label}: packaged --smoke passed${suid ? '' : ' (--no-sandbox: chrome-sandbox not SUID in an unpacked tree)'} — the shipped artifact launches`);
+        if (chatAssetsProven(out, label)) ok(`${label}: packaged --smoke passed${suid ? '' : ' (--no-sandbox: chrome-sandbox not SUID in an unpacked tree)'} — the shipped artifact launches (chat assets: proven)`);
       }
       resolve(!fatal && code === 0);
     });
@@ -358,9 +406,10 @@ function checkLiveWindows(tree) {
     // No sandbox dance — that is a Linux-only concern; Windows has a desktop session.
     const p = spawn(bin, ['--smoke'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' } });
     let out = '';
+    let timedOut = false;
     p.stdout.on('data', (d) => { out += d; });
     p.stderr.on('data', (d) => { out += d; });
-    const timer = setTimeout(() => { p.kill('SIGKILL'); }, 90_000);
+    const timer = setTimeout(() => { timedOut = true; killTree(p); }, SMOKE_TIMEOUT_MS);
     p.on('exit', (code, signal) => {
       clearTimeout(timer);
       const fatal = /FATAL/.test(out);
@@ -369,7 +418,7 @@ function checkLiveWindows(tree) {
       } else if (code !== 0) {
         fail(`${label}: packaged --smoke exited ${code}${signal ? ` (${signal})` : ''}:\n    ${out.split('\n').filter(Boolean).slice(-6).join('\n    ')}`);
       } else {
-        ok(`${label}: packaged --smoke passed — the shipped artifact launches`);
+        if (chatAssetsProven(out, label)) ok(`${label}: packaged --smoke passed — the shipped artifact launches (chat assets: proven)`);
       }
       resolve(!fatal && code === 0);
     });
