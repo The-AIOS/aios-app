@@ -88,7 +88,8 @@ test('addDirs: an apostrophe is fine where shq quotes it (POSIX), refused on Win
   } finally { s.done(); }
 });
 
-test('addDirs: a clean name that resolves to an untypeable one is refused (what is typed is the real path)', () => {
+test('addDirs: a clean name that resolves to a name with a control character is refused (what is typed is the real path)',
+  { skip: process.platform === 'win32' ? 'a Windows file name cannot hold a control character, so this case cannot arise there' : false }, () => {
   const s = sandbox();
   try {
     const nl = path.join(s.home, 'dev', 'line\nbreak');
@@ -97,10 +98,18 @@ test('addDirs: a clean name that resolves to an untypeable one is refused (what 
     const r = resolveBusAddDirs([path.join(s.home, 'clean')], s.home, 'darwin');
     assert.ok('error' in r);
     assert.match((r as { error: string }).error, /^addDirs\[0\] '.*clean' is not valid — it resolves to .*control character/s);
+  } finally { s.done(); }
+});
+
+test('addDirs: on Windows, a clean name that resolves to a name with a quote is refused', () => {
+  const s = sandbox();
+  try {
     const q = path.join(s.home, 'dev', "it's");
     fs.mkdirSync(q);
-    fs.symlinkSync(q, path.join(s.home, 'plain'));
-    assert.match((resolveBusAddDirs([path.join(s.home, 'plain')], s.home, 'win32') as { error: string }).error, /resolves to .*PowerShell/s);
+    fs.symlinkSync(q, path.join(s.home, 'plain'), 'junction');
+    const r = resolveBusAddDirs([path.join(s.home, 'plain')], s.home, 'win32');
+    assert.ok('error' in r);
+    assert.match((r as { error: string }).error, /^addDirs\[0\] '.*plain' is not valid — it resolves to .*PowerShell/s);
   } finally { s.done(); }
 });
 
