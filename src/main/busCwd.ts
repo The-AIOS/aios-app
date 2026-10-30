@@ -57,17 +57,26 @@ export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), pla
        (a newline is an Enter) is refused everywhere, and on Windows — where the shell is
        PowerShell, which reads a POSIX-escaped apostrophe differently, and also treats the curly
        quotes as quotes — so is the single-quote family. Refused by name, like everything else. */
-    if (typeof raw[i] === 'string' && /[\u0000-\u001f\u007f]/.test(raw[i] as string)) {
-      return { error: `${field} '${shownOf(raw[i])}' is not valid — it contains a control character` };
-    }
-    if (platform === 'win32' && typeof raw[i] === 'string' && /['\u2018\u2019\u201a\u201b]/.test(raw[i] as string)) {
-      return { error: `${field} '${shownOf(raw[i])}' is not valid — it contains a quote, which cannot be passed safely to PowerShell` };
+    if (typeof raw[i] === 'string') {
+      const bad = typedProblem(raw[i] as string, platform);
+      if (bad) return { error: `${field} '${shownOf(raw[i])}' is not valid — ${bad}` };
     }
     const r = resolveBusDir(raw[i], field, home);
     if ('error' in r) return r;
+    /* What is typed is the RESOLVED path, so check it too: a clean name can be a symlink to one
+       that is not. */
+    const badReal = typedProblem(r.dir, platform);
+    if (badReal) return { error: `${field} '${shownOf(raw[i])}' is not valid — it resolves to '${shownOf(r.dir)}', and ${badReal}` };
     if (!dirs.includes(r.dir)) dirs.push(r.dir);
   }
   return { dirs };
+}
+
+/* Why a path cannot be typed into the pane's shell, or '' when it can. */
+function typedProblem(p: string, platform: string): string {
+  if (/[\u0000-\u001f\u007f]/.test(p)) return 'it contains a control character';
+  if (platform === 'win32' && /['\u2018\u2019\u201a\u201b]/.test(p)) return 'it contains a quote, which cannot be passed safely to PowerShell';
+  return '';
 }
 
 /* A value as written, for a dead letter — never throws. `String()` does on a parsed `{"toString":0}`,

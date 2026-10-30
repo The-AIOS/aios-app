@@ -88,6 +88,22 @@ test('addDirs: an apostrophe is fine where shq quotes it (POSIX), refused on Win
   } finally { s.done(); }
 });
 
+test('addDirs: a clean name that resolves to an untypeable one is refused (what is typed is the real path)', () => {
+  const s = sandbox();
+  try {
+    const nl = path.join(s.home, 'dev', 'line\nbreak');
+    fs.mkdirSync(nl);
+    fs.symlinkSync(nl, path.join(s.home, 'clean'));
+    const r = resolveBusAddDirs([path.join(s.home, 'clean')], s.home, 'darwin');
+    assert.ok('error' in r);
+    assert.match((r as { error: string }).error, /^addDirs\[0\] '.*clean' is not valid — it resolves to .*control character/s);
+    const q = path.join(s.home, 'dev', "it's");
+    fs.mkdirSync(q);
+    fs.symlinkSync(q, path.join(s.home, 'plain'));
+    assert.match((resolveBusAddDirs([path.join(s.home, 'plain')], s.home, 'win32') as { error: string }).error, /resolves to .*PowerShell/s);
+  } finally { s.done(); }
+});
+
 test('addDirs: not a list, or too many, is refused naming the field', () => {
   const s = sandbox();
   try {
