@@ -98,8 +98,14 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     // the typed message and the bar's model button both end in chatSkinSubmit, the one place that hands text to submitToPty
     const send = fnBody(s, 'chatSkinSubmit') + fnBody(s, 'chatSkinSendNow');
     // every direct pty write in the skin is the lone ESC, or one chunk of a dialog key inside the key chokepoint; nothing writes text or a CR
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
-    return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'");
+    const tap = fnBody(s, 'chatSkinVoiceTap');   // the voice chokepoint (0.14.0 round): one space, nothing else
+    const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
+    const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
+    return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
+      && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
+      && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'";
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
@@ -1095,15 +1101,15 @@ test('status bar, run for real: resets appear only when the payload carried them
   assert.deepEqual(tipOf(withR.parts.contextPct).d, []);
 });
 
-test('status bar, run for real: the context is this pane\'s own tokens over the window — used / limit with a bar — and says so only when they agree', () => {
+test('status bar, run for real: the context reads as a PERCENTAGE like the status line when it is known (0.14.0 round), the tokens only when it is not', () => {
   const u = loadUsage();
   const ok = usageCs(u, { contextPct: 5, contextWindow: 200000 }, { ctxTokens: 84000 });
   u.paint(ok.cs);
-  assert.equal(ok.parts.contextPct.v.textContent, '84k');
-  assert.equal(ok.parts.contextPct.of.textContent, '/ 200k', 'used / limit');
+  assert.equal(ok.parts.contextPct.v.textContent, '42%', 'own tokens / window, shown as the status line shows it');
+  assert.equal(ok.parts.contextPct.of.textContent, '', 'no "/ limit" beside a percentage; the tokens are in the tooltip');
   assert.equal(ok.parts.contextPct.seg.props['--p'], '42', 'own tokens / window, not the global payload\'s percentage');
   assert.match(tipOf(ok.parts.contextPct).d[0], /^chat\.usage\.tip\.ctxOf\{"used":"84,000","total":"200,000"\}$/);
-  assert.match(ok.parts.contextPct.seg.attrs['aria-label'], /84k \/ 200k \(42%\)/);
+  assert.match(ok.parts.contextPct.seg.attrs['aria-label'], /42%/);
   // tokens above the payload's window: the payload describes another session's model — tokens only, no percentage, no limit
   const clash = usageCs(u, { contextPct: 5, contextWindow: 200000 }, { ctxTokens: 300000 });
   u.paint(clash.cs);
@@ -1114,7 +1120,7 @@ test('status bar, run for real: the context is this pane\'s own tokens over the 
   // no window size known: the payload's own percentage still drives the bar, the tokens are what is shown, and there is no limit to show
   const nowin = usageCs(u, { contextPct: 31 }, { ctxTokens: 62000 });
   u.paint(nowin.cs);
-  assert.equal(nowin.parts.contextPct.v.textContent, '62k');
+  assert.equal(nowin.parts.contextPct.v.textContent, '31%');
   assert.equal(nowin.parts.contextPct.of.textContent, '');
   assert.equal(nowin.parts.contextPct.seg.props['--p'], '31');
   // no tokens at all, only a percentage that is this tab's: the percentage; nothing: a dash
@@ -1224,7 +1230,7 @@ guarded('the status bar is built UNDER the card, and the card holds only the tex
     const b = fnBody(slice(src), 'chatSkinBuild');
     return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, wrap, meta\)/.test(b)
       && /root\.append\(log, alertEl, compose\)/.test(b)   // log, notice, compose block: nothing above the log
-      && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(stopBtn, sendBtn\)/.test(b)
+      && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(micBtn, stopBtn, sendBtn\)/.test(b)   // the mic joined send/stop (0.14.0 round)
       && !/cc-chip|chat-usage|usageEl|usageVals/.test(slice(src))
       && b.indexOf('wrap.append(slashPop, box)') > 0 && b.indexOf('wrap.append(slashPop, box)') < b.indexOf('compose.append(')
       && !/cc-chip|chat-usage/.test(css);
@@ -1254,18 +1260,16 @@ test('the stylesheet carries no rule of the old header, and the stylesheet check
   assert.match(skinRules(css).find(([sel]) => sel === '.chat-log')?.[1] ?? '', /flex: 1/);
 });
 
-guarded('every meter answers hover AND keyboard focus with its detail card, aria-labelled, and the card is not read twice',
+guarded('every meter is focusable, aria-labelled, and explains itself in a plain tooltip; the in-bar card is retired (0.14.0 round: it read as the bar vanishing)',
   (src) => {
     const b = fnBody(slice(src), 'chatSkinBuild');
     const tip = fnBody(slice(src), 'chatSkinTip');
-    return /seg\.tabIndex = 0/.test(b) && /seg\.addEventListener\('pointerenter', \(\) => chatSkinTip\(seg, true\)\)/.test(b)
-      && /seg\.addEventListener\('focus', \(\) => chatSkinTip\(seg, true\)\)/.test(b) && /seg\.addEventListener\('blur', \(\) => chatSkinTip\(seg, false\)\)/.test(b)
-      && /tip\.setAttribute\('aria-hidden', 'true'\)/.test(b) && /seg\.setAttribute\('role', 'img'\)/.test(b)
-      && /classList\.toggle\('tip-open', on\)/.test(tip)
+    return /seg\.tabIndex = 0/.test(b) && /seg\.setAttribute\('role', 'img'\)/.test(b)
+      && !/classList\.toggle\('tip-open'/.test(tip)
       && /bar\.setAttribute\('aria-label', t\('chat\.bar\.label', \{ name: chatSkinWho\(p\) \}\)\)/.test(b)   // the session's name, from the one function that knows it
-      && !/seg\.title\s*=/.test(fnBody(slice(src), 'chatPaintUsage').split('/* Model:')[0]);   // no native title on a meter: the card is ours
+      && /seg\.title = \[t\(tipKey\)/.test(fnBody(slice(src), 'chatPaintUsage'));
   },
-  (src) => src.replace("seg.addEventListener('focus', () => chatSkinTip(seg, true));", ''));
+  (src) => src.replace("    seg.title = [t(tipKey)", "    seg.dataset.tip = [t(tipKey)"));
 
 guarded('the model in the bar sends /model through the same chokepoint as a typed message — and never while a turn runs or a dialog is open',
   (src) => {

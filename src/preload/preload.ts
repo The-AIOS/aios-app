@@ -73,6 +73,10 @@ contextBridge.exposeInMainWorld('glassShell', {
   chatSkinScreen: (paneId: number, text: string): void => { ipcRenderer.send('chatSkin:screen', paneId, text); },
   onChatSkinEvent: (cb: (ev: ChatSkinEvent) => void): void => { ipcRenderer.on('chatSkin:event', (_e, ev) => cb(ev)); },
   chatStatus: (sessionId: string | null): Promise<ChatStatus> => ipcRenderer.invoke('chat:status', sessionId),
+  /* Claude Code's voice setting (global, ~/.claude/settings.json): the chat view's mic reads it and never changes it. */
+  chatVoice: (): Promise<{ enabled: boolean; mode: string }> => ipcRenderer.invoke('chat:voice'),
+  /* The session's folder and its git branch + uncommitted count, for the chat bar. */
+  chatWhere: (sessionId: string | null): Promise<{ cwd: string | null; branch: string | null; changes: number }> => ipcRenderer.invoke('chat:where', sessionId),
   /* The chat composer's slash popup: the rows for what is in the box (built-in, project, user and plugin commands, ranked), [] for no popup. */
   slashCommands: (cwd: string | null, text: string): Promise<SlashCommand[]> => ipcRenderer.invoke('slashCommands:list', cwd, text),
   /* An image pasted or dragged from a browser has no path: main saves the bytes to a temp file it names and returns that

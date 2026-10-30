@@ -1415,6 +1415,14 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
         display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: all .15s; }
 .zexp:hover { color: var(--accent-ink); border-color: var(--accent); }
 .zexp[hidden] { display: none !important; }
+/* Chat | Terminal, in the Running header: the one setting, where the sessions are */
+.zview { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; margin-right: 6px; flex: 0 0 auto; }
+.zview + .zexp { margin-left: 0; }
+/* the same 26px square as the expand button; the active one is coral and pressed in, the other grey and raised */
+.zv-b { width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--line); background: var(--bg); color: var(--subtle); box-shadow: 0 1px 0 var(--line); transition: all .15s; }
+.zv-b:hover { color: var(--accent-ink); border-color: var(--accent); }
+.zv-b.on { color: var(--accent-ink); border-color: var(--accent); background: var(--surface-2); box-shadow: inset 0 1px 3px var(--line-strong); transform: translateY(1px); cursor: default; }
 
 /* xterm's viewport was the one scrollable surface without the app's auto-hide scrollbar
    treatment, so its default track rendered as a black bar across the bottom of every
@@ -1903,7 +1911,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 /* The conversation is ONE centred reading column. The log itself spans the pane (so its scrollbar
    sits at the pane's edge, where a hand looks for it) and the column is made with side padding:
    a percentage padding resolves against the log's own width, which is exactly the pane's. */
-.chatskin { container-type: inline-size; --cs-col: 748px;
+.chatskin { container-type: inline-size; --cs-col: calc(100% - 48px);   /* the pane's whole width, like the terminal, 24px each side (0.14.0 round) */
             /* ONE vertical scale for the conversation. Rows are flex children, so neighbouring margins ADD: --cs-m on both sides of a block is the
                14px between any two blocks; --cs-turn on top of it opens a new turn (an operator message) to ~26px. Inside a message the
                markdown uses --cs-blk between its blocks (em, so it follows the reading size) and --cs-sec above a heading. */
@@ -2078,3 +2086,54 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cs-jump:hover { background: var(--chat-row-hover); }
 .cs-jump:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .cs-in { animation: none; } }
+
+/* ── 0.14.0 release round: what the chat view must not lose ────────────────────────────────────────────────
+   The operator's status line, mirrored from the hidden terminal under the composer (chatSkinMirrorStatus). Colours come
+   from the terminal's own palette per cell; this only sets the type and the box. With a mirror on screen the meters step
+   aside: the status line already says it, the way the operator configured it. */
+.cb-sl { padding: 6px 16px 2px; font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 11px; line-height: 1.5; color: var(--subtle);
+         white-space: pre; overflow: hidden; }
+.cb-sl[hidden] { display: none; }
+.cb-sl-row { overflow: hidden; text-overflow: ellipsis; }
+.cb-sl-row .b { font-weight: 700; }
+.cb-sl-row .d { color: var(--faint); }
+.cc-meta.has-sl .cb-meters { display: none; }
+/* the account chip: a segment like the effort, a menu like the effort's */
+.cb-acct { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; align-self: stretch; padding: 0 13px; border: 0; border-radius: 0;
+           background: linear-gradient(var(--chat-bar-sep), var(--chat-bar-sep)) left center / 1px 16px no-repeat; color: inherit; font: inherit; cursor: pointer; }
+.cb-acct[hidden] { display: none; }
+.cb-acct:hover:not(:disabled) { background-color: var(--chat-row-hover); }
+.cb-acct:disabled { cursor: default; }
+.cb-acct .cs-ico { color: var(--faint); }
+.cb-acct:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
+.cb-acct-pop { left: auto; right: 0; bottom: calc(100% + 8px); }
+.cb-acct-pop[hidden] { display: none; }
+/* the mic: beside send, quiet until it listens */
+.cc-mic { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line);
+          background: transparent; color: var(--subtle); cursor: pointer; flex: 0 0 auto; }
+.cc-mic:hover { color: var(--ink); border-color: var(--chat-focus-line); }
+.cc-mic.rec { color: var(--chat-meter-hot); border-color: var(--chat-meter-hot); animation: ccMicPulse 1.2s ease-in-out infinite; }
+@keyframes ccMicPulse { 50% { opacity: .55; } }   /* opacity only: the compositor animates it, nothing repaints per frame */
+@media (prefers-reduced-motion: reduce) { .cc-mic.rec { animation: none; } }
+
+/* folder and branch in the bar, the status line's 📁 and 🌿 */
+.cb-where { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; align-self: stretch; padding: 0 12px; border: 0; border-radius: 0;
+            background: linear-gradient(var(--chat-bar-sep), var(--chat-bar-sep)) left center / 1px 16px no-repeat; color: inherit; font: inherit; min-width: 0; }
+.cb-where[hidden] { display: none; }
+.cb-where .cb-v { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.cb-where .cs-ico { color: var(--faint); }
+.cb-dir { cursor: pointer; }
+.cb-dir:hover { background-color: var(--chat-row-hover); }
+.cb-branch.dirty .cb-v { color: var(--chat-meter-warn, var(--ink)); }
+/* the words Claude hears, live, while the mic listens */
+.chat-input.listening::placeholder { color: var(--ink); font-style: italic; }
+
+/* the permission mode chip: a segment like the effort; its word follows the line under Claude Code's prompt */
+.cb-mode { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; align-self: stretch; padding: 0 12px; border: 0; border-radius: 0;
+           background: linear-gradient(var(--chat-bar-sep), var(--chat-bar-sep)) left center / 1px 16px no-repeat; color: inherit; font: inherit; cursor: pointer; }
+.cb-mode[hidden] { display: none; }
+.cb-mode:hover { background-color: var(--chat-row-hover); }
+.cb-mode .cs-ico { color: var(--faint); }
+.cb-mode[data-mode="auto"] .cb-v, .cb-mode[data-mode="bypass"] .cb-v { color: var(--chat-meter-warn); }
+.cb-mode[data-mode="plan"] .cb-v { color: var(--ink); font-weight: 600; }   /* coral is the send button's alone in the chat */
+.cb-mode:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }

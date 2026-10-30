@@ -500,8 +500,44 @@ ipcMain.handle('chatSkin:earlier', async (e, paneId: number): Promise<{ ok: bool
    field stays absent — nothing here defaults a percentage to 0. */
 ipcMain.handle('chat:status', async (_e, sessionId: unknown) => {
   const tabId = isSessionId(sessionId) ? sessionId : null;
-  try { return mergeStatus(undefined, scopeStatusToSession(parseStatuslinePayload(await fs.promises.readFile(path.join(aios.claudeConfigDir(), 'statusline-payload.json'), 'utf8')), tabId)); }
-  catch { return mergeStatus(undefined, { sessionMatch: false }); }   // no file yet, or unreadable: the bar just has fewer fields
+  let st;
+  try { st = mergeStatus(undefined, scopeStatusToSession(parseStatuslinePayload(await fs.promises.readFile(path.join(aios.claudeConfigDir(), 'statusline-payload.json'), 'utf8')), tabId)); }
+  catch { st = mergeStatus(undefined, { sessionMatch: false }); }   // no file yet, or unreadable: the bar just has fewer fields
+  /* statusline-payload.json is written only by a status-line script that saves its payload, and the framework's does not:
+     the AIOS status line keeps the account's 5-hour and weekly windows in rate-limit-cache.json (claude-identity.sh cache),
+     which the App already reads for the quota nudges. Fill what the payload did not give from there, so the meters are never
+     empty on a stock AIOS machine (release round, 0.14.0). Account-wide numbers, so no session scoping applies. */
+  const rl = aios.rateLimit();
+  if (rl) {
+    if (st.fiveHourPct === undefined) st.fiveHourPct = rl.fiveHourPct;
+    if (st.sevenDayPct === undefined) st.sevenDayPct = rl.sevenDayPct;
+    if (st.fiveHourResetsAt === undefined && rl.fiveHourResetsAt > 0) st.fiveHourResetsAt = rl.fiveHourResetsAt;
+    if (st.sevenDayResetsAt === undefined && rl.sevenDayResetsAt > 0) st.sevenDayResetsAt = rl.sevenDayResetsAt;
+  }
+  return st;
+});
+/* Where a chat tab's session works: its folder (from the session registry, by session id) and that folder's git branch with
+   the count of uncommitted changes, as the AIOS status line shows them. git runs with fsmonitor and hooks off (a repo's own
+   config must not run anything because a tab was painted) and a 2 s limit. Nothing found → nulls, and the bar hides them. */
+ipcMain.handle('chat:where', async (_e, sessionId: unknown) => {
+  if (!isSessionId(sessionId)) return { cwd: null, branch: null, changes: 0 };
+  const hit = aios.listRunningAgents().find((a) => a.sessionId === sessionId);
+  const cwd = hit && hit.cwd && path.isAbsolute(hit.cwd) ? hit.cwd : null;
+  if (!cwd) return { cwd: null, branch: null, changes: 0 };
+  const git = (args: string[]): Promise<string | null> => new Promise((res) => {
+    execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', cwd, ...args],
+      { timeout: 2000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => res(err ? null : String(out)));
+  });
+  const branch = (await git(['branch', '--show-current']))?.trim() || null;
+  const status = branch ? await git(['status', '--porcelain']) : null;
+  return { cwd, branch, changes: status ? status.split('\n').filter((l) => l.trim()).length : 0 };
+});
+ipcMain.handle('chat:voice', () => {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(aios.claudeConfigDir(), 'settings.json'), 'utf8')) as { voice?: { enabled?: unknown; mode?: unknown }; voiceEnabled?: unknown };
+    const enabled = s.voice && typeof s.voice.enabled === 'boolean' ? s.voice.enabled : s.voiceEnabled === true;
+    return { enabled, mode: s.voice && typeof s.voice.mode === 'string' ? s.voice.mode : 'tap' };
+  } catch { return { enabled: false, mode: 'tap' }; }
 });
 
 /* The slash-command popup in the chat composer. The renderer sends what is in the box and the pane's working

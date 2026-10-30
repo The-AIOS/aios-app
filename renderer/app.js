@@ -187,6 +187,8 @@ const ICONS = {
   skill: '<path d="M12 3.2 22 8l-10 4.8L2 8z"/><path d="M6 10.2V15c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.8"/>',
   command: '<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3z"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/>',
+ branch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
@@ -8002,7 +8004,8 @@ function chatApplyStatus(cs, s) {
 function chatContextOf(cs) {
   const tokens = Number.isFinite(cs.ctxTokens) ? cs.ctxTokens : undefined;
   const win = cs.status.contextWindow > 0 ? cs.status.contextWindow : 0;
-  const fromPayload = typeof cs.status.contextPct === 'number' && Number.isFinite(cs.status.contextPct) ? cs.status.contextPct : undefined;
+  const fromPayload = typeof cs.status.contextPct === 'number' && Number.isFinite(cs.status.contextPct) ? cs.status.contextPct
+    : Number.isFinite(cs.slCtxPct) ? cs.slCtxPct : undefined;   // the operator's status line knows the real window (chatSkinMirrorStatus)
   if (tokens !== undefined && win > 0) return tokens <= win ? { tokens, win, pct: (tokens / win) * 100, fits: true } : { tokens, win, pct: undefined, fits: false };
   return { tokens, win, pct: fromPayload, fits: false };
 }
@@ -8015,8 +8018,9 @@ function chatPaintUsage(cs) {
     const pct = ctx ? ctx.pct : cs.status[k];
     const has = typeof pct === 'number' && Number.isFinite(pct);
     const hasTokens = !!ctx && ctx.tokens !== undefined;
-    const shown = hasTokens ? chatTokens(ctx.tokens) : has ? Math.round(pct) + '%' : '—';
-    const of = ctx && ctx.fits ? '/ ' + chatTokens(ctx.win) : '';
+    /* The percentage, like the status line, whenever it is known; the tokens only when it is not (they live in the tooltip). */
+    const shown = has ? Math.round(pct) + '%' : hasTokens ? chatTokens(ctx.tokens) : '—';
+    const of = !has && ctx && ctx.fits ? '/ ' + chatTokens(ctx.win) : '';
     const seg = part.seg;
     // threshold colour follows the PERCENTAGE, whatever the number on show is
     seg.classList.toggle('none', !has && shown === '—');
@@ -8045,6 +8049,8 @@ function chatPaintUsage(cs) {
     part.tipV.textContent = has ? t('chat.usage.tip.used', { pct: Math.round(pct) }) : t('chat.usage.none');
     part.tipD.replaceChildren(...lines.map((l) => el('span', 'cut-line', l)));
     seg.setAttribute('aria-label', [t(label) + ': ' + (shown === '—' ? t('chat.usage.none') : shown + (of ? ' ' + of : '')) + (hasTokens && has ? ' (' + Math.round(pct) + '%)' : ''), ...lines].join(' — '));
+    /* A plain tooltip beside the pointer (release round): the detail card that took over the bar's line read as the bar vanishing. */
+    seg.title = [t(tipKey) + ': ' + (has ? t('chat.usage.tip.used', { pct: Math.round(pct) }) : t('chat.usage.none')), ...lines].join('\n');
   }
   /* Model: this tab's own transcript wins, then a payload that is this tab's. */
   const model = cs.model || cs.status.model;
@@ -8068,7 +8074,7 @@ function chatPaintUsage(cs) {
    by CSS over the bar's own line (see .cb-tip): it never opens upward, where the text being typed is, and needs no
    measuring because it cannot go anywhere else. */
 function chatSkinTip(seg, on) {
-  seg.classList.toggle('tip-open', on);
+  void seg; void on;   // the in-bar card is retired for the plain tooltip (seg.title, chatPaintUsage); kept as the one door hover and focus still call
 }
 function chatSkinRefreshStatus(cs) {
   const gs = window.glassShell;
@@ -8076,6 +8082,29 @@ function chatSkinRefreshStatus(cs) {
   cs.statusAt = Date.now();
   // the session id lets main say whether the payload is THIS tab's (sessionMatch) before any per-session field is trusted
   Promise.resolve(gs.chatStatus(cs.pane.sessionId)).then((s) => { chatApplyStatus(cs, s); }).catch(() => { /* the bar keeps its dashes */ });
+  void chatSkinWherePaint(cs);
+  chatSkinMirrorStatus(cs.pane);   // an idle session never repaints, so the status line is also read on this timer
+}
+async function chatSkinWherePaint(cs) {
+  const gs = window.glassShell;
+  if (typeof gs.chatWhere !== 'function' || !cs.root) return;
+  let w = null;
+  try { w = await gs.chatWhere(cs.pane.sessionId); } catch { w = null; }
+  const dir = cs.root.querySelector('.cb-dir'), br = cs.root.querySelector('.cb-branch');
+  if (!dir || !br) return;
+  const cwd = w && w.cwd;
+  dir.hidden = !cwd;
+  if (cwd) {
+    dir.dataset.path = cwd;
+    dir.querySelector('.cb-v').textContent = xBase(cwd) || cwd;
+    dir.title = t('chat.bar.dirTip', { path: cwd });
+  }
+  br.hidden = !(w && w.branch);
+  if (w && w.branch) {
+    br.querySelector('.cb-v').textContent = w.branch + (w.changes ? ' (' + w.changes + ')' : '');
+    br.classList.toggle('dirty', w.changes > 0);
+    br.title = w.changes ? t('chat.bar.branchDirty', { branch: w.branch, n: w.changes }) : t('chat.bar.branchClean', { branch: w.branch });
+  }
 }
 
 /* ── eligibility ──────────────────────────────────────────────────────────── */
@@ -8117,7 +8146,29 @@ function chatSkinBuild(id, p) {
   effortSeg.setAttribute('aria-haspopup', 'menu');
   effortSeg.setAttribute('aria-expanded', 'false');
   effortSeg.append(el('span', 'cb-v none', t('chat.bar.effortWord')), csIcon('chevUpDown', 12));
-  idBox.append(modelSeg, effortSeg);
+  /* The account the session runs on, as the status line names it; a click lists the USER.md accounts and switches. */
+  const acctSeg = el('button', 'cb-acct');
+  acctSeg.type = 'button';
+  acctSeg.hidden = true;
+  acctSeg.append(csIcon('users', 12), el('span', 'cb-v', ''));
+  acctSeg.addEventListener('click', (e) => { e.stopPropagation(); void chatSkinAccountMenu(p); });
+  /* Where it works, as the status line says it: the folder (a click reveals it) and the git branch with uncommitted changes. */
+  const dirSeg = el('button', 'cb-where cb-dir');
+  dirSeg.type = 'button';
+  dirSeg.hidden = true;
+  dirSeg.append(csIcon('folder', 12), el('span', 'cb-v', ''));
+  dirSeg.addEventListener('click', () => { if (dirSeg.dataset.path) void revealPath(dirSeg.dataset.path); });
+  const branchSeg = el('span', 'cb-where cb-branch');
+  branchSeg.hidden = true;
+  branchSeg.append(csIcon('branch', 12), el('span', 'cb-v', ''));
+  /* The permission mode, as the line under Claude Code's prompt says it ("⏵⏵ auto mode on"). A click is Shift+Tab: the
+     same cycle the terminal has, through its own chokepoint (chatSkinModeCycle). */
+  const modeSeg = el('button', 'cb-mode');
+  modeSeg.type = 'button';
+  modeSeg.hidden = true;
+  modeSeg.append(csIcon('sliders', 12), el('span', 'cb-v', ''));
+  modeSeg.addEventListener('click', () => chatSkinModeCycle(id, p));
+  idBox.append(modelSeg, effortSeg, modeSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
   /* The effort menu. It cannot be a child of the bar (the bar clips what overflows it), so it floats over the end of the log like
@@ -8259,7 +8310,14 @@ function chatSkinBuild(id, p) {
   stopBtn.title = t('chat.stopHint'); stopBtn.setAttribute('aria-label', t('chat.stop'));
   stopBtn.hidden = true;
   const ccRow = el('div', 'cc-btns');
-  ccRow.append(stopBtn, sendBtn);
+  /* Voice, Claude Code's own: in tap mode a space on an empty prompt starts listening and a second one sends. The
+     button types that space into the hidden terminal, so the chat view keeps the mic the terminal had. */
+  const micBtn = el('button', 'cc-mic');
+  micBtn.type = 'button';
+  micBtn.append(csIcon('mic', 16));
+  micBtn.title = t('chat.voice.start'); micBtn.setAttribute('aria-label', t('chat.voice.start'));
+  micBtn.addEventListener('click', () => void chatSkinVoice(id, p));
+  ccRow.append(micBtn, stopBtn, sendBtn);
   /* The drop affordance: a quiet veil over the card while a file is dragged across it (see chatSkinDropBind). */
   const dropEl = el('div', 'cc-drop', t('chat.drop.label'));
   dropEl.setAttribute('aria-hidden', 'true');
@@ -8288,6 +8346,14 @@ function chatSkinBuild(id, p) {
   input.setAttribute('aria-controls', slashList.id);
   const meta = el('div', 'cc-meta');
   meta.appendChild(bar);
+  /* The operator's own status line, mirrored from the hidden terminal (chatSkinMirrorStatus). Hidden until one is seen. */
+  const slRow = el('div', 'cb-sl');
+  slRow.hidden = true;
+  slRow.title = t('chat.sl.tip');
+  meta.appendChild(slRow);
+  const acctPop = el('div', 'cb-pop cb-acct-pop');
+  acctPop.hidden = true;
+  meta.appendChild(acctPop);
   compose.append(jumpBtn, wrap, meta);
 
   root.append(log, alertEl, compose);
@@ -8419,6 +8485,8 @@ function chatSkinSetView(id, view) {
     try { p.term.blur(); } catch { /* disposed */ }
     void Promise.resolve(window.glassShell.shellConfig()).then((c) => { chatReadPrefs(c); chatApplyPrefs(); }).catch(() => {});
     chatSkinRefreshStatus(cs);
+    chatSkinMirrorStatus(p);
+    void chatSkinAccountPaint(p);
   }
   chatSkinSync(id, p);
   chatSkinLayout(p);
@@ -8433,8 +8501,31 @@ function chatSkinSetView(id, view) {
    `chatMode` caches the stored value so the tick and the shortcut need no round trip; the stored file stays the truth. */
 let chatMode = 'terminal';
 const chatModeSubs = new Set();   // Settings pages showing the selector: the shortcut changes the mode under them
+/* The same setting, where the sessions are: a Chat | Terminal switch in the Running header. Hidden in Settings and a
+   shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is. */
+function paintZoneView() {
+  if (typeof document === 'undefined') return;
+  const z = document.getElementById('zviewTerm');
+  if (!z) return;
+  if (!z.childElementCount) {
+    for (const [mode, ico] of [['chat', 'chat'], ['terminal', 'term']]) {
+      const b = el('button', 'zv-b');
+      b.type = 'button';
+      b.dataset.mode = mode;
+      const label = t(mode === 'chat' ? 'settings.claudeView.chat' : 'settings.claudeView.terminal');
+      b.append(csIcon(ico, 14));   // icons only, like the expand button beside it; the word is the tooltip
+      b.title = label; b.setAttribute('aria-label', label);
+      b.addEventListener('click', () => void chatSkinSetMode(mode));
+      z.appendChild(b);
+    }
+  }
+  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === chatMode); b.setAttribute('aria-pressed', b.dataset.mode === chatMode ? 'true' : 'false'); }
+  z.title = t('chat.zone.tip');
+}
+chatModeSubs.add(paintZoneView);
 function chatReadMode(c) {
   if (c && (c.claudeView === 'chat' || c.claudeView === 'terminal')) chatMode = c.claudeView;
+  paintZoneView();
 }
 function chatSkinApplyMode(mode) {
   const view = mode === 'chat' ? 'chat' : 'term';
@@ -8650,10 +8741,227 @@ function chatSkinScreenSoon(id, p) {
     if (cs.framing && performance.now() - cs.screenSince < CS_SCREEN_MAX_MS + CS_FRAME_WAIT_MS) { cs.screenTimer = setTimeout(fire, 15); return; }
     cs.screenTimer = 0; cs.screenSince = 0;
     if (p.view !== 'chat' || cs.watched === null || p.exited || !panes.has(id)) return;
+    chatSkinMirrorStatus(p);
     if (typeof window.glassShell.chatSkinScreen === 'function') window.glassShell.chatSkinScreen(id, chatSkinScreenText(p));
   };
   cs.screenTimer = setTimeout(fire, Math.max(0, Math.min(CS_SCREEN_QUIET_MS, cs.screenSince + CS_SCREEN_MAX_MS - now)));
 }
+/* ── the status line, mirrored ───────────────────────────────────────────────────────────────────────────
+   The chat view must not cost the operator what their status line shows: folder, branch, context, the 5-hour and weekly
+   windows, the account, or whatever they configured. Claude Code draws it under its input box in the hidden terminal, so it
+   is read from there, with the terminal's own colours, and shown under the composer. A status line needs Claude Code's live
+   payload (the exact context window, for one), which no file on disk carries per session, so mirroring is the only faithful
+   copy. The PR's meters stay for a session with no status line. Read only when a screen snapshot is taken anyway. */
+const SL_ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'];
+function slPaletteColor(n) {
+  if (n < 16) { const th = termTheme(THEME) || {}; return th[SL_ANSI[n]] || ''; }
+  if (n < 232) { const v = [0, 95, 135, 175, 215, 255], i = n - 16; return `rgb(${v[Math.floor(i / 36)]},${v[Math.floor(i / 6) % 6]},${v[i % 6]})`; }
+  const g = 8 + (n - 232) * 10; return `rgb(${g},${g},${g})`;
+}
+function slCellColor(c) {
+  if (c.isFgRGB()) { const v = c.getFgColor(); return `rgb(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255})`; }
+  if (c.isFgPalette()) return slPaletteColor(c.getFgColor());
+  return '';
+}
+/* The rows under the input box: below the last line made only of ─ that has the prompt (❯) a few rows above it. Null when
+   no prompt box is on screen (a dialog, a repaint): the caller keeps the last good mirror. */
+function chatStatusRows(p) {
+  const b = p.term.buffer.active;
+  const end = b.length;
+  for (let i = end - 1; i >= Math.max(0, end - 30); i--) {
+    const l = b.getLine(i);
+    if (!l || !/^─{20,}$/.test(l.translateToString(true).trim())) continue;
+    let prompt = false;
+    for (let j = i - 1; j >= Math.max(0, i - 8); j--) {
+      const s = (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
+      if (/^\s*❯/.test(s)) { prompt = true; break; }
+    }
+    if (!prompt) continue;
+    const rows = [];
+    for (let k = i + 1; k < end && rows.length < 4; k++) { const r = b.getLine(k); if (r && r.translateToString(true).trim()) rows.push(r); }
+    return rows;
+  }
+  return null;
+}
+function chatSkinMirrorStatus(p) {
+  const cs = p.chatSkin;
+  const host = cs && cs.meta && cs.meta.querySelector('.cb-sl');
+  if (!host) return;
+  let rows = null;
+  try { rows = chatStatusRows(p); } catch { rows = null; }
+  /* Claude Code shows "REC" while tap-to-talk listens; the mic button follows it. */
+  let rec = false;
+  try { rec = /⏺\s*REC\b/.test(chatSkinScreenText(p).split('\n').slice(-14).join('\n')); } catch { rec = false; }
+  chatSkinVoicePaint(cs, rec);
+  chatSkinVoiceLive(p, rec);
+  if (!rows) return;
+  const cell = p.term.buffer.active.getNullCell();
+  const lines = rows.map((line) => {
+    const div = el('div', 'cb-sl-row');
+    const width = line.translateToString(true).length;
+    let span = null, cur = null;
+    for (let x = 0; x < line.length && x < width; x++) {
+      line.getCell(x, cell);
+      if (cell.getWidth() === 0) continue;   // the second half of a wide character
+      const key = slCellColor(cell) + (cell.isBold() ? '|b' : '') + (cell.isDim() ? '|d' : '');
+      if (!span || key !== cur) {
+        span = el('span');
+        const col = key.split('|')[0];
+        if (col) span.style.color = col;
+        if (key.includes('|b')) span.classList.add('b');
+        if (key.includes('|d')) span.classList.add('d');
+        div.appendChild(span);
+        cur = key;
+      }
+      span.textContent += cell.getChars() || ' ';
+    }
+    return div;
+  });
+  host.replaceChildren(...lines);
+  /* Read what the bar can carry natively. The AIOS status line ("[Opus 5.5] 📁 aios | 🌿 main (3) | 🟢 10% ░░ | ⚡ 5h:15% …")
+     gives the exact context percentage, which needs Claude Code's live payload; folder, branch, the windows and the account
+     come from their own sources. When that format is recognised the bar says it all and the mirror hides; any other status
+     line stays mirrored, as configured, so switching to chat never loses it. */
+  const text = rows.map((r) => r.translateToString(true)).join('\n');
+  const ctx = /(?:🟢|🟡|🟠|🔴)\s*(\d{1,3})%/.exec(text);
+  const aios = /^\s*\[[^\]]+\]\s*📁/.test(text) && !!ctx;
+  if (ctx) cs.slCtxPct = Number(ctx[1]);
+  chatSkinModePaint(cs, text);
+  host.hidden = !lines.length || aios;
+  cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
+  if (ctx) chatPaintUsage(cs);
+}
+/* The modes Shift+Tab cycles through, as Claude Code names them on the line under its prompt; no line is the default. */
+const CS_MODES = [['bypass', /bypass permissions on/i], ['auto', /auto mode on/i], ['plan', /plan mode on/i], ['edits', /accept edits on/i]];
+function chatSkinModePaint(cs, text) {
+  const seg = cs.root && cs.root.querySelector('.cb-mode');
+  if (!seg) return;
+  const hit = CS_MODES.find(([, re]) => re.test(text));
+  const mode = hit ? hit[0] : 'default';
+  seg.hidden = false;
+  seg.dataset.mode = mode;
+  seg.querySelector('.cb-v').textContent = t('chat.mode.' + mode);
+  const tip = t('chat.mode.tip', { mode: t('chat.mode.' + mode) });
+  seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+/* THE mode chokepoint, beside chatSkinSendKey and chatSkinVoiceTap: Shift+Tab (ESC [ Z) and nothing else, exactly what the
+   operator presses in the terminal. The status line confirms the new mode on the next read. */
+function chatSkinModeCycle(id, p) {
+  if (panes.get(id) !== p || p.exited) return;
+  window.glassShell.ptyWrite(id, '\x1b[Z');
+  setTimeout(() => { if (panes.get(id) === p) chatSkinMirrorStatus(p); }, 700);
+}
+/* While tap-to-talk listens, Claude Code writes the words it hears into its own prompt line in the hidden terminal. The chat box
+   shows them there too (as its placeholder, so nothing is typed twice), and gives its own placeholder back afterwards. */
+function chatSkinVoiceLive(p, rec) {
+  const cs = p.chatSkin;
+  if (!cs || !cs.input) return;
+  if (!cs.placeholder0) cs.placeholder0 = cs.input.placeholder;
+  let heard = '';
+  if (rec) {
+    try {
+      const b = p.term.buffer.active;
+      for (let i = b.length - 1; i >= Math.max(0, b.length - 30); i--) {
+        const s = (b.getLine(i) || { translateToString: () => '' }).translateToString(true);
+        const m = /^\s*❯\s?(.*)$/.exec(s);
+        if (m) { heard = m[1].trim(); break; }
+      }
+    } catch { heard = ''; }
+  }
+  cs.input.classList.toggle('listening', !!rec);
+  cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;
+}
+
+/* ── voice ───────────────────────────────────────────────────────────────────────────────────────────────
+   Measured on Claude Code 2.1.312: with voice on in tap mode, a space on an empty prompt shows "⏺ REC · tap to send",
+   a second space sends, Esc cancels (the root keydown already writes Esc to the pty). The switch itself is global
+   (~/.claude/settings.json voice.enabled), so the button never toggles it: when voice is off it says how to turn it on. */
+function chatSkinVoicePaint(cs, rec) {
+  if (!cs || !cs.root) return;
+  const btn = cs.root.querySelector('.cc-mic');
+  cs.recording = !!rec;
+  if (!btn) return;
+  btn.classList.toggle('rec', cs.recording);
+  const label = t(cs.recording ? 'chat.voice.send' : 'chat.voice.start');
+  btn.title = label; btn.setAttribute('aria-label', label);
+}
+/* THE voice chokepoint, beside chatSkinSendKey (dialogs) and submitToPty (messages): it writes ONE space and nothing else.
+   Kept apart from the dialog key so the rule "only a dialog's own button answers it" stays exactly as narrow as it was. */
+function chatSkinVoiceTap(id, p) {
+  if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, ' ');
+}
+async function chatSkinVoice(id, p) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  if (cs.recording) { chatSkinVoiceTap(id, p); return; }   // tap again: Claude transcribes and sends
+  if (cs.input.value.trim()) { toast(t('chat.voice.notEmpty')); return; }
+  let v = null;
+  try { v = await window.glassShell.chatVoice(); } catch { v = null; }
+  if (!v || !v.enabled) { toast(t('chat.voice.off')); return; }
+  if (v.mode && v.mode !== 'tap') { toast(t('chat.voice.hold')); return; }
+  chatSkinVoiceTap(id, p);
+  chatSkinVoicePaint(cs, true);   // the screen confirms it on the next snapshot
+}
+
+/* ── the account ─────────────────────────────────────────────────────────────────────────────────────────
+   The status line names the account a session runs on; the chip does too, and when USER.md lists more than one
+   (## Anthropic accounts) it switches between them with the framework's own claude-identity switch (accounts:swap,
+   which refuses any address not in that list). Running sessions follow the switch on their own, as from the terminal. */
+function chatAcctLabel(a) {
+  const m = /alias \*\*([^*]+)\*\*/i.exec(a.note || '');
+  return m ? m[1].trim() : a.email;   // the whole address: two accounts can share a local part
+}
+/* What USER.md says the account is for, first clause only ("primary", "secondary"): the menu's second line. */
+const chatAcctRole = (a) => String(a.note || '').split(/[,.;]/)[0].trim();
+async function chatSkinAccountPaint(p) {
+  const cs = p.chatSkin;
+  const seg = cs && cs.root && cs.root.querySelector('.cb-acct');
+  if (!seg) return;
+  let list = [];
+  try { list = await window.glassShell.accountsList(); } catch { list = []; }
+  const cur = list.find((a) => a.current);
+  seg.hidden = !cur;
+  if (!cur) return;
+  seg.querySelector('.cb-v').textContent = chatAcctLabel(cur);
+  seg.disabled = list.length < 2;
+  const tip = list.length < 2 ? t('chat.acct.one', { email: cur.email }) : t('chat.acct.tip', { email: cur.email });
+  seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+async function chatSkinAccountMenu(p) {
+  const cs = p.chatSkin;
+  const pop = cs && cs.meta && cs.meta.querySelector('.cb-acct-pop');
+  if (!pop) return;
+  if (!pop.hidden) { pop.hidden = true; return; }
+  let list = [];
+  try { list = await window.glassShell.accountsList(); } catch { list = []; }
+  if (list.length < 2) return;
+  pop.replaceChildren(el('div', 'cbp-h', t('chat.acct.head')));
+  for (const a of list) {
+    const row = el('button', 'cbp-opt');
+    row.type = 'button';
+    row.setAttribute('role', 'menuitemradio');
+    row.setAttribute('aria-checked', a.current ? 'true' : 'false');
+    const txt = el('span', 'cbp-txt');
+    txt.append(el('span', 'cbp-t', chatAcctLabel(a)), el('span', 'cbp-d', chatAcctRole(a) || a.email));
+    row.append(txt, csIcon('check', 14));
+    row.disabled = a.current;
+    row.addEventListener('click', async () => {
+      pop.hidden = true;
+      toast(t('chat.acct.switching', { who: chatAcctLabel(a) }));
+      let r = null;
+      try { r = await window.glassShell.accountsSwap(a.email); } catch (e) { r = { ok: false, message: String(e && e.message || e) }; }
+      toast(r && r.ok ? t('chat.acct.switched', { who: chatAcctLabel(a) }) : t('chat.acct.failed', { why: (r && r.message) || '?' }));
+      for (const q of panes.values()) if (q.chatSkin) void chatSkinAccountPaint(q);
+    });
+    pop.appendChild(row);
+  }
+  pop.appendChild(el('div', 'cbp-f', t('chat.acct.foot')));
+  pop.hidden = false;
+  const close = (e) => { if (!pop.contains(e.target)) { pop.hidden = true; document.removeEventListener('pointerdown', close, true); } };
+  document.addEventListener('pointerdown', close, true);
+}
+
 /* Called wherever app.js learns, changes or forgets a pane's session. */
 function chatSkinSessionChanged(id, p) {
   if (!p || p.kind !== 'term') return;
