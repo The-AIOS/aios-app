@@ -8427,13 +8427,14 @@ function chatSkinBuild(id, p) {
     e.preventDefault();
     void window.glassShell.openExternal(a.getAttribute('href'));
   });
-  input.addEventListener('input', () => { chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); });
+  input.addEventListener('input', () => { cs.hist = null; chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); });   // typing leaves the history walk
   input.addEventListener('blur', () => chatSkinSlashClose(cs));
   chatSkinDropBind(cs);
   /* REGISTERED BEFORE the Enter listener below, and it stops the event for it: with the popup open Enter (and Tab)
      complete the highlighted command into the box and NEVER send — the operator still reads and edits the line,
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
+  input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => {
     // Enter sends, Shift+Enter breaks the line. During IME composition Enter confirms the
     // candidate, so it must never send (keyCode 229 covers engines that clear isComposing early).
@@ -9888,9 +9889,41 @@ function chatSkinSendNow(id, p) {
   const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
   if (!text.trim()) return;
   cs.input.value = '';
+  cs.hist = null;
+  (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
   chatSkinAutosize(cs);
   chatSkinSlashClose(cs);
   chatSkinSubmit(id, p, text);
+}
+/* ↑ and ↓ walk the prompts already sent, as in the terminal: ↑ only from the box's first line and ↓ only from its last, so
+   moving inside a multi-line draft still works. The list is this session's own messages in the order they appear, plus what
+   was just sent here and is not in the transcript yet. The draft being typed is kept, and ↓ past the newest gives it back. */
+function chatSkinHistList(cs) {
+  const rows = [...cs.items.values()].filter((r) => r.role === 'user' && typeof r.text === 'string' && r.text.trim() && r.node.isConnected);
+  rows.sort((a, b) => (a.node.compareDocumentPosition(b.node) & 4 ? -1 : 1));   // 4 = b follows a
+  const list = rows.map((r) => r.text);
+  for (const t2 of cs.sent || []) if (!list.includes(t2)) list.push(t2);
+  return list.filter((x, i) => x !== list[i - 1]);   // a prompt sent twice in a row is one step
+}
+function chatSkinHistKey(cs, e) {
+  if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing) return false;
+  const inp = cs.input;
+  if (inp.selectionStart !== inp.selectionEnd) return false;
+  const v = inp.value;
+  const up = e.key === 'ArrowUp';
+  if (up ? inp.selectionStart > 0 && v.lastIndexOf('\n', inp.selectionStart - 1) !== -1 : v.indexOf('\n', inp.selectionStart) !== -1) return false;   // not on the first / last line
+  if (!cs.hist) { if (!up) return false; cs.hist = { list: chatSkinHistList(cs), i: -1, draft: v }; }
+  const h = cs.hist;
+  const n = h.i === -1 ? (up ? h.list.length - 1 : -1) : h.i + (up ? -1 : 1);
+  if (n < 0 && up) return h.list.length > 0;   // at the oldest: stay, and keep the caret where it is
+  e.preventDefault();
+  if (n < 0 || n >= h.list.length) { inp.value = h.draft; cs.hist = null; }
+  else { h.i = n; inp.value = h.list[n]; }
+  const end = inp.value.length;
+  inp.setSelectionRange(end, end);
+  chatSkinAutosize(cs);
+  chatSkinControls(cs.pane);
+  return true;
 }
 /* The one way a line of text reaches the pty from the chat view: the typed message and the model button both end here. */
 function chatSkinSubmit(id, p, text) {

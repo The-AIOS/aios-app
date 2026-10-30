@@ -1786,7 +1786,7 @@ test('the slash popup wires: the box is a combobox over a listbox, input asks, s
   assert.match(b, /slashFoot\.setAttribute\('aria-hidden', 'true'\)/, 'the footer hint is not read inside the listbox');
   assert.match(b, /wrap\.append\(slashPop, box\)/, 'the popup floats against the card');
   assert.match(b, /slashPop\.addEventListener\('mousedown', \(e\) => e\.preventDefault\(\)\)/, 'a press on a row keeps the caret in the box');
-  assert.match(b, /input\.addEventListener\('input', \(\) => \{ chatSkinAutosize\(cs\); chatSkinControls\(p\); chatSkinSlashRefresh\(cs, p\); \}\)/);
+  assert.match(b, /input\.addEventListener\('input', \(\) => \{ cs\.hist = null; chatSkinAutosize\(cs\); chatSkinControls\(p\); chatSkinSlashRefresh\(cs, p\); \}\)/);
   assert.match(b, /input\.addEventListener\('blur', \(\) => chatSkinSlashClose\(cs\)\)/);
   assert.match(fnBody(skin, 'chatSkinSendNow'), /chatSkinSlashClose\(cs\)/);
   assert.match(fnBody(skin, 'chatSkinLayout'), /if \(!on \|\| cs\.promptKind\) chatSkinSlashClose\(cs\)/);
@@ -3341,4 +3341,28 @@ test('the scroll listener asks for the rows above when the operator gets near th
   assert.match(handler, /k\.sender !== e\.sender\) return \{ ok: false \}/, 'only the window that owns the pane may ask');
   assert.match(handler, /tail\.loadEarlier\(id\)/);
   assert.doesNotMatch(handler.replace('k.sender !== e.sender', ''), /k\.sender !== e\.sender/, 'control: the ownership check is what the pattern found');
+});
+
+test('↑/↓ in the composer walk the prompts already sent, from the first/last line only, and give the draft back', () => {
+  const src = fnBody(skin, 'chatSkinHistList') ? skin.slice(skin.indexOf('function chatSkinHistList'), skin.indexOf('\n}\n', skin.indexOf('function chatSkinHistKey')) + 2) : '';
+  const api = new Function('chatSkinAutosize', 'chatSkinControls', src + '; return { key: chatSkinHistKey };')(() => {}, () => {});
+  const node = (n: number) => ({ isConnected: true, n, compareDocumentPosition(o: { n: number }) { return o.n > n ? 4 : 2; } });
+  const inp = { value: 'draft', selectionStart: 0, selectionEnd: 0, setSelectionRange(a: number, b: number) { this.selectionStart = a; this.selectionEnd = b; } };
+  const cs: Record<string, unknown> = { input: inp, pane: {}, sent: ['third'],
+    items: new Map([['b', { role: 'user', text: 'second', node: node(2) }], ['a', { role: 'user', text: 'first', node: node(1) }], ['c', { role: 'assistant', text: 'reply', node: node(3) }]]) };
+  const key = (k: string) => { let prevented = false; const done = api.key(cs, { key: k, preventDefault: () => { prevented = true; } }); return { done, prevented }; };
+  assert.equal(key('ArrowDown').done, false, '↓ with no walk under way is the textarea\'s own');
+  inp.selectionStart = inp.selectionEnd = 0;
+  key('ArrowUp'); assert.equal(inp.value, 'third', 'newest first: what was just sent here');
+  key('ArrowUp'); assert.equal(inp.value, 'second');
+  key('ArrowUp'); assert.equal(inp.value, 'first', 'in the order the conversation shows them');
+  assert.equal(key('ArrowUp').prevented, false, 'at the oldest it stays');
+  assert.equal(inp.value, 'first');
+  key('ArrowDown'); key('ArrowDown'); assert.equal(inp.value, 'third');
+  key('ArrowDown'); assert.equal(inp.value, 'draft', 'past the newest: the draft comes back');
+  assert.equal(cs.hist, null);
+  inp.value = 'line one\nline two'; inp.selectionStart = inp.selectionEnd = 12;
+  assert.equal(key('ArrowUp').done, false, 'inside a multi-line draft ↑ moves the caret, not the history');
+  assert.match(skin, /input\.addEventListener\('keydown', \(e\) => \{ if \(chatSkinHistKey\(cs, e\)\) e\.stopImmediatePropagation\(\); \}\);/);
+  assert.ok(skin.indexOf('chatSkinSlashKey(cs, e)') < skin.indexOf('chatSkinHistKey(cs, e)) e.stop'), 'an open slash popup keeps ↑/↓ for its own list');
 });
