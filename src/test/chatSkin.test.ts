@@ -1754,7 +1754,7 @@ test('the effort menu\'s look: a neutral popover with its own tokens, a tick on 
   assert.match(css, /\.cb-effort:hover:not\(:disabled\), \.cb-effort\[aria-expanded="true"\] \{ background-color: var\(--chat-row-hover\); \}/);
   assert.match(css, /\.cb-effort:focus-visible \{ outline: 2px solid var\(--chat-focus\)/);
   // the narrow-pane step is still there (the effort is the first segment to go, after the labels)
-  assert.match(css, /@container \(max-width: 410px\) \{ \.cb-effort \{ display: none; \} \}/);
+  assert.match(css, /@container \(max-width: 640px\) \{ \.cb-effort \{ display: none; \} \}/);   // 0.14.0 round: the bar's segments give way in one order
 });
 
 test('the slash popup wires: the box is a combobox over a listbox, input asks, send/hide/blocked close it, and the IPC is read-only with a leading-slash gate', () => {

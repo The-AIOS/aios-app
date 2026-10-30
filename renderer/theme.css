@@ -1909,11 +1909,19 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cut-d:empty { display: none; }
 .cut-line { overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .cb-m, .cb-meter i, .cb-tip, .cb-hint, .chat-bar { transition: none; } }
-/* A narrow pane gives up the words first (the labels, then the "of 200k"), then the effort, and only then the numbers; the
-   bars never go. The widths are the bar's own (it is the size container). */
-@container (max-width: 520px) { .cb-k { display: none; } .cb-m { gap: 5px; } }
-@container (max-width: 480px) { .cb-of { display: none; } .cb-meter { width: 26px; } .cb-model, .cb-effort, .cb-m { padding: 0 10px; } }
-@container (max-width: 410px) { .cb-effort { display: none; } }
+/* A narrow pane gives up what is checked least, a whole segment at a time: nothing shrinks into an empty stub (0.14.0 round,
+   split panes showed bare chevrons). Order of loss: the account's address (its icon stays, the address is the tooltip), the
+   meter labels, the folder, the branch, the "of 200k", the effort, the mode's word; then the numbers. The model, the
+   context and the 5 h / weekly values keep their place longest, and the bars never go. The widths are the bar's own (the
+   bar is the size container). */
+.cb-model, .cb-effort, .cb-mode, .cb-where, .cb-acct, .cb-m { flex-shrink: 0; }
+@container (max-width: 1120px) { .cb-acct .cb-v { display: none; } }
+@container (max-width: 960px) { .cb-k { display: none; } .cb-m { gap: 5px; } }
+@container (max-width: 880px) { .cb-dir { display: none; } }
+@container (max-width: 800px) { .cb-branch { display: none; } }
+@container (max-width: 700px) { .cb-of { display: none; } .cb-meter { width: 26px; } .cb-model, .cb-effort, .cb-m, .cb-mode { padding: 0 10px; } }
+@container (max-width: 640px) { .cb-effort { display: none; } }
+@container (max-width: 560px) { .cb-mode .cb-v { display: none; } }
 @container (max-width: 372px) { .cb-m .cb-v { display: none; } }   /* a strip segment is wider than a bare bar: its number is the first to go */
 
 /* The conversation is ONE centred reading column. The log itself spans the pane (so its scrollbar
