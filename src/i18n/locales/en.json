@@ -1474,5 +1474,16 @@
   "chat.mode.plan": "Plan",
   "chat.mode.auto": "Auto",
   "chat.mode.bypass": "Bypass",
-  "chat.mode.tip": "Permission mode: {mode}. Click to cycle (Shift+Tab)."
+  "chat.mode.tip": "Permission mode: {mode}. Click to cycle (Shift+Tab).",
+  "chat.model.head": "Model",
+  "chat.model.more": "More…",
+  "chat.model.moreHint": "Claude Code's own picker",
+  "chat.mode.head": "Permission mode",
+  "chat.mode.foot": "Same as Shift+Tab in the terminal.",
+  "chat.mode.notAvail": "{mode} is not available in this session.",
+  "chat.mode.d.default": "Asks before edits and commands",
+  "chat.mode.d.edits": "Edits files without asking",
+  "chat.mode.d.plan": "Plans first, changes nothing",
+  "chat.mode.d.auto": "Acts on its own, with safety checks",
+  "chat.mode.d.bypass": "Never asks"
 }

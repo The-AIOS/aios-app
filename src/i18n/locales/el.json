@@ -1474,5 +1474,16 @@
   "chat.mode.plan": "Σχέδιο",
   "chat.mode.auto": "Αυτόματο",
   "chat.mode.bypass": "Χωρίς άδειες",
-  "chat.mode.tip": "Λειτουργία αδειών: {mode}. Κάνε κλικ για εναλλαγή (Shift+Tab)."
+  "chat.mode.tip": "Λειτουργία αδειών: {mode}. Κάνε κλικ για εναλλαγή (Shift+Tab).",
+  "chat.model.head": "Μοντέλο",
+  "chat.model.more": "Περισσότερα…",
+  "chat.model.moreHint": "Ο επιλογέας του ίδιου του Claude Code",
+  "chat.mode.head": "Λειτουργία αδειών",
+  "chat.mode.foot": "Ίδιο με Shift+Tab στο τερματικό.",
+  "chat.mode.notAvail": "Η λειτουργία {mode} δεν είναι διαθέσιμη σε αυτή τη συνεδρία.",
+  "chat.mode.d.default": "Ρωτάει πριν από αλλαγές και εντολές",
+  "chat.mode.d.edits": "Αλλάζει αρχεία χωρίς να ρωτήσει",
+  "chat.mode.d.plan": "Σχεδιάζει πρώτα, δεν αλλάζει τίποτα",
+  "chat.mode.d.auto": "Ενεργεί μόνο του, με ελέγχους ασφαλείας",
+  "chat.mode.d.bypass": "Δεν ρωτάει ποτέ"
 }

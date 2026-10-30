@@ -1474,5 +1474,16 @@
   "chat.mode.plan": "Planejar",
   "chat.mode.auto": "Auto",
   "chat.mode.bypass": "Sem permissões",
-  "chat.mode.tip": "Modo de permissões: {mode}. Clique para alternar (Shift+Tab)."
+  "chat.mode.tip": "Modo de permissões: {mode}. Clique para alternar (Shift+Tab).",
+  "chat.model.head": "Modelo",
+  "chat.model.more": "Mais…",
+  "chat.model.moreHint": "O seletor do próprio Claude Code",
+  "chat.mode.head": "Modo de permissões",
+  "chat.mode.foot": "Igual a Shift+Tab no terminal.",
+  "chat.mode.notAvail": "{mode} não está disponível nesta sessão.",
+  "chat.mode.d.default": "Pergunta antes de editar e de rodar comandos",
+  "chat.mode.d.edits": "Edita arquivos sem perguntar",
+  "chat.mode.d.plan": "Planeja primeiro, não muda nada",
+  "chat.mode.d.auto": "Age sozinho, com verificações de segurança",
+  "chat.mode.d.bypass": "Nunca pergunta"
 }

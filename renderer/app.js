@@ -8161,13 +8161,13 @@ function chatSkinBuild(id, p) {
   const branchSeg = el('span', 'cb-where cb-branch');
   branchSeg.hidden = true;
   branchSeg.append(csIcon('branch', 12), el('span', 'cb-v', ''));
-  /* The permission mode, as the line under Claude Code's prompt says it ("⏵⏵ auto mode on"). A click is Shift+Tab: the
-     same cycle the terminal has, through its own chokepoint (chatSkinModeCycle). */
+  /* The permission mode, as the line under Claude Code's prompt says it ("⏵⏵ auto mode on"). A click opens the same kind of
+     menu as the effort; choosing a mode presses Shift+Tab (chatSkinModeCycle) until the line says that mode. */
   const modeSeg = el('button', 'cb-mode');
   modeSeg.type = 'button';
   modeSeg.hidden = true;
   modeSeg.append(csIcon('sliders', 12), el('span', 'cb-v', ''));
-  modeSeg.addEventListener('click', () => chatSkinModeCycle(id, p));
+  modeSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinModeMenu(id, p); });
   idBox.append(modelSeg, effortSeg, modeSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
@@ -8351,9 +8351,7 @@ function chatSkinBuild(id, p) {
   slRow.hidden = true;
   slRow.title = t('chat.sl.tip');
   meta.appendChild(slRow);
-  const acctPop = el('div', 'cb-pop cb-acct-pop');
-  acctPop.hidden = true;
-  meta.appendChild(acctPop);
+
   compose.append(jumpBtn, wrap, meta);
 
   root.append(log, alertEl, compose);
@@ -8519,7 +8517,9 @@ function paintZoneView() {
       z.appendChild(b);
     }
   }
-  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === chatMode); b.setAttribute('aria-pressed', b.dataset.mode === chatMode ? 'true' : 'false'); }
+  z.dataset.mode = chatMode;   // the thumb slides to this side (.zview[data-mode])
+  z.setAttribute('role', 'radiogroup');
+  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === chatMode); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === chatMode ? 'true' : 'false'); }
   z.title = t('chat.zone.tip');
 }
 chatModeSubs.add(paintZoneView);
@@ -8930,38 +8930,21 @@ async function chatSkinAccountPaint(p) {
 }
 async function chatSkinAccountMenu(p) {
   const cs = p.chatSkin;
-  const pop = cs && cs.meta && cs.meta.querySelector('.cb-acct-pop');
-  if (!pop) return;
-  if (!pop.hidden) { pop.hidden = true; return; }
+  if (!cs) return;
   let list = [];
   try { list = await window.glassShell.accountsList(); } catch { list = []; }
   if (list.length < 2) return;
-  pop.replaceChildren(el('div', 'cbp-h', t('chat.acct.head')));
-  for (const a of list) {
-    const row = el('button', 'cbp-opt');
-    row.type = 'button';
-    row.setAttribute('role', 'menuitemradio');
-    row.setAttribute('aria-checked', a.current ? 'true' : 'false');
-    const txt = el('span', 'cbp-txt');
-    txt.append(el('span', 'cbp-t', chatAcctLabel(a)), el('span', 'cbp-d', chatAcctRole(a) || a.email));
-    row.append(txt, csIcon('check', 14));
-    row.disabled = a.current;
-    row.addEventListener('click', async () => {
-      pop.hidden = true;
-      toast(t('chat.acct.switching', { who: chatAcctLabel(a) }));
-      let r = null;
-      try { r = await window.glassShell.accountsSwap(a.email); } catch (e) { r = { ok: false, message: String(e && e.message || e) }; }
-      toast(r && r.ok ? t('chat.acct.switched', { who: chatAcctLabel(a) }) : t('chat.acct.failed', { why: (r && r.message) || '?' }));
-      for (const q of panes.values()) if (q.chatSkin) void chatSkinAccountPaint(q);
-    });
-    pop.appendChild(row);
-  }
-  pop.appendChild(el('div', 'cbp-f', t('chat.acct.foot')));
-  pop.hidden = false;
-  const close = (e) => { if (!pop.contains(e.target)) { pop.hidden = true; document.removeEventListener('pointerdown', close, true); } };
-  document.addEventListener('pointerdown', close, true);
+  const items = list.map((a) => ({ key: a.email, label: chatAcctLabel(a), desc: chatAcctRole(a) || a.email, checked: !!a.current }));
+  chatSkinBarMenu(cs, cs.root.querySelector('.cb-acct'), t('chat.acct.head'), items, async (email) => {
+    const a = list.find((x) => x.email === email);
+    if (!a || a.current) return;
+    toast(t('chat.acct.switching', { who: chatAcctLabel(a) }));
+    let r = null;
+    try { r = await window.glassShell.accountsSwap(a.email); } catch (e) { r = { ok: false, message: String(e && e.message || e) }; }
+    toast(r && r.ok ? t('chat.acct.switched', { who: chatAcctLabel(a) }) : t('chat.acct.failed', { why: (r && r.message) || '?' }));
+    for (const q of panes.values()) if (q.chatSkin) void chatSkinAccountPaint(q);
+  }, t('chat.acct.foot'));
 }
-
 /* Called wherever app.js learns, changes or forgets a pane's session. */
 function chatSkinSessionChanged(id, p) {
   if (!p || p.kind !== 'term') return;
@@ -9891,10 +9874,97 @@ function chatSkinSubmit(id, p, text) {
 }
 /* The model in the bar asks for /model, exactly as if it had been typed: Claude Code answers with its own picker and the
    dialog card draws it. Not while a turn runs or a dialog is open (a typed line would land in the wrong place). */
-function chatSkinModelMenu(id, p) {
+/* The model opens the same kind of menu as the effort (0.14.0 round: three buttons, three behaviours, was the complaint).
+   The list is the one Settings uses (the ladder plus the account's extra models); a pick types "/model <value>" through
+   chatSkinSubmit like any message, and "More…" still opens Claude Code's own picker for anything the list does not hold. */
+async function chatSkinModelMenu(id, p) {
   const cs = p.chatSkin;
   if (!cs || chatSkinBarBlocked(p)) return;
-  chatSkinSubmit(id, p, '/model');
+  let opts = [];
+  try { opts = await window.glassShell.modelOptions(); } catch { opts = []; }
+  const now = String(cs.model || cs.status.model || '');
+  const nowLabel = now ? chatModelLabel(now) : '';
+  const items = opts.map((o) => ({ key: o.value, label: o.label, checked: o.value === now || (!!nowLabel && o.label.startsWith(nowLabel)) }));
+  items.push({ key: '', label: t('chat.model.more'), desc: t('chat.model.moreHint'), apart: true });
+  chatSkinBarMenu(cs, cs.modelSeg, t('chat.model.head'), items, (key) => {
+    if (chatSkinBarBlocked(p)) return;
+    chatSkinSubmit(id, p, key ? '/model ' + key : '/model');
+    setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') chatSkinRefreshStatus(cs); }, 2500);
+  });
+}
+/* The permission modes, in the words the chip uses. Bypass is offered only while the session is in it (it can be switched off
+   server-side, and the cycle skips a mode that is not available). */
+function chatSkinModeMenu(id, p) {
+  const cs = p.chatSkin;
+  if (!cs || p.exited || cs.promptKind) return;
+  const seg = cs.root.querySelector('.cb-mode');
+  const now = seg ? seg.dataset.mode || 'default' : 'default';
+  const keys = ['default', 'edits', 'plan', 'auto'].concat(now === 'bypass' ? ['bypass'] : []);
+  const items = keys.map((k) => ({ key: k, label: t('chat.mode.' + k), desc: t('chat.mode.d.' + k), checked: k === now }));
+  chatSkinBarMenu(cs, seg, t('chat.mode.head'), items, (key) => void chatSkinModeTo(id, p, key), t('chat.mode.foot'));
+}
+/* Read the mode Claude Code is in now, from the line under its prompt. */
+function chatSkinModeNow(p) {
+  let rows = null;
+  try { rows = chatStatusRows(p); } catch { rows = null; }
+  if (!rows) return null;
+  const text = rows.map((r) => r.translateToString(true)).join('\n');
+  const hit = CS_MODES.find(([, re]) => re.test(text));
+  return hit ? hit[0] : 'default';
+}
+/* Shift+Tab until the line says the mode that was chosen, at most one full cycle, reading the screen after each press. */
+async function chatSkinModeTo(id, p, target) {
+  for (let i = 0; i < 6; i++) {
+    if (chatSkinModeNow(p) === target) break;
+    chatSkinModeCycle(id, p);
+    await new Promise((r) => setTimeout(r, 450));
+    if (panes.get(id) !== p || p.exited) return;
+  }
+  chatSkinMirrorStatus(p);
+  if (chatSkinModeNow(p) !== target) toast(t('chat.mode.notAvail', { mode: t('chat.mode.' + target) }));
+}
+/* ONE menu for the bar's choosers (model, mode; the effort keeps its own, which looks the same): a card over the end of the log,
+   under its button's left edge, the current choice ticked, arrows to move, Enter to pick, Esc or a press outside to close. */
+function chatSkinBarMenu(cs, seg, title, items, onPick, foot) {
+  if (!seg) return;
+  let pop = cs.wrap.querySelector('.cb-pop.cb-gen');
+  if (pop && !pop.hidden && pop.dataset.for === seg.className) { pop.hidden = true; if (pop.off) pop.off(); return; }
+  if (!pop) { pop = el('div', 'cb-pop cb-gen'); pop.setAttribute('role', 'menu'); cs.wrap.appendChild(pop); }
+  if (pop.off) pop.off();
+  chatSkinEffortMenu(cs, false);
+  chatSkinSlashClose(cs);
+  pop.dataset.for = seg.className;
+  pop.replaceChildren(el('div', 'cbp-h', title));
+  const opts = [];
+  for (const it of items) {
+    const o = el('button', 'cbp-opt' + (it.apart ? ' auto' : ''));
+    o.type = 'button';
+    o.setAttribute('role', 'menuitemradio');
+    o.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+    const txt = el('span', 'cbp-txt');
+    txt.append(el('span', 'cbp-t', it.label));
+    if (it.desc) txt.append(el('span', 'cbp-d', it.desc));
+    o.append(txt, csIcon('check', 14));
+    o.addEventListener('click', () => { close(); onPick(it.key); });
+    pop.appendChild(o);
+    opts.push(o);
+  }
+  if (foot) pop.appendChild(el('div', 'cbp-f', foot));
+  const close = () => { pop.hidden = true; if (pop.off) { pop.off(); pop.off = null; } try { seg.focus({ preventScroll: true }); } catch { /* detached */ } };
+  pop.hidden = false;
+  const wr = cs.wrap.getBoundingClientRect(), sr = seg.getBoundingClientRect();
+  pop.style.left = Math.max(0, Math.min(sr.left - wr.left, wr.width - pop.offsetWidth)) + 'px';
+  const away = (e) => { if (e.target instanceof Node && !pop.contains(e.target) && !seg.contains(e.target)) close(); };
+  const keys = (e) => {
+    const i = opts.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = (i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length; opts[n].focus(); }
+  };
+  document.addEventListener('pointerdown', away, true);
+  pop.addEventListener('keydown', keys, true);
+  pop.off = () => { document.removeEventListener('pointerdown', away, true); pop.removeEventListener('keydown', keys, true); };
+  const cur = opts.find((o) => o.getAttribute('aria-checked') === 'true') || opts[0];
+  try { cur.focus({ preventScroll: true }); } catch { /* detached */ }
 }
 /* ONE rule for every control in the status bar that types a command into the session (the model, the effort): not while a turn
    runs, not while a dialog is open, not once the session has ended. The disabled state, the click and the menu all ask here,

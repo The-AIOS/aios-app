@@ -1277,13 +1277,14 @@ guarded('the model in the bar sends /model through the same chokepoint as a type
     const menu = fnBody(s, 'chatSkinModelMenu');
     const submit = fnBody(s, 'chatSkinSubmit');
     const blocked = fnBody(s, 'chatSkinBarBlocked');
-    return /chatSkinSubmit\(id, p, '\/model'\)/.test(menu) && /chatSkinBarBlocked\(p\)/.test(menu) && !/ptyWrite|ptyRun/.test(menu)
+    // 0.14.0 round: the model opens a menu like the effort; a pick types "/model <value>" (or "/model" for More…), still only through chatSkinSubmit and only when not blocked
+    return /chatSkinSubmit\(id, p, key \? '\/model ' \+ key : '\/model'\)/.test(menu) && (menu.match(/chatSkinBarBlocked\(p\)/g) || []).length >= 2 && !/ptyWrite|ptyRun/.test(menu)
       && /p\.exited/.test(blocked) && /cs\.promptKind/.test(blocked) && /chatSkinWorking\(p\)/.test(blocked)
       && /submitToPty\(id, text\)/.test(submit) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow'))
       && /modelSeg\.addEventListener\('click', \(\) => chatSkinModelMenu\(id, p\)\)/.test(fnBody(s, 'chatSkinBuild'))
       && /const blocked = chatSkinBarBlocked\(p\);[\s\S]*cs\.modelSeg\.disabled = blocked/.test(fnBody(s, 'chatSkinControls'));
   },
-  (src) => src.replace("chatSkinSubmit(id, p, '/model');", "window.glassShell.ptyWrite(id, '/model\\r');"));
+  (src) => src.replace("chatSkinSubmit(id, p, key ? '/model ' + key : '/model');", "window.glassShell.ptyWrite(id, '/model ' + key);"));
 
 test('the bar has ONE look, the strip: no switch, no stored preference, no other variant left behind', () => {
   // The operator compared three looks and chose the strip; the other two and everything that switched between them are gone.

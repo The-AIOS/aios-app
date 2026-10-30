@@ -1415,14 +1415,22 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
         display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: all .15s; }
 .zexp:hover { color: var(--accent-ink); border-color: var(--accent); }
 .zexp[hidden] { display: none !important; }
-/* Chat | Terminal, in the Running header: the one setting, where the sessions are */
-.zview { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; margin-right: 6px; flex: 0 0 auto; }
+/* Chat | Terminal, in the Running header: ONE control, a recessed track with a coral thumb that slides to the chosen side,
+   like a physical two-way switch (0.14.0 round: two loose square buttons read as "more expand buttons"). The thumb moves by
+   transform only, so the compositor animates it. */
+.zview { position: relative; display: inline-flex; align-items: center; margin-left: auto; margin-right: 6px; flex: 0 0 auto; padding: 2px;
+         height: 26px; box-sizing: border-box; border-radius: 9px; border: 1px solid var(--line); background: var(--surface-2);
+         box-shadow: inset 0 1px 2px var(--line-strong); }
+.zview::before { content: ''; position: absolute; top: 2px; left: 2px; width: 28px; height: 20px; border-radius: 7px; background: var(--accent);
+                 box-shadow: 0 1px 2px var(--line-strong); transition: transform .18s ease; }
+.zview[data-mode="terminal"]::before { transform: translateX(28px); }
 .zview + .zexp { margin-left: 0; }
-/* the same 26px square as the expand button; the active one is coral and pressed in, the other grey and raised */
-.zv-b { width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer;
-        border: 1px solid var(--line); background: var(--bg); color: var(--subtle); box-shadow: 0 1px 0 var(--line); transition: all .15s; }
-.zv-b:hover { color: var(--accent-ink); border-color: var(--accent); }
-.zv-b.on { color: var(--accent-ink); border-color: var(--accent); background: var(--surface-2); box-shadow: inset 0 1px 3px var(--line-strong); transform: translateY(1px); cursor: default; }
+.zv-b { position: relative; z-index: 1; width: 28px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+        border: 0; border-radius: 7px; background: transparent; color: var(--subtle); cursor: pointer; transition: color .18s ease; }
+.zv-b:hover:not(.on) { color: var(--ink); }
+.zv-b.on { color: var(--chat-on-accent); cursor: default; }
+.zv-b:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .zview::before { transition: none; } }
 
 /* xterm's viewport was the one scrollable surface without the app's auto-hide scrollbar
    treatment, so its default track rendered as a black bar across the bottom of every
@@ -2106,8 +2114,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-acct:disabled { cursor: default; }
 .cb-acct .cs-ico { color: var(--faint); }
 .cb-acct:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
-.cb-acct-pop { left: auto; right: 0; bottom: calc(100% + 8px); }
-.cb-acct-pop[hidden] { display: none; }
+.cb-gen[hidden] { display: none; }
 /* the mic: beside send, quiet until it listens */
 .cc-mic { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line);
           background: transparent; color: var(--subtle); cursor: pointer; flex: 0 0 auto; }
