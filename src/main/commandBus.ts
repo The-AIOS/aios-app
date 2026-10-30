@@ -29,7 +29,7 @@ import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } f
 import { pickBash } from '../core/bashResolve';
 import { TranscriptSince, readTranscript } from './transcriptSince';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
-import { resolveBusCwd, grantBusCwd } from './busCwd';
+import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -857,6 +857,8 @@ async function runSend(
 function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest): void {
     const where = launchCwd(heldPath, req);
     if (!where) return;
+    const addDirs = launchAddDirs(heldPath, req);
+    if (!addDirs) return;
     let taskFile: string | undefined;
     /* The worker's model is decided first: the consult instruction depends on it, and appending it
        can turn a short inline task into a multi-line one that must spill to a file.
@@ -893,14 +895,14 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     const c4 = contract4Args(req);
     if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
     const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
-      task: req.task || 'Start session', model, taskFile, extraArgs: c4.args,
+      task: req.task || 'Start session', model, taskFile, addDirs, extraArgs: c4.args,
     });
     // AI-172: the first prompt the worker receives is bus-typed too — record exactly that text.
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
     // background like every other bus path (#47): a fresh spawn was the one that still switched the
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
     emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where });
-    log(`spawn '${req.name}'${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+    log(`spawn '${req.name}'${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
 
 /**
@@ -927,7 +929,7 @@ async function resumeOrReveal(win: () => BrowserWindow | undefined, heldPath: st
        coordinator with exactly this request, so without the flag every finished worker pulled
        the operator's screen onto the coordinator's tab, mid-sentence. */
     emit(win(), 'focusByName', { name: req.name, background: true });
-    log(`resume '${req.name}' — already running, revealing and delivering${req.effort || req.advisor ? ' (effort/advisor NOT applied: a running session cannot change them)' : ''}`);
+    log(`resume '${req.name}' — already running, revealing and delivering${req.effort || req.advisor || req.addDirs !== undefined ? ' (effort/advisor/addDirs NOT applied: a running session cannot change them)' : ''}`);
     if (req.prompt) void runSend(win, heldPath, { ...req, action: 'send' }, Date.now());
     else try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
     return;
@@ -953,6 +955,8 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
     } else {
       const where = launchCwd(heldPath, req);
       if (!where) return;
+      const addDirs = launchAddDirs(heldPath, req);
+      if (!addDirs) return;
       let taskFile: string | undefined;
       /* Same Windows quoting rule as spawn: PowerShell mangles POSIX-quoted apostrophes, so
          every prompt goes through a file there. */
@@ -965,12 +969,12 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       }
       const c4 = contract4Args(req);
       if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
-      const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, extraArgs: c4.args });
+      const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, addDirs, extraArgs: c4.args });
       if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);   // AI-172
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).
       emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where });
-      log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${taskFile ? ' (via file)' : ''}`);
+      log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${taskFile ? ' (via file)' : ''}`);
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
       return;
     }
@@ -995,6 +999,18 @@ function launchCwd(heldPath: string, req: BusRequest): { cwd?: string } | null {
   if ('error' in r) { markUndelivered(heldPath, req, r.error); return null; }
   grantBusCwd(r.cwd);
   return { cwd: r.cwd };
+}
+
+/**
+ * The extra directories a launched session is granted with `--add-dir`: `[]` when the request names
+ * none, the resolved list when every entry is valid, or null after dead-lettering the first one it
+ * cannot honour — never a launch with the rest, for the same reason as `cwd`.
+ */
+function launchAddDirs(heldPath: string, req: BusRequest): string[] | null {
+  if (req.addDirs === undefined) return [];
+  const r = resolveBusAddDirs(req.addDirs);
+  if ('error' in r) { markUndelivered(heldPath, req, r.error); return null; }
+  return r.dirs;
 }
 
 /** spawn / kill act immediately once claimed — nothing about the target can refuse them. */

@@ -55,6 +55,11 @@ export interface BusRequest {
      existing, a directory, inside home) by the main side, which has the filesystem — a value it
      cannot honour is dead-lettered naming the field. Absent = the framework root, as before. */
   cwd?: string;
+  /* spawn/resume: extra directories the session may work in, each passed as its own `--add-dir`.
+     Kept AS WRITTEN (any JSON value) so a malformed one reaches the main side's validation and is
+     dead-lettered naming the field, never dropped — a session missing a directory it was promised
+     looks fine until it stalls asking for permissions. Absent = none, as before. */
+  addDirs?: unknown;
   /* Contract 4 (AI-198) — optional, decided by core/contract4 (shared with Glass). */
   from?: string;                // send/resume: the writer's registry name — a claim, not an identity
   effort?: string;              // spawn/resume: low · medium · high · xhigh · max
@@ -134,6 +139,7 @@ export function parseRequest(raw: string): BusRequest | null {
     /* A non-string is kept (stringified) rather than dropped, so it reaches validation and is
        refused by name instead of quietly opening the session somewhere else. */
     cwd: j.cwd === undefined || j.cwd === null ? undefined : (typeof j.cwd === 'string' ? j.cwd : JSON.stringify(j.cwd)),
+    addDirs: j.addDirs === undefined || j.addDirs === null ? undefined : j.addDirs,
     ...contract4Of(j, action),
   };
 }
@@ -159,7 +165,7 @@ export function needsTaskFile(task: string | undefined): boolean {
  * The spawn a `resume` with `"fallback":"spawn"` falls back to. A resume carries its first message
  * in `prompt`; a spawn reads `task`. Handing the resume request to the spawn path unchanged opened
  * the fresh session with the generic bootstrap ("Start session") and lost the caller's message —
- * the one thing the request existed to deliver. Everything else (name, model, tier, cwd, contract-4
+ * the one thing the request existed to deliver. Everything else (name, model, tier, cwd, addDirs, contract-4
  * fields) carries over as written.
  */
 export function fallbackSpawnRequest(req: BusRequest): BusRequest {
@@ -174,6 +180,15 @@ export function shq(s: string): string {
 /** The short prompt handed to a worker whose real task lives in a file. */
 export function taskFileInstruction(file: string): string {
   return `Read ${file} and follow the instructions inside.`;
+}
+
+/**
+ * The `--add-dir` arguments of a launch, unquoted: one flag per directory the request granted, then
+ * the task file's folder (aios#231). All of them go straight after the binary — the flag is variadic,
+ * so the token after the last one must be a flag, never the prompt.
+ */
+function launchAddDirArgs(addDirs: string[] | undefined, taskFile: string | undefined): string[] {
+  return [...(addDirs ?? []).flatMap((d) => ['--add-dir', d]), ...addDirArgs(taskFile)];
 }
 
 /**
@@ -205,13 +220,13 @@ export function taskFileInstruction(file: string): string {
 export function buildResumeCmd(
   claudeCmd: string,
   sessionId: string,
-  opts: { prompt?: string; taskFile?: string; extraArgs?: string[] } = {},
+  opts: { prompt?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[] } = {},
 ): string {
   /* QUOTED, even though resumeTarget already refuses an unsafe id. The id is a FILENAME read
      off disk, and this string is typed into a live shell — one guard is a policy, two is a
      boundary. Quoting also keeps the command correct if the id format ever widens. */
   /* aios#231: --add-dir first, straight after the binary — it is variadic (see core/addDir.ts). */
-  const parts = [claudeCmd || 'claude', ...addDirArgs(opts.taskFile).map(shq), '--resume', shq(sessionId)];
+  const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(shq), '--resume', shq(sessionId)];
   for (const a of opts.extraArgs ?? []) parts.push(shq(a));   // contract 4: --effort / --settings
   const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.prompt;
   if (prompt && prompt.trim()) parts.push(shq(prompt));
@@ -221,10 +236,10 @@ export function buildResumeCmd(
 export function buildSpawnCmd(
   claudeCmd: string,
   name: string,
-  opts: { task?: string; model?: string; taskFile?: string; extraArgs?: string[] } = {},
+  opts: { task?: string; model?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[] } = {},
 ): string {
   const model = opts.model && opts.model.trim() ? opts.model.trim() : undefined;
-  const parts = [claudeCmd || 'claude', ...addDirArgs(opts.taskFile).map(shq)];   // aios#231, variadic: first
+  const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(shq)];   // aios#231, variadic: first
   if (model) parts.push('--model', model);
   parts.push('--name', name);
   for (const a of opts.extraArgs ?? []) parts.push(shq(a));   // contract 4: --effort / --settings
