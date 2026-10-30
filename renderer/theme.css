@@ -243,6 +243,17 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
    edge to edge in the same colour read as ONE strip with a confusing mix of tabs. The editor
    is the LIGHTER surface (it holds documents), the dock the darker (it holds terminals), and
    the gap is now wide enough to name a zone at a glance without reading its label. */
+/* Terminals LEFT or RIGHT of the created view: the zone row flips and `order` places each child.
+   Only the two side positions carry rules: below is the DOM order itself. Never move the nodes. */
+#work[data-termpos="left"], #work[data-termpos="right"] { flex-direction: row; }
+#work[data-termpos="left"] > #termzone { order: 1; }
+#work[data-termpos="left"] > #hsplit { order: 2; }
+#work[data-termpos="left"] > #viewzone { order: 3; }
+#work[data-termpos="right"] > #viewzone { order: 1; }
+#work[data-termpos="right"] > #hsplit { order: 2; }
+#work[data-termpos="right"] > #termzone { order: 3; }
+#work[data-termpos="left"] > #hsplit, #work[data-termpos="right"] > #hsplit { width: 3px; height: auto; cursor: col-resize; }
+#work[data-termpos="left"] > .zone, #work[data-termpos="right"] > .zone { min-width: 0; }
 #viewzone { background: var(--zone-edit); }
 #termzone { flex: 0 0 auto; height: 38%; background: var(--zone-term); }
 /* The strips inherit their zone's tone, so the boundary is legible exactly where the

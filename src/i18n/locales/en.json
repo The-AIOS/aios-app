@@ -657,6 +657,8 @@
   "layout.facing": "Facing",
   "layout.zen": "Zen",
   "layout.terminalsBelow": "Terminals below",
+  "layout.terminalsLeft": "Terminals left",
+  "layout.terminalsRight": "Terminals right",
   "menu.toggleTerminals": "Show or Hide Terminals Below",
   "menu.help": "Help",
   "menu.commons": "The AIOS Commons (the-aios.org)",
