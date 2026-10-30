@@ -7934,17 +7934,23 @@ function chatReadPrefs(c) {
    and what it costs lives here. It is a rounded strip glued under the card, segments with dividers (chosen over a
    thin line with rings and a capsule per metric; docs/rfcs/chat-view.md has the comparison). */
 const CHAT_METERS = [
-  ['fiveHourPct', 'chat.usage.fiveHour', 'chat.usage.tip.fiveHour'],
-  ['sevenDayPct', 'chat.usage.sevenDay', 'chat.usage.tip.sevenDay'],
-  ['contextPct', 'chat.usage.context', 'chat.usage.tip.context'],
+  ['fiveHourPct', 'chat.usage.fiveHour', 'chat.usage.tip.fiveHour', 'chat.usage.fiveHourShort'],
+  ['sevenDayPct', 'chat.usage.sevenDay', 'chat.usage.tip.sevenDay', 'chat.usage.sevenDayShort'],
+  ['contextPct', 'chat.usage.context', 'chat.usage.tip.context', 'chat.usage.contextShort'],
 ];
 /* What the statusline payload may carry. The payload is GLOBAL (whichever session wrote it last), so the fields
    that describe ONE session are only taken when main says the payload is this tab's (sessionMatch === true). */
 const CHAT_STATUS_FIELDS = ['fiveHourPct', 'sevenDayPct', 'contextPct', 'model', 'effort', 'effortDefault', 'fiveHourResetsAt', 'sevenDayResetsAt', 'contextWindow'];
 const CHAT_STATUS_OWN = ['contextPct', 'model', 'effort', 'contextWindow'];
 const CHAT_RESET_OF = { fiveHourPct: 'fiveHourResetsAt', sevenDayPct: 'sevenDayResetsAt' };
-/* Neutral below 60, amber from 60, red from 85: the amber has to leave room to act before the red says "now". */
-const CHAT_WARN_PCT = 60, CHAT_HOT_PCT = 85;
+/* The status line's own colours, at its own thresholds (context-monitor.py), so the bar and the line it replaces never
+   disagree: the context goes green, yellow from 50, orange from 75, red from 90; the 5 h and weekly limits have no orange
+   step (yellow from 70, red from 90). [yellow, orange or null, red]. */
+const CHAT_LEVELS = { contextPct: [50, 75, 90], fiveHourPct: [70, null, 90], sevenDayPct: [70, null, 90] };
+function chatUsageLevel(k, pct) {
+  const [warn, high, hot] = CHAT_LEVELS[k];
+  return pct >= hot ? 'hot' : high !== null && pct >= high ? 'high' : pct >= warn ? 'warn' : 'ok';
+}
 const CHAT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /* What the effort menu offers, and the words it types. Read from the installed CLI (claude 2.1.311), not assumed: the binary's
    /effort handler prints "Usage: /effort [low|medium|high|xhigh|max|auto]" and answers "Effort level set to auto". The five
@@ -8024,8 +8030,8 @@ function chatPaintUsage(cs) {
     const seg = part.seg;
     // threshold colour follows the PERCENTAGE, whatever the number on show is
     seg.classList.toggle('none', !has && shown === '—');
-    seg.classList.toggle('warn', has && pct >= CHAT_WARN_PCT && pct < CHAT_HOT_PCT);
-    seg.classList.toggle('hot', has && pct >= CHAT_HOT_PCT);
+    const level = has ? chatUsageLevel(k, pct) : '';
+    for (const lv of ['ok', 'warn', 'high', 'hot']) seg.classList.toggle(lv, level === lv);
     seg.style.setProperty('--p', has ? String(Math.max(0, Math.min(100, Math.round(pct)))) : '0');   // the bar's fill, 0-100; empty without a reading
     part.v.textContent = shown;
     part.v.classList.toggle('none', shown === '—');
@@ -8105,6 +8111,26 @@ async function chatSkinWherePaint(cs) {
     br.classList.toggle('dirty', w.changes > 0);
     br.title = w.changes ? t('chat.bar.branchDirty', { branch: w.branch, n: w.changes }) : t('chat.bar.branchClean', { branch: w.branch });
   }
+}
+/* A narrow pane gives up whole segments, least-checked first, until the bar fits. Measured, not guessed: a branch name can be
+   4 characters or 40, so no fixed width can say when the folder must go (0.14.0 round: at 543px both fitted and were hidden
+   anyway). The account's address and the labels-for-bars swap stay CSS steps, their sizes are fixed. The model and the three
+   numbers are never cut. */
+const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-effort', '.cb-mode .cb-v', '.cb-ks'];
+function chatSkinFitBar(bar) {
+  if (!bar || !bar.isConnected) return;
+  const id = bar.querySelector('.cb-id'), meters = bar.querySelector('.cb-meters');
+  if (!id || !meters) return;
+  for (const e of bar.querySelectorAll('.fit-cut')) e.classList.remove('fit-cut');
+  const fits = () => id.scrollWidth + meters.scrollWidth + 8 <= bar.clientWidth;   // 8: the bar's own side padding
+  for (const sel of CHAT_BAR_CUT) {
+    if (fits()) return;
+    for (const e of bar.querySelectorAll(sel)) e.classList.add('fit-cut');
+  }
+}
+function chatSkinFitSoon(bar) {
+  if (!bar || bar._fitQ || typeof requestAnimationFrame !== 'function') return;
+  bar._fitQ = requestAnimationFrame(() => { bar._fitQ = 0; chatSkinFitBar(bar); });
 }
 
 /* ── eligibility ──────────────────────────────────────────────────────────── */
@@ -8199,7 +8225,7 @@ function chatSkinBuild(id, p) {
      focusable and answers hover AND focus with the same detail card (resets, tokens). Painted by chatPaintUsage;
      the fill is the --p custom property (0-100). */
   const metersBox = el('div', 'cb-meters');
-  for (const [k, label] of CHAT_METERS) {
+  for (const [k, label, , short] of CHAT_METERS) {
     const seg = el('span', 'cb-m none');
     seg.setAttribute('role', 'img');
     seg.tabIndex = 0;
@@ -8213,7 +8239,7 @@ function chatSkinBuild(id, p) {
     const meter = el('span', 'cb-meter');
     meter.setAttribute('aria-hidden', 'true');
     meter.appendChild(el('i'));
-    seg.append(el('span', 'cb-k', t(label)), meter, v, of, tip);
+    seg.append(el('span', 'cb-k', t(label)), el('span', 'cb-ks', t(short)), meter, v, of, tip);   // the short label ("5h") takes over when the bar is too narrow for the meter
     seg.addEventListener('pointerenter', () => chatSkinTip(seg, true));
     seg.addEventListener('pointerleave', () => { if (document.activeElement !== seg) chatSkinTip(seg, false); });
     seg.addEventListener('focus', () => chatSkinTip(seg, true));
@@ -8227,6 +8253,10 @@ function chatSkinBuild(id, p) {
   hint.append(el('span', 'cb-hint-t', t('chat.hintShort')), el('span', 'cb-hint-s', t('chat.bar.hintTiny')));
   hint.setAttribute('aria-hidden', 'true');   // the full sentence is the textarea's title and its description for assistive tech
   bar.append(idBox, hint, metersBox);
+  /* refit when the pane resizes AND when a segment's text or visibility changes (a longer branch, a mode word); the fit's own
+     class changes are not watched, so it cannot wake itself */
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => chatSkinFitSoon(bar)).observe(bar);
+  if (typeof MutationObserver === 'function') new MutationObserver(() => chatSkinFitSoon(bar)).observe(bar, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
 
   const log = el('div', 'chat-log');
   log.setAttribute('role', 'log');

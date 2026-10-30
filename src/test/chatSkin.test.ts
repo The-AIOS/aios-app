@@ -468,7 +468,9 @@ test('every colour the skin uses is a token (none minted in the skin\'s own rule
     '--chat-code-head', '--chat-out-bg', '--chat-row-hover', '--chat-table-head', '--chat-table-zebra', '--chat-quote-line', '--chat-composer-bg',
     '--chat-composer-line', '--chat-meter-track', '--chat-meter-fill', '--chat-focus', '--chat-float', '--chat-pop', '--chat-on-accent',
     // the status bar's own
-    '--chat-meter-warn', '--chat-meter-hot', '--chat-warn-ink', '--chat-hot-ink', '--chat-bar-bg', '--chat-bar-line', '--chat-bar-sep'];
+    '--chat-meter-warn', '--chat-meter-hot', '--chat-warn-ink', '--chat-hot-ink', '--chat-bar-bg', '--chat-bar-line', '--chat-bar-sep',
+    // the status line's palette
+    '--chat-meter-ok', '--chat-meter-high', '--chat-ok-ink', '--chat-high-ink', '--chat-model-ink', '--chat-dir-ink', '--chat-acct-ink'];
   const light = css.slice(css.indexOf('body.light {'));
   for (const tk of tokens) {
     assert.match(css, new RegExp(`:root \\{[^}]*${tk}:`), `${tk} must be minted in :root`);
@@ -1040,7 +1042,7 @@ function usageCs(u: ReturnType<typeof loadUsage>, status: Record<string, unknown
 }
 const tipOf = (p: Part): { h: string; v: string; d: string[] } => ({ h: p.tipH.textContent, v: p.tipV.textContent, d: p.tipD.kids.map((k) => k.textContent) });
 
-test('status bar, run for real: a missing reading is a dash and an empty ring; a present one is the percentage, amber from 60 and red from 85', () => {
+test('status bar, run for real: a missing reading is a dash and an empty ring; a present one is the percentage, coloured like the status line', () => {
   const u = loadUsage();
   const none = usageCs(u, {});
   u.paint(none.cs);
@@ -1052,15 +1054,17 @@ test('status bar, run for real: a missing reading is a dash and an empty ring; a
     assert.deepEqual(tipOf(none.parts[k]).d, [], 'no invented detail');
   }
   const band = (pct: number): string => { const x = usageCs(u, { fiveHourPct: pct }); u.paint(x.cs); return x.parts.fiveHourPct.seg.className; };
-  assert.doesNotMatch(band(42), /\b(warn|hot|none)\b/, 'neutral at 42');
-  assert.doesNotMatch(band(59), /\b(warn|hot)\b/, 'neutral just under 60');
-  assert.match(band(60), /\bwarn\b/, 'amber from 60');
-  assert.match(band(72), /\bwarn\b/);
-  assert.match(band(84), /\bwarn\b/);
-  assert.doesNotMatch(band(84), /\bhot\b/);
-  assert.match(band(85), /\bhot\b/, 'red from 85');
-  assert.doesNotMatch(band(85), /\bwarn\b/, 'one colour at a time');
+  assert.match(band(42), /\bok\b/, 'green at 42');
+  assert.doesNotMatch(band(42), /\b(warn|high|hot|none)\b/);
+  assert.match(band(69), /\bok\b/, 'green just under 70');
+  assert.match(band(70), /\bwarn\b/, 'yellow from 70');
+  assert.match(band(89), /\bwarn\b/, 'the limits have no orange step');
+  assert.doesNotMatch(band(89), /\b(high|hot)\b/);
+  assert.match(band(90), /\bhot\b/, 'red from 90');
+  assert.doesNotMatch(band(90), /\b(ok|warn)\b/, 'one colour at a time');
   assert.match(band(100), /\bhot\b/);
+  const cband = (pct: number): string => { const x = usageCs(u, { contextPct: pct }); u.paint(x.cs); return x.parts.contextPct.seg.className; };
+  assert.deepEqual([49, 50, 75, 90].map((p) => /\b(ok|warn|high|hot)\b/.exec(cband(p))?.[1]), ['ok', 'warn', 'high', 'hot'], 'the context: green, yellow 50, orange 75, red 90');
   const some = usageCs(u, { fiveHourPct: 42, sevenDayPct: 71, contextPct: 93 });
   u.paint(some.cs);
   assert.equal(some.parts.fiveHourPct.v.textContent, '42%');
@@ -1202,12 +1206,14 @@ test('status bar: the reset formatters give the two largest units, and a clock t
   assert.match(u.when(at(30 * 3600e3), now), /^[A-Za-z]{3}\.? \d{1,2}:\d{2}/, 'another day: weekday and time');
 });
 
-test('status bar: the thresholds are 60 and 85, named once, and the painter reads those names (no stray 70 or 90)', () => {
-  assert.match(skin, /const CHAT_WARN_PCT = 60, CHAT_HOT_PCT = 85;/);
+test('status bar: the levels are the status line\'s own (context 50/75/90, limits 70/90), named once, and the painter reads them', () => {
+  assert.match(skin, /const CHAT_LEVELS = \{ contextPct: \[50, 75, 90\], fiveHourPct: \[70, null, 90\], sevenDayPct: \[70, null, 90\] \};/);
   const paint = fnBody(skin, 'chatPaintUsage');
-  assert.match(paint, /pct >= CHAT_WARN_PCT && pct < CHAT_HOT_PCT/);
-  assert.match(paint, /pct >= CHAT_HOT_PCT/);
-  assert.doesNotMatch(paint, /\b(70|90)\b/);
+  assert.match(paint, /chatUsageLevel\(k, pct\)/);
+  assert.doesNotMatch(paint, /\b(50|60|70|75|85|90)\b/, 'no threshold inlined in the painter');
+  const lv = new Function(skin.slice(skin.indexOf('const CHAT_LEVELS'), skin.indexOf('\n}', skin.indexOf('function chatUsageLevel')) + 2) + '; return chatUsageLevel;')();
+  assert.deepEqual([49, 50, 74, 75, 89, 90].map((p) => lv('contextPct', p)), ['ok', 'warn', 'warn', 'high', 'high', 'hot']);
+  assert.deepEqual([69, 70, 89, 90].map((p) => lv('fiveHourPct', p)), ['ok', 'warn', 'warn', 'hot'], 'the limits have no orange step');
   assert.match(paint, /const has = typeof pct === 'number' && Number\.isFinite\(pct\)/);
   assert.match(paint, /setProperty\('--p', has \? /, 'the ring and the bar are empty without a reading');
   assert.match(paint, /\.\.\.lines\]\.join\(' — '\)/, 'the accessible name carries the value and the detail');
@@ -1345,24 +1351,37 @@ test('the bar\'s CSS: thresholds through --chat-* tokens, the detail card on the
   assert.match(rule('.cb-tip').replace('inset: 0;', 'bottom: calc(100% + 8px);'), /calc\(100%/);
 });
 
-test('a narrow pane gives up the labels first, then the "of 200k", then the effort, and only then the numbers — the bars never', () => {
+test('a narrow pane: two fixed steps (address, then labels-and-bars for the short labels), then a MEASURED cut in priority order — the model and numbers never', () => {
   const widths = (sel: RegExp): number[] => [...css.matchAll(/@container \(max-width: (\d+)px\) \{([^@\n]*)\}/g)].filter((m) => sel.test(m[2])).map((m) => Number(m[1]));
-  const labels = Math.max(...widths(/\.cb-k \{ display: none/));
-  const of = Math.max(...widths(/\.cb-of \{ display: none/));
-  const effort = Math.max(...widths(/\.cb-effort \{ display: none/));
-  const values = Math.max(...widths(/\.cb-m \.cb-v \{ display: none/));
-  assert.ok(labels > 0 && of > 0 && effort > 0 && values > 0, `all the steps exist (${[labels, of, effort, values]})`);
-  assert.ok(labels > of && of >= effort - 20 && effort > values, `order of loss by width: labels ${labels} > of ${of} > effort ${effort} > numbers ${values}`);
-  // nothing ever hides the bar itself
-  assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.cb-meter(?! i)[^}]*display: none/);
-  // the bar is its own size container, so the steps follow the bar and not the window
-  assert.match(skinRules(css).find(([s]) => s === '.cc-meta')?.[1] ?? '', /container-type: inline-size/);
+  const addr = Math.max(...widths(/\.cb-acct \.cb-v \{ display: none/));
+  const labels = Math.max(...widths(/\.cb-k, \.cb-meter \{ display: none/));
+  assert.ok(addr > labels && labels > 0, `address ${addr} goes before labels ${labels}`);
+  assert.ok(widths(/\.cb-ks \{ display: inline/).includes(labels), 'the short label takes over at the labels step');
+  // no guessed width hides a segment whose size depends on its text (0.14.0 round: folder and branch hidden at 543px with room to spare)
+  assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.(cb-dir|cb-branch|cb-effort)[^}]*display: none/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-ks'\];/);
+  assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.cb-m \.cb-v[^}]*display: none/, 'nothing hides the numbers');
+  assert.match(skinRules(css).find(([sel]) => sel === '.chat-bar .fit-cut')?.[1] ?? '', /display: none/);
+  // run it: a stub bar that only fits once the folder and the branch are gone
+  const fit = new Function(skin.slice(skin.indexOf('const CHAT_BAR_CUT'), skin.indexOf('\nfunction chatSkinFitSoon')) + '; return chatSkinFitBar;')();
+  const mk = (cls: string, w: number) => ({ cls: new Set(cls.split(' ')), w, classList: { add(c: string) { mk.cut.add(c === 'fit-cut' ? this : null); }, remove() { /* */ } } });
+  mk.cut = new Set<unknown>();
+  const segs: Record<string, number> = { '.cb-dir': 60, '.cb-branch': 100, '.cb-effort': 90, '.cb-mode .cb-v': 30, '.cb-ks': 40 };
+  const nodes = Object.fromEntries(Object.entries(segs).map(([k, w]) => [k, mk(k, w)]));
+  const cut = new Set<string>();
+  const total = 600;
+  const id = { get scrollWidth() { return total - [...cut].reduce((a, k) => a + segs[k], 0) - 200; } };
+  const bar = { isConnected: true, clientWidth: 450, querySelector: (q: string) => (q === '.cb-id' ? id : q === '.cb-meters' ? { scrollWidth: 200 } : null),
+    querySelectorAll: (q: string) => (q === '.fit-cut' ? [] : [{ classList: { add: () => cut.add(q) } }]) };
+  void nodes;
+  fit(bar);
+  assert.deepEqual([...cut], ['.cb-dir', '.cb-branch'], 'cut in order, and only as far as needed');
 });
 
 test('the status bar\'s sentences exist in every locale (the ones built at run time included), with the same placeholders', () => {
   const keys = ['chat.hintShort', 'chat.bar.hintTiny', 'chat.bar.label', 'chat.bar.modelTip', 'chat.bar.modelPick', 'chat.bar.modelAria', 'chat.usage.tip.fiveHour', 'chat.usage.tip.sevenDay', 'chat.usage.tip.context',
     'chat.usage.tip.used', 'chat.usage.tip.resets', 'chat.usage.tip.stale', 'chat.usage.tip.ctxOf', 'chat.usage.tip.ctxUsed', 'chat.usage.unit.d', 'chat.usage.unit.h', 'chat.usage.unit.m', 'chat.usage.none',
-    'chat.usage.fiveHour', 'chat.usage.sevenDay', 'chat.usage.context', 'chat.usage.effort'];
+    'chat.usage.fiveHour', 'chat.usage.sevenDay', 'chat.usage.context', 'chat.usage.effort', 'chat.usage.fiveHourShort', 'chat.usage.sevenDayShort', 'chat.usage.contextShort'];
   const efforts = /const CHAT_EFFORTS = \[([^\]]+)\]/.exec(skin)?.[1].match(/'(\w+)'/g)?.map((x) => x.slice(1, -1)) ?? [];
   assert.deepEqual(efforts, ['low', 'medium', 'high', 'xhigh', 'max']);
   for (const e of efforts) keys.push('chat.bar.effort.' + e);
@@ -1373,7 +1392,8 @@ test('the status bar\'s sentences exist in every locale (the ones built at run t
   assert.equal(holes(loc.en['chat.bar.label']), '{name}', 'the bar is named after the session, like every other sentence about it');
   assert.equal(holes(loc.en['chat.bar.modelAria']), '{model}');
   // every key the painter builds at run time is in the list above
-  assert.deepEqual([...skin.matchAll(/\['(?:fiveHourPct|sevenDayPct|contextPct)', 'chat\.usage\.\w+', '(chat\.usage\.tip\.\w+)'\]/g)].map((m) => m[1]), ['chat.usage.tip.fiveHour', 'chat.usage.tip.sevenDay', 'chat.usage.tip.context']);
+  assert.deepEqual([...skin.matchAll(/\['(?:fiveHourPct|sevenDayPct|contextPct)', 'chat\.usage\.\w+', '(chat\.usage\.tip\.\w+)', '(chat\.usage\.\w+Short)'\]/g)].map((m) => [m[1], m[2]]),
+    [['chat.usage.tip.fiveHour', 'chat.usage.fiveHourShort'], ['chat.usage.tip.sevenDay', 'chat.usage.sevenDayShort'], ['chat.usage.tip.context', 'chat.usage.contextShort']]);
   assert.match(skin, /t\('chat\.bar\.effort\.' \+ effort\)/);
   // the old row is gone with its sentence
   assert.equal(typeof loc.en['chat.usage.contextTokens'], 'undefined');
@@ -1753,8 +1773,8 @@ test('the effort menu\'s look: a neutral popover with its own tokens, a tick on 
   assert.match(css, /\.cb-effort \{ cursor: pointer; \}/);
   assert.match(css, /\.cb-effort:hover:not\(:disabled\), \.cb-effort\[aria-expanded="true"\] \{ background-color: var\(--chat-row-hover\); \}/);
   assert.match(css, /\.cb-effort:focus-visible \{ outline: 2px solid var\(--chat-focus\)/);
-  // the narrow-pane step is still there (the effort is the first segment to go, after the labels)
-  assert.match(css, /@container \(max-width: 640px\) \{ \.cb-effort \{ display: none; \} \}/);   // 0.14.0 round: the bar's segments give way in one order
+  // the narrow-pane step is still there: measured now, the effort goes after the folder and the branch
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-effort'/);
 });
 
 test('the slash popup wires: the box is a combobox over a listbox, input asks, send/hide/blocked close it, and the IPC is read-only with a leading-slash gate', () => {

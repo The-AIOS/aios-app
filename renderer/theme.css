@@ -81,12 +81,21 @@ body.unfocused *, body.unfocused *::before, body.unfocused *::after { animation-
   --chat-tip-bg: color-mix(in srgb, var(--ink) 11%, var(--surface));     /* a tooltip floating over the composer card: one step above it, so the two never blend */
   --chat-link: var(--st-input-ink);   /* links in the conversation: the app's one cool hue. The house has no link token (the markdown viewer links in coral), and coral is spoken for here */
   --chat-on-accent: #fff;   /* the glyph on a coral button; white, as the house .vbtn.primary does */
-  --chat-meter-fill: color-mix(in srgb, var(--ink) 66%, var(--surface));   /* a usage meter in its normal range: neutral, so only 60+ and 85+ ever draw the eye */
+  --chat-meter-fill: color-mix(in srgb, var(--ink) 66%, var(--surface));   /* a meter with no level yet */
   /* the status bar under the composer (see .chat-bar): the thresholds' colours, one step of tone for the strip, and the hairlines */
-  --chat-meter-warn: var(--st-warn);     /* 60-84 %: amber */
-  --chat-meter-hot: var(--st-error);     /* 85 % and up: red (a real red, never coral) */
+  --chat-meter-warn: var(--st-warn);     /* yellow: context 50+, limits 70+ */
+  --chat-meter-hot: var(--st-error);     /* red: 90+ (a real red, never coral) */
   --chat-warn-ink: var(--st-warn-ink);   /* the same two as TEXT: the fills above are too bright to read as type on the light paper */
   --chat-hot-ink: var(--st-error-ink);
+  /* the status line's palette (context-monitor.py), so the bar reads like the line it replaces: green, yellow, orange, red by level;
+     the model blue, the folder yellow, the account cyan. Orange sits between the gold and the red and is not coral (coral is the send button's). */
+  --chat-meter-ok: var(--st-ok);
+  --chat-meter-high: #f0883e;
+  --chat-ok-ink: var(--st-ok-ink);
+  --chat-high-ink: var(--chat-meter-high);
+  --chat-model-ink: var(--st-input-ink);
+  --chat-dir-ink: var(--st-warn-ink);
+  --chat-acct-ink: #5cc8d6;
   --chat-bar-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));
   --chat-bar-line: color-mix(in srgb, var(--ink) 15%, var(--surface));
   --chat-bar-sep: color-mix(in srgb, var(--ink) 20%, transparent);
@@ -705,6 +714,13 @@ body.light {
   --chat-meter-hot: var(--st-error);
   --chat-warn-ink: var(--st-warn-ink);
   --chat-hot-ink: var(--st-error-ink);
+  --chat-meter-ok: var(--st-ok);
+  --chat-meter-high: #f0883e;
+  --chat-ok-ink: var(--st-ok-ink);
+  --chat-high-ink: #a4490c;   /* orange as type on paper: the bright fill reads 2.4:1, this clears 4.5 */
+  --chat-model-ink: var(--st-input-ink);
+  --chat-dir-ink: var(--st-warn-ink);
+  --chat-acct-ink: #0b6d7a;
   --chat-bar-bg: color-mix(in srgb, var(--ink) 3.5%, var(--surface));
   --chat-bar-line: color-mix(in srgb, var(--ink) 15%, var(--surface));
   --chat-bar-sep: color-mix(in srgb, var(--ink) 18%, transparent);
@@ -1834,6 +1850,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
                                background: linear-gradient(var(--chat-bar-sep), var(--chat-bar-sep)) left center / 1px 16px no-repeat;   /* the divider is a short hairline, not a full-height border */
                                color: inherit; font: inherit; line-height: 1; min-width: 0; }
 .cb-model { background: none; padding-left: 14px; cursor: pointer; color: var(--ink); font-weight: 600; }
+.cb-model .cb-v:not(.none) { color: var(--chat-model-ink); }
 .cb-model .cs-ico, .cb-effort .cs-ico { color: var(--faint); }
 .cb-model:hover:not(:disabled) { background: var(--chat-row-hover); }
 /* the effort is a button like the model, but it keeps the divider on its left (the colour alone changes on hover: the shorthand would wipe it) */
@@ -1875,11 +1892,16 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-v.none { color: var(--faint); font-weight: 500; }
 .cb-of { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
 .cb-of:empty { display: none; }
+.cb-m.ok .cb-v { color: var(--chat-ok-ink); }
 .cb-m.warn .cb-v { color: var(--chat-warn-ink); }
+.cb-m.high .cb-v { color: var(--chat-high-ink); }
 .cb-m.hot .cb-v { color: var(--chat-hot-ink); }
+.cb-ks { display: none; color: var(--faint); font-weight: 600; }
 .cb-meter { display: block; flex: 0 0 auto; width: 30px; height: 4px; border-radius: 2px; background: var(--chat-meter-track); overflow: hidden; }
 .cb-meter i { display: block; width: calc(var(--p, 0) * 1%); height: 100%; border-radius: inherit; background: var(--chat-meter-fill); transition: width .4s cubic-bezier(.2, .7, .2, 1), background-color .2s ease; }
+.cb-m.ok .cb-meter i { background: var(--chat-meter-ok); }
 .cb-m.warn .cb-meter i { background: var(--chat-meter-warn); }
+.cb-m.high .cb-meter i { background: var(--chat-meter-high); }
 .cb-m.hot .cb-meter i { background: var(--chat-meter-hot); }
 /* stale comes after the thresholds so a reading from the previous window never keeps a colour it no longer earns (drawn in the quiet text colour, never dimmed by opacity: the contrast guard forbids that) */
 .cb-m.stale .cb-meter i { background: var(--faint); }
@@ -1910,19 +1932,16 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cut-line { overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .cb-m, .cb-meter i, .cb-tip, .cb-hint, .chat-bar { transition: none; } }
 /* A narrow pane gives up what is checked least, a whole segment at a time: nothing shrinks into an empty stub (0.14.0 round,
-   split panes showed bare chevrons). Order of loss: the account's address (its icon stays, the address is the tooltip), the
-   meter labels, the folder, the branch, the "of 200k", the effort, the mode's word; then the numbers. The model, the
-   context and the 5 h / weekly values keep their place longest, and the bars never go. The widths are the bar's own (the
+   split panes showed bare chevrons). Two fixed steps here: the account's address (its icon stays, the address is the
+   tooltip), then the meter labels AND bars together (the short "5h · 7d · Cx" and the coloured number take over). The widths are the bar's own (the
    bar is the size container). */
 .cb-model, .cb-effort, .cb-mode, .cb-where, .cb-acct, .cb-m { flex-shrink: 0; }
 @container (max-width: 1120px) { .cb-acct .cb-v { display: none; } }
-@container (max-width: 960px) { .cb-k { display: none; } .cb-m { gap: 5px; } }
-@container (max-width: 880px) { .cb-dir { display: none; } }
-@container (max-width: 800px) { .cb-branch { display: none; } }
+@container (max-width: 960px) { .cb-k, .cb-meter { display: none; } .cb-ks { display: inline; } .cb-m { gap: 5px; } }
 @container (max-width: 700px) { .cb-of { display: none; } .cb-meter { width: 26px; } .cb-model, .cb-effort, .cb-m, .cb-mode { padding: 0 10px; } }
-@container (max-width: 640px) { .cb-effort { display: none; } }
-@container (max-width: 560px) { .cb-mode .cb-v { display: none; } }
-@container (max-width: 372px) { .cb-m .cb-v { display: none; } }   /* a strip segment is wider than a bare bar: its number is the first to go */
+/* …and past those two steps the bar is measured: chatSkinFitBar cuts the folder, the branch, the effort, the mode's word and then
+   the short labels, one at a time, until it fits (a branch name has no fixed width). */
+.chat-bar .fit-cut { display: none; }
 
 /* The conversation is ONE centred reading column. The log itself spans the pane (so its scrollbar
    sits at the pane's edge, where a hand looks for it) and the column is made with side padding:
@@ -2138,8 +2157,11 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-where .cb-v { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .cb-where .cs-ico { color: var(--faint); }
 .cb-dir { cursor: pointer; }
+.cb-dir .cb-v:not(.none) { color: var(--chat-dir-ink); }
+.cb-branch .cb-v:not(.none) { color: var(--chat-ok-ink); }
+.cb-acct .cb-v:not(.none) { color: var(--chat-acct-ink); }
 .cb-dir:hover { background-color: var(--chat-row-hover); }
-.cb-branch.dirty .cb-v { color: var(--chat-meter-warn, var(--ink)); }
+.cb-branch.dirty .cb-v { color: var(--chat-hot-ink); }   /* uncommitted changes: red, as the status line draws them */
 /* the words Claude hears, live, while the mic listens */
 .chat-input.listening::placeholder { color: var(--ink); font-style: italic; }
 
