@@ -2,6 +2,12 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, n
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
+import { createTranscriptTail, isSessionId } from './transcriptTail';
+import { createPromptMonitor, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
+import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker } from '../core/screenStream';
+import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
+import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
+import { listSlashCommands } from './slashCommandsIo';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
 import { askSessionName, uniqueName } from '../core/sessionName';
@@ -12,6 +18,8 @@ import { t } from '../i18n';
 import { shellArgs } from './shellArgs';
 import * as path from 'path';
 import * as os from 'os';
+import * as v8 from 'v8';
+import * as vm from 'vm';
 import { execFile } from 'child_process';
 import { pathToFileURL } from 'url';   // main builds the file:// URL itself — see shell:openPathExternal
 import { classifyForRead } from './preview';   // the fs:read gate (#39)
@@ -31,8 +39,10 @@ import { needsSpill } from '../core/ptyLine';
 import { initAutoUpdater } from './updater';
 import * as aios from './aios';
 import { redactSecrets } from './redact';
+import { resolveOne, resolveMany, RESOLVE_PATHS_LIMIT } from './pathResolve';
 import * as connectors from './connectors';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 
 /**
  * Glass Shell — walking skeleton. Window + the shared Glass panel + ONE real
@@ -43,6 +53,25 @@ import * as fs from 'fs';
  * then exits 0/1 — the in-app smoke gate, here from day one.
  */
 const SMOKE = process.argv.includes('--smoke');
+/* A smoke run is a guest on the operator's machine, and the app they use every day is usually OPEN
+   while it runs. Both share one userData folder by default, so the run would read the operator's
+   localStorage (restored tabs, preferences) and write its own test tabs into it. Give it a private,
+   throwaway folder instead. Settings and sessions live under ~/.aios and ~/.claude, not here. */
+let smokeUserData = '';
+if (SMOKE) {
+  /* One fixed name, wiped at the start of every run: Chromium writes a few KB again while the process
+     exits (after any cleanup the run could do), so a unique folder per run would pile up. */
+  smokeUserData = path.join(os.tmpdir(), 'aios-smoke-userdata');
+  fs.rmSync(smokeUserData, { recursive: true, force: true });
+  fs.mkdirSync(smokeUserData, { recursive: true });
+  app.setPath('userData', smokeUserData);
+}
+/* macOS: a smoke run is headless. The window is born hidden (`show: false`), and the process itself
+   takes no Dock icon and no activation either, so the packaged binary can be run by path while the
+   operator's own App is open without bouncing in the Dock or stealing focus. */
+if (SMOKE && process.platform === 'darwin') { try { app.setActivationPolicy('accessory'); } catch { /* older Electron: the window is still never shown */ } }
+/* app.exit() does not run 'exit' listeners, so the smoke verdict removes the folder itself. */
+const dropSmokeUserData = (): void => { if (smokeUserData) { try { fs.rmSync(smokeUserData, { recursive: true, force: true }); } catch { /* best effort */ } } };
 /* A gate that CAN skip will eventually skip silently, and nobody notices the day it stops running
    for a real reason. The two framework-reading gates skip when there is no framework root — right
    on a developer's laptop, wrong in CI, where a fixture is provided precisely so they run. Strict
@@ -52,7 +81,53 @@ const SMOKE_STRICT = process.env.AIOS_SMOKE_STRICT === '1';
 const rendererErrors: string[] = [];
 const SHOT = process.argv.find((a) => a.startsWith('--shot')); // --shot[=/path.png] : render + screenshot + exit (dev/QA)
 const EVAL = process.argv.find((a) => a.startsWith('--eval=')); // --eval=<js> : run JS in the renderer, print result, exit (dev/QA)
+/* --chat-shot=<dir> : QA harness for the chat view. Renders hand-written conversations in a window
+   that is NEVER shown and writes one PNG per shot into <dir> (see runChatShot below).
+   Unlike --shot/--eval, which put a visible window on the operator's desktop, this mode is built
+   so that a visible window is impossible — see createWindow and lockWindowHidden. */
+const CHAT_SHOT_ARG = process.argv.find((a) => a === '--chat-shot' || a.startsWith('--chat-shot='));
+const CHAT_SHOT = !!CHAT_SHOT_ARG;
+const CHAT_SHOT_DIR = CHAT_SHOT_ARG && CHAT_SHOT_ARG.includes('=') ? CHAT_SHOT_ARG.slice(CHAT_SHOT_ARG.indexOf('=') + 1) : '';
+const CHAT_SHOT_FIXTURE_ARG = process.argv.find((a) => a.startsWith('--chat-shot-fixture='));
+/* --chat-bench (always together with --chat-shot): measurement mode for scripts/chat-bench.mjs. Same hidden window, same
+   isolation; it only adds what a memory number needs — a renderer that can force a GC and report its heap precisely, and a
+   probe line the fixture can print to ask this process for the process-level numbers (see the console-message handler). */
+const CHAT_BENCH = CHAT_SHOT && process.argv.includes('--chat-bench');
+const CHAT_SHOT_SIZE = { width: 1280, height: 860 };   // CSS pixels; the PNG is 2x this (see the scale switch below)
+let chatShotUserData = '';   // set only when this run had to mint its own userData (the runner normally passes one)
+if (CHAT_SHOT) {
+  /* Must be set before `ready`: it fixes the device scale factor for every window, so the
+     renderer lays out at 1280x860 CSS px and capturePage returns 2560x1720 device px — sharp
+     enough to judge hairlines and type, which a 1x capture hides. */
+  app.commandLine.appendSwitch('force-device-scale-factor', '2');
+  if (CHAT_BENCH) { app.commandLine.appendSwitch('js-flags', '--expose-gc'); app.commandLine.appendSwitch('enable-precise-memory-info'); }
+  /* macOS: no Dock icon, no menu bar, no activation. A QA run should not so much as bounce in the
+     Dock while the operator is working in the same session of the desktop. */
+  if (process.platform === 'darwin') { try { app.setActivationPolicy('accessory'); } catch { /* older Electron — the window is still never shown */ } }
+  /* A QA run is a guest, exactly like a smoke run: it must never read or write the operator's real
+     userData (restored tabs, preferences) nor a developer's `.dev-userdata`. So the userData folder
+     has to live under the OS temp dir. The runner passes one; run by hand without it, mint one here
+     rather than silently falling back to the real folder. */
+  const given = process.argv.find((a) => a.startsWith('--user-data-dir='));
+  const realTmp = (() => { try { return fs.realpathSync(os.tmpdir()); } catch { return os.tmpdir(); } })();
+  const underTmp = (p: string): boolean => { try { const r = fs.realpathSync(path.resolve(p)); return r.startsWith(realTmp + path.sep); } catch { return false; } };
+  if (given) {
+    if (!underTmp(given.slice('--user-data-dir='.length))) {
+      console.error(`chat-shot: refusing to run — --user-data-dir must be an existing folder under ${realTmp} (got ${given.slice('--user-data-dir='.length)}).`);
+      process.exit(1);   // synchronous: nothing below this line may run against a real userData
+    }
+  } else {
+    chatShotUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-chatshot-ud-'));
+    app.setPath('userData', chatShotUserData);
+  }
+}
 const ptys = new Map<number, pty.IPty>();
+/* The last few KB of every pty's raw output. The chat skin's dialog detector only learns about a
+   dialog from output it SEES, and a dialog is drawn once: a chat view opened (or a session that
+   is still unidentified, like a folder-trust prompt before any transcript exists) after it was
+   painted would otherwise never know the TUI is waiting. The monitor is seeded from this tail. */
+const PTY_TAIL_CHARS = 16384;
+const ptyTails = new Map<number, string>();
 aios.setPtyPidSource(() => [...ptys.values()].map((p) => p.pid));   // review blocker 6: pane membership from the tree
 let nextId = 1;
 
@@ -61,11 +136,18 @@ function createWindow(): BrowserWindow {
      is dark on a light machine (the body class used to land only after an IPC round-trip). */
   const firstTheme = resolvedTheme(aios.shellSettings().theme, nativeTheme.shouldUseDarkColors);
   const win = new BrowserWindow({
-    width: 1360,
-    height: 860,
-    minWidth: 880,
-    minHeight: 560,
-    show: !SMOKE,
+    /* chat-shot: the viewport is exactly CHAT_SHOT_SIZE (useContentSize), and the minimum is lifted
+       so a shot can ask for a narrow dock. */
+    width: CHAT_SHOT ? CHAT_SHOT_SIZE.width : 1360,
+    height: CHAT_SHOT ? CHAT_SHOT_SIZE.height : 860,
+    useContentSize: CHAT_SHOT,
+    minWidth: CHAT_SHOT ? 320 : 880,
+    minHeight: CHAT_SHOT ? 320 : 560,
+    /* WHY A QA RUN CAN NEVER SHOW A WINDOW. `show` is false here, and lockWindowHidden() (called by
+       the whenReady handler) additionally turns every later show()/focus() on this window into a
+       no-op and re-hides it if anything gets past that. Together they make "a QA run popped a
+       window over the operator's work" impossible rather than merely unlikely. */
+    show: !(SMOKE || CHAT_SHOT),
     backgroundColor: WINDOW_BG[firstTheme],
     title: 'AIOS',
     // Frameless-with-inset-controls is a macOS affordance: 'hiddenInset' insets the traffic
@@ -81,6 +163,9 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true, // in-app browser panes (the Manual + operator-opened URLs) — #14
+      /* chat-shot: a hidden window is throttled (timers, rAF, even painting) unless told otherwise,
+         and a throttled page captures stale or blank. Only this QA mode opts out. */
+      ...(CHAT_SHOT ? { backgroundThrottling: false } : {}),
     },
   });
   void win.loadFile(path.join(__dirname, '..', '..', 'renderer', 'index.html'), { query: { theme: firstTheme } });
@@ -261,8 +346,13 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   });
   const id = nextId++;
   ptys.set(id, p);
-  p.onData((data) => { if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data }); });
-  p.onExit(({ exitCode }) => { ptys.delete(id); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
+  p.onData((data) => {
+    if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data });
+    ptyTails.set(id, ((ptyTails.get(id) ?? '') + data).slice(-PTY_TAIL_CHARS));   // so a chat view opened mid-dialog can still see the dialog
+    const sk = skins.get(id);
+    if (sk && !sk.screenFed) sk.monitor.push(data);   // chat skin only: is the TUI waiting on a dialog? Until the renderer sends real screens, the raw stream is the best guess
+  });
+  p.onExit(({ exitCode }) => { ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
   /* THE COMMAND IS NOT WRITTEN HERE ANY MORE — see `pty:run`.
      It used to run right at spawn, while the pty was still at the hardcoded 80×24 the renderer
      passes before it has measured anything. A shell prompt survives that (it reflows), but a
@@ -282,7 +372,671 @@ ipcMain.handle('pty:run', (_e, { id, cmd }: { id: number; cmd: string }) => {
 });
 ipcMain.on('pty:write', (_e, { id, data }: { id: number; data: string }) => ptys.get(id)?.write(data));
 ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: number; cols: number; rows: number }) => ptys.get(id)?.resize(cols, rows));
-ipcMain.on('pty:kill', (_e, { id }: { id: number }) => { ptys.get(id)?.kill(); ptys.delete(id); });
+ipcMain.on('pty:kill', (_e, { id }: { id: number }) => { ptys.get(id)?.kill(); ptys.delete(id); ptyTails.delete(id); void endSkin(id, false); });
+
+/* ── CHAT SKIN ───────────────────────────────────────────────────────────────────────────────────
+   The chat view is a SKIN over a terminal pane, not a second session. The pty and the `claude`
+   process inside it stay the only source of truth; the chat reads along in two ways:
+     · the session's transcript file, followed live (transcriptTail → core/transcriptChat), which
+       gives the conversation, tool lines, the turn state and the context size;
+     · the tail of the pty's own output, only to notice that the TUI is waiting on a dialog the
+       transcript cannot show (permission, folder trust, a picker, a question — core/tuiPrompt).
+   The chat never types for the operator and never answers a dialog; it points at the terminal.
+   `paneId` IS the pty id: pty:spawn returns it, the renderer keys its `panes` Map and ptyWrite by
+   it, and `ptys` is keyed by it here — one number all the way through. */
+interface Skin {
+  sender: Electron.WebContents; monitor: PromptMonitor; onGone: () => void; screenFed: boolean;
+  /** Reads the reply being written off the screen snapshots (core/screenStream). Only fed while a transcript is followed. */
+  stream: StreamTracker; following: boolean; send: (ev: Record<string, unknown>) => void;
+}
+const skins = new Map<number, Skin>();
+const tail = createTranscriptTail();
+/* A window onto everything main sends to a chat view, for the smoke gate only: it measures the streaming
+   (how many previews arrived before the transcript line, how early) without the gate re-implementing any
+   of the pipeline. Null in a normal run, and it only ever READS. `screen` entries are internal timings. */
+let skinTap = null as ((paneId: number, ev: Record<string, unknown>) => void) | null;
+
+/* What a dialog's rows look like on the wire: bounded, and only the fields the card needs. The parser
+   (core/tuiPrompt) decided what each key is; nothing here adds or edits a key. */
+function promptWire(prompt: TuiPrompt | undefined): Record<string, unknown> {
+  if (!prompt) return {};
+  const options = (prompt.options ?? []).slice(0, 12).map((o) => ({
+    n: o.n, label: String(o.label).slice(0, 200), selected: !!o.selected, key: o.key, ...(o.freeText ? { freeText: true } : {}),
+  }));
+  return { ...(prompt.question ? { question: prompt.question.slice(0, 300) } : {}), ...(options.length ? { options } : {}) };
+}
+
+async function endSkin(paneId: number, flush: boolean): Promise<void> {
+  const k = skins.get(paneId);
+  if (!k) return;
+  skins.delete(paneId);
+  k.monitor.dispose();
+  try { k.sender.removeListener('destroyed', k.onGone); } catch { /* sender already gone */ }
+  if (flush) await tail.finish(paneId).catch(() => tail.unwatch(paneId));   // a session's last lines land just before it exits
+  else tail.unwatch(paneId);
+}
+
+/* `sessionId` may be null: "watch this pane's dialogs, there is no transcript yet". A brand-new
+   session in a folder Claude has not seen blocks on the trust dialog BEFORE it registers a session
+   id, so a chat view that waited for the id would sit on "connecting" with the only thing that
+   matters hidden behind it. A later watch with the real id keeps the same monitor, so a dialog that
+   is still open is not forgotten (and not announced twice) when the id arrives. */
+ipcMain.handle('chatSkin:watch', async (e, paneId: number, sessionId: string | null): Promise<{ ok: true; file: string } | { ok: false; error: 'not-found' | 'bad-id' }> => {
+  const id = Number(paneId);
+  const transcript = sessionId !== null && sessionId !== undefined;
+  if (!Number.isInteger(id) || id < 0 || (transcript && !isSessionId(sessionId))) return { ok: false, error: 'bad-id' };
+  const sender = e.sender;
+  let k = skins.get(id);
+  if (k && k.sender !== sender) { await endSkin(id, false); k = undefined; }
+  tail.unwatch(id);                               // one transcript per pane: a new session id replaces the old one
+  if (!k) {
+    const send = (body: Record<string, unknown>): void => {
+      const ev = { paneId: id, ...body };
+      skinTap?.(id, ev);
+      if (!sender.isDestroyed()) sender.send('chatSkin:event', ev);
+    };
+    const monitor = createPromptMonitor({
+      onChange: (kind, hint, prompt) => send({ type: 'prompt', kind, ...(hint ? { hint } : {}), ...promptWire(prompt) }),
+      /* the SAME dialog with its cursor moved: the keys of an unnumbered menu are relative to the cursor, so the card
+         must adopt these. `refresh` tells the renderer this is not a new dialog (it must not re-enable a used card). */
+      onRefresh: (prompt) => send({ type: 'prompt', kind: prompt.kind, ...(prompt.hint ? { hint: prompt.hint } : {}), ...promptWire(prompt), refresh: true }),
+    });
+    const onGone = (): void => { void endSkin(id, false); };
+    sender.once('destroyed', onGone);             // a closed or reloaded window must not leave a watcher behind
+    k = { sender, monitor, onGone, screenFed: false, stream: createStreamTracker(), following: false, send };
+    skins.set(id, k);
+    const seen = ptyTails.get(id);
+    if (seen) monitor.push(seen);
+  }
+  k.following = transcript;
+  k.stream.reset();                               // a new watch is a new transcript: a preview of the old one has nothing to be replaced by
+  if (!transcript) return { ok: true, file: '' };
+  const skin = k;
+  return tail.watch(id, sessionId as string, (ev) => {
+    // a finished tool or a new operator message proves the dialog that was open has been answered
+    if (ev.type === 'items' && ev.items.some((it) => it.role === 'user' || (it.tool && it.tool.status !== 'running'))) skin.monitor.clear();
+    /* The finished message replaces the preview: tell the renderer which transcript line IS the previewed text BEFORE
+       the items event, so it hands the preview's node to that item (same place, no second bubble, no jump). */
+    if (ev.type === 'items') { const a = skin.stream.items(ev.items); if (a) skin.send({ ...a }); }
+    else if (ev.type === 'turn') { if (ev.open) skin.stream.begin(); else skin.stream.end(); }
+    else if (ev.type === 'reset') skin.stream.reset();
+    const { paneId: _pid, ...rest } = ev as { paneId: number } & Record<string, unknown>;
+    skin.send({ ...rest, sid: sessionId });       // which transcript this was read from: the view drops what was in flight when the pane moved on
+  });
+});
+/* The renderer's terminal emulator is the only thing that knows what the screen looks like NOW, so
+   it sends snapshots while the chat view is up; once one arrives the raw stream is no longer fed to
+   the monitor (a mix of the two would let a differential repaint talk the monitor out of a dialog
+   that is still open). Only the sender that owns the watch may feed it. The same snapshot also feeds the
+   streaming preview. That extractor runs HERE, not in the renderer: it is a pure TypeScript core with unit
+   tests (the renderer is plain JS with no imports, so it would need a second copy), it needs the transcript
+   items to decide when the preview becomes the real message (main sees both streams), and the renderer
+   then receives only the text that changed instead of a screenful every 150 ms. */
+ipcMain.on('chatSkin:screen', (e, paneId: number, text: string) => {
+  const k = skins.get(Number(paneId));
+  if (!k || k.sender !== e.sender || typeof text !== 'string') return;
+  k.screenFed = true;
+  k.monitor.screen(text.slice(-8192));
+  if (!k.following) return;                       // no transcript to take the preview's place: a bubble that is never replaced must never be drawn
+  const t0 = performance.now();
+  const ev = k.stream.screen(text);
+  skinTap?.(Number(paneId), { type: 'screen', bytes: text.length, ms: performance.now() - t0 });
+  if (ev) k.send({ ...ev });
+});
+ipcMain.handle('chatSkin:unwatch', (_e, paneId: number) => endSkin(Number(paneId), false));
+/* The operator scrolled to the top of what the chat view holds: read the next window of the transcript above it (see
+   transcriptTail.loadEarlier). Only the window that owns the pane may ask; the answer comes back as an `earlier` event. */
+ipcMain.handle('chatSkin:earlier', async (e, paneId: number): Promise<{ ok: boolean }> => {
+  const id = Number(paneId);
+  const k = Number.isInteger(id) ? skins.get(id) : undefined;
+  if (!k || k.sender !== e.sender) return { ok: false };
+  return { ok: await tail.loadEarlier(id) };
+});
+/* The usage bar. ~/.claude/statusline-payload.json is the LAST payload ANY Claude Code session on this
+   machine wrote, so its model, effort and context may belong to another conversation. The tab sends its own
+   session id and `scopeStatusToSession` keeps those per-session fields only when the payload's session_id is
+   the same; otherwise they are omitted and `sessionMatch` is false (a tab with no id yet, or a bad id, is
+   simply "no match"). The account-wide numbers (5-hour, weekly and their resets) are always returned. An absent
+   field stays absent — nothing here defaults a percentage to 0. */
+ipcMain.handle('chat:status', async (_e, sessionId: unknown) => {
+  const tabId = isSessionId(sessionId) ? sessionId : null;
+  try { return mergeStatus(undefined, scopeStatusToSession(parseStatuslinePayload(await fs.promises.readFile(path.join(aios.claudeConfigDir(), 'statusline-payload.json'), 'utf8')), tabId)); }
+  catch { return mergeStatus(undefined, { sessionMatch: false }); }   // no file yet, or unreadable: the bar just has fewer fields
+});
+
+/* The slash-command popup in the chat composer. The renderer sends what is in the box and the pane's working
+   folder; main answers with the ranked rows, or [] when nothing should be offered (not a lone slash word, no
+   match, or the word is already a complete command). Ranking is done HERE, in the pure core module, so the
+   renderer (plain JS, no imports) never carries a second copy of the rules. The disk listing is cached for a
+   few seconds per folder: a keystroke must not walk the commands folders, but a command file the operator
+   just saved appears almost at once. Read-only; the text is capped and must start with a slash. */
+const slashCache = new Map<string, { at: number; list: Promise<SlashCommand[]> }>();
+ipcMain.handle('slashCommands:list', async (_e, cwd: unknown, text: unknown): Promise<SlashCommand[]> => {
+  if (typeof text !== 'string' || text.length > 200 || text.charCodeAt(0) !== 47) return [];
+  const dir = typeof cwd === 'string' && path.isAbsolute(cwd) ? cwd : null;
+  const key = dir ?? '';
+  let hit = slashCache.get(key);
+  if (!hit || Date.now() - hit.at > 5000) {
+    if (slashCache.size >= 24) slashCache.delete(slashCache.keys().next().value as string);
+    hit = { at: Date.now(), list: listSlashCommands({ configDir: aios.claudeConfigDir(), cwd: dir, aiosCommands: aios.discoverCommands() }).catch(() => builtinCommands()) };
+    slashCache.set(key, hit);
+  }
+  return slashSuggestions(await hit.list, text);
+});
+
+/* An image pasted (or dragged from a browser) into the chat composer has no file on disk, and Claude Code reads a
+   picture from a PATH in the message. So main writes the bytes to a file of its own naming and hands back the path.
+   Where it lands: <system temp>/aios-chat-paste/paste-<time>-<random>.<ext>. The system temp folder is the right home
+   for a thing that only has to outlive the message that mentions it: the OS sweeps it, and a pasted screenshot never
+   becomes a stray file in the operator's project. Bounded on every side: only the four image types a model can read,
+   a size ceiling, a name the renderer never chooses (so it cannot aim a write anywhere), and files older than a day
+   are removed on the next paste. Nothing is read back and nothing outside that one folder is touched. */
+const PASTE_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+const PASTE_MAX_BYTES = 25 * 1024 * 1024;
+ipcMain.handle('chatFiles:savePastedImage', async (_e, bytes: unknown, mime: unknown): Promise<string | null> => {
+  const ext = typeof mime === 'string' ? PASTE_EXT[mime.toLowerCase()] : undefined;
+  if (!ext || !(bytes instanceof ArrayBuffer || ArrayBuffer.isView(bytes))) return null;
+  const buf = bytes instanceof ArrayBuffer ? Buffer.from(bytes) : Buffer.from((bytes as ArrayBufferView).buffer, (bytes as ArrayBufferView).byteOffset, (bytes as ArrayBufferView).byteLength);
+  if (!buf.length || buf.length > PASTE_MAX_BYTES) return null;
+  try {
+    const dir = path.join(fs.realpathSync(os.tmpdir()), 'aios-chat-paste');
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    for (const f of await fs.promises.readdir(dir).catch(() => [] as string[])) {
+      if (!/^paste-[\w-]+\.(png|jpg|gif|webp)$/.test(f)) continue;   // only our own files are ever swept
+      const full = path.join(dir, f);
+      const st = await fs.promises.stat(full).catch(() => null);
+      if (st && st.mtimeMs < cutoff) await fs.promises.unlink(full).catch(() => undefined);
+    }
+    const file = path.join(dir, `paste-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${ext}`);
+    await fs.promises.writeFile(file, buf, { mode: 0o600 });
+    return file;
+  } catch { return null; }
+});
+
+/* ── SMOKE: the chat view's ASSETS, wherever the app was loaded from ────────────────────────────
+   The real-session gate below needs a model and a login, so it can skip; this one needs neither and
+   never skips. It answers the packaging question the unit tests cannot: when the app runs from
+   app.asar, does the chat view still find its markdown parser, its highlighter, its stylesheet and
+   its preload bridge, and does a bubble that carries markdown (plus a hostile payload) come out
+   formatted AND sanitised? Those are the four things the package can lose without any test noticing:
+   index.html reaches marked/highlight through ../node_modules, which exists in the asar only because
+   they are `dependencies`, not `devDependencies`. It runs the app's own chatRender on a detached node,
+   so nothing is opened, painted or sent. */
+type SmokeAssetsVerdict = { ok: boolean; detail: string };
+async function chatAssetsSmoke(win: BrowserWindow): Promise<SmokeAssetsVerdict> {
+  const say = (m: string): void => console.log(`shell-smoke: chat assets — ${m}`);
+  try {
+    const where = app.getAppPath();
+    const inAsar = /\.asar$/.test(where);
+    const url = win.webContents.getURL();
+    say(`isPackaged=${app.isPackaged}; app path ends in ${path.basename(where)}${inAsar ? ' (inside the asar)' : ' (a plain folder)'}; renderer url ${url.includes('app.asar') ? 'is inside app.asar' : 'is outside an asar'}`);
+    if (app.isPackaged && !(inAsar && url.includes('app.asar'))) return { ok: false, detail: 'a packaged build is not running from its asar' };
+    const r = await win.webContents.executeJavaScript(`(() => {
+      const o = {};
+      o.marked = typeof marked !== 'undefined' && typeof marked.Marked === 'function';
+      o.hljs = !!(window.hljs && window.hljs.getLanguage && window.hljs.getLanguage('javascript'));
+      const sh = window.glassShell;
+      o.bridge = !!sh && ['chatSkinWatch', 'chatSkinUnwatch', 'chatSkinEarlier', 'onChatSkinEvent'].every((k) => typeof sh[k] === 'function');
+      let rules = 0;
+      for (const sheet of document.styleSheets) { try { for (const rule of sheet.cssRules) if (rule.selectorText && rule.selectorText.includes('.cs-')) rules++; } catch (e) { /* cross-origin sheet */ } }
+      o.cssRules = rules;
+      const t = document.createElement('div');
+      chatRender(t, '**bold** and \`code\`\\n\\n| a | b |\\n|---|---|\\n| 1 | 2 |\\n\\n\`\`\`js\\nconst x = 1;\\n\`\`\`\\n\\n<img src=x onerror="window.__pwn=1"><script>window.__pwn=2</script>\\n\\n[bad](javascript:window.__pwn=3) [ok](https://example.com)');
+      o.strong = !!t.querySelector('strong');
+      o.table = !!t.querySelector('table');
+      o.highlighted = !!t.querySelector('pre code.hljs span');
+      o.noActive = !t.querySelector('img, script, iframe, [onerror], [onclick], [style]');
+      o.links = [...t.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+      o.badLink = o.links.some((h) => !/^(https?:|mailto:)/i.test(h || ''));
+      o.escapedText = t.textContent.includes('onerror');   // the raw html shows up as TEXT, not as markup
+      o.pwn = window.__pwn === undefined;
+      return o;
+    })()`) as Record<string, unknown>;
+    say(`marked=${r.marked} highlight.js=${r.hljs} preload bridge=${r.bridge} chat css rules=${r.cssRules}; bubble: strong=${r.strong} table=${r.table} highlighted code=${r.highlighted}; sanitizer: no active elements/attributes=${r.noActive} hostile html shown as text=${r.escapedText} nothing executed=${r.pwn} links=${JSON.stringify(r.links)}`);
+    const bad: string[] = [];
+    if (!r.marked) bad.push('marked did not load');
+    if (!r.hljs) bad.push('highlight.js did not load');
+    if (!r.bridge) bad.push('the preload bridge has no chat methods');
+    if (!(Number(r.cssRules) > 20)) bad.push(`the chat stylesheet is missing (${r.cssRules} .cs- rules)`);
+    if (!r.strong || !r.table) bad.push('markdown did not render to bold/table');
+    if (!r.highlighted) bad.push('code was not highlighted');
+    if (!r.noActive || !r.pwn) bad.push('the sanitizer let active markup through');
+    if (r.badLink) bad.push('a non-http link survived the sanitizer');
+    if (!r.escapedText) bad.push('the hostile html did not appear as escaped text');
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: 'ok' };
+  } catch (e) { return { ok: false, detail: String((e as Error)?.message ?? e) }; }
+}
+
+/* ── SMOKE: the chat view over a REAL Claude Code session, end to end ───────────────────────────
+   Everything else in this file proves the chat view with fixtures; this proves it against the real
+   `claude`, in the hidden smoke window, by driving the same functions the operator's hands drive:
+   createPane (the launch path every session uses), the Chat/Terminal view mode (the function the Settings selector calls), the composer
+   (Enter → submitToPty) and the bubbles it paints from the transcript.
+
+   WHAT IT TOUCHES, AND WHY THAT IS SAFE. A fresh temp folder is the session's cwd, so the session
+   is new, cheap (--model haiku) and nothing of the operator's is read or written by it:
+     · `--setting-sources project` keeps the operator's user-level hooks, status line, remote
+       control and voice out of a throwaway session (none of them belong in a test);
+     · the run's own cleanup removes the pane, the claude process, the temp folder and the transcript
+       folder Claude Code made for that cwd — verified by name before anything is deleted.
+   Without `claude` or a login the gate is SKIPPED (a developer laptop, CI). With AIOS_SMOKE_CHAT=1 a
+   gate that cannot run is a FAILURE, because "did not run" must never read as "passed"; with
+   AIOS_SMOKE_CHAT=0 it is skipped on purpose. */
+type SmokeChatVerdict = { status: 'ok' | 'skipped' | 'failed'; detail: string };
+
+async function chatViewSmoke(win: BrowserWindow): Promise<SmokeChatVerdict> {
+  const mode = process.env.AIOS_SMOKE_CHAT;
+  const strict = mode === '1';
+  const say = (m: string): void => console.log(`shell-smoke: chat view — ${m}`);
+  if (mode === '0') return { status: 'skipped', detail: 'disabled by AIOS_SMOKE_CHAT=0' };
+  const rd = aios.readiness();
+  if (!rd.claude || !rd.signedIn) {
+    const why = `no usable claude on this machine (on PATH=${rd.claude}, signed in=${rd.signedIn})`;
+    return strict ? { status: 'failed', detail: `strict mode, but ${why}` } : { status: 'skipped', detail: why };
+  }
+
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const js = <T>(code: string): Promise<T> => win.webContents.executeJavaScript(code) as Promise<T>;
+  const psTable = (): Promise<Map<number, number>> => new Promise((resolve) => {
+    execFile('ps', ['-axo', 'pid=,ppid='], (err, out) => {
+      const m = new Map<number, number>();
+      if (!err) for (const line of String(out).split('\n')) { const [a, b] = line.trim().split(/\s+/).map(Number); if (a && b >= 0) m.set(a, b); }
+      resolve(m);
+    });
+  });
+  const descendants = async (root: number): Promise<number[]> => {
+    const t = await psTable();
+    const out: number[] = [];
+    const walk = (pid: number): void => { for (const [c, par] of t) if (par === pid && !out.includes(c)) { out.push(c); walk(c); } };
+    walk(root);
+    return out;
+  };
+  const alive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+  const tmpRoot = fs.realpathSync(os.tmpdir());
+  const dir = fs.mkdtempSync(path.join(tmpRoot, 'aios-smoke-chat-'));
+  const tag = path.basename(dir).slice('aios-smoke-chat-'.length);
+  const name = `smoke-chat-${tag.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+  const word = `PONG-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+  const ask = `Reply with exactly the word ${word} and nothing else`;
+  const t0 = Date.now();
+  const since = (): string => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+
+  let paneId = -1;
+  let priorMode = '';
+  let sessionId = '';
+  const kids = new Set<number>();
+  const problems: string[] = [];
+  let result: SmokeChatVerdict = { status: 'failed', detail: 'did not finish' };
+
+  const probe = (): Promise<{ view: string; exited: boolean; sessionId: string | null; watched: string | null; prompt: string | null;
+    state: string | null; ptyAge: number; hidden: boolean; turnOpen: boolean; screen: string[]; rows: Array<{ who: string; text: string; hidden: boolean }> } | null> => js(`(() => {
+      const p = panes.get(${paneId}); if (!p) return null;
+      const cs = p.chatSkin;
+      const buf = p.term.buffer.active; const screen = [];
+      for (let i = Math.max(0, buf.length - 16); i < buf.length; i++) { const l = buf.getLine(i); if (l) { const s = l.translateToString(true); if (s.trim()) screen.push(s); } }
+      const rows = cs ? [...cs.log.querySelectorAll('.chat-row')].map((r) => ({
+        who: r.classList.contains('who-user') ? 'user' : 'claude',
+        text: (r.querySelector('.chat-bubble') || r).textContent || '', hidden: r.hidden })) : [];
+      return { view: p.view || 'term', exited: !!p.exited, sessionId: p.sessionId || null, watched: cs ? cs.watched : null,
+        prompt: cs ? cs.promptKind : null, state: cs ? cs.state : null, ptyAge: Date.now() - (p.lastPtyAt || 0),
+        hidden: document.hidden, turnOpen: cs ? !!cs.turnOpen : false, screen: screen.slice(-8), rows };
+    })()`);
+  const fail = (why: string, p?: { screen: string[] } | null): never => {
+    throw new Error(why + (p && p.screen.length ? ` | screen: ${p.screen.slice(-4).map((l) => l.trim()).join(' / ').slice(0, 300)}` : ''));
+  };
+
+  try {
+    // 1. open a real session through the renderer's own launch path (the folder is entered by the
+    //    shell: pty:spawn confines `cwd` to the allowed roots, and a temp folder is none of them)
+    /* The session must not inherit the identity of whatever launched this run: a smoke started from
+       inside a Claude session carries that session's bridge, messaging socket and id in its
+       environment, and the new one would attach to them. `env -u` drops them for this one command.
+       The flags keep a throwaway session from reaching the operator's world: hooks off (their
+       Stop hook can speak aloud), the status line neutralised (it rewrites the global usage
+       payload the chat view reads), no remote control, no MCP servers. User settings are otherwise
+       left alone, because permission defaults live there and a first-run nag appears without them. */
+    const inherited = Object.keys(process.env)
+      .filter((k) => (/^CLAUDE_CODE_/.test(k) && k !== 'CLAUDE_CODE_FORCE_SESSION_PERSIST') || k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT')
+      .map((k) => `-u ${k}`).join(' ');
+    const flags = JSON.stringify({ disableAllHooks: true, remoteControlAtStartup: false, statusLine: { type: 'command', command: 'true' } });
+    const opened = await js<number | null>(`(async () => {
+      const cmd = 'cd ' + shq(${JSON.stringify(dir)}) + ' && env ${inherited} ' + CLAUDE + ' --model haiku --name ' + shq(${JSON.stringify(name)})
+        + ' --permission-mode default --strict-mcp-config --settings ' + shq(${JSON.stringify(flags)});
+      return await createPane({ name: ${JSON.stringify(name)}, cmd, bypassReady: true });
+    })()`);
+    if (typeof opened !== 'number') return fail('createPane returned no pane');
+    paneId = opened;
+    const shellPid = ptys.get(paneId)?.pid;
+    say(`pane ${paneId} opened in ${path.basename(dir)} (claude --model haiku --name ${name})`);
+
+    // 2. the operator's choice in Settings, made at once: a new session is still blocked on the folder-trust
+    //    dialog and has no id, which is exactly when the chat view must not hide the terminal
+    /* The same function the Settings selector and the shortcut call (chatSkinSetMode), so the pane that is ALREADY open follows the
+       mode. `persist: false` on purpose: the setting lives in the framework's `.glass/shell.json` (the operator's ~/aios unless
+       GLASS_FRAMEWORK_PATH points elsewhere), NOT in the throwaway userData this run was given, so a persisted write would flip the
+       operator's real preference from a QA run. The mode it found is put back in the cleanup. */
+    priorMode = await js<string>('chatMode');
+    const view = await js<string>(`(async () => { await chatSkinSetMode('chat', { persist: false }); const p = panes.get(${paneId}); return p ? (p.view || 'term') : 'no pane'; })()`);
+    if (view !== 'chat') return fail(`the chat mode did not put the open Claude pane in chat view (view=${view})`);
+    say('chat view on (via the same mode setting as Settings, applied to the open pane)');
+    /* The pane has no header and the tab has no switch: the view is one setting. A header or a tab icon that crept back would be a second
+       switch and a strip of dead space above the log, and nothing else in this run would notice it. */
+    const shape = await js<string>(`(() => { const p = panes.get(${paneId}); const cs = p && p.chatSkin; if (!cs) return 'no chat view';
+      if (cs.root.querySelector('.cs-head, .cs-switch, .cs-gear, .cs-menu')) return 'the chat view has a header again';
+      if (p.tab.querySelector('.tview') || p.viewBtn) return 'the tab has a view switch again';
+      if (cs.root.firstElementChild !== cs.log) return 'the log is not the first thing in the chat view';
+      return 'ok'; })()`);
+    if (shape !== 'ok') return fail(shape);
+    say('no pane header and no tab switch; the log starts the view');
+
+    // 3. answer the trust dialog if there is one, and wait for the pane to adopt its session id
+    let trustSeen = false; let trustAnswered = false; let nagAnswered = false; let lastTry = 0; let byCard = 0; let direct = 0;
+    /* The dialog card is the operator's own door to these questions, so the gate presses ITS button (the same click handler
+       a hand reaches) and only falls back to writing the keys itself when no card is there or it did not answer. */
+    const pressCard = (re: string): Promise<string | null> => js(`(() => { const cs = panes.get(${paneId}).chatSkin; if (!cs || !cs.dlg) return null;
+      const b = [...cs.dlg.querySelectorAll('.csd-opt')].find((x) => new RegExp(${JSON.stringify(re)}, 'i').test(x.querySelector('.csd-l').textContent));
+      if (!b || b.disabled) return null; b.click(); return b.querySelector('.csd-l').textContent; })()`);
+    const adoptDeadline = Date.now() + 75000;
+    let st = await probe();
+    for (; Date.now() < adoptDeadline; await sleep(400), st = await probe()) {
+      if (!st) return fail('the pane disappeared');
+      if (st.exited) return fail('the pty exited before the session came up', st);
+      if (st.prompt === 'trust' && !trustSeen) { trustSeen = true; say(`detector emitted prompt kind 'trust' after ${since()}`); }
+      /* Dialogs this gate answers itself. The folder-trust one is the point (the detector must have
+         seen it); the "make auto mode your default" offer is a first-run nag of this CLI that must be
+         answered "No": the "Yes" would rewrite the operator's permission default. Both start with the
+         cursor on the WRONG row. The card's own buttons are tried first (they carry the keys that
+         account for that); only when there is no card does this write the keys itself, reading the
+         screen and moving the cursor before confirming. */
+      const screenText = st.screen.join('\n');
+      const nag = /Make auto mode your default/i.test(screenText);
+      if ((st.prompt === 'trust' || nag) && Date.now() - lastTry > 1500) {
+        lastTry = Date.now();
+        const want = nag ? /No, keep/i : /Yes, I trust/i;
+        const pressed = await pressCard(nag ? '^No, keep' : '^Yes, I trust');
+        if (pressed) { byCard++; if (nag) nagAnswered = true; else trustAnswered = true; say(`the dialog card's "${pressed.slice(0, 40)}" button pressed (${nag ? 'auto-mode offer' : 'folder trust'}), ${since()} in`); }
+        else {
+          direct++;
+          const cur = [...st.screen].reverse().find((l) => l.includes('❯')) ?? '';   // the LAST cursor on screen: the composer's own ❯ sits above a dialog
+          if (want.test(cur)) { ptys.get(paneId)?.write('\r'); if (nag) nagAnswered = true; else trustAnswered = true; }
+          else ptys.get(paneId)?.write('\x1b[B');
+        }
+      }
+      if (st.sessionId && st.watched === st.sessionId) break;
+    }
+    if (!st || !st.sessionId) return fail(`no session id after ${since()}${trustSeen ? '' : " (and the detector never reported the trust dialog)"}`, st);
+    if (st.watched !== st.sessionId) return fail(`the chat view is not following the session (watched=${st.watched}, hidden window: document.hidden=${st.hidden})`, st);
+    sessionId = st.sessionId;
+    say(`session ${sessionId.slice(0, 8)}… adopted after ${since()}; trust dialog ${trustSeen ? (trustAnswered ? 'detected and answered' : 'detected') : 'not shown'}${nagAnswered ? '; auto-mode offer declined' : ''}; ${byCard} answer(s) by the card's buttons, ${direct} by writing keys directly; document.hidden=${st.hidden}`);
+    if (shellPid) for (const k of await descendants(shellPid)) kids.add(k);
+
+    // 4. wait for the TUI to settle at its prompt, then type into the composer and press Enter there
+    /* "Settled" means the composer is on screen (its own ❯ line) and the output has gone quiet. Text typed
+       before the TUI reads its input is dropped by the tty without a trace, and that is a test of
+       timing, not of the chat view. */
+    const composerUp = (x: { screen: string[] } | null): boolean => !!x && x.screen.some((l) => l.trim().startsWith('❯'));
+    for (let i = 0; i < 60 && st && (st.ptyAge < 1800 || st.prompt || !composerUp(st)); i++) { await sleep(300); st = await probe(); }
+    if (st && st.prompt) return fail(`a dialog (${st.prompt}) is still open`, st);
+    const sent = await js<boolean>(`(() => {
+      const cs = panes.get(${paneId}).chatSkin;
+      cs.input.value = ${JSON.stringify(ask)};
+      cs.input.dispatchEvent(new Event('input', { bubbles: true }));
+      cs.input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      return cs.input.value === '';
+    })()`);
+    if (!sent) return fail('Enter in the composer did not send the message');
+    const sentAt = Date.now();
+    say(`message sent from the composer: "${ask}"`);
+
+    // 5. the operator's bubble and Claude's answer must both be painted from the transcript
+    let userBubble = false; let answer = false;
+    const replyDeadline = Date.now() + 90000;
+    for (; Date.now() < replyDeadline && !(userBubble && answer); await sleep(500)) {
+      st = await probe();
+      if (!st) return fail('the pane disappeared while waiting for the answer');
+      if (process.env.AIOS_SMOKE_CHAT_DEBUG && (Date.now() - sentAt) % 3000 < 500) say(`debug +${Math.round((Date.now() - sentAt) / 1000)}s rows=${st.rows.length} state=${st.state} ptyAge=${st.ptyAge} screen=${JSON.stringify(st.screen.slice(-5))}`);
+      if (st.prompt) { say(`a dialog (${st.prompt}) interrupted the turn`); return fail(`dialog '${st.prompt}' while waiting for the answer`, st); }
+      userBubble = st.rows.some((r) => r.who === 'user' && !r.hidden && r.text.includes(word));
+      answer = st.rows.some((r) => r.who === 'claude' && !r.hidden && r.text.includes(word));
+    }
+    if (!userBubble) return fail(`no operator bubble with ${word} after ${((Date.now() - sentAt) / 1000).toFixed(0)}s`, st);
+    if (!answer) return fail(`no assistant bubble with ${word} after ${((Date.now() - sentAt) / 1000).toFixed(0)}s (rows: ${st?.rows.map((r) => r.who).join(',')})`, st);
+    say(`operator bubble and assistant bubble both carry ${word} (${((Date.now() - sentAt) / 1000).toFixed(1)}s after Enter)`);
+
+    // 6. STREAMING, measured: a long answer, with a tap on everything main sends to the view
+    const tapped: Array<{ t: number; ev: Record<string, unknown> }> = [];
+    skinTap = (pid, ev) => { if (pid === paneId) tapped.push({ t: Date.now(), ev }); };
+    const metrics0 = app.getAppMetrics();
+    const cpu: Array<{ main: number; renderer: number }> = [];
+    const askLong = 'write 25 numbered short lines about rivers';
+    const sentLong = await js<boolean>(`(() => {
+      const cs = panes.get(${paneId}).chatSkin;
+      cs.input.value = ${JSON.stringify(askLong)};
+      cs.input.dispatchEvent(new Event('input', { bubbles: true }));
+      cs.input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      return cs.input.value === '';
+    })()`);
+    if (!sentLong) return fail('Enter in the composer did not send the long-answer request');
+    const sentLongAt = Date.now();
+    void metrics0;
+    const finalItem = (): { t: number; uuid: string; text: string } | null => {
+      for (const x of tapped) {
+        if (x.ev.type !== 'items') continue;
+        for (const it of x.ev.items as Array<{ uuid: string; role: string; text?: string }>) {
+          if (it.role === 'assistant' && typeof it.text === 'string' && /(^|\n)\s*25[.)]/.test(it.text)) return { t: x.t, uuid: it.uuid, text: it.text };
+        }
+      }
+      return null;
+    };
+    let fin = finalItem();
+    for (let i = 0; Date.now() < sentLongAt + 90000 && !fin; i++) {
+      await sleep(500);
+      const m = app.getAppMetrics();
+      cpu.push({ main: m.filter((x) => x.type === 'Browser').reduce((a, x) => a + x.cpu.percentCPUUsage, 0), renderer: m.filter((x) => x.type === 'Tab').reduce((a, x) => a + x.cpu.percentCPUUsage, 0) });
+      st = await probe();
+      if (st && st.prompt) return fail(`dialog '${st.prompt}' while waiting for the long answer`, st);
+      // mark the provisional bubble's node, so that after the finished message lands we can tell whether it took that SAME node over
+      await js(`(() => { const n = panes.get(${paneId}).chatSkin.log.querySelector('.cs-prov'); if (n && !n.dataset.smk) n.dataset.smk = String(Date.now()); return true; })()`);
+      fin = finalItem();
+    }
+    if (!fin) return fail('the long answer never reached the transcript', st);
+    await sleep(1200);   // let the turn close and the last events land
+    skinTap = null;
+    const streams = tapped.filter((x) => x.ev.type === 'stream');
+    const before = streams.filter((x) => typeof x.ev.text === 'string' && x.t < fin!.t);
+    const screens = tapped.filter((x) => x.ev.type === 'screen' && x.t >= sentLongAt);
+    const prefixOk = before.filter((x) => sameMessage(String(x.ev.text), fin!.text, { headCut: x.ev.headCut === true })).length;
+    const adopts = streams.filter((x) => x.ev.adopt === fin!.uuid).length;
+    const lens = before.map((x) => String(x.ev.text).length);
+    const avg = (a: number[]): number => a.length ? a.reduce((p, c) => p + c, 0) / a.length : 0;
+    const extractMs = screens.map((x) => Number(x.ev.ms));
+    const snapMs = await js<number>(`(() => { const p = panes.get(${paneId}); const t0 = performance.now(); for (let i = 0; i < 40; i++) chatSkinScreenText(p); return (performance.now() - t0) / 40; })()`);
+    say(`streaming — final message ${fin.text.length} chars, ${before.length} stream events before the transcript line`
+      + (before.length ? `, first text ${((fin.t - before[0].t) / 1000).toFixed(1)}s before it, previews ${lens[0]} → ${lens[lens.length - 1]} chars (${(100 * lens[lens.length - 1] / fin.text.length).toFixed(0)}% of the final)` : '')
+      + `; prefix of the final: ${prefixOk}/${before.length}; adopt events for the final item: ${adopts}`);
+    say(`streaming cost — ${screens.length} screen snapshots in ${((fin.t - sentLongAt) / 1000).toFixed(1)}s; extractor ${avg(extractMs).toFixed(2)} ms avg / ${Math.max(0, ...extractMs).toFixed(2)} ms max in main; snapshot build ${snapMs.toFixed(2)} ms in the renderer; cpu avg main ${avg(cpu.map((c) => c.main)).toFixed(1)}% renderer ${avg(cpu.map((c) => c.renderer)).toFixed(1)}%`);
+    // what the operator SAW: one bubble for the answer, in the node the preview used, and nothing left hanging
+    const seen = await js<{ rows: number; marked: boolean; leftover: number; text: number }>(`(() => {
+      const cs = panes.get(${paneId}).chatSkin;
+      const norm = (x) => String(x || '').toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '');
+      const rows = [...cs.log.querySelectorAll('.chat-row.who-claude')].filter((r) => !r.hidden && norm(r.textContent).includes(${JSON.stringify(normalizeForMatch(fin.text.replace(/^\s*(?:\d+[.)]|[-*•])\s+/gm, '')).slice(0, 40))}));
+      return { rows: rows.length, marked: rows.length === 1 && !!rows[0].dataset.smk, leftover: cs.log.querySelectorAll('.cs-prov').length, text: rows.length ? (rows[0].textContent || '').length : 0 };
+    })()`);
+    say(`streaming, as painted — answer bubbles: ${seen.rows}; the final bubble is the node the preview used: ${seen.marked}; previews left hanging: ${seen.leftover}`);
+    if (seen.rows !== 1) return fail(`the long answer is on screen ${seen.rows} times (a preview was duplicated or the message never painted)`);
+    if (seen.leftover) return fail('a provisional bubble was left hanging after the message landed');
+    if (before.length > 0 && !seen.marked) return fail('the finished message did not take the preview\'s node over (no same-position replacement)');
+    if (process.env.AIOS_SMOKE_CHAT_DEBUG) { for (const x of before.slice(0, 3).concat(before.slice(-2))) say(`debug stream ${JSON.stringify(String(x.ev.text).slice(0, 160))}`); say(`debug final ${JSON.stringify(fin.text.slice(0, 160))}`); }
+
+    // 7. A REAL PERMISSION DIALOG, drawn as a card and answered by pressing its "No" button. The session runs with
+    //    --permission-mode default, so a shell command that writes a file stops on "Do you want to proceed?". The gate
+    //    only ever presses the button that REFUSES (and falls back to Esc, which also refuses): nothing is accepted, so
+    //    nothing can run, in the temp folder or anywhere else.
+    for (let i = 0; i < 80 && st && (st.ptyAge < 1500 || st.prompt || st.turnOpen); i++) { await sleep(300); st = await probe(); }   // the long answer's turn is over and the TUI is quiet
+    const permFile = `smoke-perm-${crypto.randomBytes(3).toString('hex')}.txt`;
+    const askPerm = `Use the Bash tool to run exactly this command and nothing else: touch ${permFile}`;
+    const sentPerm = await js<boolean>(`(() => {
+      const cs = panes.get(${paneId}).chatSkin;
+      cs.input.value = ${JSON.stringify(askPerm)};
+      cs.input.dispatchEvent(new Event('input', { bubbles: true }));
+      cs.input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      return cs.input.value === '';
+    })()`);
+    if (!sentPerm) return fail('Enter in the composer did not send the permission request');
+    const dlgProbe = (): Promise<{ kind: string | null; q: string; opts: Array<{ n: number | null; label: string; selected: boolean; key: string; freeText: boolean }> | null;
+      card: boolean; strip: boolean; buttons: string[]; disabled: boolean[]; used: boolean; label: string | null; link: string | null } | null> => js(`(() => {
+        const p = panes.get(${paneId}); if (!p) return null; const cs = p.chatSkin;
+        const d = cs.dlg;
+        return { kind: cs.promptKind, q: cs.promptQ, opts: cs.promptOpts, card: !!(d && d.isConnected), strip: p.el.classList.contains('cs-strip'),
+          buttons: d ? [...d.querySelectorAll('.csd-opt')].map((b) => b.textContent) : [], disabled: d ? [...d.querySelectorAll('.csd-opt')].map((b) => b.disabled) : [],
+          used: !!cs.promptUsed, label: d ? d.getAttribute('aria-label') : null, link: d && d.querySelector('.csd-link') ? d.querySelector('.csd-link').textContent : null };
+      })()`);
+    let dlg = await dlgProbe();
+    for (const deadline = Date.now() + 60000; Date.now() < deadline && dlg && !dlg.kind; await sleep(300)) dlg = await dlgProbe();
+    if (!dlg || !dlg.kind) return fail('the permission request never raised a dialog (the command may have run unasked)', await probe());
+    await sleep(600);   // let the card settle on its final options (the screen is read twice)
+    dlg = await dlgProbe();
+    if (!dlg) return fail('the pane disappeared');
+    say(`dialog — kind '${dlg.kind}', question ${JSON.stringify(dlg.q)}, ${dlg.opts ? dlg.opts.length : 0} options: ${(dlg.opts ?? []).map((o) => `${o.n ?? '·'}${o.selected ? '*' : ''} ${JSON.stringify(o.label.slice(0, 48))} key=${JSON.stringify(o.key)}${o.freeText ? ' freeText' : ''}`).join(' | ')}`);
+    say(`dialog — card drawn: ${dlg.card}, terminal strip: ${dlg.strip}, buttons: ${dlg.buttons.length}, aria-label ${JSON.stringify(dlg.label)}, link ${JSON.stringify(dlg.link)}`);
+    if (!dlg.opts || !dlg.opts.length || !dlg.card || dlg.strip) return fail(`the real dialog did not become a card (options=${dlg.opts ? dlg.opts.length : 'none'}, card=${dlg.card}, strip=${dlg.strip})`);
+    const noIdx = dlg.opts.findIndex((o) => /^No\b/i.test(o.label));
+    if (noIdx < 0) return fail(`no option that refuses among: ${dlg.opts.map((o) => o.label).join(' / ')}`);
+    const clicked = await js<boolean>(`(() => { const b = panes.get(${paneId}).chatSkin.dlg.querySelectorAll('.csd-opt')[${noIdx}]; if (!b || b.disabled) return false; b.click(); return true; })()`);
+    if (!clicked) return fail('the "No" button could not be pressed');
+    const afterClick = await dlgProbe();
+    say(`dialog — pressed "${dlg.opts[noIdx].label.slice(0, 40)}" (key ${JSON.stringify(dlg.opts[noIdx].key)}); right after: used=${afterClick?.used}, buttons disabled=${afterClick?.disabled.every(Boolean)}`);
+    if (!afterClick || !afterClick.used || !afterClick.disabled.every(Boolean)) return fail('the card did not disable itself after the click');
+    let closed = false;
+    for (const deadline = Date.now() + 15000; Date.now() < deadline && !closed; await sleep(300)) { const d = await dlgProbe(); closed = !!d && !d.kind && !d.card; }
+    let viaEsc = false;
+    if (!closed) {   // the button's key did not refuse by itself: say so, and refuse the way the TUI documents (Esc) so the run still ends clean
+      viaEsc = true;
+      ptys.get(paneId)?.write('\x1b');
+      for (const deadline = Date.now() + 10000; Date.now() < deadline && !closed; await sleep(300)) { const d = await dlgProbe(); closed = !!d && !d.kind && !d.card; }
+    }
+    const ran = fs.existsSync(path.join(dir, permFile));
+    say(`dialog — after the click the dialog ${closed ? 'closed' : 'is STILL open'}${viaEsc ? ' (only after Esc: the button key alone did not refuse)' : ' by itself'}; the command ${ran ? 'RAN' : 'did not run'}`);
+    if (ran) return fail('the refused command ran anyway');
+    if (!closed) return fail('the dialog did not close after pressing No');
+    if (viaEsc) return fail('pressing the "No" button did not close the dialog by itself');
+
+    // 8. /clear AND RESUME, in the same session: the id the pane follows changes twice, and the view must follow it
+    //    with nothing of the other session left on screen. Costs two tiny turns (one word each).
+    const wordB = `PONG-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const typeIn = (text: string): Promise<boolean> => js<boolean>(`(() => {
+      const cs = panes.get(${paneId}).chatSkin;
+      cs.input.value = ${JSON.stringify(text)};
+      cs.input.dispatchEvent(new Event('input', { bubbles: true }));
+      cs.input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      return cs.input.value === '';
+    })()`);
+    const quiet = async (): Promise<void> => { for (let i = 0; i < 80 && st && (st.ptyAge < 1800 || st.prompt || st.turnOpen || !composerUp(st)); i++) { await sleep(300); st = await probe(); } };
+    const tailNow = (): string => { const c = tail.current(paneId); return c ? `${c.sessionId.slice(0, 8)}→${c.file ? path.basename(c.file).slice(0, 8) : 'no file'}` : 'none'; };
+    const brief = (x: NonNullable<typeof st>): string => `view=${x.view} id=${(x.sessionId ?? 'null').slice(0, 8)} watched=${(x.watched ?? 'null').slice(0, 8)} tail=${tailNow()} rows=${x.rows.filter((r) => !r.hidden).length} A=${x.rows.filter((r) => r.text.includes(word)).length} B=${x.rows.filter((r) => r.text.includes(wordB)).length}`;
+    /* sends `text`, then watches the pane until `done` holds, printing every CHANGE of what the pane follows and shows */
+    const watchChange = async (what: string, text: string, done: (x: NonNullable<typeof st>) => boolean, ms: number): Promise<NonNullable<typeof st>> => {
+      await quiet();
+      if (!st) return fail('the pane disappeared');
+      if (st.prompt) return fail(`a dialog (${st.prompt}) is open before ${what}`, st);
+      if (!(await typeIn(text))) return fail(`Enter in the composer did not send ${what}`);
+      const t1 = Date.now(); let last = '';
+      for (; Date.now() - t1 < ms; await sleep(250)) {
+        const x = await probe();
+        if (!x) return fail(`the pane disappeared during ${what}`);
+        st = x;
+        const b = brief(x);
+        if (b !== last) { last = b; say(`${what} +${((Date.now() - t1) / 1000).toFixed(1)}s ${b}`); }
+        if (x.prompt) return fail(`dialog '${x.prompt}' during ${what}`, x);
+        if (done(x)) { await sleep(1200); const y = await probe(); if (y) { st = y; const c = brief(y); if (c !== last) say(`${what} settled ${c}`); } return st as NonNullable<typeof st>; }
+      }
+      return fail(`${what}: not finished after ${ms / 1000}s (${last})`, st);
+    };
+    st = await probe();
+    if (!st || !st.sessionId) return fail('no session before /clear');
+    const idA = st.sessionId;
+    const rowsBefore = st.rows.filter((r) => !r.hidden).map((r) => `${r.who}:${r.text}`);
+    say(`before /clear — ${brief(st)}`);
+    const obsClear = await watchChange('/clear', '/clear', (x) => !!x.sessionId && x.sessionId !== idA && x.watched === x.sessionId, 45000);
+    const idB = obsClear.sessionId as string;
+    say(`after /clear — session ${idA.slice(0, 8)} → ${idB.slice(0, 8)}; rows visible with the OLD word: ${obsClear.rows.filter((r) => !r.hidden && r.text.includes(word)).length} (before any new message)`);
+    await watchChange('word B', `Reply with exactly the word ${wordB} and nothing else`, (x) => x.rows.some((r) => r.who === 'claude' && !r.hidden && r.text.includes(wordB)), 90000);
+    const afterB = st as NonNullable<typeof st>;
+    const shownB = afterB.rows.filter((r) => !r.hidden);
+    const filesB = tail.current(paneId);
+    say(`after word B — id=${(afterB.sessionId ?? '').slice(0, 8)} watched=${(afterB.watched ?? '').slice(0, 8)} tail file=${filesB?.file ? path.basename(filesB.file, '.jsonl').slice(0, 8) : 'none'}; visible rows: ${shownB.map((r) => `${r.who}:${r.text.length > 30 ? r.text.slice(0, 30) + '…' : r.text}`).join(' | ')}`);
+    const clearProblems: string[] = [];
+    if (afterB.sessionId === idA) clearProblems.push('the pane kept the old session id after /clear');
+    if (afterB.watched !== afterB.sessionId) clearProblems.push(`watched (${afterB.watched}) does not follow the pane's id (${afterB.sessionId})`);
+    if (shownB.some((r) => r.text.includes(word))) clearProblems.push(`rows of the OLD session (${word}) are still visible after /clear`);
+    if (!shownB.some((r) => r.who === 'user' && r.text.includes(wordB)) || !shownB.some((r) => r.who === 'claude' && r.text.includes(wordB))) clearProblems.push('the new session\'s bubbles are not both visible');
+    if (!filesB?.file || path.basename(filesB.file) !== `${afterB.sessionId}.jsonl`) clearProblems.push(`the tail follows ${filesB?.file ? path.basename(filesB.file) : 'no file'}, not the new session's file`);
+    /* the new transcript legitimately opens with the `/clear` command itself (Claude Code records it as the session's first line), so three rows
+       are the whole new session: that command, the word B asked, the word B answered. Anything more is something that came from the old one. */
+    if (shownB.some((r) => r.who === 'user' && !r.text.includes(wordB) && !/^\s*\/clear/.test(r.text)) || shownB.length > 3) clearProblems.push(`${shownB.length} rows visible after /clear + one message (wanted the /clear line, B asked, B answered): ${shownB.map((r) => r.text.slice(0, 20)).join(' | ')}`);
+    // resume back to the ORIGINAL transcript: the view must backfill it once, with nothing of B left and nothing doubled
+    await watchChange('/resume', `/resume ${idA}`, (x) => x.sessionId === idA && x.watched === idA && x.rows.some((r) => r.who === 'claude' && !r.hidden && r.text.includes(word)), 60000);
+    const afterR = st as NonNullable<typeof st>;
+    const shownR = afterR.rows.filter((r) => !r.hidden);
+    const filesR = tail.current(paneId);
+    say(`after resume — id=${(afterR.sessionId ?? '').slice(0, 8)} watched=${(afterR.watched ?? '').slice(0, 8)} tail file=${filesR?.file ? path.basename(filesR.file, '.jsonl').slice(0, 8) : 'none'}; visible rows: ${shownR.length}; old word rows: ${shownR.filter((r) => r.text.includes(word)).length}; B rows: ${shownR.filter((r) => r.text.includes(wordB)).length}`);
+    if (afterR.sessionId !== idA) clearProblems.push(`resume: the pane id is ${afterR.sessionId}, not the original ${idA}`);
+    if (afterR.watched !== idA) clearProblems.push(`resume: watched is ${afterR.watched}, not the original ${idA}`);
+    if (shownR.some((r) => r.text.includes(wordB))) clearProblems.push('resume: rows of the session left behind (B) are still visible');
+    const userA = shownR.filter((r) => r.who === 'user' && r.text.includes(word)).length;
+    const claudeA = shownR.filter((r) => r.who === 'claude' && r.text.includes(word)).length;
+    if (userA !== 1 || claudeA !== 1) clearProblems.push(`resume: the original exchange shows ${userA} operator and ${claudeA} assistant bubble(s) (wanted 1 and 1: backfilled once, not doubled)`);
+    const texts = shownR.map((r) => `${r.who}:${r.text}`);
+    if (new Set(texts).size !== texts.length) clearProblems.push('resume: duplicated rows after the backfill');
+    if (JSON.stringify(texts) !== JSON.stringify(rowsBefore)) clearProblems.push(`resume: the backfilled rows differ from the ${rowsBefore.length} the original session showed before /clear (${texts.length} now)`);
+    if (!filesR?.file || path.basename(filesR.file) !== `${idA}.jsonl`) clearProblems.push(`resume: the tail follows ${filesR?.file ? path.basename(filesR.file) : 'no file'}, not the original file`);
+    if (clearProblems.length) return fail(`/clear + resume: ${clearProblems.join('; ')}`);
+    say('/clear and resume — the id changed, watched followed it, the tail moved with it, no row of the other session stayed, the resume did not double anything');
+    result = { status: 'ok', detail: 'real session, chat view, composer, bubbles, streaming, permission dialog card, /clear and resume' };
+  } catch (e) {
+    result = { status: 'failed', detail: String((e as Error)?.message ?? e) };
+  } finally {
+    // CLEANUP — runs on success and on failure, and never touches anything this run did not create
+    try {
+      const shellPid = ptys.get(paneId)?.pid;
+      if (shellPid) for (const k of await descendants(shellPid)) kids.add(k);
+      if (paneId >= 0) await js(`(() => { if (panes.has(${paneId})) closePane(${paneId}); return true; })()`).catch(() => undefined);
+      if (priorMode === 'chat' || priorMode === 'terminal') await js(`chatSkinSetMode(${JSON.stringify(priorMode)}, { persist: false })`).catch(() => undefined);   // the live mode goes back to what the run found
+      for (let i = 0; i < 40 && [...kids].some(alive); i++) await sleep(250);
+      const left = [...kids].filter(alive);
+      if (left.length) {
+        problems.push(`closing the pane left process(es) ${left.join(',')} running; killed by pid`);
+        for (const k of left) { try { process.kill(k, 'SIGKILL'); } catch { /* gone */ } }
+      }
+      if (ptys.has(paneId)) problems.push('the pty is still registered after closePane');
+      if (skins.has(paneId) || tail.active().includes(paneId)) problems.push('a transcript watcher is still registered after closePane');
+      if (sessionId && aios.listRunningAgents().some((a) => a.sessionId === sessionId)) problems.push('the session is still in the registry');
+    } catch (e) { problems.push(`cleanup of the pane failed: ${String((e as Error)?.message ?? e)}`); }
+    let removed = '';
+    try {
+      // the temp folder: only if it is still exactly what this run made
+      if (path.dirname(dir) === tmpRoot && path.basename(dir) === `aios-smoke-chat-${tag}`) { fs.rmSync(dir, { recursive: true, force: true }); removed = 'temp folder'; }
+      // Claude Code's per-cwd transcript folder: named after the real path, verified before deleting
+      const projects = path.join(aios.claudeConfigDir(), 'projects');
+      const slug = dir.replace(/[^A-Za-z0-9]/g, '-');
+      const tdir = path.join(projects, slug);
+      if (fs.existsSync(tdir)) {
+        const st = fs.lstatSync(tdir);
+        if (st.isDirectory() && !st.isSymbolicLink() && path.dirname(tdir) === projects
+            && slug.endsWith(`aios-smoke-chat-${tag.replace(/[^A-Za-z0-9]/g, '-')}`)) {
+          fs.rmSync(tdir, { recursive: true, force: true }); removed += ' + transcript folder';
+        } else problems.push('transcript folder failed the name check; left in place');
+      }
+      if (fs.existsSync(dir)) problems.push('temp folder still exists');
+      if (fs.existsSync(tdir)) problems.push('transcript folder still exists');
+    } catch (e) { problems.push(`cleanup of the files failed: ${String((e as Error)?.message ?? e)}`); }
+    say(`cleanup — ${problems.length ? 'PROBLEMS: ' + problems.join('; ') : `pane closed, ${kids.size} process(es) gone, no watcher left, ${removed || 'nothing to remove'} removed`}`);
+    if (problems.length && result.status === 'ok') result = { status: 'failed', detail: problems.join('; ') };
+  }
+  return result;
+}
 
 let host: PanelHost | undefined;
 
@@ -660,20 +1414,13 @@ ipcMain.handle('pty:cwd', async (_e, id: number) => {
   ptyCwdCache.set(p.pid, { at: Date.now(), cwd });
   return cwd;
 });
+/* fs:resolveFile and fs:resolvePaths share ONE implementation of the rules (pathResolve.ts): trim, `:line`,
+   `~`, the base folders, the allowed roots. fs:resolveFiles (the terminal's hover) runs on pathLinks.ts,
+   which adds the reveal-only level and the time-limited stat; the string cleaning is the one function
+   both import (normalizeCandidate), so a terminal link and a chat link cannot disagree about a string. */
+const resolveEnv = { allowed: (abs: string) => inAllowed(abs), frameworkRoot: () => aios.frameworkRoot() };
 ipcMain.handle('fs:resolveFile', (_e, cand: string, base?: string) => {
-  try {
-    let c = String(cand || '').trim().replace(/[)\]},.;:'"]+$/, '');   // trailing punctuation from prose
-    if (!c) return null;
-    c = c.replace(/:\d+(?::\d+)?$/, '');                              // file.ts:42[:7] → file.ts
-    if (c.startsWith('~')) c = path.join(os.homedir(), c.slice(1));
-    const bases = [base, aios.frameworkRoot(), os.homedir()].filter(Boolean) as string[];
-    const cands = path.isAbsolute(c) ? [c] : bases.map((b) => path.resolve(b, c));
-    for (const abs of cands) {
-      if (!inAllowed(abs)) continue;
-      try { if (fs.statSync(abs).isFile()) return abs; } catch { /* next */ }
-    }
-    return null;
-  } catch { return null; }
+  try { return resolveOne(cand, base, resolveEnv, false)?.abs ?? null; } catch { return null; }
 });
 /* Plural form: a hovered terminal line can hold a dozen path-shaped tokens, and resolving
    them one IPC at a time is what made the first hover feel slow. Answers TWO maps — what the
@@ -687,6 +1434,15 @@ ipcMain.handle('fs:resolveFiles', (_e, cands: string[], base?: string) =>
     home: os.homedir(),
     stat: statOrNull,
   }));
+/* The chat's variant. It exists because a chat message names folders as often as files ("the output is
+   in ~/Projects/site/dist") and has to say which one it found: a file opens in a viewer, a folder is
+   revealed in the explorer. It stays on pathResolve.ts (synchronous, inside the allowed roots, `dir`
+   says which) rather than on resolveLinkTargets: the chat has no reveal-outside-the-roots gesture, and
+   it resolves a whole message in one call, so its ceiling is higher. A separate channel rather than a
+   flag on fs:resolveFiles so the terminal's {open, reveal} reply can never change shape. Both normalise
+   a candidate with the same function (normalizeCandidate, in pathLinks.ts). */
+ipcMain.handle('fs:resolvePaths', (_e, cands: string[], base?: string) =>
+  resolveMany(cands, base, resolveEnv, { dirs: true, limit: RESOLVE_PATHS_LIMIT }));
 ipcMain.handle('fs:sortState', () => ({ master: aios.masterSort(), overrides: aios.folderSorts() }));
 ipcMain.handle('fs:setSort', (_e, folder: string, mode: string) => {
   if (typeof folder !== 'string' || !inAllowed(folder)) return { master: aios.masterSort(), overrides: aios.folderSorts() };
@@ -1180,7 +1936,10 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
 });
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'lidAsked', value: unknown) => {
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'lidAsked' | 'claudeView', value: unknown) => {
+  /* claudeView is a closed set. Anything else is refused rather than stored: normalizeClaudeView would ignore it on read and fall
+     back to the old chatViewDefault, so a bad write could silently resurrect a value the operator had moved on from. */
+  if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();
   aios.setShellSetting(key, value);
   /* AI-132: changing the RULE retires any override — otherwise you switch manual→auto and watch
      auto not follow sessions, with nothing on screen explaining why. Applies immediately rather
@@ -1218,7 +1977,8 @@ let mainWin: BrowserWindow | undefined;
    either, because it looks like it cannot drift. */
 const APP_ID = 'com.the-aios.app';
 
-if (!SMOKE && !app.requestSingleInstanceLock()) {
+/* A QA run must coexist with the operator's open App and dev window, so it never takes (or yields to) the lock. */
+if (!(SMOKE || CHAT_SHOT) && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
@@ -1244,6 +2004,322 @@ if (process.platform === 'win32') {
   try { app.setAppUserModelId(APP_ID); } catch { /* older Electron — the default id stands */ }
 }
 
+/* ── CHAT SHOT: screenshots of the chat view, from a window that is never shown ──────────────────
+   `--chat-shot=<dir>` is a QA harness for whoever iterates on the chat view's looks: it boots the
+   real renderer in a hidden window, opens one terminal pane that "is" a Claude session, feeds the
+   chat skin hand-written events (the same `chatSkinHandleEvent` entry the transcript tail uses),
+   and writes one PNG per entry of a JSON fixture. Run it through `npm run chat:shot` — the runner
+   (scripts/chat-shot.mjs) builds the synthetic HOME and the throwaway userData this mode requires.
+
+   Why not --shot or --eval: both create a VISIBLE window (`show: !SMOKE`), which puts a window on
+   the operator's desktop mid-work. This mode never does: createWindow passes show:false, and
+   lockWindowHidden() makes any later show()/focus() a no-op.
+
+   THE FIXTURE (src/test/fixtures/chat-shot.json by default, or --chat-shot-fixture=<path>):
+     { "version": 1,
+       "settleMs": 700,                          // fonts + transitions; per-shot "wait" adds to it
+       "layout": "dock-max",                     // default for every shot; see per-shot "layout"
+       "setup": "…js…" | ["…", …],               // optional, runs once before the first shot
+       "streams": { "name": [ <event>, … ] },    // reusable event lists, see below
+       "shots": [ { "name": "chat-dark",         // → <dir>/chat-dark.png (letters, digits, . _ -)
+                    "theme": "dark" | "light",   // default dark
+                    "events": ["conversation", { "type": "turn", "open": true }],
+                                                 // stream names and/or inline events, in order
+                    "composer": "text in the compose box",
+                    "terminal": "text written to the xterm (NOT the pty) — for dialog states",
+                    "js": "…" | ["…"],           // extra JS, async, after the events; see ctx below
+                    "size": { "width": 900, "height": 700 },   // CSS px; default 1280x860
+                    "layout": "dock-max" | "workbench",   // dock maximised (default) or the stock layout
+                    "clip": "window" | "pane",   // default window
+                    "wait": 0,                   // extra ms before the capture
+                    "hover": ".chat-md .cs-path.file",   // selector of an element to put the REAL mouse pointer over (see below)
+                    "working": true } ] }        // keep the "working" indicator lit (default true
+                                                 // while the last turn event left the turn open)
+   An <event> is what chatSkinHandleEvent takes minus paneId (reset · items · turn · usage · prompt ·
+   missing · error) plus one extra type, "status", which feeds the usage bar like the statusline does
+   ({ "type": "status", "fiveHourPct": 42, … }; a "fiveHourResetsAt" / "sevenDayResetsAt" of "+8280" means
+   8280 seconds from the moment of the shot, so a reset never ends up in the past). A shot's "js" runs in the renderer with
+   ctx = { id, p (the pane), cs (p.chatSkin), root (the chat overlay), $ / $$ (querySelector(All) in
+   it), sleep(ms), feed(events) }; throwing fails the run, naming the shot. Adding a shot is adding an
+   object to "shots" — main.ts never changes.
+
+   HOVER. A :hover style cannot be photographed by toggling a class (that would test a copy of the rule, not the
+   rule), so a shot's "hover" selector makes this process send a real mouseMove to the centre-left of that element
+   after the shot's js has run, which makes the browser apply :hover and fire mouseenter exactly as for an operator.
+   The shot FAILS if the element does not end up matching :hover, so a pointer that missed cannot pass for a hover
+   picture. Nothing production is involved: the event goes to the hidden QA window only.
+
+   THE FAKE SESSION, AND THE WATCH THAT COMES BACK. The pane gets a made-up (but well-formed) session
+   id so the chat view is eligible and enters watch mode, which asks main to tail
+   a .jsonl file under <HOME>/.claude/projects/. That file does not exist, so main answers 'not-found'
+   asynchronously and keeps looking. Rather than race that reply, the driver (1) awaits an identical
+   chatSkinWatch itself, which also replaces the app's own watch, so no tail is running any more, and
+   (2) only then injects `reset` + the fixture's events. Nothing can emit a transcript event after
+   that, and the one late path that remains (the app's own not-found reply) only repaints a state
+   line that `items` has already turned to 'live'. */
+interface ChatShotShot {
+  name: string; theme?: 'dark' | 'light'; events?: Array<string | Record<string, unknown>>; composer?: string;
+  terminal?: string | string[] | null; js?: string | string[]; size?: { width: number; height: number };
+  clip?: 'window' | 'pane'; wait?: number; working?: boolean; layout?: 'dock-max' | 'workbench'; hover?: string;
+}
+interface ChatShotFixture { version: 1; settleMs?: number; layout?: 'dock-max' | 'workbench'; setup?: string | string[]; streams?: Record<string, Array<Record<string, unknown>>>; shots: ChatShotShot[]; }
+
+function validateChatShotFixture(raw: unknown): ChatShotFixture {
+  const fx = raw as ChatShotFixture;
+  if (!fx || typeof fx !== 'object' || fx.version !== 1) throw new Error('fixture: "version" must be 1');
+  if (fx.layout !== undefined && fx.layout !== 'dock-max' && fx.layout !== 'workbench') throw new Error('fixture: "layout" must be "dock-max" or "workbench"');
+  if (!Array.isArray(fx.shots) || fx.shots.length === 0) throw new Error('fixture: "shots" must be a non-empty array');
+  const streams = fx.streams ?? {};
+  const seen = new Set<string>();
+  for (const s of fx.shots) {
+    if (!s || typeof s.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(s.name)) throw new Error(`fixture: bad shot name ${JSON.stringify(s && s.name)} (letters, digits, . _ - only; it becomes a file name)`);
+    if (seen.has(s.name)) throw new Error(`fixture: duplicate shot name "${s.name}"`);
+    seen.add(s.name);
+    if (s.theme !== undefined && s.theme !== 'dark' && s.theme !== 'light') throw new Error(`fixture: shot "${s.name}": theme must be "dark" or "light"`);
+    if (s.layout !== undefined && s.layout !== 'dock-max' && s.layout !== 'workbench') throw new Error(`fixture: shot "${s.name}": layout must be "dock-max" or "workbench"`);
+    if (s.clip !== undefined && s.clip !== 'window' && s.clip !== 'pane') throw new Error(`fixture: shot "${s.name}": clip must be "window" or "pane"`);
+    for (const e of s.events ?? []) {
+      if (typeof e === 'string' ? !Array.isArray(streams[e]) : !e || typeof e !== 'object' || typeof (e as { type?: unknown }).type !== 'string') throw new Error(`fixture: shot "${s.name}": unknown stream or malformed event ${JSON.stringify(e).slice(0, 80)}`);
+    }
+    if (s.hover !== undefined && (typeof s.hover !== 'string' || !s.hover.trim())) throw new Error(`fixture: shot "${s.name}": hover must be a non-empty selector`);
+    if (s.size && !(s.size.width >= 320 && s.size.height >= 320 && s.size.width <= 4000 && s.size.height <= 4000)) throw new Error(`fixture: shot "${s.name}": size out of range`);
+  }
+  return fx;
+}
+
+/* The renderer half. Plain JS in a String.raw (no backticks or dollar-brace inside) because it is
+   evaluated in the page, where `panes`, `createPane`, `chatSkin*` are script-level globals — the
+   same trick --eval uses. It never touches the pty: only the xterm's screen (term.write) and the
+   chat skin's own event entry. */
+const CHAT_SHOT_DRIVER = String.raw`(() => {
+  if (window.__chatShot) return 'already';
+  const FAKE_SESSION = '00000000-0000-4000-8000-00000000c0de';
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const waitFor = async (fn, what, ms) => {
+    const t0 = Date.now();
+    for (;;) {
+      let v = false;
+      try { v = fn(); } catch (e) { v = false; }
+      if (v) return v;
+      if (Date.now() - t0 > (ms || 20000)) throw new Error('timed out waiting for ' + what);
+      await sleep(50);
+    }
+  };
+  const S = { pin: 0 };
+  const feed = (id, events) => {
+    const p = panes.get(id);
+    const cs = p && p.chatSkin;
+    if (!cs) throw new Error('the pane has no chat view');
+    for (const ev of events) {
+      if (ev.type === 'status') {
+        const s = Object.assign({}, ev); delete s.type;
+        // a reset written as '+8280' means "that many seconds from now": a fixture cannot hold a real instant, which would be in the past by the next run
+        for (const k of Object.keys(s)) if (/ResetsAt$/.test(k) && typeof s[k] === 'string' && /^\+\d+$/.test(s[k])) s[k] = Math.floor(Date.now() / 1000) + Number(s[k].slice(1));
+        chatApplyStatus(cs, s);
+        continue;
+      }
+      chatSkinHandleEvent(Object.assign({ paneId: id }, ev));
+    }
+  };
+  window.__chatShot = {
+    async ready() {
+      await waitFor(() => typeof createPane === 'function' && typeof chatSkinSetView === 'function' && typeof chatSkinSetMode === 'function' && window.glassShell && panes instanceof Map && document.readyState === 'complete', 'the renderer');
+      await document.fonts.ready;
+      await sleep(1500);   // first paint of the workbench (pulse, explorer) before anything is measured
+      return true;
+    },
+    async open(o) {
+      THEME = o.theme === 'light' ? 'light' : 'dark';
+      applyTheme(THEME);
+      // noProfile: a bare shell, so nothing from a profile prints into the xterm; 'cat' then keeps it silent
+      const id = await createPane({ name: o.name, cmd: 'cat', bypassReady: true, noProfile: true });
+      const p = panes.get(id);
+      if (!p) throw new Error('createPane returned no pane');
+      // 'dock-max' gives the chat the whole height of the window, which is what a design review wants
+      // to look at; 'workbench' is the layout an operator gets by default (editor above, dock below).
+      th = o.layout === 'workbench' ? TH_DEFAULT : TH_MAX;
+      applySplit(); fitTerms();
+      p.isSession = true;
+      p.sessionId = FAKE_SESSION;   // eligibility normally comes from the session registry; set directly, never persisted
+      await sleep(400);             // the shell has printed whatever it will print
+      /* Through the mode, as an operator gets there (Settings → Claude sessions view → Chat), so the Settings page photographed
+         later reads "Chat" and the tab strip is the one a real chat user sees. With persist:false: the shot has no stored setting
+         to write, and nothing here should reach a shell.json. */
+      await chatSkinSetMode('chat', { persist: false });
+      if (p.view !== 'chat') throw new Error('the pane is not eligible for the chat view');
+      await waitFor(() => p.chatSkin && p.chatSkin.watched === FAKE_SESSION, 'the chat watch');
+      await window.glassShell.chatSkinWatch(id, FAKE_SESSION);   // see "THE FAKE SESSION" in main.ts
+      await sleep(150);
+      p.chatSkin.statusAt = Date.now() + 3600000;   // the global usage refresh must not overwrite the fixture's numbers
+      return id;
+    },
+    async apply(id, spec) {
+      const p = panes.get(id);
+      const cs = p.chatSkin;
+      feed(id, [{ type: 'reset' }].concat(spec.events || []));
+      if (typeof spec.composer === 'string' && spec.composer) {
+        cs.input.value = spec.composer;
+        cs.input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (spec.terminal !== null && spec.terminal !== undefined) {
+        p.term.reset();
+        // a TUI draws its dialog at the BOTTOM of the screen, and the chat shows the lower part of the
+        // xterm in its strip, so pad the text down instead of leaving it at the top where it is cropped
+        const lines = String(spec.terminal).split(/\r?\n/);
+        const pad = Math.max(0, p.term.rows - lines.length - 1);
+        await new Promise((r) => p.term.write('\r\n'.repeat(pad) + lines.join('\r\n'), r));
+        repaintTerm(p);
+      }
+      if (S.pin) { clearInterval(S.pin); S.pin = 0; }
+      if (cs.turnOpen && spec.working !== false) {
+        const hold = () => { p.lastPtyAt = Date.now(); chatSkinControls(p); };
+        hold();
+        S.pin = setInterval(hold, 250);   // "working" needs recent pty output; keep it lit for the capture
+      }
+      return true;
+    },
+    ctx(id) {
+      const p = id === null || id === undefined ? null : panes.get(id);
+      const cs = p ? p.chatSkin : null;
+      const root = cs ? cs.root : document;
+      return {
+        id, p, cs, root, sleep,
+        $: (sel) => root.querySelector(sel),
+        $$: (sel) => Array.from(root.querySelectorAll(sel)),
+        feed: (events) => feed(id, events),
+      };
+    },
+    async settle(id, ms) {
+      await document.fonts.ready;
+      await sleep(ms);
+      await new Promise((r) => {
+        let done = false;
+        const fin = () => { if (!done) { done = true; r(); } };
+        requestAnimationFrame(() => requestAnimationFrame(fin));
+        setTimeout(fin, 400);   // a throttled page may never deliver the frames
+      });
+      const p = panes.get(id);
+      const b = p.el.getBoundingClientRect();
+      return { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) };
+    },
+    close(id) {
+      if (S.pin) { clearInterval(S.pin); S.pin = 0; }
+      closePane(id);
+      return true;
+    },
+  };
+  return 'installed';
+})()`;
+
+/* The process-level half of a chat-bench probe. The fixture prints `chat-bench:probe <label> <json>` after forcing a GC in
+   the renderer; this answers with `chat-bench: metrics <label> <json>` carrying the renderer process's working set and private
+   bytes (app.getAppMetrics, KB) and this process's RSS and heap after a forced GC. The fixture waits a moment after each probe. */
+async function chatBenchProbe(win: BrowserWindow, msg: string): Promise<void> {
+  try {
+    const label = msg.split(' ')[1] ?? '?';
+    try { v8.setFlagsFromString('--expose-gc'); (vm.runInNewContext('gc') as () => void)(); } catch { /* no GC: the heap number is then not post-GC */ }
+    const m = app.getAppMetrics().find((x) => x.pid === win.webContents.getOSProcessId());
+    const mu = process.memoryUsage();
+    console.log('chat-bench: metrics ' + label + ' ' + JSON.stringify({
+      rendererWorkingSetKB: m?.memory.workingSetSize ?? null, rendererPrivateKB: m?.memory.privateBytes ?? null,
+      mainRssMB: +(mu.rss / 1048576).toFixed(1), mainHeapMB: +(mu.heapUsed / 1048576).toFixed(1),
+    }));
+  } catch (e) { console.log('chat-bench: metrics-error ' + String(e)); }
+}
+
+/* Belt and braces for "never visible": no code path may bring this window up. */
+function lockWindowHidden(win: BrowserWindow): void {
+  const noop = (): void => { /* a QA window is never shown */ };
+  Object.assign(win, { show: noop, showInactive: noop, focus: noop, restore: noop, maximize: noop, setFullScreen: noop });
+  win.on('show', () => { if (!win.isDestroyed()) win.hide(); });
+}
+
+function dropChatShotUserData(): void {
+  if (chatShotUserData && path.basename(chatShotUserData).startsWith('aios-chatshot-ud-')) {
+    try { fs.rmSync(chatShotUserData, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+async function runChatShot(win: BrowserWindow): Promise<void> {
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const finish = (code: number): void => { dropChatShotUserData(); app.exit(code); };
+  const fail = (msg: string): void => { console.error('chat-shot: FAILED — ' + msg); finish(1); };
+  /* A hung renderer must not hang whoever called us (the runner has its own, longer, kill timer). 300 s, because
+     the full shot list takes about two minutes and grows with every scenario added. */
+  setTimeout(() => fail('timed out after 300 s'), 300_000);
+  try {
+    if (!CHAT_SHOT_DIR) throw new Error('missing output folder: --chat-shot=<dir>');
+    const outDir = path.resolve(CHAT_SHOT_DIR);
+    fs.mkdirSync(outDir, { recursive: true });
+    const fixturePath = CHAT_SHOT_FIXTURE_ARG
+      ? path.resolve(CHAT_SHOT_FIXTURE_ARG.slice('--chat-shot-fixture='.length))
+      : path.join(__dirname, '..', '..', 'src', 'test', 'fixtures', 'chat-shot.json');
+    let fx: ChatShotFixture;
+    try { fx = validateChatShotFixture(JSON.parse(fs.readFileSync(fixturePath, 'utf8'))); }
+    catch (e) { throw new Error(`cannot use fixture ${fixturePath}: ${e instanceof Error ? e.message : String(e)}`); }
+
+    const wc = win.webContents;
+    wc.setBackgroundThrottling(false);
+    if (wc.isLoading()) await new Promise<void>((r) => wc.once('did-finish-load', () => r()));
+    const exec = (code: string): Promise<unknown> => wc.executeJavaScript(code, true);
+    const userJs = (js: string | string[], id: number | null): Promise<unknown> =>
+      exec(`(async () => { const ctx = window.__chatShot.ctx(${id === null ? 'null' : String(id)}); ${Array.isArray(js) ? js.join('\n') : js}\n})()`);
+
+    await exec(CHAT_SHOT_DRIVER);
+    await exec('window.__chatShot.ready()');
+    if (fx.setup) await userJs(fx.setup, null);
+
+    const written: string[] = [];
+    for (const shot of fx.shots) {
+      const step = (what: string, e: unknown): Error => new Error(`shot "${shot.name}": ${what}: ${e instanceof Error ? e.message : String(e)}`);
+      const size = shot.size ?? CHAT_SHOT_SIZE;
+      win.setContentSize(size.width, size.height);
+      await sleep(200);   // let the layout follow the new size before a pane is created in it
+      const streams = fx.streams ?? {};
+      const events = (shot.events ?? []).flatMap((e) => (typeof e === 'string' ? streams[e] : [e]));
+      let id: number;
+      try { id = (await exec(`window.__chatShot.open(${JSON.stringify({ name: 'chat-qa', theme: shot.theme ?? 'dark', layout: shot.layout ?? fx.layout ?? 'dock-max' })})`)) as number; }
+      catch (e) { throw step('opening the chat view', e); }
+      try {
+        await exec(`window.__chatShot.apply(${id}, ${JSON.stringify({ events, composer: shot.composer, terminal: Array.isArray(shot.terminal) ? shot.terminal.join('\n') : shot.terminal, working: shot.working })})`);
+        if (shot.js) await userJs(shot.js, id);
+      } catch (e) { throw step('applying events / js', e); }
+      if (shot.hover) {
+        try {
+          const at = (await exec(`(() => { const e = window.__chatShot.ctx(${id}).$(${JSON.stringify(shot.hover)}); if (!e) return null;
+            e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect();
+            return { x: Math.round(r.left + Math.min(r.width / 2, 40)), y: Math.round(r.top + r.height / 2) }; })()`)) as { x: number; y: number } | null;
+          if (!at) throw new Error(`nothing matches ${shot.hover}`);
+          await sleep(100);   // the scroll above must have been laid out before the pointer lands
+          wc.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+          await sleep(200);
+          const hovered = await exec(`window.__chatShot.ctx(${id}).$(${JSON.stringify(shot.hover)}).matches(':hover')`);
+          if (hovered !== true) throw new Error(`the pointer did not end up over ${shot.hover}`);
+        } catch (e) { throw step('hovering', e); }
+      }
+      const rect = (await exec(`window.__chatShot.settle(${id}, ${Math.max(0, (fx.settleMs ?? 700) + (shot.wait ?? 0))})`)) as { x: number; y: number; width: number; height: number };
+      const img = shot.clip === 'pane' ? await wc.capturePage(rect) : await wc.capturePage();
+      const { width, height } = img.getSize();
+      /* A page that never painted still captures: as one flat colour. That would read as a
+         "working" harness while measuring nothing, so refuse it. */
+      const bmp = img.toBitmap();
+      let varied = false;
+      for (let i = 4; i < bmp.length && !varied; i += 97) varied = bmp[i] !== bmp[0] || bmp[i + 1] !== bmp[1] || bmp[i + 2] !== bmp[2];
+      if (!varied) throw new Error(`shot "${shot.name}": the capture is one flat colour — the hidden window did not paint`);
+      const file = path.join(outDir, `${shot.name}.png`);
+      fs.writeFileSync(file, img.toPNG());
+      written.push(file);
+      const expectW = (shot.clip === 'pane' ? rect.width : size.width) * 2;
+      console.log(`chat-shot: ${file} ${width}x${height}${width === expectW ? '' : ` (expected ${expectW} wide: the 2x scale did not apply)`}`);
+      try { await exec(`window.__chatShot.close(${id})`); } catch { /* the run is about to end or fail anyway */ }
+    }
+    console.log(`chat-shot: done — ${written.length} PNG(s) in ${outDir}`);
+    finish(0);
+  } catch (e) {
+    fail(e instanceof Error ? e.message : String(e));
+  }
+}
+
 /* Every session the App creates, including a browser pane's, gets the web permission policy
    before any page can ask for anything (webPermissions.ts explains why the default is not safe). */
 app.on('session-created', (s) => installWebPermissionPolicy(s));
@@ -1259,7 +2335,7 @@ app.whenReady().then(() => {
      and an update install still quit (quitState.ts explains why the install needs its own mark).
      Windows and Linux keep closing = quitting, their convention. Smoke/eval runs never hide. */
   win.on('close', (e) => {
-    if (!closeShouldHide(process.platform, isQuitting(), !!(SMOKE || EVAL || SHOT))) return;
+    if (!closeShouldHide(process.platform, isQuitting(), !!(SMOKE || EVAL || SHOT || CHAT_SHOT))) return;
     e.preventDefault();
     if (win.isFullScreen()) { win.once('leave-full-screen', () => win.hide()); win.setFullScreen(false); }
     else win.hide();
@@ -1267,27 +2343,27 @@ app.whenReady().then(() => {
   installMenu(() => mainWin);
   host = new PanelHost(win.webContents);
   host.start();
-  if (!SMOKE && !SHOT) setupExplorerWatch(win);
+  if (!SMOKE && !SHOT && !CHAT_SHOT) setupExplorerWatch(win);
   /* Seed Claude's config once, so the Settings mirror has real values to reflect instead of
      assertions nobody read. Idempotent by marker, skipped in smoke/shot so a gate never writes
      into the machine it is testing on. */
-  if (!SMOKE && !SHOT && !EVAL) {
+  if (!SMOKE && !SHOT && !EVAL && !CHAT_SHOT) {
     try {
       const r = aios.seedClaudeDefaults();
       if (!r.already && r.seeded.length) console.log(`[claude-config] seeded on first install: ${r.seeded.join(', ')}`);
     } catch (e) { console.log('[claude-config] seeding skipped:', String(e)); }
   }
-  if (!SMOKE && !SHOT) setupClaudeConfigWatch(win);
+  if (!SMOKE && !SHOT && !CHAT_SHOT) setupClaudeConfigWatch(win);
   // Spawn-inbox command bus: watch ~/.aios/spawn-inbox/ and fulfil agent-dropped
   // spawn/kill/send requests natively (Glass 0.4.2/0.4.3 parity). Interactive
   // window only — never during smoke/shot/eval.
-  if (!SMOKE && !SHOT && !EVAL) initCommandBus(() => mainWin, app.getVersion());
+  if (!SMOKE && !SHOT && !EVAL && !CHAT_SHOT) initCommandBus(() => mainWin, app.getVersion());
   /* AI-132 keep-awake. Same guards as the bus: a smoke/shot/eval run must not hold a real
      machine awake. 2s matches the rendering cadence the RUNNING card already polls sessions on,
      so `auto` reacts as fast as the operator can see a session go busy and no new poll exists
      just for this. The teardown releases the blocker — the process dying releases it anyway, so
      this only covers a quit that lingers. */
-  if (!SMOKE && !SHOT && !EVAL) {
+  if (!SMOKE && !SHOT && !EVAL && !CHAT_SHOT) {
     const stopCaffeine = caffeine.init((st) => {
       const w = mainWin;
       if (w && !w.isDestroyed() && !w.webContents.isDestroyed()) w.webContents.send('shell:caffeinate', st);
@@ -1298,7 +2374,7 @@ app.whenReady().then(() => {
   // boot + every 6h, native-notify when staged, install on quit. GitHub-Releases
   // channel; never fires in dev/smoke/shot/eval. Renderer surface folds into the
   // Needs-you inbox card (batch G) later; this is the mechanism only.
-  if (!SMOKE && !SHOT && !EVAL) initAutoUpdater(() => mainWin);
+  if (!SMOKE && !SHOT && !EVAL && !CHAT_SHOT) initAutoUpdater(() => mainWin);
   // Glass re-checks status whenever its panel becomes visible again; the App's
   // panel never hides, so window focus is the equivalent signal — come back from
   // a push or a pull elsewhere and the pill is current. Rate-limited in the host.
@@ -1311,6 +2387,7 @@ app.whenReady().then(() => {
       const d = args[0] as { message?: string; level?: unknown } | undefined;
       const msg = d && typeof d === 'object' && 'message' in d ? d.message : (args[1] as string);
       if (msg) console.log('[renderer]', String(msg));
+      if (CHAT_BENCH && msg && msg.startsWith('chat-bench:probe ')) void chatBenchProbe(win, msg);
     });
   }
   if (SMOKE) {
@@ -1326,7 +2403,9 @@ app.whenReady().then(() => {
      so the common case — roots that already exist — costs nothing after the first tick. */
   const rootPoll = setInterval(() => { if (!win.isDestroyed()) rewireForRoots(win); }, 4000);
   win.on('closed', () => clearInterval(rootPoll));
+  win.on('closed', () => { tail.unwatchAll(); for (const id of [...skins.keys()]) void endSkin(id, false); });   // macOS hides the window instead of closing it, so this is a real teardown
   win.on('closed', () => { host?.dispose(); host = undefined; for (const w of explorerWatchers.splice(0)) { try { w.close(); } catch { /* ignore */ } } });
+  if (CHAT_SHOT) { lockWindowHidden(win); void runChatShot(win); return; }
   if (EVAL) {
     const expr = EVAL.slice('--eval='.length);
     win.webContents.once('did-finish-load', () => {
@@ -1831,14 +2910,33 @@ app.whenReady().then(() => {
       // the setup gate opens a real tab and waits for its async paint, so the old 15s
       // ceiling would have failed the run on time rather than on truth
       new Promise<boolean>((r) => setTimeout(() => r(false), 25000)),
-    ]).then((ok) => app.exit(ok ? 0 : 1));
+    ]).then(async (ok) => {
+      /* The real-session gate runs AFTER the fast ones and outside their 25 s ceiling: it waits on a
+         model, so it has deadlines of its own (and always cleans up). Skipped when something
+         already failed, so a broken build does not also spend a model call. */
+      let assets: SmokeAssetsVerdict = { ok: false, detail: 'an earlier gate failed' };
+      if (ok) {
+        assets = await chatAssetsSmoke(win);
+        if (assets.ok) console.log('shell-smoke: chat assets OK ✓ — marked, highlight.js, stylesheet, preload bridge and sanitizer all work from where this build was loaded');
+        else console.error(`shell-smoke: chat assets FAILED — ${assets.detail}`);
+      }
+      let chat: SmokeChatVerdict = { status: 'skipped', detail: 'an earlier gate failed' };
+      if (ok && assets.ok) chat = await chatViewSmoke(win).catch((e): SmokeChatVerdict => ({ status: 'failed', detail: String(e?.message ?? e) }));
+      if (chat.status === 'ok') console.log('shell-smoke: chat view OK ✓ — a real claude session, the chat mode, the composer and the bubbles agree');
+      else if (chat.status === 'skipped') console.log(`shell-smoke: chat view SKIPPED — ${chat.detail}`);
+      else console.error(`shell-smoke: chat view FAILED — ${chat.detail}`);
+      dropSmokeUserData();
+      app.exit(ok && assets.ok && chat.status !== 'failed' ? 0 : 1);
+    });
   }
 });
 /* Every real quit passes through here first, so the close handler above lets the windows go. */
 app.on('before-quit', markQuitting);
+/* The chat sessions are child processes of this app; closing them here keeps a quit from orphaning them. */
+app.on('before-quit', () => { tail.unwatchAll(); for (const id of [...skins.keys()]) void endSkin(id, false); });
 /* The Dock icon brings the hidden window back. */
 app.on('activate', () => {
-  if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); }
+  if (!(SMOKE || CHAT_SHOT) && mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); }   // a QA run has no Dock icon to click, but never relies on that
 });
 /* Kept on every platform: on macOS a window only really closes while quitting (or if it died),
    and an App left in the Dock with no window and no way to rebuild one would be worse. */

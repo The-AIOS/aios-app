@@ -1344,7 +1344,28 @@ export function dailyNotePath(iso: string): string | undefined {
 
 // ── shell settings (.glass/shell.json — synced beside state.json) ───────────
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
+/** How Claude sessions are shown: the conversation as chat, or the raw terminal. ONE choice for every session. */
+export type ClaudeView = 'chat' | 'terminal';
+
+/**
+ * The stored `claudeView`, with the old `chatViewDefault` folded in.
+ *
+ * Why the migration exists: before this setting, "open Claude sessions as chat" was a checkbox
+ * (`chatViewDefault`) next to a per-tab switch. The switch is gone and the choice is now a selector
+ * that also moves the sessions already open, so an operator who had ticked the box must still land
+ * in chat, and everyone else on the terminal they know. Rules, in order:
+ *   1. a stored 'chat' or 'terminal' wins (the operator chose it with the new control);
+ *   2. otherwise the old key decides, and only a literal `true` means chat. A hand-edit, an older
+ *      file or a missing key lands on the terminal, exactly as the checkbox did when unticked.
+ * The old key is never rewritten or deleted here: the first save of `claudeView` supersedes it,
+ * and a downgrade to an older app still finds the value it knows.
+ */
+export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault?: unknown }): ClaudeView {
+  if (raw.claudeView === 'chat' || raw.claudeView === 'terminal') return raw.claudeView;
+  return raw.chatViewDefault === true ? 'chat' : 'terminal';
+}
+
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1374,6 +1395,12 @@ export function shellSettings(): ShellSettings {
        sun button. A stored 'light'/'dark' is the operator's own pick and is kept as is. */
     theme: raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system',
     termFontSize: Number(raw.termFontSize) || 12.5,
+    // the chat view's own type: '' = inherit the app's font (so an operator who never opens Settings
+    // gets the same face as the rest of the interface); the size clamp keeps a typo from making the
+    // conversation unreadable or the composer overflow
+    chatFontFamily: typeof raw.chatFontFamily === 'string' ? raw.chatFontFamily.trim().slice(0, 200) : '',
+    chatFontSize: Math.min(28, Math.max(10, Number(raw.chatFontSize) || 14)),
+    claudeView: normalizeClaudeView(raw),
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.
     // Applied as a real zoom factor (crisp text) rather than restyling every rule.
     appFontSize: Math.min(18, Math.max(10, Number(raw.appFontSize) || 13)),

@@ -50,6 +50,49 @@ body.unfocused *, body.unfocused *::before, body.unfocused *::after { animation-
   --st-error: #e5484d;   /* failure — a REAL red, deliberately distinct from coral */
   --st-testing: #b58cf0; /* framework on a branch ahead of main — violet: not "fine" (green), not "update" (coral/amber), not "needs you" (blue) */
   --ok: var(--st-ok);    /* legacy alias — prefer --st-ok */
+  /* ── chat pane. Derived from the surface/ink pair with color-mix, so the SAME declaration is
+     right in dark and light: --ink and --surface flip with the theme (the DESIGN.md "derived"
+     rule; light overrides below, see the note there). Deliberately NO coral here: the operator's bubble is told apart by tone, side and
+     label, and coral stays reserved for the send action. "Waiting on the operator" is the
+     existing --st-input hue, which is exactly what a permission card is. ── */
+  --chat-user-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* the operator's message: a whisper of tone, lighter than the code and tool surfaces so it never competes with the answer */
+  --chat-user-line: var(--line);
+  --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  --chat-claude-line: var(--line);
+  --chat-code-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
+  --chat-tool-ink: var(--faint);
+  /* Conversation-column tokens (the "boxes" redesign). Same rule as above: derived from --ink and
+     --surface so one declaration reads right in both themes, re-declared in body.light so they
+     resolve against ITS ink/surface. No coral anywhere in here: coral is the send button and
+     nothing else (focus is a neutral outline, links take the cool --chat-link, the caret is ink). */
+  --chat-code-head: color-mix(in srgb, var(--ink) 10%, var(--surface));   /* the strip above a code block: language + copy */
+  --chat-out-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));       /* a tool's output, one step under the surface it opens on */
+  --chat-row-hover: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --chat-table-head: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  --chat-table-zebra: color-mix(in srgb, var(--ink) 3.5%, var(--surface));
+  --chat-quote-line: color-mix(in srgb, var(--ink) 26%, var(--surface));
+  --chat-composer-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --chat-composer-line: var(--line-strong);
+  --chat-meter-track: color-mix(in srgb, var(--ink) 13%, var(--surface));
+  --chat-focus: color-mix(in srgb, var(--ink) 52%, transparent);          /* keyboard focus on a small control: a neutral outline, strong enough to see (coral is the send button only) */
+  --chat-focus-line: color-mix(in srgb, var(--ink) 34%, var(--chat-composer-line));   /* the composer card's border while it holds the caret */
+  --chat-focus-soft: color-mix(in srgb, var(--ink) 7%, transparent);      /* …and the faint halo around it: focus is felt, not announced */
+  --chat-pick-bg: color-mix(in srgb, var(--ink) 8%, var(--chat-tip-bg));   /* the highlighted row of a popup: one step ABOVE the popup, so it reads as lifted, not as a hole */
+  --chat-tip-bg: color-mix(in srgb, var(--ink) 11%, var(--surface));     /* a tooltip floating over the composer card: one step above it, so the two never blend */
+  --chat-link: var(--st-input-ink);   /* links in the conversation: the app's one cool hue. The house has no link token (the markdown viewer links in coral), and coral is spoken for here */
+  --chat-on-accent: #fff;   /* the glyph on a coral button; white, as the house .vbtn.primary does */
+  --chat-meter-fill: color-mix(in srgb, var(--ink) 66%, var(--surface));   /* a usage meter in its normal range: neutral, so only 60+ and 85+ ever draw the eye */
+  /* the status bar under the composer (see .chat-bar): the thresholds' colours, one step of tone for the strip, and the hairlines */
+  --chat-meter-warn: var(--st-warn);     /* 60-84 %: amber */
+  --chat-meter-hot: var(--st-error);     /* 85 % and up: red (a real red, never coral) */
+  --chat-warn-ink: var(--st-warn-ink);   /* the same two as TEXT: the fills above are too bright to read as type on the light paper */
+  --chat-hot-ink: var(--st-error-ink);
+  --chat-bar-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));
+  --chat-bar-line: color-mix(in srgb, var(--ink) 15%, var(--surface));
+  --chat-bar-sep: color-mix(in srgb, var(--ink) 20%, transparent);
+  --chat-float: 0 18px 44px -20px rgba(0,0,0,.75), 0 3px 10px -4px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.05);
+  --chat-pop: 0 14px 36px -12px rgba(0,0,0,.7), 0 2px 8px -2px rgba(0,0,0,.4);   /* a menu floating over the conversation */
+  --chat-lift: 0 1px 3px -1px rgba(0,0,0,.34);   /* the chosen segment of a switch: raised a hair, no second outline */
   --edge: inset 0 1px 0 rgba(255,255,255,.05);
   --depth: 0 10px 26px -16px rgba(0,0,0,.6);
   --font: -apple-system, BlinkMacSystemFont, Inter, 'Segoe UI', sans-serif;
@@ -432,6 +475,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tinput { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; font-size: 12.5px;
           font-family: var(--mono); width: 210px; outline: none; transition: border-color .15s; }
 .tinput:focus { border-color: var(--accent); }
+/* Settings → the chat's reading font and size: a line drawn the way the chat will draw it (the same two custom properties the chat view reads). */
+.chat-pref-sample { margin: 10px 0 2px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--chat-out-bg); color: var(--ink);
+                    font-family: var(--chat-font, inherit); font-size: calc(var(--chat-size, 14) * 1px); line-height: 1.6; }
 .ttoggle { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 .tpath { color: var(--subtle); font-size: 11.5px; font-family: var(--mono); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tacts { display: flex; gap: 8px; margin-top: 14px; }
@@ -615,6 +661,43 @@ body.light {
   --st-warn-ink: #835d00; --st-error-ink: #bb2c32;
   --edge: inset 0 1px 0 rgba(255,255,255,.7);
   --depth: 0 10px 26px -18px rgba(0,0,0,.25);
+  /* The chat tokens are RE-DECLARED here, not inherited. A custom property that holds var() is
+     resolved on the element that declares it: minted on :root they would carry the DARK --ink and
+     --surface down into body.light as already-computed colours, and the pane would stay dark-tinted
+     in the light theme. Re-declaring makes them resolve against this block's own --ink/--surface. */
+  --chat-user-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --chat-user-line: var(--line);
+  --chat-claude-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));
+  --chat-claude-line: var(--line);
+  --chat-code-bg: color-mix(in srgb, var(--ink) 6%, var(--surface));
+  --chat-tool-ink: var(--faint);
+  --chat-code-head: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  --chat-out-bg: color-mix(in srgb, var(--ink) 3.5%, var(--surface));
+  --chat-row-hover: color-mix(in srgb, var(--ink) 4.5%, var(--surface));
+  --chat-table-head: color-mix(in srgb, var(--ink) 6.5%, var(--surface));
+  --chat-table-zebra: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  --chat-quote-line: color-mix(in srgb, var(--ink) 24%, var(--surface));
+  --chat-composer-bg: var(--surface);   /* a white card on the paper: border and shadow carry the lift, a tint would look dirty */
+  --chat-composer-line: color-mix(in srgb, var(--ink) 18%, var(--surface));
+  --chat-meter-track: color-mix(in srgb, var(--ink) 11%, var(--surface));
+  --chat-focus: color-mix(in srgb, var(--ink) 50%, transparent);
+  --chat-focus-line: color-mix(in srgb, var(--ink) 32%, var(--chat-composer-line));
+  --chat-focus-soft: color-mix(in srgb, var(--ink) 6%, transparent);
+  --chat-pick-bg: color-mix(in srgb, var(--ink) 5.5%, var(--chat-tip-bg));
+  --chat-tip-bg: var(--surface);
+  --chat-link: var(--st-input-ink);
+  --chat-on-accent: #fff;
+  --chat-meter-fill: color-mix(in srgb, var(--ink) 60%, var(--surface));
+  --chat-meter-warn: var(--st-warn);
+  --chat-meter-hot: var(--st-error);
+  --chat-warn-ink: var(--st-warn-ink);
+  --chat-hot-ink: var(--st-error-ink);
+  --chat-bar-bg: color-mix(in srgb, var(--ink) 3.5%, var(--surface));
+  --chat-bar-line: color-mix(in srgb, var(--ink) 15%, var(--surface));
+  --chat-bar-sep: color-mix(in srgb, var(--ink) 18%, transparent);
+  --chat-float: 0 16px 36px -22px rgba(30,30,40,.38), 0 2px 8px -3px rgba(30,30,40,.16);
+  --chat-pop: 0 14px 34px -14px rgba(30,30,40,.34), 0 2px 8px -2px rgba(30,30,40,.14);
+  --chat-lift: 0 1px 3px -1px rgba(30,30,40,.22);
 }
 /* #24 — THE ACTIVE TAB IN LIGHT. Measured: the strip is #e9e9e6 and the active tab was #ececea
    with an 8% border, a step too small to see (operator: fine in dark, hard in light). White card,
@@ -1549,3 +1632,436 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .pane.restorecard { display: flex; align-items: center; justify-content: center; }
 .restoremsg { color: var(--subtle); font-size: 12px; }
 
+/* ═══ Chat skin — a view over a terminal pane (see "CHAT SKIN" in app.js) ═══════════
+   Everything is a token. The overlay covers the pane; the xterm underneath keeps its box (only
+   `visibility` changes, never `display`) so the pty's geometry never moves because of the skin.
+   Font and size arrive as --chat-font / --chat-size set on the overlay by app.js.
+   NEVER write `visibility: visible` on a child here: a pane hidden by `.panehidden` hides its
+   children by inheritance, and an explicit `visible` would punch through it. */
+.pane.termcard.view-chat .twrap { visibility: hidden; }
+.pane.termcard.view-chat.cs-strip .twrap { visibility: inherit; }   /* a dialog is up: the real terminal shows through below the bubbles */
+.chatskin { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; min-height: 0;
+            background: var(--surface); border-radius: inherit; --chat-font: inherit; --chat-size: 14; }
+.chatskin[hidden], .chatskin [hidden] { display: none !important; }
+.pane.cs-strip > .chatskin { bottom: var(--cs-strip-h, 62%); min-height: 120px; border-bottom: 1px solid var(--line-strong); border-radius: 12px 12px 0 0; }
+.pane.cs-strip > .chatskin .chat-bar, .pane.cs-strip > .chatskin .cc-meta, .pane.cs-strip > .chatskin .chat-compose, .pane.cs-strip > .chatskin .cs-working { display: none; }   /* the whole compose block (status bar included) steps aside for a live dialog */
+.cs-working { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin: var(--cs-m) 0 0; color: var(--subtle); font-size: .88em; }
+.cw-dots { display: inline-flex; align-items: center; gap: 4px; height: 14px; }
+.cw-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--st-busy); animation: cs-wave 1.3s ease-in-out infinite; }
+.cw-dots i:nth-child(2) { animation-delay: .16s; }
+.cw-dots i:nth-child(3) { animation-delay: .32s; }
+@keyframes cs-wave { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
+/* ── "the terminal needs you" / "quiet for a while": a status card in the column ──
+   --sc is the one hue of the card: --st-input (blue) when a dialog waits on the operator, --st-warn when a turn
+   has gone quiet. Never coral: it is not an action and it is not the brand. */
+.cs-alert { --sc: var(--st-warn); display: flex; align-items: center; gap: 13px; flex: 0 0 auto; box-sizing: border-box; padding: 11px 14px 11px 12px;
+            margin: 0 max(16px, calc((100% - var(--cs-col)) / 2)) 12px; color: var(--ink); font-size: 12.5px; line-height: 1.45;
+            background: color-mix(in srgb, var(--sc) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--sc) 40%, transparent);
+            border-radius: 14px; box-shadow: var(--edge); }
+.cs-alert.prompt { --sc: var(--st-input); }   /* waiting on the operator: the same hue as everywhere else in the app */
+.csa-ico { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+           color: color-mix(in srgb, var(--sc) 80%, var(--ink)); background: color-mix(in srgb, var(--sc) 16%, var(--surface)); }
+.csa-body { flex: 1; min-width: 0; }
+.csa-title { font-weight: 640; font-size: 13px; margin-bottom: 1px; }
+.cs-alert-text { color: var(--subtle); }
+.csa-btn, .csc-btn { flex: 0 0 auto; height: 30px; padding: 0 14px; border: 1px solid var(--chat-composer-line); border-radius: 8px; background: var(--chat-composer-bg);
+                     color: var(--ink); font-family: var(--font); font-size: 12px; font-weight: 600; cursor: pointer; }
+.csa-btn:hover, .csc-btn:hover { background: var(--chat-row-hover); }
+.csa-btn:focus-visible, .csc-btn:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
+.csa-point { display: none; flex: 0 0 auto; color: color-mix(in srgb, var(--sc) 75%, var(--ink)); }
+.cs-alert.prompt .csa-point { display: inline-flex; }
+/* With a dialog up the card is the last thing above the live terminal strip, so it docks onto it: squared bottom, no gap. */
+.pane.cs-strip > .chatskin .cs-alert { margin-top: 6px; margin-bottom: 0; border-bottom: 0; border-radius: 14px 14px 0 0; }
+@container (max-width: 520px) { .cs-alert { flex-wrap: wrap; } .csa-btn { margin-left: 47px; } }
+/* ── a dialog as a card: the question and one button per option ──
+   --sc is --st-input (blue, "waiting on the operator"), like the strip's notice: never coral — a choice is not the brand, and the
+   send button is the only coral in the chat. The option that holds the TUI's cursor is the default: a neutral lift and a return
+   mark, so Enter does what it shows. Buttons stack (a label can be a whole sentence) and every number is where a finger goes. */
+.cs-dlg { --sc: var(--st-input); flex: 0 0 auto; box-sizing: border-box; margin: 16px 0 10px; padding: 14px 14px 12px; border-radius: 18px;
+          background: color-mix(in srgb, var(--sc) 5%, var(--surface)); border: 1px solid color-mix(in srgb, var(--sc) 32%, var(--line));
+          box-shadow: var(--edge), 0 10px 28px -18px color-mix(in srgb, var(--sc) 45%, transparent); color: var(--ink); font-size: .93em; line-height: 1.45; }
+.csd-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: color-mix(in srgb, var(--sc) 78%, var(--ink)); font-size: .86em; font-weight: 640; letter-spacing: .012em; }
+.csd-head .cs-ico { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px;
+                    background: color-mix(in srgb, var(--sc) 15%, var(--surface)); }
+.csd-q { margin: 0 2px 12px; color: var(--ink); font-size: 1.07em; font-weight: 620; letter-spacing: -.004em; line-height: 1.45; overflow-wrap: anywhere; user-select: text; }
+.csd-opts { display: flex; flex-direction: column; gap: 6px; }
+.csd-opt { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; min-height: 44px; padding: 7px 12px 7px 8px; text-align: left; cursor: pointer;
+           font: inherit; color: var(--ink); background: var(--chat-composer-bg); border: 1px solid var(--chat-composer-line); border-radius: 12px;
+           transition: background .14s ease, border-color .14s ease, opacity .14s ease; }
+.csd-opt:hover:not(:disabled) { background: var(--chat-row-hover); border-color: color-mix(in srgb, var(--ink) 30%, var(--chat-composer-line)); }
+.csd-opt:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; }
+.csd-opt.def { background: var(--chat-row-hover); border-color: color-mix(in srgb, var(--ink) 38%, var(--chat-composer-line)); }
+.csd-opt:disabled { cursor: default; color: var(--faint); background: var(--chat-out-bg); border-color: var(--chat-claude-line); }
+.csd-opt:disabled .csd-n { color: var(--faint); }
+.csd-n { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 28px; height: 28px; box-sizing: border-box; padding: 0 6px; border-radius: 9px;
+         background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line); color: var(--subtle); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.csd-opt.def .csd-n { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+.csd-l { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.csd-def { flex: 0 0 auto; color: var(--faint); font-size: 14px; line-height: 1; }
+.csd-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 11px 2px 0; color: var(--faint); font-size: .86em; }
+.csd-link { padding: 3px 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--chat-link); cursor: pointer;
+            text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--chat-link) 40%, transparent); text-underline-offset: 3px; }
+.csd-link:hover { text-decoration-color: currentColor; }
+.csd-link:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 3px; border-radius: 4px; }
+.csd-keys, .csd-sent { margin-left: auto; }
+.csd-sent { color: var(--subtle); }
+@container (max-width: 520px) { .csd-keys { display: none; } .csd-sent { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { .csd-opt { transition: none; } }
+/* ── the reply being written (a preview of the message the transcript has not recorded yet) ──
+   Not a second kind of message: the same bubble, a step quieter, with a small caret in the busy hue at the end of the last
+   line. When the real message lands this very node takes it over, the class goes and the ink comes up to full. */
+.chat-row.cs-prov .chat-md { color: color-mix(in srgb, var(--ink) 84%, var(--surface)); }
+.chat-row.who-claude .chat-md { transition: color .3s ease; }
+.chat-row.cs-prov.live .chat-md > :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
+.chat-row.cs-prov.live .chat-md > :is(ul, ol):last-child > li:last-child::after {
+  content: ''; display: inline-block; width: 2px; height: 1.02em; margin-left: 4px; vertical-align: -.16em; border-radius: 1px;
+  background: var(--st-busy); animation: cs-caret 1.15s ease-in-out infinite; }
+@keyframes cs-caret { 0%, 100% { opacity: .2; } 50% { opacity: .95; } }
+@media (prefers-reduced-motion: reduce) {
+  .chat-row.cs-prov.live .chat-md > :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
+  .chat-row.cs-prov.live .chat-md > :is(ul, ol):last-child > li:last-child::after { animation: none; background: color-mix(in srgb, var(--st-busy) 70%, transparent); }
+  .chat-row.who-claude .chat-md { transition: none; }
+}
+.cs-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* ── tool rows: one compact line per call; a run of two or more folds into ONE row that opens to them ── */
+.chat-tool, .chat-tg { --tr: 9px; flex: 0 0 auto; min-width: 0; margin: var(--cs-m) 0; font-size: 12px; line-height: 1.35; color: var(--ink);
+                       background: var(--chat-claude-bg); border: 1px solid var(--chat-claude-line); border-radius: var(--tr); }
+.ct-head { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; min-height: 28px; padding: 3px 10px 3px 6px;
+           background: none; border: 0; border-radius: inherit; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ct-head:hover { background: var(--chat-row-hover); }
+.ct-head:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -2px; }
+.ct-kind { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
+           background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line); color: var(--subtle); }
+.chat-tool.error .ct-kind { color: var(--st-error-ink); background: color-mix(in srgb, var(--st-error) 11%, var(--surface)); border-color: color-mix(in srgb, var(--st-error) 34%, transparent); }
+.ct-name { flex: 0 0 auto; font-size: 12px; font-weight: 620; letter-spacing: .005em; }
+.ct-arg { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); font-family: var(--mono); font-size: 11px; }
+.ct-state { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.chat-tool.ok .ct-state { color: var(--st-ok-ink); }
+.chat-tool.error .ct-state { color: var(--st-error-ink); }
+.ct-spin { width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--st-busy) 24%, transparent);
+           border-top-color: var(--st-busy); animation: cs-spin .8s linear infinite; }
+.ct-chev { color: var(--faint); transition: transform .16s ease; }
+.chat-tool.open .ct-chev { transform: rotate(90deg); }
+.ct-body { padding: 0 8px 8px; }
+.ct-out { margin: 0; max-height: 240px; overflow: auto; padding: 10px 12px; border: 1px solid var(--chat-claude-line); border-radius: 8px; background: var(--chat-out-bg);
+          color: var(--ink); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.chat-tool.error .ct-out { border-color: color-mix(in srgb, var(--st-error) 38%, transparent); }
+.ct-note { margin-top: 6px; padding: 0 2px; color: var(--faint); font-size: 11.5px; }
+.ct-out:not([hidden]) + .ct-note { margin-top: 7px; }
+.ct-body:has(.ct-out[hidden]) .ct-note { padding: 8px 2px 0; }
+/* The folded run. One row as tall as a tool row: the glyph of "several", how many, what they were (or, while it runs, the call
+   in progress), how it stands, a chevron. Open, it is a card: the ordinary rows sit inside it, hairline between hairline. */
+.chat-tg { overflow: hidden; }
+.cg-head { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; min-height: 28px; padding: 3px 10px 3px 6px;
+           background: none; border: 0; border-radius: inherit; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-tg.open > .cg-head { background: color-mix(in srgb, var(--chat-row-hover) 55%, transparent); }   /* open: the row that holds the others reads as their header */
+.cg-head:hover { background: var(--chat-row-hover); }
+.cg-head:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -2px; }
+.cg-kind { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
+           background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line); color: var(--subtle); }
+/* A run still going wears the busy hue on its glyph, so a folded row reads as "something is happening" before the spinner is read: the same
+   tint recipe as the failed one, one token over. The spinner's track is a little stronger than a lone row's, because on the light surface
+   the pale ring all but vanishes at 12px next to a 20px chip. */
+.chat-tg.running .cg-kind { color: var(--st-busy-ink); background: color-mix(in srgb, var(--st-busy) 12%, var(--surface)); border-color: color-mix(in srgb, var(--st-busy) 38%, transparent); }
+.chat-tg.running .ct-spin { border-color: color-mix(in srgb, var(--st-busy) 36%, transparent); border-top-color: var(--st-busy-ink); }   /* the ink variant: amber alone is too pale on the light surface */
+.chat-tg.error .cg-kind { color: var(--st-error-ink); background: color-mix(in srgb, var(--st-error) 11%, var(--surface)); border-color: color-mix(in srgb, var(--st-error) 34%, transparent); }
+.cg-n { flex: 0 0 auto; font-size: 12px; font-weight: 620; letter-spacing: .005em; }
+.cg-list, .cg-live { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); font-size: 11.5px; }
+.cg-list::before, .cg-live::before { content: '·'; flex: 0 0 auto; margin-right: 8px; color: var(--faint); }
+.chat-tg.running .cg-list, .chat-tg:not(.running) .cg-live { display: none; }
+.cg-live { display: flex; }
+.cg-ln { flex: 0 1 auto; min-width: 0; margin-right: 7px; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-size: 12px; font-weight: 620; }   /* a long MCP name gives way before the argument does, and ends in an ellipsis */
+.cg-la { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11px; }
+.cg-fail { flex: 0 0 auto; color: var(--st-error-ink); font-size: 11px; font-weight: 620; }
+.cg-fail[hidden] { display: none; }
+.cg-state { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.chat-tg.ok .cg-state { color: var(--st-ok-ink); }
+.chat-tg.error .cg-state { color: var(--st-error-ink); }
+.chat-tg.open > .cg-head .ct-chev { transform: rotate(90deg); }
+.cg-body > .chat-tool { margin: 0; border: 0; border-top: 1px solid var(--chat-claude-line); border-radius: 0; background: none; }
+@keyframes cs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ct-spin { animation: none; } .ct-chev { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .cw-dots i { animation: none; } }
+/* ── the status bar, under the composer: model · effort · 5 h · week · context ─────────────────────────────────
+   One look: a rounded strip glued under the card, segments with dividers, so card and strip read as one object.
+   Colour follows the percentage: neutral below 60, amber (.warn) from 60, red (.hot) from 85,
+   through the --chat-meter-* tokens, so the same rule serves both themes. A reading we do not have is a dash and an
+   empty bar, never 0. The fill is --p (0-100), set on the segment by chatPaintUsage.
+   THE DETAIL CARD (.cb-tip) DOES NOT FLOAT ABOVE THE BAR. The bar is the last thing in the pane, so there is no room
+   below it, and above it is the text being typed; a card there would cover exactly what the operator is writing. It
+   takes the bar's own line instead (inset: 0 of the bar, which is a fixed height, so nothing moves) and gives it back
+   when the pointer or the focus leaves. */
+.cc-meta { position: relative; container-type: inline-size; margin-top: 0; --cb-h: 36px; }   /* flush: the card's own bottom border is the seam, so no row of pixels is painted twice */
+.chat-bar { position: relative; display: flex; align-items: center; gap: 0; height: var(--cb-h); box-sizing: border-box; color: var(--subtle);
+            font-size: 11.5px; line-height: 1; white-space: nowrap;
+            padding: 0 4px; overflow: hidden; border: 1px solid var(--chat-composer-line); border-top: 0; border-radius: 0 0 22px 22px;
+            background: var(--chat-bar-bg); box-shadow: var(--chat-float); transition: border-color .15s ease, box-shadow .15s ease;
+            clip-path: inset(0 -48px -48px -48px); }   /* the strip's shadow and halo must not climb over the card above it: only the top is clipped */
+/* the strip is part of the card: it takes the caret's halo with it */
+.cc-wrap:focus-within + .cc-meta .chat-bar { border-color: var(--chat-focus-line); box-shadow: var(--chat-float), 0 0 0 3px var(--chat-focus-soft); }
+.cb-id { display: flex; align-items: center; gap: 0; align-self: stretch; min-width: 0; flex: 0 1 auto; }
+.cb-meters { display: flex; align-items: center; gap: 0; align-self: stretch; flex: 0 0 auto; margin-left: auto; }
+.cb-model, .cb-effort, .cb-m { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: auto; align-self: stretch; padding: 0 13px; border: 0; border-radius: 0;
+                               background: linear-gradient(var(--chat-bar-sep), var(--chat-bar-sep)) left center / 1px 16px no-repeat;   /* the divider is a short hairline, not a full-height border */
+                               color: inherit; font: inherit; line-height: 1; min-width: 0; }
+.cb-model { background: none; padding-left: 14px; cursor: pointer; color: var(--ink); font-weight: 600; }
+.cb-model .cs-ico, .cb-effort .cs-ico { color: var(--faint); }
+.cb-model:hover:not(:disabled) { background: var(--chat-row-hover); }
+/* the effort is a button like the model, but it keeps the divider on its left (the colour alone changes on hover: the shorthand would wipe it) */
+.cb-effort { cursor: pointer; }
+.cb-effort:hover:not(:disabled), .cb-effort[aria-expanded="true"] { background-color: var(--chat-row-hover); }
+.cb-effort:disabled { cursor: default; }
+.cb-effort:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
+.cb-m:hover { background-color: var(--chat-row-hover); }   /* the colour alone: the shorthand would wipe the divider */
+.cb-model:disabled { cursor: default; }
+.cb-model:focus-visible, .cb-m:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
+.cb-m { flex: 0 0 auto; cursor: default; }
+.cb-effort { color: var(--subtle); }
+.cb-effort .cb-v { color: var(--subtle); font-weight: 500; }
+.cb-effort .cb-v.none { color: var(--faint); }
+.cb-effort[aria-expanded="true"], .cb-effort[aria-expanded="true"] .cb-v { color: var(--ink); }   /* while its menu is open the segment reads as the one the menu belongs to */
+/* ── the effort menu: a small popover over the end of the log, above the card and under no one's way ─────────────────
+   Neutral like the slash popup (no coral): the checked level is a step of tone and a tick. Its left edge is set by
+   chatSkinEffortMenu so it opens over the segment that owns it. The bar itself clips what overflows it, which is why the menu
+   is a child of the card's wrapper and not of the bar. */
+.cb-pop { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 8; box-sizing: border-box; width: 292px; max-width: 100%; padding: 5px;
+          --chat-row-hover: var(--chat-pick-bg);   /* inside the menu the hover step is measured from the menu's own tone, not from the page's */
+          border-radius: 14px; background: var(--chat-tip-bg); border: 1px solid var(--chat-composer-line); box-shadow: var(--chat-pop); }   /* no entry animation: motion is for state (DESIGN.md), and a menu that is simply there is faster to read */
+.cbp-h { padding: 7px 10px 5px; color: var(--faint); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.cbp-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; box-sizing: border-box; width: 100%; padding: 7px 10px; border: 0; border-radius: 9px;
+           background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.cbp-opt:hover, .cbp-opt:focus-visible { background: var(--chat-row-hover); outline: none; }
+.cbp-opt:focus-visible { box-shadow: inset 0 0 0 2px var(--chat-focus); }
+.cbp-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cbp-t { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+.cbp-d { color: var(--subtle); font-size: 11px; line-height: 1.35; }
+.cbp-opt .cs-ico { flex: 0 0 auto; color: var(--ink); visibility: hidden; }
+.cbp-opt[aria-checked="true"] { background: var(--chat-row-hover); }
+.cbp-opt[aria-checked="true"] .cs-ico { visibility: inherit; }
+.cbp-opt.auto { margin-top: 4px; position: relative; }
+.cbp-opt.auto::before { content: ''; position: absolute; left: 10px; right: 10px; top: -3px; height: 1px; background: var(--line); }   /* the way back to the model's own default sits apart */
+.cbp-f { margin: 3px 0 0; padding: 7px 10px 5px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10.5px; line-height: 1.4; }
+.cb-k { color: var(--faint); font-weight: 500; }
+.cb-v { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.cb-v.none { color: var(--faint); font-weight: 500; }
+.cb-of { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cb-of:empty { display: none; }
+.cb-m.warn .cb-v { color: var(--chat-warn-ink); }
+.cb-m.hot .cb-v { color: var(--chat-hot-ink); }
+.cb-meter { display: block; flex: 0 0 auto; width: 30px; height: 4px; border-radius: 2px; background: var(--chat-meter-track); overflow: hidden; }
+.cb-meter i { display: block; width: calc(var(--p, 0) * 1%); height: 100%; border-radius: inherit; background: var(--chat-meter-fill); transition: width .4s cubic-bezier(.2, .7, .2, 1), background-color .2s ease; }
+.cb-m.warn .cb-meter i { background: var(--chat-meter-warn); }
+.cb-m.hot .cb-meter i { background: var(--chat-meter-hot); }
+/* stale comes after the thresholds so a reading from the previous window never keeps a colour it no longer earns (drawn in the quiet text colour, never dimmed by opacity: the contrast guard forbids that) */
+.cb-m.stale .cb-meter i { background: var(--faint); }
+.cb-m.stale .cb-v { color: var(--faint); }
+/* the keys hint: the middle of the bar, only while the caret is in the box and there is room */
+.cb-hint { flex: 1 1 0; min-width: 0; container-type: inline-size; padding: 0 8px 0 14px; color: var(--faint); font-size: 10.5px; letter-spacing: .01em; opacity: 0; transition: opacity .2s ease; }
+.cb-hint-t, .cb-hint-s { display: none; }
+/* whatever room the bar leaves it: the whole sentence, or the short form, or nothing — never a clipped half of one */
+@container (min-width: 56px) { .cb-hint-s { display: block; } }
+@container (min-width: 172px) { .cb-hint-s { display: none; } .cb-hint-t { display: block; } }
+.cc-wrap:focus-within + .cc-meta .cb-hint { opacity: 1; }
+/* the detail card: two lines on the bar's own line */
+.cb-tip { position: absolute; inset: 0; z-index: 6; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 0 14px 0 20px;
+          border-radius: 0; background: var(--chat-bar-bg); text-align: left; overflow: hidden; opacity: 0; pointer-events: none; transition: opacity .14s ease; }
+.cb-tip::before { content: ''; position: absolute; left: 9px; top: 50%; width: 3px; height: 20px; margin-top: -10px; border-radius: 2px; background: var(--chat-meter-fill); }
+.cb-m.warn .cb-tip::before { background: var(--chat-meter-warn); }
+.cb-m.hot .cb-tip::before { background: var(--chat-meter-hot); }
+.cb-m.stale .cb-tip::before { background: var(--faint); }
+.cb-m.tip-open .cb-tip { opacity: 1; }
+.cut-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cut-h { flex: 0 0 auto; color: var(--faint); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.cut-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-size: 12.5px; font-weight: 640; letter-spacing: -.005em; }
+.cb-m.warn .cut-v { color: var(--chat-warn-ink); }
+.cb-m.hot .cut-v { color: var(--chat-hot-ink); }
+.cb-m.none .cut-v, .cb-m.stale .cut-v { color: var(--faint); font-weight: 500; }
+.cut-d { display: flex; flex-direction: column; min-width: 0; color: var(--subtle); font-size: 11px; }
+.cut-d:empty { display: none; }
+.cut-line { overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .cb-m, .cb-meter i, .cb-tip, .cb-hint, .chat-bar { transition: none; } }
+/* A narrow pane gives up the words first (the labels, then the "of 200k"), then the effort, and only then the numbers; the
+   bars never go. The widths are the bar's own (it is the size container). */
+@container (max-width: 520px) { .cb-k { display: none; } .cb-m { gap: 5px; } }
+@container (max-width: 480px) { .cb-of { display: none; } .cb-meter { width: 26px; } .cb-model, .cb-effort, .cb-m { padding: 0 10px; } }
+@container (max-width: 410px) { .cb-effort { display: none; } }
+@container (max-width: 372px) { .cb-m .cb-v { display: none; } }   /* a strip segment is wider than a bare bar: its number is the first to go */
+
+/* The conversation is ONE centred reading column. The log itself spans the pane (so its scrollbar
+   sits at the pane's edge, where a hand looks for it) and the column is made with side padding:
+   a percentage padding resolves against the log's own width, which is exactly the pane's. */
+.chatskin { container-type: inline-size; --cs-col: 748px;
+            /* ONE vertical scale for the conversation. Rows are flex children, so neighbouring margins ADD: --cs-m on both sides of a block is the
+               14px between any two blocks; --cs-turn on top of it opens a new turn (an operator message) to ~26px. Inside a message the
+               markdown uses --cs-blk between its blocks (em, so it follows the reading size) and --cs-sec above a heading. */
+            --cs-m: 7px; --cs-turn: 19px; --cs-blk: .85em; --cs-sec: 1.4em; --cs-li: .25em; }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; user-select: text;
+            padding: 26px max(16px, calc((100% - var(--cs-col)) / 2)) 30px; scroll-padding-bottom: 24px;
+            font-family: var(--chat-font); font-size: calc(var(--chat-size) * 1px); line-height: 1.6; }
+.chat-row { display: flex; flex-direction: column; min-width: 0; }
+.chat-row.who-user { align-items: flex-end; margin: var(--cs-turn) 0 var(--cs-m); }
+.chat-row.who-claude { align-items: stretch; margin: var(--cs-m) 0; }
+.chat-log > .chat-row:first-child, .chat-log > .chat-row.who-user:first-of-type { margin-top: 0; }
+/* The state card is the log's first child even while hidden, so the first message was never `:first-child` and kept its turn margin on top of the
+   log's own padding: ~45px of air under the tab strip, which the header used to hide. The first VISIBLE row now starts at the padding alone. */
+.chat-log > .cs-state[hidden] + .chat-row { margin-top: 0; }
+/* The "You" / "Claude" labels are gone from the screen (the box and its side already say who spoke)
+   but stay in the tree for screen readers, which have no side. */
+.chat-who { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The operator's message: a soft box on the right. Plain text, line breaks kept. */
+.who-user .chat-bubble { max-width: min(86%, 600px); box-sizing: border-box; padding: 7px 13px 8px; border-radius: 14px 14px 4px 14px;
+                         background: var(--chat-user-bg); border: 1px solid var(--chat-user-line); color: var(--ink);
+                         font-size: .96em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }   /* a step under the answer's size, a thinner skin, no edge-light: a prompt is a line you said, not a card */
+/* Claude's reply: no box at all, just well-set text across the whole column. */
+.who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
+.chat-md { line-height: 1.7; letter-spacing: .005em; }
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md p, .chat-md ul, .chat-md ol, .chat-md blockquote, .chat-md pre, .chat-md table { margin: 0 0 var(--cs-blk); }
+.chat-md ul, .chat-md ol { padding-left: 1.5em; }
+.chat-md li { margin: var(--cs-li) 0; padding-left: .15em; }
+.chat-md li::marker { color: var(--faint); }
+.chat-md li > ul, .chat-md li > ol { margin: var(--cs-li) 0 var(--cs-li); }
+.chat-md h1, .chat-md h2, .chat-md h3, .chat-md h4, .chat-md h5, .chat-md h6 { margin: var(--cs-sec) 0 .45em; line-height: 1.25; color: var(--ink); font-weight: 640; letter-spacing: -.012em; }
+.chat-md h1 { font-size: 1.5em; font-weight: 680; letter-spacing: -.02em; }
+.chat-md h2 { font-size: 1.26em; padding-bottom: .3em; border-bottom: 1px solid var(--line); }
+.chat-md h3 { font-size: 1.09em; }
+.chat-md h4, .chat-md h5, .chat-md h6 { font-size: 1em; color: var(--subtle); }
+.chat-md strong { font-weight: 650; }
+.chat-md a { color: var(--chat-link); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--chat-link) 42%, transparent);
+             text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer; }
+.chat-md a:hover { text-decoration-color: currentColor; }
+/* A path that exists, made a link by the renderer (chatLinkPaths). The house link colour, and no underline until the pointer is
+   on it: a code block can hold dozens and a permanent underline under each would read as noise. A span, never an <a>: it has no href. */
+.cs-path { color: var(--chat-link); cursor: pointer; border-radius: 3px; text-decoration: underline; text-decoration-color: transparent;
+           text-decoration-thickness: 1px; text-underline-offset: 3px; transition: text-decoration-color .12s; }
+.cs-path:hover { text-decoration-color: color-mix(in srgb, var(--chat-link) 70%, transparent); }
+.cs-path:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; text-decoration-color: currentColor; }
+/* A long path is clipped with an ellipsis instead of widening the column (the tooltip has all of it, and copying still takes it whole).
+   Only in running text: in a code block the line scrolls, and in a tool row the argument clips itself. The box stops a
+   little short of the full line so the comma or full stop that follows the path stays on the same line instead of
+   wrapping alone to the start of the next one. */
+.cs-path.long { display: inline-block; max-width: calc(100% - 1.2em); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.chat-md pre .cs-path.long, .ct-arg .cs-path.long { display: inline; max-width: none; overflow: visible; }
+@media (prefers-reduced-motion: reduce) { .cs-path { transition: none; } }
+.chat-md blockquote { border-left: 3px solid var(--chat-quote-line); padding: .1em 0 .1em 1em; color: var(--subtle); }
+.chat-md blockquote > :last-child { margin-bottom: 0; }
+.chat-md code { font-family: var(--mono); font-size: .86em; background: var(--chat-code-bg); border: 1px solid var(--chat-claude-line);
+                border-radius: 5px; padding: .08em .38em; }
+.chat-md pre { background: var(--chat-code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; overflow-x: auto; }
+.chat-md pre code { background: none; border: 0; padding: 0; font-size: .86em; }
+/* A code block: header (language on the left, copy on the right) over the code. The wrapper clips
+   the corners so the header and the body read as one object. */
+.cm-code { margin: 0 0 var(--cs-blk); border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: var(--chat-code-bg); box-shadow: var(--edge); }
+.cm-code-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 5px 3px 13px;
+                background: var(--chat-code-head); border-bottom: 1px solid var(--line); color: var(--subtle); font-size: 11.5px; line-height: 1; }
+.cm-lang { font-family: var(--mono); letter-spacing: .01em; }
+.cm-copy { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent;
+           color: var(--subtle); font-family: var(--font); font-size: 11.5px; cursor: pointer; }
+.cm-copy:hover { background: var(--chat-row-hover); color: var(--ink); }
+.cm-copy:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; color: var(--ink); }
+.cm-copy.done { color: var(--st-ok-ink); }
+.cm-copy.fail { color: var(--st-error-ink); }
+.chat-md pre code.hljs { padding: 0; background: none; }   /* highlight.js's own 1em padding would double the block's */
+.cs-ico { display: inline-flex; flex: 0 0 auto; }
+.chat-md .cm-code pre { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 12px 15px 13px; font-size: .94em; line-height: 1.6; }
+/* A table: its own scroll box with a hairline frame, a tinted header and a faint zebra. */
+.cm-table { margin: 0 0 var(--cs-blk); width: fit-content; max-width: 100%; overflow-x: auto; border: 1px solid var(--line-strong); border-radius: 10px; }
+.chat-md .cm-table table { margin: 0; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: .94em; font-variant-numeric: tabular-nums; }
+.chat-md th, .chat-md td { padding: 8px 15px; text-align: left; border: 0; border-bottom: 1px solid var(--line); }
+.chat-md th { background: var(--chat-table-head); font-weight: 620; white-space: nowrap; border-bottom-color: var(--line-strong); }
+.chat-md tbody tr:last-child td { border-bottom: 0; }
+.chat-md tbody tr:nth-child(even) td { background: var(--chat-table-zebra); }
+.chat-md hr { border: 0; border-top: 1px solid var(--line-strong); margin: var(--cs-sec) 0; }
+@keyframes chatpulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+/* A system note inside the conversation (an interruption, an API error, a local command's output): a small centred pill. */
+.chat-note { align-self: center; margin: var(--cs-m) 0; padding: 3px 12px; max-width: 100%; border-radius: 999px; background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line);
+             color: var(--subtle); font-size: .82em; text-align: center; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* ── connecting · waiting · empty · error: a card, centred while the log has nothing else ── */
+.cs-card { --sc: var(--faint); align-self: center; margin: auto; display: flex; flex-direction: column; align-items: center; max-width: 360px; padding: 8px 12px 48px; text-align: center; color: var(--ink); }   /* the bottom padding lifts it to the optical centre of the column; the ink is explicit because a card has no message around it to inherit from */
+.cs-card[data-kind="connecting"] { --sc: var(--st-busy); }
+.cs-card[data-kind="error"] { --sc: var(--st-error); }
+.csc-ico { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; margin-bottom: 16px; border-radius: 15px; color: var(--subtle);
+           background: var(--chat-out-bg); border: 1px solid var(--line-strong); box-shadow: var(--edge); }
+.cs-card[data-kind="error"] .csc-ico { color: var(--st-error-ink); background: color-mix(in srgb, var(--st-error) 11%, var(--surface)); border-color: color-mix(in srgb, var(--st-error) 36%, transparent); }
+.csc-ico .ct-spin { width: 20px; height: 20px; border-width: 3px; }
+.csc-title { font-size: 1.12em; font-weight: 640; letter-spacing: -.012em; margin-bottom: 6px; color: var(--ink); }
+.csc-text { color: var(--subtle); font-size: .9em; line-height: 1.55; }
+/* The empty card's three quiet hints: a key and what it does. A key is a mono glyph on a hairline chip, never a button. */
+.csc-tips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin-top: 22px; color: var(--faint); font-size: .82em; }
+.csc-tip { display: inline-flex; align-items: center; gap: 7px; }
+.csc-key { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 6px;
+           background: var(--chat-out-bg); border: 1px solid var(--line-strong); color: var(--subtle); font-family: var(--mono); font-size: 11px; line-height: 1; }
+.csc-btn { margin-top: 16px; }
+
+/* ── composer: a big rounded card floating over the end of the conversation ── */
+.chat-compose { position: relative; flex: 0 0 auto; padding: 0 max(16px, calc((100% - var(--cs-col)) / 2)) 6px; }
+.chat-compose::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 30px; pointer-events: none;
+                        background: linear-gradient(to bottom, transparent, var(--surface)); }   /* the text fades out under the card instead of being cut by it */
+.cc-box { display: flex; align-items: flex-end; gap: 10px; padding: 9px 9px 9px 18px; border-radius: 22px 22px 0 0;
+          background: var(--chat-composer-bg); border: 1px solid var(--chat-composer-line); border-bottom-color: var(--chat-bar-line); box-shadow: var(--chat-float);
+          transition: border-color .15s ease, box-shadow .15s ease;
+          clip-path: inset(-60px -60px 0 -60px); }   /* the card's shadow and halo stop at its bottom edge; the strip carries them from there, so the two never double up at the seam */
+.cc-box:focus-within { border-color: var(--chat-focus-line); box-shadow: var(--chat-float), 0 0 0 3px var(--chat-focus-soft); }
+/* A file is being dragged over the card: a veil with a dashed neutral edge and one line of text. Neutral like the focus ring
+   (the accent is for the send button alone). It never takes the pointer, so the drop lands on the card itself. */
+.cc-box { position: relative; }
+.cc-drop { display: none; position: absolute; inset: 0; z-index: 2; align-items: center; justify-content: center; box-sizing: border-box; border-radius: inherit; pointer-events: none;
+           background: color-mix(in srgb, var(--chat-composer-bg) 95%, transparent); border: 1.5px dashed var(--line-strong); color: var(--subtle); font-size: 13px; letter-spacing: .005em; }
+.cc-box.dropok .cc-drop { display: flex; }
+.chat-input { display: block; flex: 1 1 0; width: auto; min-width: 0; box-sizing: border-box; resize: none; min-height: 34px; max-height: 220px; padding: 6px 0; margin: 0;
+              background: none; color: var(--ink); border: 0; outline: none; font-family: var(--chat-font); font-size: calc(var(--chat-size) * 1px);
+              line-height: 1.55; user-select: text; }
+.chat-input::placeholder { color: var(--faint); }
+.cc-btns { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; }
+.cc-send, .cc-stop { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 34px; height: 34px; padding: 0; border-radius: 50%;
+                     cursor: pointer; transition: background .15s ease, color .15s ease, transform .1s ease; }
+.cc-send { border: 0; background: var(--accent-fill); color: var(--chat-on-accent); }
+.cc-send:hover:not(:disabled) { background: var(--accent-fill-hover); }
+.cc-send:active:not(:disabled) { transform: scale(.94); }
+.cc-send:disabled { background: var(--chat-meter-track); color: var(--faint); cursor: default; }
+.cc-stop { border: 1px solid var(--chat-composer-line); background: var(--chat-composer-bg); color: var(--ink); }
+.cc-stop:hover { background: var(--chat-row-hover); }
+.cc-send:focus-visible, .cc-stop:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
+.cc-wrap { position: relative; }
+/* ── the slash-command popup: floats over the end of the log, right above the card, as wide as the card ──
+   Neutral like every other popover here (no coral): the highlighted row is a step of tone, not a colour. */
+.cc-slash { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 7; display: flex; flex-direction: column; box-sizing: border-box;
+            --chat-row-hover: var(--chat-pick-bg);   /* inside the popup the hover step is measured from the popup's own tone, not from the page's */
+            max-height: min(332px, 52vh); max-width: 640px; border-radius: 12px; overflow: hidden;
+            background: var(--chat-tip-bg); border: 1px solid var(--chat-composer-line); box-shadow: var(--chat-pop); }
+.csl-list { --csl-row: 28px; --csl-ft: 0px; --csl-fb: 0px;
+            flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 5px; scroll-padding: 16px 5px 22px; overscroll-behavior: contain;   /* the padding is the fade's height: an arrow-key move never parks the chosen row under it */
+            max-height: calc(7 * var(--csl-row));   /* seven rows at most (the list is content-box, so its padding comes on top); the rest is a scroll, and the fade says so */
+            -webkit-mask-image: linear-gradient(to bottom, transparent 0, black var(--csl-ft), black calc(100% - var(--csl-fb)), transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, black var(--csl-ft), black calc(100% - var(--csl-fb)), transparent 100%);
+            display: grid; grid-template-columns: fit-content(13em) fit-content(16ch) minmax(0, 1fr) auto; column-gap: 14px; align-content: start; }   /* one set of columns for every row: name | usage | what it does | origin */
+.csl-list.more-t { --csl-ft: 16px; }
+.csl-list.more-b { --csl-fb: 22px; }
+.csl-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: center; box-sizing: border-box; min-height: var(--csl-row); padding: 0 10px; border-radius: 8px; cursor: pointer; font-size: 12.5px; line-height: 1.4; }
+.csl-row.on { background: var(--chat-row-hover); }
+.csl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.csl-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-family: var(--mono); font-size: 11px; }
+.csl-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); }
+.csl-row.on .csl-desc { color: var(--ink); }
+.csl-tag { justify-self: end; color: var(--faint); font-size: 10px; letter-spacing: .04em; }   /* where it comes from: a whisper at the edge, no capsule */
+.csl-foot { flex: 0 0 auto; padding: 6px 14px 7px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10.5px; letter-spacing: .01em; }
+/* a narrow pane has no room for four columns: name and usage on the first line, what it does under them */
+@container (max-width: 480px) {
+  .csl-list { display: block; --csl-row: 47px; max-height: calc(5 * var(--csl-row)); }
+  .csl-row { display: flex; flex-wrap: wrap; align-content: center; gap: 0 8px; padding: 5px 10px; min-height: 0; }
+  .csl-hint { flex: 0 1 auto; max-width: 60%; }
+  .csl-desc { flex: 1 1 100%; order: 3; }
+  .csl-tag { margin-left: auto; }
+  .csl-foot { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .cc-box, .cc-send, .cc-stop { transition: none; } .cc-send:active:not(:disabled) { transform: none; } }
+/* ── motion that answers events: a new row rises a few px while it fades in; the "latest" button appears when the operator is away from the tail ── */
+.cs-in { animation: cs-in .34s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes cs-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.cs-jump { position: absolute; left: 50%; bottom: calc(100% + 10px); z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-left: -17px; padding: 0;
+           border: 1px solid var(--chat-composer-line); border-radius: 50%; background: var(--chat-composer-bg); color: var(--ink); box-shadow: var(--chat-pop); cursor: pointer; }
+.cs-jump:hover { background: var(--chat-row-hover); }
+.cs-jump:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .cs-in { animation: none; } }
