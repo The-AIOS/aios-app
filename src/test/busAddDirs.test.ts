@@ -49,7 +49,9 @@ test('addDirs: an entry that cannot be honoured refuses the request, naming it b
       [path.join(s.home, 'file.txt'), /not a directory/],
       [s.outside, /inside the home/],
       [path.join(s.home, '..', 'outside'), /inside the home/],
-      [path.join(s.home, 'a\0b'), /NUL/],
+      [path.join(s.home, 'a\0b'), /control character/],
+      [path.join(s.home, 'dev', 'repo') + '\n', /control character/],
+      [{ toString: 0 }, /non-empty string/],
       ['/' + 'a'.repeat(5000), /too long/],
     ];
     for (const [raw, why] of refused) {
@@ -57,6 +59,31 @@ test('addDirs: an entry that cannot be honoured refuses the request, naming it b
       assert.ok('error' in r, `${JSON.stringify(raw).slice(0, 40)} must be refused`);
       assert.match((r as { error: string }).error, /^addDirs\[1\] '/, 'the dead letter names the entry');
       assert.match((r as { error: string }).error, why);
+    }
+  } finally { s.done(); }
+});
+
+test('addDirs: an object element is refused by name, never thrown (String() throws on {"toString":0})', () => {
+  const s = sandbox();
+  try {
+    const raw = JSON.parse('[{"toString":0}]');
+    const r = resolveBusAddDirs(raw, s.home);
+    assert.ok('error' in r);
+    assert.match((r as { error: string }).error, /^addDirs\[0\] '\{"toString":0\}' is not valid/);
+    assert.match((resolveBusAddDirs(JSON.parse('{"toString":0}'), s.home) as { error: string }).error, /^addDirs '\{"toString":0\}'/);
+  } finally { s.done(); }
+});
+
+test('addDirs: an apostrophe is fine where shq quotes it (POSIX), refused on Windows (PowerShell)', () => {
+  const s = sandbox();
+  try {
+    const odd = path.join(s.home, "it's");
+    fs.mkdirSync(odd);
+    assert.deepEqual(resolveBusAddDirs([odd], s.home, 'darwin'), { dirs: [odd] });
+    for (const q of ["it's", 'it\u2019s']) {
+      const r = resolveBusAddDirs([path.join(s.home, q)], s.home, 'win32');
+      assert.ok('error' in r, `${q} must be refused on win32`);
+      assert.match((r as { error: string }).error, /^addDirs\[0\] '.*PowerShell/);
     }
   } finally { s.done(); }
 });

@@ -43,25 +43,43 @@ export type BusAddDirs = { dirs: string[] } | { error: string };
 
 const MAX_ADD_DIRS = 16;
 
-/** Validate a raw `addDirs` field. `home` is injectable for tests. */
-export function resolveBusAddDirs(raw: unknown, home: string = os.homedir()): BusAddDirs {
+/** Validate a raw `addDirs` field. `home` and `platform` are injectable for tests. */
+export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), platform: string = process.platform): BusAddDirs {
   if (!Array.isArray(raw)) {
-    return { error: `addDirs '${String(JSON.stringify(raw)).slice(0, 200)}' is not valid — it must be a list of directories, e.g. ["/Users/<you>/dev/repo"]` };
+    return { error: `addDirs '${shownOf(raw)}' is not valid — it must be a list of directories, e.g. ["/Users/<you>/dev/repo"]` };
   }
   if (raw.length > MAX_ADD_DIRS) return { error: `addDirs is not valid — at most ${MAX_ADD_DIRS} directories, got ${raw.length}` };
   const dirs: string[] = [];
   for (let i = 0; i < raw.length; i++) {
-    const r = resolveBusDir(raw[i], `addDirs[${i}]`, home);
+    const field = `addDirs[${i}]`;
+    /* Unlike `cwd` (handed to the pty as an option), these are TYPED into the pane's shell as part
+       of the command line. POSIX quoting (shq) holds any character there, but a control character
+       (a newline is an Enter) is refused everywhere, and on Windows — where the shell is
+       PowerShell, which reads a POSIX-escaped apostrophe differently, and also treats the curly
+       quotes as quotes — so is the single-quote family. Refused by name, like everything else. */
+    if (typeof raw[i] === 'string' && /[\u0000-\u001f\u007f]/.test(raw[i] as string)) {
+      return { error: `${field} '${shownOf(raw[i])}' is not valid — it contains a control character` };
+    }
+    if (platform === 'win32' && typeof raw[i] === 'string' && /['\u2018\u2019\u201a\u201b]/.test(raw[i] as string)) {
+      return { error: `${field} '${shownOf(raw[i])}' is not valid — it contains a quote, which cannot be passed safely to PowerShell` };
+    }
+    const r = resolveBusDir(raw[i], field, home);
     if ('error' in r) return r;
     if (!dirs.includes(r.dir)) dirs.push(r.dir);
   }
   return { dirs };
 }
 
+/* A value as written, for a dead letter — never throws. `String()` does on a parsed `{"toString":0}`,
+   which would skip the dead letter entirely; JSON.stringify cannot on anything JSON.parse returned. */
+function shownOf(raw: unknown): string {
+  return (typeof raw === 'string' ? raw : String(JSON.stringify(raw))).slice(0, 200);
+}
+
 /* One directory written by an agent: absolute, existing, a directory, inside home once symlinks are
    resolved. `field` names it in the refusal. Returns the resolved path. */
 function resolveBusDir(raw: unknown, field: string, home: string): { dir: string } | { error: string } {
-  const shown = String(raw).slice(0, 200);
+  const shown = shownOf(raw);
   const bad = (why: string) => ({ error: `${field} '${shown}' is not valid — ${why}` });
   if (typeof raw !== 'string' || !raw.trim()) return bad('it must be a non-empty string');
   if (raw.length > MAX_LEN || raw.includes('\0')) return bad('it is too long or contains a NUL byte');
