@@ -8825,7 +8825,7 @@ function chatSkinMirrorStatus(p) {
      line stays mirrored, as configured, so switching to chat never loses it. */
   const text = rows.map((r) => r.translateToString(true)).join('\n');
   const ctx = /(?:🟢|🟡|🟠|🔴)\s*(\d{1,3})%/.exec(text);
-  const aios = /^\s*\[[^\]]+\]\s*📁/.test(text) && !!ctx;
+  const aios = /^\s*\[[^\]]+\]\s*📁/.test(text);   // the AIOS line, recognised by its start: before the first reply its context reads "🔵 ???" and the bar shows a dash
   if (ctx) cs.slCtxPct = Number(ctx[1]);
   chatSkinModePaint(cs, text);
   host.hidden = !lines.length || aios;
