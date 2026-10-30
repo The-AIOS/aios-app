@@ -35,6 +35,8 @@ test('position is CSS order and flex-direction on #work — the DOM is never rea
     }
   }
   assert.match(css, /#work\[data-termpos="left"\], #work\[data-termpos="right"\] \{ flex-direction: row; \}/);
+  assert.match(css, /#work\[data-termpos="left"\] > #termzone, #work\[data-termpos="right"\] > #termzone \{ height: auto; \}/,
+    'the stylesheet height: 38% would otherwise leave the side zone a third of the window tall');
   // below is the DOM order itself, so it must carry no rules of its own
   assert.doesNotMatch(css, /data-termpos="below"/);
   assert.doesNotMatch(app, /(appendChild|insertBefore|append|prepend)\([^)]*getElementById\('(termzone|viewzone|hsplit)'\)/);

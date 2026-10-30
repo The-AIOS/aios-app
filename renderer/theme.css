@@ -254,6 +254,8 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 #work[data-termpos="right"] > #termzone { order: 3; }
 #work[data-termpos="left"] > #hsplit, #work[data-termpos="right"] > #hsplit { width: 3px; height: auto; cursor: col-resize; }
 #work[data-termpos="left"] > .zone, #work[data-termpos="right"] > .zone { min-width: 0; }
+/* #termzone carries height: 38% for the strip under the view; beside it the zone takes the full height */
+#work[data-termpos="left"] > #termzone, #work[data-termpos="right"] > #termzone { height: auto; }
 #viewzone { background: var(--zone-edit); }
 #termzone { flex: 0 0 auto; height: 38%; background: var(--zone-term); }
 /* The strips inherit their zone's tone, so the boundary is legible exactly where the
