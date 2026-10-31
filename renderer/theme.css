@@ -2180,7 +2180,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-mode[hidden] { display: none; }
 .cb-mode:hover { background-color: var(--chat-row-hover); }
 .cb-mode .cs-ico { color: var(--faint); }
-.cb-mode[data-mode="auto"] .cb-v, .cb-mode[data-mode="bypass"] .cb-v { color: var(--chat-meter-warn); }
+.cb-mode[data-mode="auto"] .cb-v, .cb-mode[data-mode="bypass"] .cb-v { color: var(--chat-warn-ink); }   /* the TEXT token: the bright fill read 1.5:1 on light paper (0.14.0 round) */
 .cb-mode[data-mode="plan"] .cb-v { color: var(--ink); font-weight: 600; }   /* coral is the send button's alone in the chat */
 .cb-mode:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
 .cb-bg .cb-v { color: var(--ink); }

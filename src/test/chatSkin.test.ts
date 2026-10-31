@@ -101,9 +101,10 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     const tap = fnBody(s, 'chatSkinVoiceTap');   // the voice chokepoint (0.14.0 round): one space, nothing else
     const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
     const bg = fnBody(s, 'chatSkinBgOpen');   // the background chokepoint (0.14.0 round): ↓ then Enter on the empty prompt, nothing else
-    const ag = fnBody(s, 'chatSkinAgentView');   // the agent chokepoint (0.14.0 round): arrows and Enter only, through one variable write
+    const ag = fnBody(s, 'chatSkinTasksOpen');   // the Background-panel chokepoint (0.14.0 round): arrows only, checked per key, never Enter
+    const rel = fnBody(s, 'chatSkinFooterRelease');   // gives the keyboard back: one Esc for an open panel, ↑ only while the footer holds it
     const bgWrites = [...bg.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').replace(fnBody(s, 'chatSkinAgentRelease'), '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').replace(rel, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
@@ -111,10 +112,10 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
       && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg)
       && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k'
-      && [...ag.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', "'\\x1b[A'", 'k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))   // arrows and Enter, nothing else
-      && /if \(n !== c \+ step\)/.test(ag) && /chatSkinAgentRelease\(id, p\)/.test(ag)   // verified per key
-      && [...fnBody(s, 'chatSkinAgentRelease').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === "id, '\\x1b[A'"
-      && /if \(c === null \|\| c < 0\) return;/.test(fnBody(s, 'chatSkinAgentRelease'));   // ↑ only from inside the list
+      && [...ag.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ['k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))   // arrows only: no Enter, no x
+      && /now\.cursor !== c \+ step/.test(ag) && /submitToPty\(id, '\/tasks'\)/.test(ag)
+      && [...rel.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === "id, esc|id, '\\x1b[A'"
+      && /chatSkinFooterFocus\(p\)/.test(rel)   // ↑ only while the footer holds the keyboard
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
@@ -3428,4 +3429,28 @@ test('the agent cursor is read only below the prompt box: Claude\'s replies abov
   assert.equal(at([...above, '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on', '', '  ⏺ main', '  ◯ general-purpose  task  5s']), -1, 'in the prompt');
   assert.equal(at([...above, '', '─'.repeat(40), '  ↑/↓ to select', '', '❯ ⏺ main', '  ◯ general-purpose  task  5s']), 0, 'on main, not on a reply above');
   assert.equal(at([...above, '', '─'.repeat(40), '  ↑/↓ to select', '', '  ⏺ main', '❯ ◯ general-purpose  task  5s']), 1);
+});
+
+test('every chatSkin* function the skin calls is defined (a removed helper threw only when the menu was used, 0.14.0 round)', () => {
+  const src = fs.readFileSync('renderer/app.js', 'utf8');
+  const called = new Set([...src.matchAll(/(?<![.\w])(chatSkin[A-Z]\w*)\(/g)].map((m) => m[1]));   // not glassShell.chatSkinWatch(): those are the bridge's
+  const defined = new Set([...src.matchAll(/(?:function\s+|const\s+)(chatSkin[A-Z]\w*)\b/g)].map((m) => m[1]));
+  const missing = [...called].filter((n) => !defined.has(n));
+  assert.deepEqual(missing, [], `called but not defined: ${missing.join(', ')}`);
+});
+
+test('the Background panel is read even when its footer wraps ("· Esc" / "to close"), measured on a 107-column pane', () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
+  const screen = ['⏺ started', '', '✻ Waiting for 2 background agents to finish', '▔'.repeat(40), '   Background', '   1 active shell · 2 active agents', '',
+    '     Shells (1)', '     ⏺ sleep 900                     running', '   ', '     Local agents (2)',
+    '   ❯ ⏺ Summarize reflections notes   running · Sonnet 5.5', '     ⏺ Summarize all project notes   running · Sonnet 5.5', '     ',
+    '   ↑/↓ to select · Enter to view · f to foreground · x to stop · ctrl+x ctrl+k to stop all agents · Esc ', '   to close'];
+  const api = new Function('chatSkinScreenText', grab('chatSkinPanelOpen') + grab('chatSkinTasksPanel') + '; return { open: chatSkinPanelOpen, panel: chatSkinTasksPanel };')(() => screen.join('\n'));
+  assert.equal(api.open({}), true);
+  const panel = api.panel({});
+  assert.deepEqual(panel.rows.map((r: { section: string }) => r.section), ['Shells', 'Local agents', 'Local agents']);
+  assert.equal(panel.cursor, 1, 'the cursor on the first agent');
+  // control: a reply that merely says "Esc to close" mid-screen is not a panel
+  const reply = new Function('chatSkinScreenText', grab('chatSkinPanelOpen') + '; return chatSkinPanelOpen;')(() => ['⏺ Press Esc to close it.', '', '─'.repeat(30), '❯ ', '─'.repeat(30), '  ⏵⏵ auto mode on'].join('\n'));
+  assert.equal(reply({}), false);
 });
