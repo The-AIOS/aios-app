@@ -8921,7 +8921,7 @@ function chatSkinBgPaint(cs, rowsText) {
   seg.hidden = !items.length;
   if (!items.length) return;
   const what = items.join(' · ') + (agents.length ? '\n' + agents.join('\n') : '');
-  seg.querySelector('.cb-v').textContent = what;
+  seg.querySelector('.cb-v').textContent = items.join(' · ');   // the chip says how many; the tooltip says which
   const tip = t('chat.bg.tip', { what });
   seg.title = tip; seg.setAttribute('aria-label', tip);
 }
