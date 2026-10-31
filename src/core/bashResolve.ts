@@ -45,7 +45,9 @@ export function pickBash(platform: string, p: BashProbe): string | null {
   /* Launched FROM a bash (Git Bash / MSYS): $SHELL names it. */
   if (p.shell && /bash/i.test(p.shell) && p.exists(p.shell)) return p.shell;
   /* On PATH, per Windows' own lookup. */
-  if (p.pathHit && p.exists(p.pathHit)) return p.pathHit;
+  /* Except WSL's launcher in System32: it finds a Linux with another home and other credentials,
+     and it comes first on PATH on any machine with WSL enabled, ahead of Git for Windows. */
+  if (p.pathHit && !/\\system32\\bash\.exe$/i.test(p.pathHit) && p.exists(p.pathHit)) return p.pathHit;
   /* Where Git for Windows puts it. */
   for (const c of gitBashCandidates(p.programFiles, p.localAppData)) if (p.exists(c)) return c;
   return null;
