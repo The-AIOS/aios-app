@@ -30,8 +30,10 @@ const MAX_LEN = 4096;
  *   · or inside a folder the OPERATOR allowed (Settings → Bus folders). That list is kept in the App's own data folder,
  *     outside the framework, where an agent sandboxed to the vault cannot add to it;
  *   · never home itself, never through a hidden folder (`.claude`, `.ssh`, `.aios`, …), whatever the list says.
- * `addDirs` follow the same rules except that a folder inside the framework is fine: it only widens what the session may
- * reach, and the framework is already in reach of a session started there. A refusal names the folder and the fix.
+ * `addDirs` follow the SAME rules (security review: Claude Code can load skills and CLAUDE.md from an added folder, so a
+ * planted vault subfolder is the same channel). Nothing strictly inside the framework is ever accepted, even under an
+ * allowed folder that contains the framework: an allow entry is a folder the operator trusts, not a key to the vault.
+ * A refusal names the folder and the fix.
  */
 export interface BusRoots { framework?: string; allowed: string[] }
 let rootsOf: () => BusRoots = () => ({ allowed: [] });
@@ -42,12 +44,12 @@ export function setBusRoots(fn: () => BusRoots): void { rootsOf = fn; }
 export function resolveBusCwd(raw: unknown, home: string = os.homedir(), roots: BusRoots = rootsOf()): BusCwd {
   const r = resolveBusDir(raw, 'cwd', home);
   if ('error' in r) return r;
-  const why = placeProblem(r.dir, home, roots, false);
+  const why = placeProblem(r.dir, home, roots);
   return why ? { error: `cwd '${shownOf(raw)}' is not allowed — ${why}` } : { cwd: r.dir };
 }
 
 /* Why a resolved directory may not be used, or '' when it may. */
-function placeProblem(dir: string, home: string, roots: BusRoots, insideFrameworkOk: boolean): string {
+function placeProblem(dir: string, home: string, roots: BusRoots): string {
   const norm = (p: string): string => (process.platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p).replace(/\/+$/, '');
   const real = (p: string): string | null => { try { return norm(fs.realpathSync(p)); } catch { return null; } };
   const d = norm(dir);
@@ -56,7 +58,8 @@ function placeProblem(dir: string, home: string, roots: BusRoots, insideFramewor
   if (d === h) return 'a session may not start in the home folder itself';
   if (d.slice(h.length + 1).split('/').some((c) => c.startsWith('.'))) return 'it is inside a hidden folder (a name starting with a dot), where settings and keys live';
   const fw = roots.framework ? real(roots.framework) : null;
-  if (fw && (d === fw || (insideFrameworkOk && d.startsWith(fw + '/')))) return '';
+  if (fw && d === fw) return '';
+  if (fw && d.startsWith(fw + '/')) return 'it is inside the AIOS folder, where an agent can write; only the AIOS folder itself may be used';
   for (const a of roots.allowed) {
     const ar = real(a);
     if (ar && ar !== h && (d === ar || d.startsWith(ar + '/'))) return '';
@@ -101,7 +104,7 @@ export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), pla
     }
     const r = resolveBusDir(raw[i], field, home);
     if ('error' in r) return r;
-    const why = placeProblem(r.dir, home, roots, true);
+    const why = placeProblem(r.dir, home, roots);
     if (why) return { error: `${field} '${shownOf(raw[i])}' is not allowed — ${why}` };
     /* What is typed is the RESOLVED path, so check it too: a clean name can be a symlink to one
        that is not. */

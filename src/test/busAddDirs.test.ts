@@ -10,10 +10,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveBusAddDirs, setBusRoots } from '../main/busCwd';
-/* #87: each sandbox's home stands in as the framework root, so a folder inside it is in reach (addDirs may name subfolders
-   of the framework); the place rules themselves are tested at the end. */
-let fwRoot = '';
-setBusRoots(() => ({ framework: fwRoot, allowed: [] }));
+/* #87: each sandbox's home/dev is an allowed folder, so the older tests' directories stay in reach; the place rules
+   themselves are tested at the end. */
+let allowRoot = '';
+setBusRoots(() => ({ allowed: allowRoot ? [allowRoot] : [] }));
 import { parseRequest, fallbackSpawnRequest, buildSpawnCmd, buildResumeCmd, shq, taskFileInstruction } from '../core/commandBus';
 
 function sandbox(): { home: string; outside: string; done: () => void } {
@@ -24,7 +24,7 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   fs.mkdirSync(path.join(home, 'dev', 'other'), { recursive: true });
   fs.mkdirSync(outside);
   fs.writeFileSync(path.join(home, 'file.txt'), 'x');
-  fwRoot = home;
+  allowRoot = path.join(home, 'dev');
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -82,7 +82,7 @@ test('addDirs: an object element is refused by name, never thrown (String() thro
 test('addDirs: an apostrophe is fine where shq quotes it (POSIX), refused on Windows (PowerShell)', () => {
   const s = sandbox();
   try {
-    const odd = path.join(s.home, "it's");
+    const odd = path.join(s.home, 'dev', "it's");
     fs.mkdirSync(odd);
     assert.deepEqual(resolveBusAddDirs([odd], s.home, 'darwin'), { dirs: [odd] });
     for (const q of ["it's", 'it\u2019s']) {
@@ -183,13 +183,14 @@ test('INVARIANT: both launches validate addDirs and hand them to the command', (
   assert.match(src, /function launchAddDirs[\s\S]*?markUndelivered\(heldPath, req, r\.error\); return null;/, 'a bad entry is dead-lettered');
 });
 
-test('#87 addDirs: inside the framework or an allowed folder; never home, never a hidden folder, never elsewhere', () => {
+test('#87 addDirs: the framework itself or inside an allowed folder; never inside the framework, never home, never hidden, never elsewhere', () => {
   const s = sandbox();
   try {
     const fw = path.join(s.home, 'aios'), code = path.join(s.home, 'code'), dot = path.join(s.home, '.claude');
     for (const d of [path.join(fw, 'vault'), path.join(code, 'repo'), dot, path.join(s.home, 'elsewhere')]) fs.mkdirSync(d, { recursive: true });
     const roots = { framework: fw, allowed: [code] };
-    assert.deepEqual(resolveBusAddDirs([path.join(fw, 'vault')], s.home, 'darwin', roots), { dirs: [path.join(fw, 'vault')] }, 'a folder inside the framework is in reach');
+    assert.match((resolveBusAddDirs([path.join(fw, 'vault')], s.home, 'darwin', roots) as { error: string }).error, /inside the AIOS folder/, 'security review: a planted vault subfolder is refused for addDirs too');
+    assert.deepEqual(resolveBusAddDirs([fw], s.home, 'darwin', roots), { dirs: [fw] }, 'the AIOS folder itself');
     assert.deepEqual(resolveBusAddDirs([path.join(code, 'repo')], s.home, 'darwin', roots), { dirs: [path.join(code, 'repo')] }, 'inside an allowed folder');
     assert.match((resolveBusAddDirs([dot], s.home, 'darwin', { framework: fw, allowed: [dot] }) as { error: string }).error, /hidden folder/, 'a hidden folder is refused even when listed');
     const other = resolveBusAddDirs([path.join(s.home, 'elsewhere')], s.home, 'darwin', roots) as { error: string };

@@ -625,7 +625,11 @@ ipcMain.handle('bus:setFolders', (_e, list: unknown) => {
     let real = '';
     try { real = fs.realpathSync(p); if (!fs.statSync(real).isDirectory()) real = ''; } catch { real = ''; }
     const rel = real ? path.relative(home, real) : '';
-    const fine = real && real !== home && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.split(path.sep).some((c) => c.startsWith('.'));
+    /* Never the AIOS folder, anything inside it, or anything containing it (security review): an allowed folder must not
+       become a way into the vault, where an agent can plant a .claude/ folder. */
+    const fw = (() => { try { return fs.realpathSync(aios.frameworkRoot() ?? ''); } catch { return ''; } })();
+    const touchesFw = !!fw && (real === fw || real.startsWith(fw + path.sep) || fw.startsWith(real + path.sep));
+    const fine = real && real !== home && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.split(path.sep).some((c) => c.startsWith('.')) && !touchesFw;
     if (fine) { if (!ok.includes(real)) ok.push(real); } else refused.push(raw.trim());
   }
   fs.mkdirSync(path.dirname(busFoldersFile()), { recursive: true });
