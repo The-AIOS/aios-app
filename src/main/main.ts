@@ -97,11 +97,6 @@ const CHAT_SHOT_FIXTURE_ARG = process.argv.find((a) => a.startsWith('--chat-shot
    probe line the fixture can print to ask this process for the process-level numbers (see the console-message handler). */
 const CHAT_BENCH = CHAT_SHOT && process.argv.includes('--chat-bench');
 const CHAT_SHOT_SIZE = { width: 1280, height: 860 };   // CSS pixels; the PNG is 2x this (see the scale switch below)
-/* Keep painting when macOS calls the window occluded (0.14.0 round): unfocused on a second screen the chat stopped updating
-   until it was clicked, with backgroundThrottling already off. These two switches stop Chromium backgrounding the renderer
-   and treating an occluded window as hidden. Must be set before `ready`. */
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 let chatShotUserData = '';   // set only when this run had to mint its own userData (the runner normally passes one)
 if (CHAT_SHOT) {
   /* Must be set before `ready`: it fixes the device scale factor for every window, so the
@@ -171,10 +166,10 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true, // in-app browser panes (the Manual + operator-opened URLs) — #14
-      /* Not throttled in the background (0.14.0 round): on a second screen, unfocused, macOS reported the window as
-         hidden and the chat stopped painting until it was clicked (timers, rAF and painting all wait). The App is a
-         live surface for running sessions, so it keeps painting; the chat-shot QA mode needed the same. */
-      backgroundThrottling: false,
+      /* chat-shot: a hidden window is throttled (timers, rAF, even painting) unless told otherwise,
+         and a throttled page captures stale or blank. Only this QA mode opts out. (0.14.0 round: an unfocused chat that
+         looked empty was NOT throttling: it was the unfocused rule pausing a message's fade-in at opacity 0, see theme.css.) */
+      ...(CHAT_SHOT ? { backgroundThrottling: false } : {}),
     },
   });
   void win.loadFile(path.join(__dirname, '..', '..', 'renderer', 'index.html'), { query: { theme: firstTheme } });

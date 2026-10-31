@@ -5489,11 +5489,12 @@ async function openViewer(p) {
       const chgN = mkEl('span', 'chgcount');
       const mk = (label, dir) => { const b2 = mkEl('button', 'chgbtn', label); b2.addEventListener('click', () => editor.stepChange?.(dir)); return b2; };
       chg.append(chgN, mk('‹', -1), mk('›', 1));
+      chg.title = t('viewer.changesTip');
       const editor = buildCodeEditor(file.content, langFor(name), {
         onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },
         onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
-        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t('viewer.changes', { n }); },
+        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
         onStep: (i, n) => { chgN.textContent = i + '/' + n; },
       }, file.path);
       head.appendChild(chg);

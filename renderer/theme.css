@@ -4,6 +4,10 @@
    line that makes every animation — present and future, ours and xterm's — stop paying when
    nobody is looking at it. */
 body.unfocused *, body.unfocused *::before, body.unfocused *::after { animation-play-state: paused !important; }
+/* …except an ENTRANCE, which starts invisible: paused at its first frame, a new chat message stayed transparent until the
+   window was clicked (0.14.0 round, a session working on a second screen looked empty). Unfocused, an entrance is skipped
+   and the item is simply there. */
+body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.out) { animation: none !important; }
 
 /* ═══ Glass Shell — the design system ═══════════════════════════════════════
    The-AIOS product language: deep black, ONE accent (coral = action/identity),
