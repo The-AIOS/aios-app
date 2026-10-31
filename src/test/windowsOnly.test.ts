@@ -48,8 +48,9 @@ test('B · resolveTier finds an interpreter, and refuses by NAME when it cannot 
      same request without the field was fulfilled. The resolver is fine; the App's Node process
      simply has no shell. `ENOENT` reads like the hook is broken and sends the operator to the
      wrong file — so the refusal has to name the missing interpreter. */
-  assert.match(bus, /function resolveBash\(\): string \| null \{/, 'the resolver must exist');
-  const fn = bus.slice(bus.indexOf('function resolveBash()'));
+  const resolver = fs.readFileSync('src/main/resolveBash.ts', 'utf8');
+  assert.match(resolver, /function resolveBash\(\): string \| null \{/, 'the resolver must exist');
+  const fn = resolver.slice(resolver.indexOf('function resolveBash()'));
   const body = fn.slice(0, fn.indexOf('\n}'));
 
   /* MAIN LOOKS, CORE CHOOSES — asserted as the seam rather than as the steps.

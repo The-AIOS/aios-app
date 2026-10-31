@@ -169,7 +169,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   sessionUnder: (paneIds: number[]): Promise<Record<number, { name: string; id: string; pid: number }>> =>
     ipcRenderer.invoke('session:under', paneIds),
   setPrimary: (name: string): Promise<{ ok: boolean; name: string }> => ipcRenderer.invoke('shell:setPrimary', name),
-  accountsList: (): Promise<{ email: string; note: string; current: boolean }[]> => ipcRenderer.invoke('accounts:list'),
+  accountsList: (): Promise<{ accounts: { email: string; label: string; note: string; state: string; current: boolean; canSwitch: boolean }[]; error: string }> => ipcRenderer.invoke('accounts:list'),
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),
   notesAdd: (name: string, note: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:add', name, note),
   notesDel: (name: string, index: number): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:del', name, index),

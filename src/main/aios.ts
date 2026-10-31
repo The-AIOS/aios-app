@@ -11,6 +11,8 @@ import {
 import type { CaffeinateMode } from '../core/caffeinate';
 import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
+import { resolveBash } from './resolveBash';
+import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '../core/accounts';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
@@ -1041,60 +1043,62 @@ export function setPrimaryName(name: string): { ok: boolean; name: string } {
 }
 
 // ── Anthropic accounts (#32 — quota rotation, Glass launchAccountSwap parity) ──
-// USER.md carries a numbered list of backticked emails under the "Anthropic accounts"
-// heading; `hooks/claude-identity/claude-identity.sh switch <email>` swaps the Keychain
-// credentials + ~/.claude.json atomically. We read the roster and shell the script —
-// never reimplement the swap.
-export interface AnthropicAccount { email: string; note: string; current: boolean; }
-export function anthropicAccounts(): AnthropicAccount[] {
-  const r = frameworkRoot();
-  if (!r) return [];
-  let md = '';
-  try { md = fs.readFileSync(path.join(r, 'USER.md'), 'utf8'); } catch { return []; }
-  const start = md.search(/^##\s+Anthropic accounts/im);
-  if (start < 0) return [];
-  const rest = md.slice(start);
-  const end = rest.search(/^##\s+(?!Anthropic)/im);
-  const block = end > 0 ? rest.slice(0, end) : rest;
-  const active = claudeConfig().account;
-  const out: AnthropicAccount[] = [];
-  for (const line of block.split('\n')) {
-    const m = /^\s*\d+\.\s*`([^`]+@[^`]+)`\s*(?:—|-)?\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const email = m[1].trim();
-    out.push({ email, note: (m[2] || '').trim().replace(/\.$/, ''), current: !!active && active === email });
-  }
-  return out;
+// Glass over the framework: `claude-identity.sh` owns the list, who can take you (read through
+// core/accounts.ts) and the swap. Never reimplement any of the three here.
+export interface AnthropicAccount {
+  email: string; label: string; note: string; state: string; current: boolean; canSwitch: boolean;
 }
-export function swapAccount(email: string): Promise<{ ok: boolean; message: string }> {
+export interface AccountsAnswer { accounts: AnthropicAccount[]; error: string; }
+
+function runIdentity(args: string[]): Promise<{ ok: boolean; out: string; message: string }> {
   const r = frameworkRoot();
-  if (!r) return Promise.resolve({ ok: false, message: 'framework path not found' });
-  if (!/^[^\s@]+@[^\s@]+$/.test(email)) return Promise.resolve({ ok: false, message: 'invalid email' });
-  const known = anthropicAccounts().some((a) => a.email === email);
-  if (!known) return Promise.resolve({ ok: false, message: 'not a USER.md account' }); // never pass arbitrary input to the shell
+  if (!r) return Promise.resolve({ ok: false, out: '', message: 'framework path not found' });
+  /* The script runs under Git Bash on Windows, and the bare word `bash` can be WSL's, with
+     another home and other credentials: a swap there would READ like it ran. Refuse by name. */
+  const bash = resolveBash();
+  if (!bash) return Promise.resolve({ ok: false, out: '', message: 'Git Bash not found. Install Git for Windows.' });
   const script = path.join(r, 'hooks', 'claude-identity', 'claude-identity.sh');
-  if (process.platform === 'win32') {
-    /* There is no bash on Windows, and shelling the .sh anyway fails in a way that READS LIKE
-       the swap ran — the worst outcome for a step whose whole job is swapping credentials.
-       So: run the PowerShell sibling if the framework ships one, otherwise say plainly that
-       this is not supported yet.
-       TODO(windows): needs hooks/claude-identity/claude-identity.ps1 in the framework (the
-       Windows analogue of the Keychain + ~/.claude.json swap, via Credential Manager). */
-    const ps = script.replace(/\.sh$/i, '.ps1');
-    if (!fs.existsSync(ps)) return Promise.resolve({ ok: false, message: 'account switch is not supported on Windows yet' });
-    return new Promise((res) => {
-      execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps, 'switch', email], { timeout: 20000 }, (err, _out, stderr) => {
-        if (err) return res({ ok: false, message: String(stderr || err.message).slice(0, 160) });
-        res({ ok: true, message: email });
-      });
-    });
-  }
   return new Promise((res) => {
-    execFile('bash', [script, 'switch', email], { timeout: 20000 }, (err, _out, stderr) => {
-      if (err) return res({ ok: false, message: String(stderr || err.message).slice(0, 160) });
-      res({ ok: true, message: email });
+    execFile(bash, [script, ...args], { timeout: 20000 }, (err, out, stderr) => {
+      res(err ? { ok: false, out: '', message: String(stderr || err.message).trim().slice(0, 300) } : { ok: true, out: String(out), message: '' });
     });
   });
+}
+
+export async function anthropicAccounts(): Promise<AccountsAnswer> {
+  const r = frameworkRoot();
+  if (!r) return { accounts: [], error: '' };
+  const active = claudeConfig().account || '';
+  let rows: AccountRow[] | null;
+  let error = '';
+  /* Checked by file and never by trying: an older script reads an unknown flag as an email to
+     switch to, and captures the seat on the way. */
+  if (fs.existsSync(path.join(r, 'hooks', 'claude-identity', '_accounts.py'))) {
+    const ans = await runIdentity(['switch', '--availability']);
+    rows = ans.ok ? parseAvailability(ans.out) : null;
+    /* A malformed list must be seen. It never falls back to USER.md, which may be older. */
+    if (!rows) { error = ans.message || 'unreadable answer'; rows = []; }
+  } else {
+    try { rows = rowsFromUserMd(fs.readFileSync(path.join(r, 'USER.md'), 'utf8'), active); } catch { rows = []; }
+  }
+  return {
+    error,
+    accounts: rows.map((row) => ({
+      email: row.email, label: rowLabel(row), note: row.detail, state: row.state,
+      current: !!active && row.email === active, canSwitch: canSwitchTo(row),
+    })),
+  };
+}
+
+export async function swapAccount(email: string): Promise<{ ok: boolean; message: string }> {
+  if (!/^[^\s@]+@[^\s@]+$/.test(email)) return { ok: false, message: 'invalid email' };
+  const { accounts, error } = await anthropicAccounts();
+  if (error) return { ok: false, message: error };
+  const acct = accounts.find((a) => a.email === email);
+  if (!acct) return { ok: false, message: 'not a listed account' }; // never pass arbitrary input to the script
+  if (!acct.canSwitch && !acct.current) return { ok: false, message: acct.note || acct.state };
+  const ans = await runIdentity(['switch', email]);
+  return ans.ok ? { ok: true, message: email } : { ok: false, message: ans.message };
 }
 
 /** Per-session note counts — the Running card shows a persistent badge (Glass parity). */
