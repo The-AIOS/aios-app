@@ -2514,6 +2514,19 @@ app.whenReady().then(() => {
   win.on('closed', () => clearInterval(rootPoll));
   win.on('closed', () => { tail.unwatchAll(); for (const id of [...skins.keys()]) void endSkin(id, false); });   // macOS hides the window instead of closing it, so this is a real teardown
   win.on('closed', () => { host?.dispose(); host = undefined; for (const w of explorerWatchers.splice(0)) { try { w.close(); } catch { /* ignore */ } } });
+  /* A RELOAD (View › Developer › Reload) discards every pane, but the processes behind them live here, in main: they kept
+     running with no tab, and reopening the sessions then ran each one TWICE (two processes on one transcript, bus messages
+     split between them; seen in the 0.14.0 round). The page's first navigation is the launch; every later one is a reload,
+     and the terminals it owned end with it. Transcripts are on disk, so Reopen resumes them cleanly. Fires before the new
+     page's script runs, so nothing it spawns can be caught. */
+  let navigations = 0;
+  win.webContents.on('did-navigate', () => {
+    if (++navigations === 1) return;
+    for (const id of [...ptys.keys()]) {
+      try { ptys.get(id)?.kill(); } catch { /* already gone */ }
+      ptys.delete(id); ptyTails.delete(id); void endSkin(id, false);
+    }
+  });
   if (CHAT_SHOT) { lockWindowHidden(win); void runChatShot(win); return; }
   if (EVAL) {
     const expr = EVAL.slice('--eval='.length);

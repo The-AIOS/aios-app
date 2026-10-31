@@ -3506,3 +3506,12 @@ test('a panel nothing recognised (the prompt box gone 1.5 s, not working, no dia
   fn(1, p2, 1000); fn(1, p2, 5000);
   assert.equal(cs2.lostPrompt, undefined, 'working: no strip');
 });
+
+test('a reload ends the terminals the old page owned (they ran on with no tab, and reopening doubled each session)', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  const hook = /win\.webContents\.on\('did-navigate', \(\) => \{[\s\S]*?\n  \}\);/.exec(main)?.[0] ?? '';
+  assert.match(hook, /if \(\+\+navigations === 1\) return;/, 'the launch itself is not a reload');
+  assert.match(hook, /for \(const id of \[\.\.\.ptys\.keys\(\)\]\)/);
+  assert.match(hook, /ptys\.get\(id\)\?\.kill\(\)/);
+  assert.match(hook, /ptys\.delete\(id\)/);
+});

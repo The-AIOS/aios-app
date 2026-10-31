@@ -10327,8 +10327,8 @@ function chatSkinHistList(cs) {
   const rows = [...cs.items.values()].filter((r) => r.role === 'user' && typeof r.text === 'string' && r.text.trim() && r.node.isConnected);
   rows.sort((a, b) => (a.node.compareDocumentPosition(b.node) & 4 ? -1 : 1));   // 4 = b follows a
   const list = rows.map((r) => r.text);
-  for (const t2 of cs.sent || []) if (!list.includes(t2)) list.push(t2);
-  return list.filter((x, i) => x !== list[i - 1]);   // a prompt sent twice in a row is one step
+  for (const t2 of cs.sent || []) list.push(t2);
+  return list.filter((x, i) => list.lastIndexOf(x) === i);   // a prompt sent again moves to the newest place, once (as a shell's history)
 }
 function chatSkinHistKey(cs, e) {
   if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing) return false;
