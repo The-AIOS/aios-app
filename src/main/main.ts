@@ -166,9 +166,10 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true, // in-app browser panes (the Manual + operator-opened URLs) — #14
-      /* chat-shot: a hidden window is throttled (timers, rAF, even painting) unless told otherwise,
-         and a throttled page captures stale or blank. Only this QA mode opts out. */
-      ...(CHAT_SHOT ? { backgroundThrottling: false } : {}),
+      /* Not throttled in the background (0.14.0 round): on a second screen, unfocused, macOS reported the window as
+         hidden and the chat stopped painting until it was clicked (timers, rAF and painting all wait). The App is a
+         live surface for running sessions, so it keeps painting; the chat-shot QA mode needed the same. */
+      backgroundThrottling: false,
     },
   });
   void win.loadFile(path.join(__dirname, '..', '..', 'renderer', 'index.html'), { query: { theme: firstTheme } });

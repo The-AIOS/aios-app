@@ -1696,6 +1696,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .pane.cs-strip > .chatskin { bottom: var(--cs-strip-h, 62%); min-height: 120px; border-bottom: 1px solid var(--line-strong); border-radius: 12px 12px 0 0; }
 .pane.cs-strip > .chatskin .chat-bar, .pane.cs-strip > .chatskin .cc-meta, .pane.cs-strip > .chatskin .chat-compose, .pane.cs-strip > .chatskin .cs-working { display: none; }   /* the whole compose block (status bar included) steps aside for a live dialog */
 .cs-working { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin: var(--cs-m) 0 0; color: var(--subtle); font-size: .88em; }
+.cs-working .cw-meta { color: var(--faint); font-variant-numeric: tabular-nums; }
+.cs-working .cw-meta:empty { display: none; }
 .cw-dots { display: inline-flex; align-items: center; gap: 4px; height: 14px; }
 .cw-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent);   /* coral: the brand thinking (0.14.0 round, the operator's call) */ animation: cs-wave 1.3s ease-in-out infinite; }
 .cw-dots i:nth-child(2) { animation-delay: .16s; }

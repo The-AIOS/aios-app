@@ -3281,6 +3281,7 @@ function setActive(id) {
      re-checked since before the install — the step they just completed still glaring at them.
      Returning to the tab is exactly the moment they are asking "did that work?", so answer it. */
   if (p.path === '::setup' && typeof onboardingRepaint === 'function') void onboardingRepaint();
+  paintZoneView();
 }
 
 function ensureActive(z) {
@@ -3753,6 +3754,7 @@ function focusPane(id) {
     q.el.classList.toggle('panefocus', split && pid === id);
   }
   paintRunning();   // the RUNNING card marks the focused session too
+  paintZoneView();
 }
 
 function attachPaneDropTarget(p, id) {
@@ -8305,7 +8307,7 @@ function chatSkinBuild(id, p) {
   const dots = el('span', 'cw-dots');
   dots.setAttribute('aria-hidden', 'true');
   dots.append(el('i'), el('i'), el('i'));
-  workEl.append(dots, el('span', 'cw-t', t('chat.skin.working', { name: chatSkinWho(p) })));
+  workEl.append(dots, el('span', 'cw-t', t('chat.skin.working', { name: chatSkinWho(p) })), el('span', 'cw-meta', ''));   // cw-meta: "12s · ↓ 1.2k tokens", as the terminal's spinner says it
   workEl.hidden = true;
   workEl.setAttribute('role', 'status');
   log.appendChild(workEl);
@@ -8494,7 +8496,7 @@ function chatSkinBuild(id, p) {
     chatSkinInterrupt(id, p);
   });
   sendBtn.addEventListener('click', () => chatSkinSendNow(id, p));
-  bgSeg.addEventListener('click', () => chatSkinBgOpen(id, p));
+  bgSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinBgMenu(id, p); });
   /* Space on an empty box is the terminal's tap-to-talk (and a second space sends what it heard), when voice is on in tap
      mode. Otherwise a space is a space. The setting is read when the box takes focus, so the key itself never waits. */
   input.addEventListener('focus', () => { Promise.resolve(window.glassShell.chatVoice?.()).then((v) => { cs.voiceTap = !!(v && v.enabled && (!v.mode || v.mode === 'tap')); }).catch(() => { cs.voiceTap = false; }); });
@@ -8562,6 +8564,7 @@ function chatSkinSetView(id, view) {
   chatSkinLayout(p);
   if (view === 'chat') chatSkinFocus(p);
   else chatSkinHandBack(id, p);
+  paintZoneView();   // the switch follows the pane in front
   return true;
 }
 /* ── the mode: ONE preference for every Claude session ───────────────────────────────────────────────────
@@ -8589,9 +8592,13 @@ function paintZoneView() {
       z.appendChild(b);
     }
   }
-  z.dataset.mode = chatMode;   // the thumb slides to this side (.zview[data-mode])
+  /* The switch shows what the pane in front IS showing (0.14.0 round: "Show terminal" on a card flipped that pane only, and
+     the switch kept saying chat). With no Claude pane in front, it shows the setting. */
+  const front = panes.get(active.term) || panes.get(active.main);
+  const shown = front && front.kind === 'term' && chatSkinEligible(front) ? (front.view === 'chat' ? 'chat' : 'terminal') : chatMode;
+  z.dataset.mode = shown;   // the thumb slides to this side (.zview[data-mode])
   z.setAttribute('role', 'radiogroup');
-  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === chatMode); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === chatMode ? 'true' : 'false'); }
+  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === shown); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === shown ? 'true' : 'false'); }
   z.title = t('chat.zone.tip');
 }
 chatModeSubs.add(paintZoneView);
@@ -8907,6 +8914,7 @@ function chatSkinMirrorStatus(p) {
   if (ctx) cs.slCtxPct = Number(ctx[1]);
   chatSkinModePaint(cs, text);
   chatSkinBgPaint(cs, rows.map((r) => r.translateToString(true)));
+  chatSkinWorkMeta(p);
   chatSkinNamePaint(p);
   host.hidden = !lines.length || aios;
   cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
@@ -8924,6 +8932,22 @@ function chatSkinModePaint(cs, text) {
   seg.querySelector('.cb-v').textContent = t('chat.mode.' + mode);
   const tip = t('chat.mode.tip', { mode: t('chat.mode.' + mode) });
   seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+/* The elapsed time and tokens of the turn, read from Claude Code's spinner line above its prompt
+   ("✻ Crafting… (12s · ↓ 1.2k tokens · esc to interrupt)"): only the measures, in its own words. */
+function chatSkinWorkMeta(p) {
+  const cs = p.chatSkin;
+  const meta = cs && cs.workEl && cs.workEl.querySelector('.cw-meta');
+  if (!meta) return;
+  let parts = [];
+  try {
+    const xs = chatSkinScreenText(p).split('\n');
+    const at = xs.findLastIndex((l) => /^❯/.test(l));
+    const spin = xs.slice(Math.max(0, at - 8), at).reverse().find((l) => /^\s*\S\s+\S.*…\s*\(.*\)/.test(l));
+    const inner = spin ? /\(([^)]*)\)/.exec(spin)[1] : '';
+    parts = inner.split('·').map((x) => x.trim()).filter((x) => /^\d+\s*[hms]\b|^(\d+[hms]\s*)+$|tokens?$/.test(x));
+  } catch { parts = []; }
+  meta.textContent = parts.length ? parts.join(' · ') : '';
 }
 /* What runs in the background, from the lines under the prompt (verified on Claude Code 2.1.314):
      · shells ride on the mode line: "⏵⏵ auto mode on · 1 shell" → "1 shell";
@@ -8997,16 +9021,75 @@ function chatSkinNamePaint(p) {
   tag.textContent = name;
   tag.title = name ? t('chat.name.tip', { name }) : '';
 }
-/* THE agent chokepoint: view row `index` of the agent list under Claude Code's prompt (0 is "main", this session) with the
-   keys the terminal takes, measured on 2.1.314: ↓ from the prompt enters the list at main, each ↓ moves one row, Enter
-   shows that row, and ↑ from main returns to the prompt. So: ↓ × (index + 1), Enter, ↑ × (index + 1), and the cursor is back
-   in the prompt, which now talks to the agent on screen (0.14.0 round: clicking an agent left no way back). */
-function chatSkinAgentView(id, p, index) {
-  if (panes.get(id) !== p || p.exited || !p.chatSkin || p.chatSkin.promptKind || !Number.isInteger(index) || index < 0 || index > 20) return;
+/* Where the hidden terminal's cursor is: -1 in the prompt, i on row i of the agent list under it, null when neither can be
+   told (a dialog, a redraw). The list takes the cursor away from the prompt, so its ❯ moves onto a row. */
+function chatSkinAgentCursor(p) {
+  let xs = [];
+  try { xs = chatSkinScreenText(p).split('\n'); } catch { return null; }
+  /* Only BELOW the prompt box's bottom rule: Claude's replies above it start with ⏺ too (a first version counted them). */
+  const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
+  if (bottom < 1) return null;
+  const rows = xs.slice(bottom + 1).filter((l) => /^\s*(?:❯\s*)?[◯⏺●◉]\s+\S/.test(l));
+  const at = rows.findIndex((l) => /^\s*❯/.test(l));
+  if (at >= 0) return at;
+  return /^❯/.test(xs[bottom - 1] || '') ? -1 : null;
+}
+/* THE agent chokepoint: show row `index` of the agent list under Claude Code's prompt (0 is "main", this session), with
+   the keys the terminal takes (measured on 2.1.314): ↓ from the prompt enters the list at main, each ↓ moves one row,
+   Enter shows that row, ↑ from main returns to the prompt. ONE KEY AT A TIME, READING THE SCREEN AFTER EACH (0.14.0 round:
+   a blind burst landed its ↑ keys in the prompt's history, "History 45/45"): it stops as soon as the cursor is not where
+   it should be, and presses ↑ only while the cursor is on a list row, so it can never walk the prompt's history. */
+async function chatSkinAgentView(id, p, index) {
+  const cs = p.chatSkin;
+  if (panes.get(id) !== p || p.exited || !cs || cs.promptKind || cs.agentBusy || !Number.isInteger(index) || index < 0 || index > 20) return;
+  cs.agentBusy = true;
   const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
-  const keys = [...Array(index + 1).fill('\x1b[B'), enter, ...Array(index + 1).fill('\x1b[A')];
-  keys.forEach((k, n) => setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, k); }, n * 120));
-  setTimeout(() => { if (panes.get(id) === p) chatSkinMirrorStatus(p); }, keys.length * 120 + 500);
+  const alive = () => panes.get(id) === p && !p.exited;
+  const press = async (k) => { if (!alive()) return false; window.glassShell.ptyWrite(id, k); await new Promise((r) => setTimeout(r, 220)); return alive(); };
+  try {
+    if (chatSkinAgentCursor(p) !== -1 || !chatSkinPromptEmpty(p)) { toast(t('chat.agents.busy')); return; }
+    for (let k = 0; k <= index; k++) {
+      if (!(await press('\x1b[B'))) return;
+      if (chatSkinAgentCursor(p) !== k) { toast(t('chat.agents.busy')); break; }
+      if (k === index) await press(enter);
+    }
+    for (let n = 0; n < 25 && alive(); n++) {   // back to the prompt, one row at a time, only from inside the list
+      const c = chatSkinAgentCursor(p);
+      if (c === null || c < 0) break;
+      if (!(await press('\x1b[A'))) return;
+    }
+  } finally {
+    cs.agentBusy = false;
+    if (alive()) chatSkinMirrorStatus(p);
+  }
+}
+/* Whether Claude Code's prompt line holds nothing typed: its greyed suggestion (dim cells) does not count. */
+function chatSkinPromptEmpty(p) {
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    for (let y = b.length - 1; y >= 0; y--) {
+      const line = b.getLine(y);
+      if (!line || !/^❯/.test(line.translateToString(true))) continue;
+      for (let x = 2; x < line.length; x++) { line.getCell(x, c); const ch = c.getChars(); if (ch && ch.trim() && !c.isDim()) return false; }
+      return true;
+    }
+  } catch { /* unreadable: treat as not empty */ }
+  return false;
+}
+/* The "1 agent" chip opens a menu like the model's: main and each subagent, the one on screen ticked, and the full list
+   (/tasks) apart. Shells alone keep the terminal's own panel. */
+function chatSkinBgMenu(id, p) {
+  const cs = p.chatSkin;
+  const rows = (cs && cs.agentRows) || [];
+  if (rows.length < 2) { chatSkinBgOpen(id, p); return; }
+  const items = rows.map((r, i) => ({ key: String(i), label: r.name, desc: r.name === 'main' ? t('chat.agents.mainDesc') : r.rest.replace(/\s{2,}/g, ' · '), checked: r.mark === '⏺' }));
+  items.push({ key: 'tasks', label: t('chat.agents.all'), desc: '/tasks', apart: true });
+  chatSkinBarMenu(cs, cs.root.querySelector('.cb-bg'), t('chat.agents.head'), items, (key) => {
+    if (key === 'tasks') { chatSkinSubmit(id, p, '/tasks'); return; }
+    const i = Number(key);
+    if (rows[i] && rows[i].mark !== '⏺') void chatSkinAgentView(id, p, i);
+  });
 }
 /* THE background chokepoint, beside chatSkinModeCycle: ↓ then Enter on Claude Code's empty prompt, exactly what the operator
    presses in the terminal to open "1 shell". The panel arrives as a dialog, and the chat view shows the live strip for it. */
@@ -10112,7 +10195,7 @@ function chatSkinHistKey(cs, e) {
   const v = inp.value;
   const up = e.key === 'ArrowUp';
   if (up ? inp.selectionStart > 0 && v.lastIndexOf('\n', inp.selectionStart - 1) !== -1 : v.indexOf('\n', inp.selectionStart) !== -1) return false;   // not on the first / last line
-  if (!cs.hist && !up && v === '' && cs.bgCount) { e.preventDefault(); chatSkinBgOpen(cs.id, cs.pane); return true; }   // as in the terminal: ↓ reaches "1 shell"
+  if (!cs.hist && !up && v === '' && cs.bgCount) { e.preventDefault(); chatSkinBgMenu(cs.id, cs.pane); return true; }   // as in the terminal: ↓ reaches "1 shell"
   if (!cs.hist) { if (!up) return false; cs.hist = { list: chatSkinHistList(cs), i: -1, draft: v }; }
   const h = cs.hist;
   const n = h.i === -1 ? (up ? h.list.length - 1 : -1) : h.i + (up ? -1 : 1);

@@ -110,7 +110,9 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
       && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
       && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg)
-      && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k' && /Array\(index \+ 1\)\.fill\('\\x1b\[B'\), enter, \.\.\.Array\(index \+ 1\)\.fill\('\\x1b\[A'\)/.test(ag);
+      && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k'
+      && [...ag.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', "'\\x1b[A'", 'k'].includes(k))   // arrows and Enter, nothing else
+      && /chatSkinAgentCursor\(p\) !== k/.test(ag) && /if \(c === null \|\| c < 0\) break;/.test(ag);   // verified per key; ↑ only from inside the list
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
@@ -3415,4 +3417,13 @@ test('agent rows: main and each subagent in screen order; the viewed one is know
   paint(cs, ['  ⏵⏵ auto mode on', '', '❯ ⏺ main', '  ◯ general-purpose  Summarize project notes   41s']);
   assert.equal(cs.agentViewing, '', 'back on main (the list cursor may still sit on it)');
   assert.match(fnBody(skin, 'chatSkinNamePaint'), /cs\.agentViewing \? '@' \+ cs\.agentViewing/);
+});
+
+test('the agent cursor is read only below the prompt box: Claude\'s replies above it start with ⏺ too (0.14.0 round)', () => {
+  const src = skin.slice(skin.indexOf('function chatSkinAgentCursor'), skin.indexOf('\n}\n', skin.indexOf('function chatSkinAgentCursor')) + 2);
+  const at = (screen: string[]): number | null => new Function('chatSkinScreenText', src + '; return chatSkinAgentCursor;')(() => screen.join('\n'))({});
+  const above = ['⏺ ok', '⏺ Agent "x" finished · 5s', '', '─'.repeat(40) + ' r2-chat ─'];
+  assert.equal(at([...above, '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on', '', '  ⏺ main', '  ◯ general-purpose  task  5s']), -1, 'in the prompt');
+  assert.equal(at([...above, '', '─'.repeat(40), '  ↑/↓ to select', '', '❯ ⏺ main', '  ◯ general-purpose  task  5s']), 0, 'on main, not on a reply above');
+  assert.equal(at([...above, '', '─'.repeat(40), '  ↑/↓ to select', '', '  ⏺ main', '❯ ◯ general-purpose  task  5s']), 1);
 });
