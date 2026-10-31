@@ -7056,16 +7056,21 @@ async function collaborateActionFlow() {
   return go('--' + action);
 }
 
-/* #32 account rotation — pick from the USER.md roster; the swap itself is the
+/* #32 account rotation — the list and the swap are both the
    framework's own claude-identity.sh (never reimplemented here). */
 async function accountSwapFlow() {
-  const list = await window.glassShell.accountsList().catch(() => []);
+  const ans = await window.glassShell.accountsList().catch(() => ({ accounts: [], error: 'failed' }));
+  /* A malformed list has to be seen: "no accounts" would send the operator looking elsewhere. */
+  if (ans.error) { toast(t('account.swapFailed', { message: ans.error })); return; }
+  const list = ans.accounts;
   if (!list.length) { toast(t('account.none')); return; }
   const pick = await listModal(t('account.title'), list.map((a) => ({
-    label: a.email + (a.current ? '  ·  ' + t('account.current') : ''),
-    desc: a.note, icon: a.current ? 'check' : 'id', value: a,
+    label: a.label + (a.current ? '  ·  ' + t('account.current') : ''),
+    desc: a.note, icon: a.current ? 'check' : (a.canSwitch ? 'id' : 'stop'), value: a,
   })), t('account.placeholder'));
   if (!pick || pick.current) return;
+  /* Listed anyway: an account missing from the menu reads as lost, not as expired. */
+  if (!pick.canSwitch) { toast(t('account.swapFailed', { message: pick.note || pick.state })); return; }
   toast(t('account.swapping', { email: pick.email }));
   const r = await window.glassShell.accountsSwap(pick.email).catch(() => ({ ok: false, message: 'failed' }));
   toast(r.ok ? t('account.swapped', { email: pick.email }) : t('account.swapFailed', { message: r.message }));

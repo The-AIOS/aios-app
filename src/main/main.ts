@@ -896,7 +896,7 @@ ipcMain.handle('session:signal', (_e, { pid, sig }: { pid: number; sig: NodeJS.S
 // session post-its (#12): jot/view/delete notes on a live session (.glass/state.json)
 ipcMain.handle('notes:get', (_e, name: string) => aios.sessionNotes(String(name)));
 ipcMain.handle('notes:counts', () => aios.sessionNoteCounts());
-// #32 account rotation: the USER.md roster + the atomic swap (shells claude-identity.sh)
+// #32 account rotation: both halves shell claude-identity.sh
 // "Show logs" (Glass's cog has it): the app's logs are the DevTools console — main-process
 // lines (command bus, updater, doctor) and renderer errors both land there.
 ipcMain.handle('shell:devtools', () => { mainWin?.webContents.openDevTools({ mode: 'bottom' }); return true; });

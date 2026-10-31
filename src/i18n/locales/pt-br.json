@@ -53,7 +53,7 @@
   "account.title": "Trocar de conta Anthropic",
   "account.placeholder": "Os limites são por conta — trocar multiplica sua capacidade",
   "account.current": "atual",
-  "account.none": "Nenhuma conta listada no USER.md.",
+  "account.none": "Ainda não há contas. Adicione uma com claude-switch --add <email>.",
   "account.swapping": "Trocando para {email}…",
   "account.swapped": "Trocado para {email}",
   "account.swapFailed": "A troca falhou — {message}",
