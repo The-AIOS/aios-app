@@ -8565,6 +8565,8 @@ function chatSkinSetView(id, view) {
   chatSkinLayout(p);
   if (view === 'chat') chatSkinFocus(p);
   else chatSkinHandBack(id, p);
+  /* The chat shows main's conversation: bring the terminal back to main, and the cursor back to the prompt. */
+  if (view === 'chat' && p.chatSkin) setTimeout(() => { if (p.chatSkin.agentViewing) void chatSkinAgentView(id, p, 0); else void chatSkinAgentRelease(id, p); }, 200);
   paintZoneView();   // the switch follows the pane in front
   return true;
 }
@@ -8663,8 +8665,7 @@ function chatSkinLayout(p) {
   if (!cs) return;
   const on = p.view === 'chat';
   p.el.classList.toggle('view-chat', on);
-  p.el.classList.toggle('cs-strip', on && (chatSkinStrip(cs) || !!cs.agentViewing));   // a subagent on screen: its live terminal, like a dialog's
-  p.el.classList.toggle('cs-agentshow', on && !!cs.agentViewing);
+  p.el.classList.toggle('cs-strip', on && chatSkinStrip(cs));
   cs.root.hidden = !on;
   if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
   cs.input.disabled = !!cs.promptKind || !!p.exited;
@@ -8915,6 +8916,12 @@ function chatSkinMirrorStatus(p) {
   const aios = /^\s*\[[^\]]+\]\s*📁/.test(text);   // the AIOS line, recognised by its start: before the first reply its context reads "🔵 ???" and the bar shows a dash
   if (ctx) cs.slCtxPct = Number(ctx[1]);
   chatSkinModePaint(cs, text);
+  try {
+    const xs = chatSkinScreenText(p).split('\n');
+    const above = xs.slice(Math.max(0, xs.findLastIndex((l) => /^❯/.test(l)) - 14));
+    const m = above.map((l) => /Waiting for (\d+) background agents?\b/.exec(l)).filter(Boolean).pop();
+    cs.agentsTotal = m ? Number(m[1]) : 0;   // "✻ Waiting for 3 background agents to finish": the count a short pane's list cannot show
+  } catch { cs.agentsTotal = 0; }
   chatSkinBgPaint(cs, rows.map((r) => r.translateToString(true)));
   chatSkinWorkMeta(p);
   chatSkinNamePaint(p);
@@ -8963,12 +8970,18 @@ function chatSkinBgPaint(cs, rowsText) {
   const items = modeLine.split('·').map((x) => x.replace(/\(.*?\)/g, '').trim()).filter((x) => /^\d+ [a-z][a-z ]{1,24}$/i.test(x));
   /* The agent list under the prompt, in screen order: "⏺ main" (this session) then one row per subagent; ⏺ marks the one on
      screen, ❯ the list cursor. Viewing a subagent is a mode of the hidden terminal: its prompt then talks to that agent. */
+  /* "1 shell" rides on the mode line, which Claude Code hides while the cursor is in the agent list ("↑/↓ to select"):
+     then keep what was last seen rather than forget the shells. */
+  const listFocus = lines.some((l) => /↑\/↓ to select/.test(l));
+  if (listFocus && cs.bgShells && cs.bgShells.length) items.push(...cs.bgShells.filter((x) => !items.includes(x)));
+  cs.bgShells = items.slice();
   const agentRows = lines.map((l) => /^\s*(?:❯\s*)?([◯⏺●◉])\s+(\S+)(?:\s{2,}(.*))?$/.exec(l)).filter(Boolean)
     .map((m) => ({ mark: m[1], name: m[2], rest: (m[3] || '').trim() }));
   const agents = agentRows.filter((r) => r.name !== 'main').map((r) => [r.name, ...r.rest.split(/\s{2,}/)].join(' · '));
   cs.agentRows = agentRows;
   cs.agentViewing = (agentRows.find((r) => r.mark === '⏺' && r.name !== 'main') || {}).name || '';
-  if (agents.length) items.push(t(agents.length === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: agents.length }));
+  const nAgents = Math.max(agents.length, cs.agentsTotal || 0);
+  if (nAgents) items.push(t(nAgents === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: nAgents }));
   cs.bgCount = items.reduce((a, x) => a + (Number(x.split(' ')[0]) || 0), 0) || agents.length;
   cs.bgAgents = agents.length;
   const ico = seg.querySelector('.cb-bgico');
@@ -8984,12 +8997,8 @@ function chatSkinBgPaint(cs, rowsText) {
       bar.replaceChildren(csIcon('robot', 13), el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back);
     }
     bar.hidden = !cs.agentViewing;
-    /* The layout follows: the subagent's live terminal shows (and takes the keyboard), or the chat comes back. */
-    if (cs.pane) {
-      chatSkinLayout(cs.pane);
-      const p = cs.pane;
-      setTimeout(() => { if (p.term && p.view === 'chat') { repaintTerm(p); if (cs.agentViewing) p.term.focus(); else chatSkinFocus(p); } }, 60);   // no fit() while the skin is up: the strip shows the terminal at its own size
-    }
+    /* Rare in chat: the menu views an agent in TERMINAL view, and entering chat returns to main. This bar covers a subagent
+       left on screen some other way (chosen in the terminal itself). */
   }
   seg.hidden = !items.length;
   if (!items.length) return;
@@ -9040,20 +9049,54 @@ async function chatSkinAgentView(id, p, index) {
   const alive = () => panes.get(id) === p && !p.exited;
   const press = async (k) => { if (!alive()) return false; window.glassShell.ptyWrite(id, k); await new Promise((r) => setTimeout(r, 220)); return alive(); };
   try {
-    if (chatSkinAgentCursor(p) !== -1 || !chatSkinPromptEmpty(p)) { toast(t('chat.agents.busy')); return; }
-    for (let k = 0; k <= index; k++) {
+    /* From wherever the cursor is (measured: Claude Code sometimes moves it into the list by itself when agents start or
+       finish). From the prompt it must be empty, so ↓ cannot walk a draft's history; inside the list it moves row by row. */
+    let c = chatSkinAgentCursor(p);
+    if (c === null || (c === -1 && !chatSkinPromptEmpty(p))) { toast(t('chat.agents.busy')); return; }
+    if (c === -1) {
       if (!(await press('\x1b[B'))) return;
-      if (chatSkinAgentCursor(p) !== k) { toast(t('chat.agents.busy')); break; }
-      if (k === index) await press(enter);
+      c = chatSkinAgentCursor(p);
+      if (c !== 0) { toast(t('chat.agents.busy')); return; }
     }
-    for (let n = 0; n < 25 && alive(); n++) {   // back to the prompt, one row at a time, only from inside the list
-      const c = chatSkinAgentCursor(p);
-      if (c === null || c < 0) break;
-      if (!(await press('\x1b[A'))) return;
+    while (c !== index) {
+      const step = index > c ? 1 : -1;
+      if (!(await press(step > 0 ? '\x1b[B' : '\x1b[A'))) return;
+      const n = chatSkinAgentCursor(p);
+      if (n !== c + step) { toast(t('chat.agents.busy')); return; }
+      c = n;
     }
+    const row = (cs.agentRows || [])[index];
+    if (!row || row.mark !== '⏺') await press(enter);
   } finally {
+    await chatSkinAgentRelease(id, p);
     cs.agentBusy = false;
-    if (alive()) chatSkinMirrorStatus(p);
+    if (panes.get(id) === p && !p.exited) chatSkinMirrorStatus(p);
+  }
+}
+/* The cursor back to the prompt: ↑ one row at a time, and ONLY while it is on a row of the list, so it can never walk the
+   prompt's history. Used after every switch and when the pane returns to chat. */
+/* Resolves once the hidden terminal has stopped redrawing (two reads 150 ms apart agree), or after 2.5 s: switching to terminal
+   view resizes it, Claude Code redraws, and a key pressed into that redraw is read against a screen that is not there yet. */
+function chatSkinSettle(p) {
+  return new Promise((resolve) => {
+    let last = '', same = 0, n = 0;
+    const tick = () => {
+      let now = '';
+      try { now = chatSkinScreenText(p).split('\n').slice(-12).join('\n'); } catch { /* gone */ }
+      same = now && now === last ? same + 1 : 0;
+      last = now;
+      if (same >= 2 || ++n > 16) resolve(); else setTimeout(tick, 150);
+    };
+    setTimeout(tick, 150);
+  });
+}
+async function chatSkinAgentRelease(id, p) {
+  for (let n = 0; n < 25; n++) {
+    if (panes.get(id) !== p || p.exited) return;
+    const c = chatSkinAgentCursor(p);
+    if (c === null || c < 0) return;
+    window.glassShell.ptyWrite(id, '\x1b[A');
+    await new Promise((r) => setTimeout(r, 220));
   }
 }
 /* Whether Claude Code's prompt line holds nothing typed: its greyed suggestion (dim cells) does not count. */
@@ -9074,14 +9117,24 @@ function chatSkinPromptEmpty(p) {
    (/tasks) apart. Shells alone keep the terminal's own panel. */
 function chatSkinBgMenu(id, p) {
   const cs = p.chatSkin;
-  const rows = (cs && cs.agentRows) || [];
-  if (rows.length < 2) { chatSkinBgOpen(id, p); return; }
-  const items = rows.map((r, i) => ({ key: String(i), label: r.name, desc: r.name === 'main' ? t('chat.agents.mainDesc') : r.rest.replace(/\s{2,}/g, ' · '), checked: r.mark === '⏺' }));
-  items.push({ key: 'tasks', label: t('chat.agents.all'), desc: '/tasks', apart: true });
+  if (!cs) return;
+  const rows = cs.agentRows && cs.agentRows.length > 1 ? cs.agentRows : [];
+  const shells = cs.bgShells || [];
+  /* One rule for both kinds (0.14.0 round): picking one opens it in TERMINAL view, where Claude Code handles it natively;
+     coming back to chat returns to main, because the chat shows main's conversation. */
+  const items = rows.map((r, i) => ({ key: 'a' + i, label: r.name, desc: r.name === 'main' ? t('chat.agents.mainDesc') : r.rest.replace(/\s{2,}/g, ' · '), checked: r.mark === '⏺' }));
+  shells.forEach((s, i) => items.push({ key: 's' + i, label: s, desc: t('chat.agents.shellDesc') }));
+  const hidden = Math.max(0, (cs.agentsTotal || 0) - Math.max(0, rows.length - 1));   // a short pane lists fewer agents than run
+  items.push({ key: 'tasks', label: t('chat.agents.all'), desc: hidden ? t('chat.agents.more', { n: hidden }) : '/tasks', apart: true });
   chatSkinBarMenu(cs, cs.root.querySelector('.cb-bg'), t('chat.agents.head'), items, (key) => {
     if (key === 'tasks') { chatSkinSubmit(id, p, '/tasks'); return; }
-    const i = Number(key);
-    if (rows[i] && rows[i].mark !== '⏺') void chatSkinAgentView(id, p, i);
+    if (key.startsWith('s')) { chatSkinSetView(id, 'term'); void chatSkinSettle(p).then(() => chatSkinBgOpen(id, p)); return; }
+    const i = Number(key.slice(1));
+    const r = rows[i];
+    if (!r) return;
+    if (r.name === 'main') { if (r.mark !== '⏺') void chatSkinAgentView(id, p, 0); return; }
+    chatSkinSetView(id, 'term');
+    void chatSkinSettle(p).then(() => { if (r.mark !== '⏺') void chatSkinAgentView(id, p, i); });   // after the resize redraw, not into it
   });
 }
 /* THE background chokepoint, beside chatSkinModeCycle: ↓ then Enter on Claude Code's empty prompt, exactly what the operator

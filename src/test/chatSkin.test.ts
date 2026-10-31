@@ -103,7 +103,7 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     const bg = fnBody(s, 'chatSkinBgOpen');   // the background chokepoint (0.14.0 round): ↓ then Enter on the empty prompt, nothing else
     const ag = fnBody(s, 'chatSkinAgentView');   // the agent chokepoint (0.14.0 round): arrows and Enter only, through one variable write
     const bgWrites = [...bg.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').replace(fnBody(s, 'chatSkinAgentRelease'), '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
@@ -111,8 +111,10 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
       && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg)
       && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k'
-      && [...ag.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', "'\\x1b[A'", 'k'].includes(k))   // arrows and Enter, nothing else
-      && /chatSkinAgentCursor\(p\) !== k/.test(ag) && /if \(c === null \|\| c < 0\) break;/.test(ag);   // verified per key; ↑ only from inside the list
+      && [...ag.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', "'\\x1b[A'", 'k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))   // arrows and Enter, nothing else
+      && /if \(n !== c \+ step\)/.test(ag) && /chatSkinAgentRelease\(id, p\)/.test(ag)   // verified per key
+      && [...fnBody(s, 'chatSkinAgentRelease').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === "id, '\\x1b[A'"
+      && /if \(c === null \|\| c < 0\) return;/.test(fnBody(s, 'chatSkinAgentRelease'));   // ↑ only from inside the list
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
@@ -2424,7 +2426,7 @@ test('the layout decides strip or card from ONE rule: a card is drawn, the strip
   assert.equal(strip(), true, 'no options: the strip');
   h.cs.promptKind = null;
   assert.equal(strip(), false, 'no dialog: neither');
-  assert.match(fnBody(skin, 'chatSkinLayout'), /classList\.toggle\('cs-strip', on && \(chatSkinStrip\(cs\) \|\| !!cs\.agentViewing\)\)/);   // a subagent on screen uses the same strip
+  assert.match(fnBody(skin, 'chatSkinLayout'), /classList\.toggle\('cs-strip', on && chatSkinStrip\(cs\)\)/);   // a subagent is viewed in terminal view, never as a strip (0.14.0 round)
   assert.match(fnBody(skin, 'chatSkinPaintAlert'), /chatSkinCardOn\(cs\) \? '' :/, 'a card is its own notice');
 });
 

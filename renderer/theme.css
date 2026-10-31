@@ -2202,7 +2202,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .csa-row.on { background: var(--chat-row-hover); cursor: default; }
 .csa-row.on .csa-mark { color: var(--chat-ok-ink); }
 .cs-agentbar { display: none; }
-.pane.cs-agentshow > .chatskin .cs-agentbar { display: flex; align-items: center; gap: 10px; margin: 6px 12px 8px; padding: 7px 12px; border-radius: 10px;
+.chatskin .cs-agentbar:not([hidden]) { display: flex; align-items: center; gap: 10px; margin: 6px 12px 8px; padding: 7px 12px; border-radius: 10px;
             background: color-mix(in srgb, var(--chat-link) 12%, var(--surface)); color: var(--ink); font-size: 12.5px; }
 .cs-agentbar .cs-ico { color: var(--chat-link); }
 .cb-bgico { display: inline-flex; }
