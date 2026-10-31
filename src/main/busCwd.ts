@@ -62,6 +62,7 @@ function placeProblem(dir: string, home: string, roots: BusRoots, start: boolean
   if (d === h) return 'it is the home folder itself';
   if (d.slice(h.length + 1).split('/').some((c) => c.startsWith('.'))) return 'it is inside a hidden folder (a name starting with a dot), where settings and keys live';
   if (fw && (d === fw || d.startsWith(fw + '/'))) return 'it is the AIOS folder or inside it, which a bus session already starts in';
+  if (fw && fw.startsWith(d + '/')) return 'it contains the AIOS folder, which would bring the vault back in through a side door';   // security review
   return '';
 }
 
