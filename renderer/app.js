@@ -9321,14 +9321,22 @@ function chatAcctLabel(a) {
   const m = /alias \*\*([^*]+)\*\*/i.exec(a.note || '');
   return m ? m[1].trim() : a.email;   // the whole address: two accounts can share a local part
 }
+/* The account list, in either shape: PR 92 answers { accounts, error } (the framework's own list, with who can be taken),
+   older mains a plain array. A list the framework rejected is shown as an error from the menu, never as "one account". */
+async function chatSkinAccounts(announceError) {
+  let r = null;
+  try { r = await window.glassShell.accountsList(); } catch { r = null; }
+  if (Array.isArray(r)) return r;
+  if (r && r.error && announceError) toast(t('chat.acct.failed', { why: r.error }));
+  return r && Array.isArray(r.accounts) ? r.accounts : [];
+}
 /* What USER.md says the account is for, first clause only ("primary", "secondary"): the menu's second line. */
 const chatAcctRole = (a) => String(a.note || '').split(/[,.;]/)[0].trim();
 async function chatSkinAccountPaint(p) {
   const cs = p.chatSkin;
   const seg = cs && cs.root && cs.root.querySelector('.cb-acct');
   if (!seg) return;
-  let list = [];
-  try { list = await window.glassShell.accountsList(); } catch { list = []; }
+  const list = await chatSkinAccounts();
   const cur = list.find((a) => a.current);
   seg.hidden = !cur;
   if (!cur) return;
@@ -9341,13 +9349,14 @@ async function chatSkinAccountPaint(p) {
 async function chatSkinAccountMenu(p) {
   const cs = p.chatSkin;
   if (!cs) return;
-  let list = [];
-  try { list = await window.glassShell.accountsList(); } catch { list = []; }
+  const list = await chatSkinAccounts(true);
   if (list.length < 2) return;
-  const items = list.map((a) => ({ key: a.email, label: chatAcctLabel(a), desc: chatAcctRole(a) || a.email, checked: !!a.current }));
+  const items = list.map((a) => ({ key: a.email, label: chatAcctLabel(a), desc: chatAcctRole(a) || a.state || a.email, checked: !!a.current }));
   chatSkinBarMenu(cs, cs.root.querySelector('.cb-acct'), t('chat.acct.head'), items, async (email) => {
     const a = list.find((x) => x.email === email);
     if (!a || a.current) return;
+    /* PR 92: an account that cannot be taken (expired, not captured) stays listed, and picking it says why. */
+    if (a.canSwitch === false) { toast(t('chat.acct.failed', { why: a.note || a.state || '?' })); return; }
     toast(t('chat.acct.switching', { who: chatAcctLabel(a) }));
     let r = null;
     try { r = await window.glassShell.accountsSwap(a.email); } catch (e) { r = { ok: false, message: String(e && e.message || e) }; }

@@ -3569,3 +3569,18 @@ test('the allowed-path check sees through symlinks both ways: ~/aios/vault/… o
     assert.equal(inAllowed(fs, path, new Set(), roots, process, path.join(root, 'elsewhere')), false, 'control: outside stays outside');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('the chat bar account chip reads the account list in PR 92\'s shape ({ accounts, error }) and the older array (merge seam)', async () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('async function ' + name), skin.indexOf('\n}\n', skin.indexOf('async function ' + name)) + 2);
+  const run = async (answer: unknown) => {
+    const toasts: string[] = [];
+    const fn = new Function('window', 'toast', 't', grab('chatSkinAccounts') + '; return chatSkinAccounts;')({ glassShell: { accountsList: async () => answer } }, (m: string) => toasts.push(m), (k: string) => k);
+    return { list: await fn(true), toasts };
+  };
+  const a = [{ email: 'a@x', current: true }, { email: 'b@x', current: false, canSwitch: false, state: 'expired' }];
+  assert.deepEqual((await run({ accounts: a, error: '' })).list, a, 'the new shape');
+  assert.deepEqual((await run(a)).list, a, 'the older array');
+  const bad = await run({ accounts: [], error: 'list rejected' });
+  assert.deepEqual([bad.list, bad.toasts.length], [[], 1], 'a rejected list is an error, said once');
+  assert.match(fnBody(skin, 'chatSkinAccountMenu'), /a\.canSwitch === false/, 'an account that cannot be taken says why');
+});
