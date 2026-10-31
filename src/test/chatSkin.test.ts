@@ -16,6 +16,8 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as ts from 'typescript';
 import { detectTuiPrompt, createPromptMonitor } from '../core/tuiPrompt';
 import { normalizeClaudeView } from '../main/aios';
@@ -3545,4 +3547,25 @@ test('review fixes: no mode press into a dialog, no agents menu over one, no sen
   assert.ok(send.indexOf('chatSkinPromptEmpty(p)') < send.indexOf('chatSkinSubmit('), 'a terminal draft stops it too');
   assert.match(fnBody(skin, 'chatSkinLayout'), /gen\.hidden = true/, 'a dialog closes the bar menus');
   assert.equal(skin.includes('function chatSkinBgOpen('), false, 'the dead blind ↓+Enter path is gone');
+});
+
+test('the allowed-path check sees through symlinks both ways: ~/aios/vault/… opens when the root is stored as ~/obsidian (0.14.0, operator-reported)', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  const fn = /function inAllowed\(abs: string\): boolean \{[\s\S]*?\n\}/.exec(main)?.[0] ?? '';
+  assert.match(fn, /const forms = \[\.\.\.new Set\(\[norm\(abs\), norm\(real\(abs\)\)\]\)\]/, 'the path as given and resolved');
+  assert.match(fn, /\[norm\(r\), norm\(real\(r\)\)\]/, 'each root as stored and resolved');
+  // run it: a root stored resolved, a path through a link to it
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'allowed-')));
+  try {
+    fs.mkdirSync(path.join(root, 'real', 'vault'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'real', 'vault', 'note.md'), 'x');
+    fs.symlinkSync(path.join(root, 'real'), path.join(root, 'link'));
+    fs.mkdirSync(path.join(root, 'elsewhere'));
+    const body = fn.replace(/^function inAllowed\(abs: string\): boolean \{/, '').replace(/\}$/, '').replace(/: string/g, '');
+    const inAllowed = new Function('fs', 'path', 'droppedGrants', 'allowedRoots', 'process', 'abs', body);
+    const roots = () => [path.join(root, 'real')];
+    assert.equal(inAllowed(fs, path, new Set(), roots, process, path.join(root, 'link', 'vault', 'note.md')), true, 'through the link');
+    assert.equal(inAllowed(fs, path, new Set(), roots, process, path.join(root, 'real', 'vault', 'note.md')), true, 'directly');
+    assert.equal(inAllowed(fs, path, new Set(), roots, process, path.join(root, 'elsewhere')), false, 'control: outside stays outside');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

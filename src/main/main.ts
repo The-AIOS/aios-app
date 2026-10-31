@@ -1185,8 +1185,17 @@ function inAllowed(abs: string): boolean {
      (2) CASE — the FS is case-insensitive and realpathSync can canonicalize drive-letter/segment
      casing differently than the typed path. Both only on win32; POSIX comparison is unchanged. */
   const norm = (p: string): string => (process.platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p);
-  const a = norm(abs);
-  return allowedRoots().some((r) => { const rr = norm(r); return a === rr || a.startsWith(rr + '/'); });
+  /* (3) SYMLINKS (0.14.0, operator-reported): the framework root is stored resolved (`~/aios` → `~/obsidian`), while
+     Claude prints paths through the link, so ⌘-click on `~/aios/vault/…` failed the text comparison and only revealed
+     the file in Finder. A path is now inside a root when it is, written EITHER way: as given or resolved, against the root
+     as stored or resolved. Resolved-only would lock out folders inside the vault that are themselves links elsewhere
+     (company mounts), which open today. */
+  const real = (p: string): string => {
+    try { return fs.realpathSync(p); } catch { /* not there yet */ }
+    try { return path.join(fs.realpathSync(path.dirname(p)), path.basename(p)); } catch { return p; }
+  };
+  const forms = [...new Set([norm(abs), norm(real(abs))])];
+  return allowedRoots().some((r) => [...new Set([norm(r), norm(real(r))])].some((rr) => forms.some((a) => a === rr || a.startsWith(rr + '/'))));
 }
 
 /* ── Claude config live watch ──────────────────────────────────────────────────
