@@ -5468,6 +5468,7 @@ async function openViewer(p) {
   function paint() {
     body.replaceChildren();
     body.classList.toggle('fill', mode === 'rendered' && (HTML_EXT.test(name) || PDF_EXT.test(name)));
+    for (const old of head.querySelectorAll('.chgnav')) old.remove();   // one stepper at most: every switch to Edit added another (0.14.0 round)
     if (mode === 'source') {
       // source IS the editor — now syntax-highlighted (code-editor style): autosaves
       // 700ms after you stop typing, on blur, and on ⌘S.
@@ -8212,7 +8213,7 @@ function chatSkinBuild(id, p) {
   const bgSeg = el('button', 'cb-mode cb-bg');
   bgSeg.type = 'button';
   bgSeg.hidden = true;
-  bgSeg.append(csIcon('term', 12), el('span', 'cb-v', ''));
+  bgSeg.append(el('span', 'cb-bgico'), el('span', 'cb-v', ''), csIcon('chevUpDown', 12));   // the icon: a robot for agents, a terminal for shells (chatSkinBgPaint)
   idBox.append(modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
@@ -8411,13 +8412,12 @@ function chatSkinBuild(id, p) {
   slRow.title = t('chat.sl.tip');
   meta.appendChild(slRow);
 
-  /* Running subagents, as the terminal lists them under its prompt ("◯ general-purpose  Summarize …  14s · ↓ 77k tokens").
-     Painted by chatSkinBgPaint; a click opens /tasks. */
-  const agentsEl = el('div', 'cs-agents');
-  agentsEl.hidden = true;
-  compose.append(jumpBtn, agentsEl, wrap, meta);
-
-  root.append(log, alertEl, compose);
+  compose.append(jumpBtn, wrap, meta);
+  /* While the hidden terminal shows a subagent, the chat steps aside for it (the strip layout): this bar stays above the
+     terminal, says who the keyboard now talks to, and offers the way back. Painted by chatSkinBgPaint. */
+  const agentBar = el('div', 'cs-agentbar');
+  agentBar.hidden = true;
+  root.append(log, alertEl, agentBar, compose);
   p.el.appendChild(root);
 
   const cs = {
@@ -8662,7 +8662,8 @@ function chatSkinLayout(p) {
   if (!cs) return;
   const on = p.view === 'chat';
   p.el.classList.toggle('view-chat', on);
-  p.el.classList.toggle('cs-strip', on && chatSkinStrip(cs));
+  p.el.classList.toggle('cs-strip', on && (chatSkinStrip(cs) || !!cs.agentViewing));   // a subagent on screen: its live terminal, like a dialog's
+  p.el.classList.toggle('cs-agentshow', on && !!cs.agentViewing);
   cs.root.hidden = !on;
   if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
   cs.input.disabled = !!cs.promptKind || !!p.exited;
@@ -8969,34 +8970,25 @@ function chatSkinBgPaint(cs, rowsText) {
   if (agents.length) items.push(t(agents.length === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: agents.length }));
   cs.bgCount = items.reduce((a, x) => a + (Number(x.split(' ')[0]) || 0), 0) || agents.length;
   cs.bgAgents = agents.length;
-  const list = cs.root.querySelector('.cs-agents');
-  if (list) {
-    const rows = agentRows.length > 1 ? agentRows : [];   // "main" alone is no list
-    const sig = JSON.stringify(rows) + cs.agentViewing;
-    if (list.dataset.sig !== sig) {
-      list.dataset.sig = sig;
-      const nodes = [];
-      if (cs.agentViewing) {
-        /* The hidden terminal is showing a subagent, and its prompt now talks to it: say so, and offer the way back. */
-        const bar = el('div', 'csa-view');
-        const back = el('button', 'csa-back', t('chat.agents.back'));
-        back.type = 'button';
-        back.addEventListener('click', () => chatSkinAgentView(cs.id, cs.pane, 0));
-        bar.append(el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back);
-        nodes.push(bar);
-      }
-      rows.forEach((r, i) => {
-        const parts = r.rest.split(/\s{2,}/);
-        const row = el('button', 'csa-row' + (r.mark === '⏺' ? ' on' : ''));
-        row.type = 'button';
-        row.append(el('span', 'csa-mark', r.mark), el('span', 'csa-who', r.name), el('span', 'csa-what', parts[0] || ''), el('span', 'csa-meta', parts.slice(1).join('  ')));
-        row.title = r.name === 'main' ? t('chat.agents.mainTip') : t('chat.agents.viewTip', { name: r.name });
-        row.addEventListener('click', () => { if (r.mark !== '⏺') chatSkinAgentView(cs.id, cs.pane, i); });
-        nodes.push(row);
-      });
-      list.replaceChildren(...nodes);
+  const ico = seg.querySelector('.cb-bgico');
+  const kind = agents.length ? 'robot' : 'term';
+  if (ico && ico.dataset && ico.dataset.k !== kind) { ico.dataset.k = kind; ico.replaceChildren(csIcon(kind, 12)); }
+  const bar = cs.root.querySelector('.cs-agentbar');
+  if (bar && bar.dataset.v !== cs.agentViewing) {
+    bar.dataset.v = cs.agentViewing;
+    if (cs.agentViewing) {
+      const back = el('button', 'csa-back', t('chat.agents.back'));
+      back.type = 'button';
+      back.addEventListener('click', () => void chatSkinAgentView(cs.id, cs.pane, 0));
+      bar.replaceChildren(csIcon('robot', 13), el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back);
     }
-    list.hidden = !rows.length;
+    bar.hidden = !cs.agentViewing;
+    /* The layout follows: the subagent's live terminal shows (and takes the keyboard), or the chat comes back. */
+    if (cs.pane) {
+      chatSkinLayout(cs.pane);
+      const p = cs.pane;
+      setTimeout(() => { if (p.term && p.view === 'chat') { repaintTerm(p); if (cs.agentViewing) p.term.focus(); else chatSkinFocus(p); } }, 60);   // no fit() while the skin is up: the strip shows the terminal at its own size
+    }
   }
   seg.hidden = !items.length;
   if (!items.length) return;

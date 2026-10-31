@@ -97,6 +97,11 @@ const CHAT_SHOT_FIXTURE_ARG = process.argv.find((a) => a.startsWith('--chat-shot
    probe line the fixture can print to ask this process for the process-level numbers (see the console-message handler). */
 const CHAT_BENCH = CHAT_SHOT && process.argv.includes('--chat-bench');
 const CHAT_SHOT_SIZE = { width: 1280, height: 860 };   // CSS pixels; the PNG is 2x this (see the scale switch below)
+/* Keep painting when macOS calls the window occluded (0.14.0 round): unfocused on a second screen the chat stopped updating
+   until it was clicked, with backgroundThrottling already off. These two switches stop Chromium backgrounding the renderer
+   and treating an occluded window as hidden. Must be set before `ready`. */
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 let chatShotUserData = '';   // set only when this run had to mint its own userData (the runner normally passes one)
 if (CHAT_SHOT) {
   /* Must be set before `ready`: it fixes the device scale factor for every window, so the

@@ -1242,8 +1242,8 @@ guarded('the status payload is asked for with THIS tab\'s session id, and per-se
 guarded('the status bar is built UNDER the card, and the card holds only the text and send/stop (no chips, no usage row)',
   (src) => {
     const b = fnBody(slice(src), 'chatSkinBuild');
-    return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, agentsEl, wrap, meta\)/.test(b)
-      && /root\.append\(log, alertEl, compose\)/.test(b)   // log, notice, compose block: nothing above the log
+    return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, wrap, meta\)/.test(b)
+      && /root\.append\(log, alertEl, agentBar, compose\)/.test(b)   // log, notice, compose block: nothing above the log
       && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(keysHint, micBtn, stopBtn, sendBtn\)/.test(b)   // the mic joined send/stop, the keys hint sits beside them (0.14.0 round)
       && !/cc-chip|chat-usage|usageEl|usageVals/.test(slice(src))
       && b.indexOf('wrap.append(slashPop, box)') > 0 && b.indexOf('wrap.append(slashPop, box)') < b.indexOf('compose.append(')
@@ -1260,11 +1260,11 @@ guarded('the pane has no header: no Terminal | Chat switch, no Aa button, no fon
   (src) => {
     const s = slice(src);
     const b = fnBody(s, 'chatSkinBuild');
-    return !HEADER_TRACES.test(s) && /root\.append\(log, alertEl, compose\)/.test(b) && !/\bhead\b/.test(b.replace(/\/\*[\s\S]*?\*\//g, ''))
+    return !HEADER_TRACES.test(s) && /root\.append\(log, alertEl, agentBar, compose\)/.test(b) && !/\bhead\b/.test(b.replace(/\/\*[\s\S]*?\*\//g, ''))
       // the reading settings are not set from the conversation any more: only applied there
       && !/setSetting\('chatFont/.test(s) && /function chatApplyPrefs\(\)/.test(s) && /function chatReadPrefs\(c\)/.test(s);
   },
-  (src) => src.replace('root.append(log, alertEl, compose);', "const head = el('div', 'cs-head');\n  root.append(head, log, alertEl, compose);"));
+  (src) => src.replace('root.append(log, alertEl, agentBar, compose);', "const head = el('div', 'cs-head');\n  root.append(head, log, alertEl, agentBar, compose);"));
 
 test('the stylesheet carries no rule of the old header, and the stylesheet check catches one that comes back', () => {
   assert.doesNotMatch(css, HEADER_TRACES);
@@ -2424,7 +2424,7 @@ test('the layout decides strip or card from ONE rule: a card is drawn, the strip
   assert.equal(strip(), true, 'no options: the strip');
   h.cs.promptKind = null;
   assert.equal(strip(), false, 'no dialog: neither');
-  assert.match(fnBody(skin, 'chatSkinLayout'), /classList\.toggle\('cs-strip', on && chatSkinStrip\(cs\)\)/);
+  assert.match(fnBody(skin, 'chatSkinLayout'), /classList\.toggle\('cs-strip', on && \(chatSkinStrip\(cs\) \|\| !!cs\.agentViewing\)\)/);   // a subagent on screen uses the same strip
   assert.match(fnBody(skin, 'chatSkinPaintAlert'), /chatSkinCardOn\(cs\) \? '' :/, 'a card is its own notice');
 });
 

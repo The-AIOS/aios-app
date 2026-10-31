@@ -2187,9 +2187,6 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cc-name[hidden] { display: none; }
 .cc-keys { align-self: center; margin-right: 4px; color: var(--faint); font-size: 10.5px; letter-spacing: .01em; white-space: nowrap; }
 .cc-keys[hidden], .cc-box:not(:focus-within) .cc-keys, .cc-box.has-text .cc-keys { display: none; }
-/* running subagents, above the card, as the terminal lists them under its prompt */
-.cs-agents { display: flex; flex-direction: column; gap: 1px; margin: 0 6px 6px; }
-.cs-agents[hidden] { display: none; }
 .csa-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 3px 10px; border: 0; border-radius: 8px; background: transparent;
            color: var(--subtle); font: 11.5px/1.4 var(--mono, ui-monospace, Menlo, monospace); text-align: left; cursor: pointer; }
 .csa-row:hover { background: var(--chat-row-hover); }
@@ -2200,6 +2197,12 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .csa-meta { flex: 0 0 auto; color: var(--faint); }
 .csa-row.on { background: var(--chat-row-hover); cursor: default; }
 .csa-row.on .csa-mark { color: var(--chat-ok-ink); }
+.cs-agentbar { display: none; }
+.pane.cs-agentshow > .chatskin .cs-agentbar { display: flex; align-items: center; gap: 10px; margin: 6px 12px 8px; padding: 7px 12px; border-radius: 10px;
+            background: color-mix(in srgb, var(--chat-link) 12%, var(--surface)); color: var(--ink); font-size: 12.5px; }
+.cs-agentbar .cs-ico { color: var(--chat-link); }
+.cb-bgico { display: inline-flex; }
+.cb-bgico .cs-ico { color: var(--faint); }
 .csa-view { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; padding: 6px 10px; border-radius: 10px;
             background: color-mix(in srgb, var(--chat-link) 10%, var(--surface)); color: var(--ink); font-size: 12px; }
 .csa-viewing { flex: 1 1 auto; min-width: 0; }
