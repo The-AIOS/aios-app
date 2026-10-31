@@ -657,6 +657,8 @@
   "layout.facing": "Opostos",
   "layout.zen": "Zen",
   "layout.terminalsBelow": "Terminais abaixo",
+  "layout.terminalsLeft": "Terminais à esquerda",
+  "layout.terminalsRight": "Terminais à direita",
   "menu.toggleTerminals": "Mostrar ou ocultar os terminais",
   "menu.help": "Ajuda",
   "menu.commons": "The AIOS Commons (the-aios.org)",

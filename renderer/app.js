@@ -513,7 +513,12 @@ let xw = layoutState.xw || 230;
    who has never dragged it, not a preference override. */
 const PW_MIN = 280, PW_MAX = 560;
 let pw = layoutState.pw || PW_MIN;
-let th = layoutState.th || 0.38; // terminal zone fraction in split mode
+let th = layoutState.th || 0.38; // terminal zone fraction in split mode (of the height below, of the width left/right)
+/* Where the terminal zone sits relative to the created view: below (the DOM order), or LEFT/RIGHT
+   of it. Like the docks, position is CSS `order` + flex-direction on #work, never a moved node:
+   reparenting #termzone would tear down every live terminal in it. */
+const TERM_POS = ['below', 'left', 'right'];
+let termPos = TERM_POS.includes(layoutState.termPos) ? layoutState.termPos : 'below';
 // which panel layout to restore when leaving Zen — persisted, so a restart in Zen
 // still remembers you were an IDE user
 let lastPanelPreset = (() => {
@@ -605,7 +610,7 @@ function setTermRenderer(v) {
 }
 
 function saveLayout() {
-  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
+  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, termPos, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
 }
 
 /* Every explicit layout choice (the title-bar menu, ⌘1–4) goes through here.
@@ -655,6 +660,7 @@ function applyLayout() {
 }
 
 function applySplit() {
+  document.getElementById('work').dataset.termpos = termPos;   // the stylesheet reads it: row direction + order, no moved nodes
   const tz = document.getElementById('termzone');
   const vz = document.getElementById('viewzone');
   const hs = document.getElementById('hsplit');
@@ -674,7 +680,10 @@ function applySplit() {
   hs.style.display = (show && showMain) ? '' : 'none';
   // Sole survivor takes the whole work area — otherwise a hidden editor leaves th's
   // remainder as dead space below the terminal.
-  tz.style.height = showMain ? Math.round(th * 100) + '%' : '100%';
+  // the zone's size is its HEIGHT below the view and its WIDTH beside it; the other axis is the flex row's own
+  const size = showMain ? Math.round(th * 100) + '%' : '100%';
+  tz.style.height = termPos === 'below' ? size : '';
+  tz.style.width = termPos === 'below' ? '' : size;
   // re-home every pane + tab to its zone
   for (const [id, p] of panes) homePane(id, p);
   ensureActive('main');
@@ -4337,7 +4346,15 @@ const TH_DEFAULT = 0.38, TH_MAX = 0.93, TH_MIN = 0.07;
    is a preference and gets left alone, and this never touches a zone that is already visible. */
 function revealZone(z) {
   if (!split) return;
-  const squeezed = z === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
+  let squeezed = z === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
+  /* Beside the view the zones share the WIDTH, which the side panel also takes from: a drag to
+     80% left the editor ~160 px wide and a file opened there read as not opening (operator test).
+     So beside, a zone narrower than one pane's floor counts as squeezed: MEASURED, like homePane. */
+  if (!squeezed && termPos !== 'below') {
+    const zEl = document.getElementById(z === 'term' ? 'termzone' : 'viewzone');
+    const w = zEl ? zEl.getBoundingClientRect().width : 0;
+    squeezed = w > 0 && w < minPaneFor(z);
+  }
   if (!squeezed) return;
   th = TH_DEFAULT;
   applySplit(); saveLayout(); fitTerms();
@@ -4350,6 +4367,7 @@ function revealZone(z) {
    operator later squeezes the dock themselves, that is their call and we don't fight it. */
 const MIN_TERM_ROWS = 18, TH_ROOM = 0.62;
 function ensureTermRoom(id, p) {
+  if (termPos !== 'below') return;                          // rows are only short when the dock is a strip under the view
   if (!split || zoneOf(p) !== 'term' || !p.term) return;
   const tz = document.getElementById('termzone');
   if (!tz || !tz.getBoundingClientRect().height) return;   // dock not laid out yet
@@ -6454,12 +6472,17 @@ document.getElementById('railLayout').addEventListener('click', (e) => {
     menu.appendChild(b);
   }
   const sep = document.createElement('div'); sep.className = 'lsep'; menu.appendChild(sep);
-  const sp = document.createElement('button');
-  // the check goes on the RIGHT, exactly like a selected layout — terminals-below is on
-  // by default, so it should read as "selected", not as a differently-marked option
-  sp.textContent = t('layout.terminalsBelow') + (split ? '  ✓' : '');
-  sp.addEventListener('click', () => { split = !split; applyLayout(); menu.remove(); });
-  menu.appendChild(sp);
+  // Terminals: below / left / right. The check goes on the RIGHT, exactly like a selected layout —
+  // terminals-below is on by default, so it should read as "selected". Picking the side that is
+  // already selected hides the terminals again (what the single "Terminals below" item always did).
+  for (const pos of TERM_POS) {
+    const sp = document.createElement('button');
+    const on = split && termPos === pos;
+    sp.textContent = t('layout.terminals' + pos[0].toUpperCase() + pos.slice(1)) + (on ? '  ✓' : '');
+    sp.classList.toggle('on', on);
+    sp.addEventListener('click', () => { if (on) split = false; else { termPos = pos; split = true; } applyLayout(); menu.remove(); });
+    menu.appendChild(sp);
+  }
   document.body.appendChild(menu);
   anchorMenu(menu, document.getElementById('railLayout').getBoundingClientRect(), { gap: 6, width: 220 });
   setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
@@ -6561,8 +6584,13 @@ dragX(document.getElementById('psplit'), (ev) => {
 });
 dragX(document.getElementById('hsplit'), (ev) => {
   const wr = document.getElementById('work').getBoundingClientRect();
-  th = Math.max(0.15, Math.min(0.8, (wr.bottom - ev.clientY) / wr.height));
-  document.getElementById('termzone').style.height = Math.round(th * 100) + '%';
+  // POSITION-based, so side-dependent like the docks: the terminal zone grows as the pointer
+  // moves AWAY from its own edge — up when it is below, right when it is left, left when it is right.
+  const raw = termPos === 'left' ? (ev.clientX - wr.left) / wr.width
+    : termPos === 'right' ? (wr.right - ev.clientX) / wr.width
+    : (wr.bottom - ev.clientY) / wr.height;
+  th = Math.max(0.15, Math.min(0.8, raw));
+  document.getElementById('termzone').style[termPos === 'below' ? 'height' : 'width'] = Math.round(th * 100) + '%';
 });
 
 /* ── shell intents ────────────────────────────────────────────────────────── */
@@ -6785,6 +6813,7 @@ window.glassShell.onIntent(async (m) => {
       return;
     case 'layout':
       if (m.toggleSplit) split = !split;
+      if (TERM_POS.includes(m.termPos)) { termPos = m.termPos; split = true; }   // validated like the preset below
       // remember which panel layout you came from, so Zen → back lands on IDE if that's
       // where you were (a hardcoded 'Full' silently demoted IDE users on every toggle)
       if (m.togglePanel) { if (!hasPanel()) { preset = lastPanelPreset; pOn = true; } else pOn = !pOn; }
