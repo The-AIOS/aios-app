@@ -1360,9 +1360,13 @@ export type ClaudeView = 'chat' | 'terminal';
  * The old key is never rewritten or deleted here: the first save of `claudeView` supersedes it,
  * and a downgrade to an older app still finds the value it knows.
  */
-export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault?: unknown }): ClaudeView {
+export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault?: unknown }, fresh = false): ClaudeView {
   if (raw.claudeView === 'chat' || raw.claudeView === 'terminal') return raw.claudeView;
-  return raw.chatViewDefault === true ? 'chat' : 'terminal';
+  if (raw.chatViewDefault === true) return 'chat';
+  /* A newcomer (no settings file yet) starts in chat (0.14.0, operator's call); an operator with settings keeps the terminal
+     they have been using until they switch. Claude Code's own first run (login, theme) still shows in the terminal: the
+     renderer hands a pane to the terminal while those screens are up (chatSkinFirstRun). */
+  return fresh ? 'chat' : 'terminal';
 }
 
 export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
@@ -1375,8 +1379,9 @@ const DEFAULT_IGNORE_PATHS = ['_archive', '_workspaces'];
 export function shellSettings(): ShellSettings {
   const r = frameworkRoot();
   let raw: Partial<ShellSettings> = {};
+  let fresh = true;   // no settings file: a newcomer (normalizeClaudeView)
   if (r) {
-    try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); } catch { /* defaults */ }
+    try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); fresh = false; } catch { fresh = !fs.existsSync(path.join(r, '.glass', 'shell.json')); }
   }
   return {
     claudeCmd: typeof raw.claudeCmd === 'string' && raw.claudeCmd.trim() ? raw.claudeCmd.trim() : 'claude',
@@ -1400,7 +1405,7 @@ export function shellSettings(): ShellSettings {
     // conversation unreadable or the composer overflow
     chatFontFamily: typeof raw.chatFontFamily === 'string' ? raw.chatFontFamily.trim().slice(0, 200) : '',
     chatFontSize: Math.min(28, Math.max(10, Number(raw.chatFontSize) || 14)),
-    claudeView: normalizeClaudeView(raw),
+    claudeView: normalizeClaudeView(raw, fresh),
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.
     // Applied as a real zoom factor (crisp text) rather than restyling every rule.
     appFontSize: Math.min(18, Math.max(10, Number(raw.appFontSize) || 13)),

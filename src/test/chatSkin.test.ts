@@ -351,7 +351,7 @@ guarded('a session that BECOMES eligible takes the mode once, on the flip; nothi
   (src) => {
     const tick = fnBody(slice(src), 'chatSkinTick');
     const flip = /if \(ok !== p\.csEligible\) \{[\s\S]*?\n    \}\n/.exec(tick)?.[0] ?? '';
-    return flip.length > 100 && /if \(ok && chatMode === 'chat' && p\.view !== 'chat'\) chatSkinSetView\(id, 'chat'\);/.test(flip)
+    return flip.length > 100 && /if \(ok && chatMode === 'chat' && p\.view !== 'chat' && !p\.firstRunTerm\) chatSkinSetView\(id, 'chat'\);/.test(flip)
       && [...tick.matchAll(/chatSkinSetView\(id, 'chat'\)/g)].length === 1
       && /chatSkinSessionChanged\(id, p\);\n      \/\*/.test(flip) && ![...fnBody(slice(src), 'chatSkinSessionChanged').matchAll(/chatSkinSetView\(id, 'chat'\)/g)].length;
   },
@@ -3457,4 +3457,27 @@ test('the Background panel is read even when its footer wraps ("· Esc" / "to cl
   // control: a reply that merely says "Esc to close" mid-screen is not a panel
   const reply = new Function('chatSkinScreenText', grab('chatSkinPanelOpen') + '; return chatSkinPanelOpen;')(() => ['⏺ Press Esc to close it.', '', '─'.repeat(30), '❯ ', '─'.repeat(30), '  ⏵⏵ auto mode on'].join('\n'));
   assert.equal(reply({}), false);
+});
+
+test('Claude Code\'s first run shows in the terminal, then the pane returns to chat once its prompt box is up', () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
+  const src = 'const CS_FIRST_RUN = ' + /const CS_FIRST_RUN = (\/.*\/);/.exec(skin)![1] + ';\n' + grab('chatSkinFirstRun') + grab('chatSkinAgentCursor');
+  let screen = '';
+  const views: string[] = [];
+  const run = new Function('chatMode', 'chatSkinEligible', 'chatSkinScreenText', 'chatSkinSetView', src + '; return chatSkinFirstRun;')(
+    'chat', () => true, () => screen, (_id: number, v: string) => { views.push(v); p.view = v === 'chat' ? 'chat' : 'term'; });
+  const p: Record<string, unknown> = { view: 'chat' };
+  screen = [' Welcome to Claude Code', '', ' Select login method:', ' ❯ 1. Claude account with subscription', '   2. Anthropic Console account'].join('\n');
+  run(1, p);
+  assert.deepEqual(views, ['term'], 'the login menu: the terminal');
+  screen = [' Browser didn\'t open? Use the url below to sign in', '', ' Paste code here if prompted >'].join('\n');
+  run(1, p);
+  assert.deepEqual(views, ['term'], 'still the terminal while the code is pasted');
+  screen = ['─'.repeat(40) + ' main ─', '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on'].join('\n');
+  run(1, p);
+  assert.deepEqual(views, ['term', 'chat'], 'the prompt box is up: back to chat');
+  // control: an ordinary session that never showed a first-run screen is left alone
+  const q: Record<string, unknown> = { view: 'chat' };
+  run(2, q);
+  assert.equal(views.length, 2);
 });

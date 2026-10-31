@@ -395,10 +395,10 @@ test('claudeView migration: negative controls — a source that forgets the old 
     const f = compileNormalizer(mutate);
     return MIGRATION.some(([, raw, want]) => f(raw) !== want);
   };
-  assert.ok(fails((x) => x.replace("raw.chatViewDefault === true ? 'chat' : 'terminal'", "'terminal'")), 'control: the old checkbox is ignored');
-  assert.ok(fails((x) => x.replace("raw.chatViewDefault === true ? 'chat' : 'terminal'", "raw.chatViewDefault ? 'chat' : 'terminal'")), 'control: any truthy old value counts');
+  assert.ok(fails((x) => x.replace("  if (raw.chatViewDefault === true) return 'chat';\n", '')), 'control: the old checkbox is ignored');
+  assert.ok(fails((x) => x.replace("if (raw.chatViewDefault === true) return 'chat';", "if (raw.chatViewDefault) return 'chat';")), 'control: any truthy old value counts');
   assert.ok(fails((x) => x.replace("  if (raw.claudeView === 'chat' || raw.claudeView === 'terminal') return raw.claudeView;\n", '')), 'control: the explicit value no longer wins');
-  assert.ok(fails((x) => x.replace("return raw.chatViewDefault === true ? 'chat' : 'terminal';", "return raw.chatViewDefault === false ? 'terminal' : 'chat';")), 'control: absent means chat');
+  assert.ok(fails((x) => x.replace("return fresh ? 'chat' : 'terminal';", "return 'chat';")), 'control: absent means chat even for an operator with settings');
 });
 test('shellSettings reads claudeView from the stored file, migrating the old key, and the shell:setSetting door validates it', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-claudeview-'));
@@ -413,7 +413,8 @@ test('shellSettings reads claudeView from the stored file, migrating the old key
       if (stored) fs.writeFileSync(path.join(fw, '.glass', 'shell.json'), JSON.stringify(stored)); else fs.rmSync(path.join(fw, '.glass', 'shell.json'), { force: true });
       return shellSettings().claudeView;
     };
-    assert.equal(viewFor(null), 'terminal');
+    assert.equal(viewFor(null), 'chat', 'a newcomer (no settings file) starts in chat (0.14.0)');
+    assert.equal(viewFor({ theme: 'dark' }), 'terminal', 'an operator with settings keeps the terminal until they switch');
     assert.equal(viewFor({ chatViewDefault: true }), 'chat');
     assert.equal(viewFor({ chatViewDefault: false }), 'terminal');
     assert.equal(viewFor({ claudeView: 'terminal', chatViewDefault: true }), 'terminal');
@@ -430,7 +431,7 @@ test('shellSettings reads claudeView from the stored file, migrating the old key
   assert.doesNotMatch(door.split('=> {')[0], /chatViewDefault/);
   assert.match(door, /if \(key === 'claudeView' && value !== 'chat' && value !== 'terminal'\) return aios\.shellSettings\(\);\n\s+aios\.setShellSetting\(key, value\);/);
   assert.match(aios, /claudeView: ClaudeView;/);
-  assert.match(aios, /claudeView: normalizeClaudeView\(raw\)/);
+  assert.match(aios, /claudeView: normalizeClaudeView\(raw, fresh\)/);
   const guard = /if \(key === 'claudeView' && value !== 'chat' && value !== 'terminal'\) return aios\.shellSettings\(\);\n\s+aios\.setShellSetting\(key, value\);/;
   assert.doesNotMatch(door.replace("if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();\n", ''), guard, 'control: without the guard line the check fails');
 });

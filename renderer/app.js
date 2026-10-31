@@ -10543,11 +10543,29 @@ function chatSkinRecheckId(id, p) {
 /* One timer for the whole window, doing nothing unless a pane is in chat view. It owns the things
    no event announces: the working indicator going quiet, the stalled-transcript safety net, and a
    gentle refresh of the global usage numbers. */
+/* Claude Code's FIRST RUN (login method, browser sign-in with a code to paste, text style, security notes) is the terminal's:
+   the "paste the code" step is not a menu a card can draw, and a newcomer waiting on a chat that shows nothing would be
+   stuck. While one of these screens is up and Claude Code's prompt box is not, the pane shows the terminal; once the prompt
+   box appears, it goes back to chat. Phrases checked against the installed 2.1.314. */
+const CS_FIRST_RUN = /Select login method|Choose the text style|Paste code here|Welcome to Claude Code|Let's get started|Security notes|Browser didn't open/;
+function chatSkinFirstRun(id, p) {
+  if (chatMode !== 'chat' || !chatSkinEligible(p)) return;
+  let text = '';
+  try { text = chatSkinScreenText(p); } catch { return; }
+  const ready = chatSkinAgentCursor(p) !== null;   // the prompt box with its status line: Claude Code is past its first run
+  if (!ready && CS_FIRST_RUN.test(text)) {
+    if (p.view === 'chat') { p.firstRunTerm = true; chatSkinSetView(id, 'term'); }
+  } else if (p.firstRunTerm && ready) {
+    p.firstRunTerm = false;
+    if (p.view !== 'chat') chatSkinSetView(id, 'chat');
+  }
+}
 function chatSkinTick() {
   if (document.hidden) return;
   const now = Date.now();
   for (const [id, p] of panes) {
     if (p.kind !== 'term') continue;
+    chatSkinFirstRun(id, p);
     /* Reconcile sessions learned by a path that does not call chatSkinSessionChanged itself
        (adoptUnidentified, or an assignment added later): idempotent, no DOM work when nothing moved. */
     const ok = chatSkinEligible(p);
@@ -10556,7 +10574,7 @@ function chatSkinTick() {
       chatSkinSessionChanged(id, p);
       /* Claude started inside a terminal that was a plain shell until now (or came back after an ending): it takes the mode the
          operator chose, since there is no tab switch left to reach for. Only on the flip, so a "Show terminal" is never undone. */
-      if (ok && chatMode === 'chat' && p.view !== 'chat') chatSkinSetView(id, 'chat');
+      if (ok && chatMode === 'chat' && p.view !== 'chat' && !p.firstRunTerm) chatSkinSetView(id, 'chat');
     }
     else if (p.view === 'chat') chatSkinSync(id, p);
     const cs = p.chatSkin;
