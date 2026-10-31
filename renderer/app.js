@@ -8671,6 +8671,8 @@ function chatSkinLayout(p) {
   if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
   cs.input.disabled = !!cs.promptKind || !!p.exited;
   if (!on || cs.promptKind) chatSkinSlashClose(cs);   // a popup left open over a hidden or blocked composer would be a ghost
+  const gen = cs.wrap && cs.wrap.querySelector('.cb-pop.cb-gen');
+  if (gen && !gen.hidden && (!on || cs.promptKind)) { gen.hidden = true; if (gen.off) gen.off(); }   // so is a model/mode/agents menu (review: a pick could land in the dialog)
   chatSkinCardPaint(p);
   chatSkinControls(p);
   chatSkinPaintAlert(p);
@@ -9067,6 +9069,7 @@ function chatSkinTasksPanel(p) {
 async function chatSkinTasksOpen(id, p, target) {
   const cs = p.chatSkin;
   if (panes.get(id) !== p || p.exited || !cs || cs.agentBusy) return;
+  if (cs.promptKind || chatSkinWorking(p)) { toast(t('chat.agents.busy')); return; }
   cs.agentBusy = true;
   const alive = () => panes.get(id) === p && !p.exited;
   const press = async (k) => { if (!alive()) return false; window.glassShell.ptyWrite(id, k); await new Promise((r) => setTimeout(r, 220)); return alive(); };
@@ -9171,7 +9174,9 @@ function chatSkinFooterFocus(p) {
       const line = b.getLine(y);
       const s = line ? line.translateToString(true) : '';
       if (!/⏵|·\s*\d+ [a-z]/.test(s)) continue;
-      for (let x = 0; x < s.length; x++) { line.getCell(x, c); if (c.isInverse() && (c.getChars() || '').trim()) return true; }
+      let inv = '';
+      for (let x = 0; x < s.length; x++) { line.getCell(x, c); if (c.isInverse()) inv += c.getChars() || ''; }
+      if (/\d+\s*[a-z]/i.test(inv)) return true;   // a highlighted item like "2 shells", never any inverse cell (a cursor, a badge: review)
     }
   } catch { /* unreadable */ }
   return false;
@@ -9183,29 +9188,40 @@ async function chatSkinFooterRelease(id, p, closePanel = true) {
   const alive = () => panes.get(id) === p && !p.exited;
   const esc = '\x1b';   // one Esc closes a panel
   if (closePanel && chatSkinPanelOpen(p) && !chatSkinWorking(p) && alive()) { window.glassShell.ptyWrite(id, esc); await new Promise((r) => setTimeout(r, 300)); }   // never while Claude works: an Esc there interrupts
+  let still = 0;
   for (let n = 0; n < 25 && alive() && !chatSkinPanelOpen(p) && chatSkinFooterFocus(p); n++) {
+    const before = String(chatSkinAgentCursor(p));
     window.glassShell.ptyWrite(id, '\x1b[A');
     await new Promise((r) => setTimeout(r, 220));
+    if (String(chatSkinAgentCursor(p)) === before && chatSkinFooterFocus(p) && ++still >= 2) break;   // nothing moved twice: stop, never keep pressing blind (review)
   }
 }
 /* Whether Claude Code's prompt line holds nothing typed: its greyed suggestion (dim cells) does not count. */
 function chatSkinPromptEmpty(p) {
+  /* Only the LIVE prompt box: the rows between its top rule and its bottom rule, the first starting with ❯ (review: the last
+     ❯ anywhere could be a stale row above a dialog, read as an empty prompt). No box on screen → not empty. */
   try {
     const b = p.term.buffer.active;
     const c = b.getNullCell();
-    for (let y = b.length - 1; y >= 0; y--) {
+    const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+    let bottom = -1;
+    for (let y = b.length - 1; y >= Math.max(0, b.length - 40); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    if (bottom < 1) return false;
+    let top = bottom - 1;
+    while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+    if (!/^❯/.test(text(top))) return false;
+    for (let y = top; y < bottom; y++) {
       const line = b.getLine(y);
-      if (!line || !/^❯/.test(line.translateToString(true))) continue;
-      for (let x = 2; x < line.length; x++) { line.getCell(x, c); const ch = c.getChars(); if (ch && ch.trim() && !c.isDim()) return false; }
-      return true;
+      for (let x = y === top ? 2 : 0; x < line.length; x++) { line.getCell(x, c); const ch = c.getChars(); if (ch && ch.trim() && !c.isDim()) return false; }
     }
-  } catch { /* unreadable: treat as not empty */ }
-  return false;
+    return true;
+  } catch { return false; }   // unreadable: treat as not empty
 }
 /* The "1 agent" chip opens a menu like the model's: main and each subagent, the one on screen ticked, and the full list
    (/tasks) apart. Shells alone keep the terminal's own panel. */
 function chatSkinBgMenu(id, p) {
   const cs = p.chatSkin;
+  if (cs && (cs.promptKind || chatSkinWorking(p))) { toast(t('chat.agents.busy')); return; }   // review: no menu over a dialog or a working turn
   if (!cs) return;
   const rows = cs.agentRows && cs.agentRows.length > 1 ? cs.agentRows : [];
   const shells = cs.bgShells || [];
@@ -9232,16 +9248,6 @@ function chatSkinBgMenu(id, p) {
     chatSkinSetView(id, 'term');
     void chatSkinSettle(p).then(() => chatSkinTasksOpen(id, p, target));
   });
-}
-/* THE background chokepoint, beside chatSkinModeCycle: ↓ then Enter on Claude Code's empty prompt, exactly what the operator
-   presses in the terminal to open "1 shell". The panel arrives as a dialog, and the chat view shows the live strip for it. */
-function chatSkinBgOpen(id, p) {
-  if (panes.get(id) !== p || p.exited || !p.chatSkin || p.chatSkin.promptKind) return;
-  /* Subagents have no footer item to reach with ↓: Claude Code points at /tasks, whose "Background" panel the chat shows as a card. */
-  if (p.chatSkin.bgAgents) { chatSkinSubmit(id, p, '/tasks'); return; }
-  window.glassShell.ptyWrite(id, '\x1b[B');
-  const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
-  setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, enter); }, 150);
 }
 /* THE mode chokepoint, beside chatSkinSendKey and chatSkinVoiceTap: Shift+Tab (ESC [ Z) and nothing else, exactly what the
    operator presses in the terminal. The status line confirms the new mode on the next read. */
@@ -9293,7 +9299,7 @@ async function chatSkinVoice(id, p) {
   const cs = p.chatSkin;
   if (!cs) return;
   if (cs.recording) { chatSkinVoiceTap(id, p); return; }   // tap again: Claude transcribes and sends
-  if (cs.input.value.trim()) { toast(t('chat.voice.notEmpty')); return; }
+  if (cs.input.value.trim() || !chatSkinPromptEmpty(p)) { toast(t('chat.voice.notEmpty')); return; }   // the terminal's own prompt too (review)
   let v = null;
   try { v = await window.glassShell.chatVoice(); } catch { v = null; }
   if (!v || !v.enabled) { toast(t('chat.voice.off')); return; }
@@ -10308,9 +10314,15 @@ function chatSkinSendKey(id, p, key) {
 }
 
 /* ── actions ──────────────────────────────────────────────────────────────── */
-function chatSkinSendNow(id, p) {
+function chatSkinSendNow(id, p, retried) {
   const cs = p.chatSkin;
   if (!cs || p.exited || cs.promptKind) return;
+  /* The hidden terminal must be ready to take a line (review): a panel open over the prompt would read the text as keys (an "x"
+     stops a task), and a draft typed in terminal view would have the message glued onto it. The footer holding the keyboard
+     is handed back first; anything else keeps the message in the box and says why. */
+  if (chatSkinPanelOpen(p) || cs.lostPrompt) { toast(t('chat.send.panel')); return; }
+  if (!retried && chatSkinFooterFocus(p)) { void chatSkinFooterRelease(id, p, false).then(() => chatSkinSendNow(id, p, true)); return; }
+  if (!chatSkinPromptEmpty(p) && chatSkinAgentCursor(p) !== null) { toast(t('chat.send.draft')); return; }
   const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
   if (!text.trim()) return;
   cs.input.value = '';
@@ -10404,6 +10416,9 @@ function chatSkinModeNow(p) {
 /* Shift+Tab until the line says the mode that was chosen, at most one full cycle, reading the screen after each press. */
 async function chatSkinModeTo(id, p, target) {
   for (let i = 0; i < 6; i++) {
+    /* Re-checked before EVERY press (review): a permission dialog that arrives while the menu is open would take Shift+Tab as
+       "allow all edits", and with no prompt box on screen the mode cannot be read, so pressing on would be blind. */
+    if (!p.chatSkin || p.chatSkin.promptKind || chatSkinModeNow(p) === null || chatSkinAgentCursor(p) === null) { toast(t('chat.mode.notAvail', { mode: t('chat.mode.' + target) })); return; }
     if (chatSkinModeNow(p) === target) break;
     chatSkinModeCycle(id, p);
     await new Promise((r) => setTimeout(r, 450));

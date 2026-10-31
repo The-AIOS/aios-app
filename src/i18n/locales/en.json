@@ -1481,6 +1481,8 @@
   "chat.voice.send": "Listening — tap to send, Esc to cancel",
   "chat.voice.notEmpty": "Voice starts on an empty message box. Send or clear what you typed first.",
   "chat.voice.off": "Voice is off in Claude Code. Type /voice in a session to turn it on; it applies to every session.",
+  "chat.send.panel": "A Claude Code panel is open in the terminal. Close it there (Esc), then send.",
+  "chat.send.draft": "Claude Code's own prompt has text typed in the terminal. Send or clear it there first, so your message is not glued to it.",
   "chat.voice.hold": "Claude Code's voice is in hold mode. Type /voice tap in a session to use the mic button; it applies to every session.",
   "chat.acct.tip": "Account {email}. Click to switch.",
   "chat.acct.one": "Account {email}",

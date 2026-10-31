@@ -100,18 +100,15 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     // every direct pty write in the skin is the lone ESC, or one chunk of a dialog key inside the key chokepoint; nothing writes text or a CR
     const tap = fnBody(s, 'chatSkinVoiceTap');   // the voice chokepoint (0.14.0 round): one space, nothing else
     const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
-    const bg = fnBody(s, 'chatSkinBgOpen');   // the background chokepoint (0.14.0 round): ↓ then Enter on the empty prompt, nothing else
     const ag = fnBody(s, 'chatSkinTasksOpen');   // the Background-panel chokepoint (0.14.0 round): arrows only, checked per key, never Enter
     const rel = fnBody(s, 'chatSkinFooterRelease');
     const btm = fnBody(s, 'chatSkinBackToMain');   // back to main: arrows and one Enter, checked per key   // gives the keyboard back: one Esc for an open panel, ↑ only while the footer holds it
-    const bgWrites = [...bg.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').replace(rel, '').replace(btm, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(ag, '').replace(rel, '').replace(btm, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
       && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
       && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
-      && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg)
       && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k'
       && [...ag.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ['k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))   // arrows only: no Enter, no x
       && /now\.cursor !== c \+ step/.test(ag) && /submitToPty\(id, '\/tasks'\)/.test(ag)
@@ -3514,4 +3511,38 @@ test('a reload ends the terminals the old page owned (they ran on with no tab, a
   assert.match(hook, /for \(const id of \[\.\.\.ptys\.keys\(\)\]\)/);
   assert.match(hook, /ptys\.get\(id\)\?\.kill\(\)/);
   assert.match(hook, /ptys\.delete\(id\)/);
+});
+
+test('the mic with voice off in Claude Code: a notice saying how to turn it on, and nothing typed into the session', async () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('async function ' + name), skin.indexOf('\n}\n', skin.indexOf('async function ' + name)) + 2);
+  let termEmpty = true;
+  const run = async (voice: { enabled: boolean; mode?: string } | null, input = '') => {
+    const toasts: string[] = [], writes: string[] = [];
+    const cs = { recording: false, input: { value: input } };
+    const fn = new Function('window', 'toast', 't', 'chatSkinVoiceTap', 'chatSkinVoicePaint', 'chatSkinPromptEmpty', grab('chatSkinVoice') + '; return chatSkinVoice;')(
+      { glassShell: { chatVoice: async () => voice } }, (m: string) => toasts.push(m), (k: string) => k, () => writes.push(' '), () => { /* */ }, () => termEmpty);
+    await fn(1, { chatSkin: cs });
+    return { toasts, writes };
+  };
+  assert.deepEqual(await run({ enabled: false }), { toasts: ['chat.voice.off'], writes: [] }, 'voice off: the notice, no key');
+  assert.deepEqual(await run(null), { toasts: ['chat.voice.off'], writes: [] }, 'unreadable setting: same');
+  assert.deepEqual(await run({ enabled: true, mode: 'hold' }), { toasts: ['chat.voice.hold'], writes: [] }, 'hold mode cannot be driven from a click');
+  assert.deepEqual(await run({ enabled: true, mode: 'tap' }, 'draft'), { toasts: ['chat.voice.notEmpty'], writes: [] }, 'a draft in the box: no tap');
+  termEmpty = false;
+  assert.deepEqual(await run({ enabled: true, mode: 'tap' }), { toasts: ['chat.voice.notEmpty'], writes: [] }, 'a draft in the TERMINAL prompt: no tap (review)');
+  termEmpty = true;
+  assert.deepEqual(await run({ enabled: true, mode: 'tap' }), { toasts: [], writes: [' '] }, 'control: voice on, tap mode, empty box: one space');
+});
+
+test('review fixes: no mode press into a dialog, no agents menu over one, no send into a panel or onto a terminal draft', () => {
+  const to = fnBody(skin, 'chatSkinModeTo');
+  assert.match(to, /p\.chatSkin\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null/, 'checked before every Shift+Tab');
+  assert.ok(to.indexOf('promptKind') < to.indexOf('chatSkinModeCycle'), 'the check comes before the press');
+  assert.match(fnBody(skin, 'chatSkinBgMenu'), /cs\.promptKind \|\| chatSkinWorking\(p\)/);
+  assert.match(fnBody(skin, 'chatSkinTasksOpen'), /cs\.promptKind \|\| chatSkinWorking\(p\)/);
+  const send = fnBody(skin, 'chatSkinSendNow');
+  assert.ok(send.indexOf('chatSkinPanelOpen(p)') > 0 && send.indexOf('chatSkinPanelOpen(p)') < send.indexOf('chatSkinSubmit('), 'a panel stops the send before anything is typed');
+  assert.ok(send.indexOf('chatSkinPromptEmpty(p)') < send.indexOf('chatSkinSubmit('), 'a terminal draft stops it too');
+  assert.match(fnBody(skin, 'chatSkinLayout'), /gen\.hidden = true/, 'a dialog closes the bar menus');
+  assert.equal(skin.includes('function chatSkinBgOpen('), false, 'the dead blind ↓+Enter path is gone');
 });

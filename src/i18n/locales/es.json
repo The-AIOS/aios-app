@@ -1481,6 +1481,8 @@
   "chat.voice.send": "Escuchando — toca para enviar, Esc para cancelar",
   "chat.voice.notEmpty": "La voz empieza con el cuadro de mensaje vacío. Envía o borra lo que escribiste primero.",
   "chat.voice.off": "La voz está apagada en Claude Code. Escribe /voice en una sesión para encenderla; aplica a todas las sesiones.",
+  "chat.send.panel": "Hay un panel de Claude Code abierto en la terminal. Ciérralo ahí (Esc) y luego envía.",
+  "chat.send.draft": "El prompt de Claude Code tiene texto escrito en la terminal. Envíalo o bórralo ahí primero, para que tu mensaje no se pegue a él.",
   "chat.voice.hold": "La voz de Claude Code está en modo mantener. Escribe /voice tap en una sesión para usar el botón del micrófono; aplica a todas las sesiones.",
   "chat.acct.tip": "Cuenta {email}. Haz clic para cambiar.",
   "chat.acct.one": "Cuenta {email}",

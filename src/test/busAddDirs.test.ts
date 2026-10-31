@@ -191,6 +191,8 @@ test('issue 87 addDirs: any folder inside home (the bus form of spawn --add-dir)
     assert.match(err(path.join(fw, 'vault')), /^addDirs\[0\] '.*' is not allowed — it is the AIOS folder or inside it/, 'a planted vault subfolder');
     assert.match(err(fw), /AIOS folder or inside it/);
     assert.match(err(dot), /hidden folder/);
+    fs.mkdirSync(path.join(s.home, 'Library', 'LaunchAgents'), { recursive: true });
+    assert.match(err(path.join(s.home, 'Library', 'LaunchAgents')), /~\/Library/, 'review: login items are not a work folder');
     const nested = { framework: path.join(code, 'aios') };
     fs.mkdirSync(nested.framework, { recursive: true });
     assert.match((resolveBusAddDirs([path.join(s.home, 'code')], s.home, 'darwin', nested) as { error?: string }).error ?? '', /contains the AIOS folder/, 'a folder around the AIOS folder');

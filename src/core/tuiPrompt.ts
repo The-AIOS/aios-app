@@ -349,7 +349,7 @@ export function detectTuiPrompt(screenText: string): TuiPrompt | null {
 
   // 2. not a menu, but still waiting on a keypress — only trusted on the very last lines
   const endText = lines.slice(-2).join('\n');
-  if (PANEL.test(lines[n - 1])) {
+  if (PANEL.test(lines[n - 1]) || PANEL.test(lines.slice(-2).join(' '))) {   // a narrow pane wraps the footer ("… x to stop · Esc" / "to close")
     const title = lines.slice(Math.max(0, n - 30), n - 1).reverse().find((l) => PANEL_TITLE.test(l));
     return { kind: 'other', hint: clip(title ?? lines[n - 1]) };
   }

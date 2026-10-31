@@ -381,3 +381,9 @@ test('Claude Code\'s own background panel ("Shell details" … "x to stop") is a
   // control: the same words in Claude's prose higher up the screen are not a live panel
   assert.equal(detectTuiPrompt(['Press x to stop it, Esc/Enter/Space to close.', '', '─'.repeat(40), '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on · 1 shell'].join('\n')), null);
 });
+
+test('the Background panel is a prompt even when its footer wraps in a narrow pane (review)', () => {
+  const screen = ['   Background', '   1 active shell', '     Shells (1)', '   ❯ ⏺ sleep 600   running', '',
+    '   ↑/↓ to select · Enter to view · f to foreground · x to stop · ctrl+x ctrl+k to stop all agents · Esc', '   to close'].join('\n');
+  assert.equal(detectTuiPrompt(screen)?.kind, 'other');
+});

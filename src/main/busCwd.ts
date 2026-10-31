@@ -61,6 +61,7 @@ function placeProblem(dir: string, home: string, roots: BusRoots, start: boolean
   if (!h) return 'the home directory could not be resolved';
   if (d === h) return 'it is the home folder itself';
   if (d.slice(h.length + 1).split('/').some((c) => c.startsWith('.'))) return 'it is inside a hidden folder (a name starting with a dot), where settings and keys live';
+  if (/^(library|appdata)(\/|$)/i.test(d.slice(h.length + 1))) return 'it is inside ~/Library (or AppData), where apps keep their data and login items';   // review: ~/Library/LaunchAgents
   if (fw && (d === fw || d.startsWith(fw + '/'))) return 'it is the AIOS folder or inside it, which a bus session already starts in';
   if (fw && fw.startsWith(d + '/')) return 'it contains the AIOS folder, which would bring the vault back in through a side door';   // security review
   return '';
