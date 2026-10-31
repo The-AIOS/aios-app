@@ -7,6 +7,7 @@ import { createPromptMonitor, type PromptMonitor, type TuiPrompt } from '../core
 import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker } from '../core/screenStream';
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
+import { mentionAt, rankMentions } from '../core/fileMention';
 import { listSlashCommands } from './slashCommandsIo';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
@@ -537,6 +538,45 @@ ipcMain.handle('chat:where', async (_e, sessionId: unknown) => {
   const branch = (await git(['branch', '--show-current']))?.trim() || null;
   const status = branch ? await git(['status', '--porcelain']) : null;
   return { cwd, branch, changes: status ? status.split('\n').filter((l) => l.trim()).length : 0 };
+});
+/* The `@` mention in the chat composer. The renderer sends the session and the text before the caret; main finds the
+   `@word` there (core/fileMention, so the rule has one copy) and answers with the ranked files and folders of the
+   session's own folder, or null when the caret is not in one. Listed with git (tracked + untracked, ignores honoured),
+   else a bounded walk; cached a few seconds per folder so a keystroke never walks the disk. Read-only. */
+const mentionCache = new Map<string, { at: number; list: Promise<string[]> }>();
+function mentionList(cwd: string): Promise<string[]> {
+  const hit = mentionCache.get(cwd);
+  if (hit && Date.now() - hit.at < 10_000) return hit.list;
+  const list = new Promise<string[]>((res) => {
+    execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', cwd, 'ls-files', '-co', '--exclude-standard'],
+      { timeout: 3000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => {
+        if (!err) { res(String(out).split('\n').filter(Boolean).slice(0, 50_000)); return; }
+        const found: string[] = [];
+        const walk = (rel: string, depth: number): void => {
+          if (depth > 4 || found.length >= 5000) return;
+          let ents: fs.Dirent[] = [];
+          try { ents = fs.readdirSync(path.join(cwd, rel), { withFileTypes: true }); } catch { return; }
+          for (const d of ents) {
+            if (d.name === '.git' || d.name === 'node_modules' || d.name === '.DS_Store') continue;
+            const r = rel ? rel + '/' + d.name : d.name;
+            if (d.isDirectory()) walk(r, depth + 1); else if (d.isFile()) found.push(r);
+          }
+        };
+        walk('', 0);
+        res(found);
+      });
+  });
+  mentionCache.set(cwd, { at: Date.now(), list });
+  return list;
+}
+ipcMain.handle('chat:mention', async (_e, sessionId: unknown, before: unknown) => {
+  if (!isSessionId(sessionId) || typeof before !== 'string' || before.length > 4000) return null;
+  const at = mentionAt(before);
+  if (!at) return null;
+  const hit = aios.listRunningAgents().find((a) => a.sessionId === sessionId);
+  const cwd = hit && hit.cwd && path.isAbsolute(hit.cwd) ? hit.cwd : null;
+  if (!cwd) return null;
+  return { start: at.start, rows: rankMentions(await mentionList(cwd), at.query) };
 });
 ipcMain.handle('chat:voice', () => {
   try {

@@ -48,6 +48,9 @@ export interface ChatItem {
     output?: string;
     /** True when `output` was cut at TOOL_OUTPUT_MAX_CHARS / TOOL_OUTPUT_MAX_LINES. Absent otherwise. */
     outputTruncated?: boolean;
+    /** The OPERATOR ran it, not Claude: a `! command` typed at the prompt, or the output a slash command printed. The
+     *  renderer shows it open and on its own, never folded into a run of Claude's calls. Absent for Claude's tools. */
+    own?: true;
   };
   ts?: string;
 }
@@ -138,7 +141,7 @@ function tagText(s: string, tag: string): string | undefined {
  *  - injected scaffolding (task notifications, caveats, reminders) → nothing;
  *  - anything else → the operator's message.
  */
-function userText(raw: string): { role: 'user' | 'system'; text: string } | undefined {
+function userText(raw: string): { role: 'user' | 'system'; text: string; local?: true; bang?: 'input' | 'output' | 'error' } | undefined {
   const s = raw.replace(REMINDER, '').trim();
   if (!s) return undefined;
   if (INTERRUPT.test(s)) return { role: 'system', text: s };
@@ -149,10 +152,15 @@ function userText(raw: string): { role: 'user' | 'system'; text: string } | unde
   }
   if (/^<local-command-(stdout|stderr)>/.test(s)) {
     const out = (tagText(s, 'local-command-stdout') ?? tagText(s, 'local-command-stderr') ?? '').trim();
-    return out ? { role: 'system', text: out } : undefined;
+    return out ? { role: 'system', text: out, local: true } : undefined;
+  }
+  if (/^<bash-input>/.test(s)) return { role: 'system', text: (tagText(s, 'bash-input') ?? '').trim(), bang: 'input' };
+  if (/^<bash-(stdout|stderr)>/.test(s)) {
+    const out = tagText(s, 'bash-stdout') ?? '', err = tagText(s, 'bash-stderr') ?? '';
+    return { role: 'system', text: [out.trimEnd(), err.trimEnd()].filter(Boolean).join('\n'), bang: err.trim() && !out.trim() ? 'error' : 'output' };
   }
   // caveats, task notifications and other injected wrappers: not the operator's words
-  if (/^<(local-command-caveat|task-notification|command-message|bash-input|bash-stdout|bash-stderr)\b/.test(s)) return undefined;
+  if (/^<(local-command-caveat|task-notification|command-message)\b/.test(s)) return undefined;
   return { role: 'user', text: s };
 }
 
@@ -226,6 +234,29 @@ export function createTranscriptTracker(): TranscriptTracker {
   let running = new Map<string, ChatItem>();
   let lastUsage: { contextTokens?: number; model?: string } = {};
   let orphanResults = 0;
+  /** The operator's own runs: the last `! command` waiting for its output, and the last slash command typed (its output's title). */
+  let bang: ChatItem | null = null;
+  let lastCommand = '';
+  /** A `! command` and a slash command's printout become a card like a tool's, marked as the operator's own. */
+  function ownRun(uuid: string, ts: string | undefined, r: { text: string; local?: true; bang?: 'input' | 'output' | 'error' }, u: TranscriptUpdate): boolean {
+    const at = ts ? { ts } : {};
+    if (r.bang === 'input') {
+      bang = { uuid, role: 'tool', tool: { id: 'bang:' + uuid, name: 'Shell', summary: r.text, status: 'running', own: true }, ...at };
+      u.items.push(bang);
+      return true;
+    }
+    // a slash command's one-line confirmation ("Set model to x") stays a quiet note; a printout (/context, /cost) is a card
+    if (r.bang || (r.local && (r.text.includes('\n') || r.text.length > 160))) {
+      const out = previewToolOutput(r.text);
+      const status = r.bang === 'error' ? 'error' : 'ok';
+      const extra = out ? { output: out.text, ...(out.truncated ? { outputTruncated: true as const } : {}) } : {};
+      if (r.bang && bang?.tool) u.items.push({ ...bang, tool: { ...bang.tool, status, ...extra } });
+      else u.items.push({ uuid, role: 'tool', tool: { id: 'own:' + uuid, name: r.bang ? 'Shell' : lastCommand || 'Output', summary: '', status, own: true, ...extra }, ...at });
+      if (r.bang) bang = null;
+      return true;
+    }
+    return false;
+  }
 
   function setTurn(open: boolean, u: TranscriptUpdate): void {
     if (turnOpen === open) return;
@@ -301,6 +332,8 @@ export function createTranscriptTracker(): TranscriptTracker {
     if (typeof c === 'string') {
       const r = userText(c);
       if (!r) return;
+      if (uuid && ownRun(uuid, ts, r, u)) return;   // the operator's own run: no turn starts
+      if (r.role === 'user' && r.text.startsWith('/')) lastCommand = r.text.split(/\s/)[0];
       if (uuid) u.items.push({ uuid, role: r.role, text: r.text, ...(ts ? { ts } : {}) });
       setTurn(r.role === 'user', u);     // a typed message starts a turn; an output note does not
       return;
@@ -344,6 +377,7 @@ export function createTranscriptTracker(): TranscriptTracker {
       return;
     }
     const r = texts.length ? userText(texts.join('\n')) : undefined;
+    if (r && uuid && ownRun(uuid, ts, r, u)) return;
     if (r && uuid) {
       u.items.push({ uuid, role: r.role, text: r.text, ...(ts ? { ts } : {}) });
       setTurn(r.role === 'user', u);

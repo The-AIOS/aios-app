@@ -95,6 +95,8 @@ body.unfocused *, body.unfocused *::before, body.unfocused *::after { animation-
   --chat-high-ink: var(--chat-meter-high);
   --chat-model-ink: var(--st-input-ink);
   --chat-dir-ink: var(--st-warn-ink);
+  --chat-bang: #f472b6;   /* Claude Code's bash-mode pink: "!" runs a shell command */
+  --chat-bang-ink: #f472b6;
   --chat-acct-ink: #5cc8d6;
   --chat-bar-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));
   --chat-bar-line: color-mix(in srgb, var(--ink) 15%, var(--surface));
@@ -720,6 +722,8 @@ body.light {
   --chat-high-ink: #a4490c;   /* orange as type on paper: the bright fill reads 2.4:1, this clears 4.5 */
   --chat-model-ink: var(--st-input-ink);
   --chat-dir-ink: var(--st-warn-ink);
+  --chat-bang: #e05299;
+  --chat-bang-ink: #b0246a;
   --chat-acct-ink: #0b6d7a;
   --chat-bar-bg: color-mix(in srgb, var(--ink) 3.5%, var(--surface));
   --chat-bar-line: color-mix(in srgb, var(--ink) 15%, var(--surface));
@@ -1896,7 +1900,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-m.warn .cb-v { color: var(--chat-warn-ink); }
 .cb-m.high .cb-v { color: var(--chat-high-ink); }
 .cb-m.hot .cb-v { color: var(--chat-hot-ink); }
-.cb-ks { display: none; color: var(--faint); font-weight: 600; }
+
 .cb-meter { display: block; flex: 0 0 auto; width: 30px; height: 4px; border-radius: 2px; background: var(--chat-meter-track); overflow: hidden; }
 .cb-meter i { display: block; width: calc(var(--p, 0) * 1%); height: 100%; border-radius: inherit; background: var(--chat-meter-fill); transition: width .4s cubic-bezier(.2, .7, .2, 1), background-color .2s ease; }
 .cb-m.ok .cb-meter i { background: var(--chat-meter-ok); }
@@ -1937,7 +1941,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
    bar is the size container). */
 .cb-model, .cb-effort, .cb-mode, .cb-where, .cb-acct, .cb-m { flex-shrink: 0; }
 @container (max-width: 1120px) { .cb-acct .cb-v { display: none; } }
-@container (max-width: 960px) { .cb-k, .cb-meter { display: none; } .cb-ks { display: inline; } .cb-m { gap: 5px; } }
+@container (max-width: 960px) { .cb-meter { display: none; } .cb-m { gap: 5px; } }
 @container (max-width: 700px) { .cb-of { display: none; } .cb-meter { width: 26px; } .cb-model, .cb-effort, .cb-m, .cb-mode { padding: 0 10px; } }
 /* …and past those two steps the bar is measured: chatSkinFitBar cuts the folder, the branch, the effort, the mode's word and then
    the short labels, one at a time, until it fits (a branch name has no fixed width). */
@@ -2176,7 +2180,10 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-mode:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
 .cb-bg .cb-v { color: var(--ink); }
 /* the session's name on the card's top edge, where the terminal prints it on the prompt's rule */
-.cc-name { position: absolute; top: 0; right: 22px; transform: translateY(-50%); z-index: 2; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.cc-name { position: absolute; top: 0; right: 22px; transform: translateY(-78%);   /* on the card's outline like the terminal's rule, raised clear of the mic and send buttons (0.14.0 round) */ z-index: 2; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
            padding: 1px 8px; border: 1px solid var(--chat-composer-line); border-radius: 8px; background: var(--chat-composer-bg); color: var(--subtle);
            font-size: 10.5px; font-weight: 600; line-height: 1.4; pointer-events: none; }
 .cc-name[hidden] { display: none; }
+/* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
+.cc-box.bang, .cc-box.bang:focus-within { border-color: var(--chat-bang); }
+.cc-box.bang .chat-input { color: var(--chat-bang-ink); }

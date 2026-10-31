@@ -136,11 +136,12 @@ test('Enter sends, Shift+Enter breaks the line, and IME composition never sends'
   assert.equal(broken(ev({ shiftKey: true })), false, 'control: without the shiftKey clause Shift+Enter would send');
 });
 
-guarded('Esc writes a lone ESC to the pty, only while something is running',
+guarded('Esc writes a lone ESC to the pty while something runs; idle, only a double Esc (the rewind) passes, and never over a draft',
   (src) => {
     const s = slice(src);
     const intr = fnBody(s, 'chatSkinInterrupt');
-    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /!chatSkinWorking\(p\)/.test(intr)
+    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{ window\.glassShell\.ptyWrite\(id, '\\x1b'\); return; \}/.test(intr)
+      && /cs\.input\.value\.trim\(\)\) return;/.test(intr) && /> 600\) \{ cs\.escAt = now; return; \}/.test(intr)
       && /e\.key !== 'Escape'[\s\S]{0,120}chatSkinInterrupt\(id, p\)/.test(s);
   },
   (src) => src.replace("window.glassShell.ptyWrite(id, '\\x1b');", "window.glassShell.ptyWrite(id, '\\x03');"));
@@ -473,7 +474,7 @@ test('every colour the skin uses is a token (none minted in the skin\'s own rule
     // the status bar's own
     '--chat-meter-warn', '--chat-meter-hot', '--chat-warn-ink', '--chat-hot-ink', '--chat-bar-bg', '--chat-bar-line', '--chat-bar-sep',
     // the status line's palette
-    '--chat-meter-ok', '--chat-meter-high', '--chat-ok-ink', '--chat-high-ink', '--chat-model-ink', '--chat-dir-ink', '--chat-acct-ink'];
+    '--chat-meter-ok', '--chat-meter-high', '--chat-ok-ink', '--chat-high-ink', '--chat-model-ink', '--chat-dir-ink', '--chat-acct-ink', '--chat-bang', '--chat-bang-ink'];
   const light = css.slice(css.indexOf('body.light {'));
   for (const tk of tokens) {
     assert.match(css, new RegExp(`:root \\{[^}]*${tk}:`), `${tk} must be minted in :root`);
@@ -1354,22 +1355,22 @@ test('the bar\'s CSS: thresholds through --chat-* tokens, the detail card on the
   assert.match(rule('.cb-tip').replace('inset: 0;', 'bottom: calc(100% + 8px);'), /calc\(100%/);
 });
 
-test('a narrow pane: two fixed steps (address, then labels-and-bars for the short labels), then a MEASURED cut in priority order — the model and numbers never', () => {
+test('a narrow pane: two fixed steps (the account address, then the bars; the labels are always the short 5h/7d/Cx), then a MEASURED cut in priority order — the model and numbers never', () => {
   const widths = (sel: RegExp): number[] => [...css.matchAll(/@container \(max-width: (\d+)px\) \{([^@\n]*)\}/g)].filter((m) => sel.test(m[2])).map((m) => Number(m[1]));
   const addr = Math.max(...widths(/\.cb-acct \.cb-v \{ display: none/));
-  const labels = Math.max(...widths(/\.cb-k, \.cb-meter \{ display: none/));
+  const labels = Math.max(...widths(/\.cb-meter \{ display: none/));
   assert.ok(addr > labels && labels > 0, `address ${addr} goes before labels ${labels}`);
-  assert.ok(widths(/\.cb-ks \{ display: inline/).includes(labels), 'the short label takes over at the labels step');
+  assert.match(skin, /el\('span', 'cb-k', t\(short\)\)/, 'the label is the short form at every width');
   // no guessed width hides a segment whose size depends on its text (0.14.0 round: folder and branch hidden at 543px with room to spare)
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.(cb-dir|cb-branch|cb-effort)[^}]*display: none/);
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-ks'\];/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k'\];/);
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.cb-m \.cb-v[^}]*display: none/, 'nothing hides the numbers');
   assert.match(skinRules(css).find(([sel]) => sel === '.chat-bar .fit-cut')?.[1] ?? '', /display: none/);
   // run it: a stub bar that only fits once the folder and the branch are gone
   const fit = new Function(skin.slice(skin.indexOf('const CHAT_BAR_CUT'), skin.indexOf('\nfunction chatSkinFitSoon')) + '; return chatSkinFitBar;')();
   const mk = (cls: string, w: number) => ({ cls: new Set(cls.split(' ')), w, classList: { add(c: string) { mk.cut.add(c === 'fit-cut' ? this : null); }, remove() { /* */ } } });
   mk.cut = new Set<unknown>();
-  const segs: Record<string, number> = { '.cb-dir': 60, '.cb-branch': 100, '.cb-effort': 90, '.cb-mode .cb-v': 30, '.cb-ks': 40 };
+  const segs: Record<string, number> = { '.cb-dir': 60, '.cb-branch': 100, '.cb-effort': 90, '.cb-mode .cb-v': 30, '.cb-k': 40 };
   const nodes = Object.fromEntries(Object.entries(segs).map(([k, w]) => [k, mk(k, w)]));
   const cut = new Set<string>();
   const total = 600;
@@ -1797,7 +1798,7 @@ test('the slash popup wires: the box is a combobox over a listbox, input asks, s
   const block = skin.slice(skin.indexOf('function chatSkinSlashRefresh('), skin.indexOf('/* Which glyph a tool wears'));
   assert.doesNotMatch(block, /ptyWrite|submitToPty|chatSkinSendNow|innerHTML/);
   // the command rows only ever take text through textContent (el(tag, class, text))
-  assert.match(block, /el\('span', 'csl-desc', c\.descKey \? t\(c\.descKey\) : String\(c\.description \|\| ''\)\)/);
+  assert.match(block, /el\('span', 'csl-desc', c\.file \? \(c\.dir \? t\('chat\.at\.dir'\) : ''\) : c\.descKey \? t\(c\.descKey\) : String\(c\.description \|\| ''\)\)/);
   // main and the preload agree on the channel; main reads only, gates on a leading slash and caps the text
   assert.match(preload, /slashCommands: \(cwd: string \| null, text: string\): Promise<SlashCommand\[\]> => ipcRenderer\.invoke\('slashCommands:list', cwd, text\)/);
   const h = /ipcMain\.handle\('slashCommands:list'[\s\S]*?\n\}\);/.exec(main)?.[0] ?? '';

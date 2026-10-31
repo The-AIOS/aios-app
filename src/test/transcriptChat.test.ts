@@ -147,6 +147,21 @@ test('lines that are not the conversation are ignored (negative control: the sam
   assert.equal(feedAll([userStr('<local-command-stdout></local-command-stdout>')]).items.length, 0);
 });
 
+test('the operator\'s own runs: "! date" and its output are ONE card, open, marked own; a command\'s printout is a card titled by the command', () => {
+  const lines = [userStr('<bash-input> date</bash-input>'), userStr('<bash-stdout>Fri Oct 30 18:12:39 CST 2026</bash-stdout><bash-stderr></bash-stderr>')];
+  const r = feedAll(lines);
+  const last = r.items[r.items.length - 1];
+  assert.equal(last.role, 'tool');
+  assert.equal(last.uuid, r.items[0].uuid, 'the output lands on the card the input made');
+  assert.deepEqual([last.tool?.name, last.tool?.summary, last.tool?.status, last.tool?.output, last.tool?.own], ['Shell', 'date', 'ok', 'Fri Oct 30 18:12:39 CST 2026', true]);
+  assert.equal(r.turnOpen, undefined, 'a shell command typed by the operator is not a turn for Claude');
+  const err = feedAll([userStr('<bash-input>nope</bash-input>'), userStr('<bash-stdout></bash-stdout><bash-stderr>zsh: command not found: nope</bash-stderr>')]).items.pop();
+  assert.deepEqual([err?.tool?.status, err?.tool?.output], ['error', 'zsh: command not found: nope']);
+  const cost = feedAll([userStr('<command-name>/cost</command-name>'), userStr('<local-command-stdout>Total cost: $0.12\nDuration: 3m</local-command-stdout>')]).items;
+  assert.deepEqual(cost.map((i) => i.role), ['user', 'tool']);
+  assert.deepEqual([cost[1].tool?.name, cost[1].tool?.output, cost[1].tool?.own], ['/cost', 'Total cost: $0.12\nDuration: 3m', true]);
+});
+
 test('bookkeeping lines are skipped without being parsed; corrupt and blank lines are tolerated', () => {
   const huge = j({ type: 'api-request-blob', hash: 'h', message: { role: 'user', content: [{ type: 'text', text: 'x'.repeat(50_000) }] } });
   const bookkeeping = [

@@ -1256,6 +1256,7 @@
   "chat.usage.sevenDayShort": "7d",
   "chat.usage.contextShort": "Cx",
   "chat.bg.tip": "Running in the background: {what}. Click (or ↓ in an empty box) to open it; Esc closes, x stops a shell.",
+  "chat.at.dir": "folder",
   "chat.name.tip": "This session is named {name} (as Claude Code shows it on the prompt; /rename changes it)",
   "chat.usage.model": "Model",
   "chat.usage.effort": "Effort",

@@ -8116,7 +8116,7 @@ async function chatSkinWherePaint(cs) {
    4 characters or 40, so no fixed width can say when the folder must go (0.14.0 round: at 543px both fitted and were hidden
    anyway). The account's address and the labels-for-bars swap stay CSS steps, their sizes are fixed. The model and the three
    numbers are never cut. */
-const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-effort', '.cb-mode .cb-v', '.cb-ks'];
+const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-effort', '.cb-mode .cb-v', '.cb-k'];
 function chatSkinFitBar(bar) {
   if (!bar || !bar.isConnected) return;
   const id = bar.querySelector('.cb-id'), meters = bar.querySelector('.cb-meters');
@@ -8245,7 +8245,7 @@ function chatSkinBuild(id, p) {
     const meter = el('span', 'cb-meter');
     meter.setAttribute('aria-hidden', 'true');
     meter.appendChild(el('i'));
-    seg.append(el('span', 'cb-k', t(label)), el('span', 'cb-ks', t(short)), meter, v, of, tip);   // the short label ("5h") takes over when the bar is too narrow for the meter
+    seg.append(el('span', 'cb-k', t(short)), meter, v, of, tip);   // "5h · 7d · Cx", the status line's own words, at every width (the full name is the aria-label and tooltip)
     seg.addEventListener('pointerenter', () => chatSkinTip(seg, true));
     seg.addEventListener('pointerleave', () => { if (document.activeElement !== seg) chatSkinTip(seg, false); });
     seg.addEventListener('focus', () => chatSkinTip(seg, true));
@@ -8258,7 +8258,7 @@ function chatSkinBuild(id, p) {
   // two lengths of the same hint, both children so the hint box can be a size container: the whole sentence when it fits, "↵ send" when only that fits, nothing otherwise (see .cb-hint)
   hint.append(el('span', 'cb-hint-t', t('chat.hintShort')), el('span', 'cb-hint-s', t('chat.bar.hintTiny')));
   hint.setAttribute('aria-hidden', 'true');   // the full sentence is the textarea's title and its description for assistive tech
-  bar.append(idBox, hint, metersBox);
+  bar.append(idBox, metersBox);   // the keys hint now rides in the box's placeholder (0.14.0 round), not in the bar
   /* refit when the pane resizes AND when a segment's text or visibility changes (a longer branch, a mode word); the fit's own
      class changes are not watched, so it cannot wake itself */
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => chatSkinFitSoon(bar)).observe(bar);
@@ -8335,6 +8335,7 @@ function chatSkinBuild(id, p) {
   input.rows = 1;
   input.placeholder = t('chat.placeholder', { name: chatSkinWho(p) });
   input.setAttribute('aria-label', input.placeholder);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (p.chatSkin) chatSkinPlaceholder(p); }).observe(input);
   input.title = t('chat.inputHint');   // the full key hints live in the tooltip; the row under the card shows a short version only while the box has focus (a long placeholder wraps and clips in a narrow dock)
   const sendBtn = el('button', 'cc-send');
   sendBtn.type = 'button';
@@ -8669,10 +8670,14 @@ function chatSkinControls(p) {
 }
 function chatSkinPlaceholder(p) {
   const cs = p.chatSkin;
-  const ph = t(chatSkinCardOn(cs) ? 'chat.skin.dlg.placeholder' : 'chat.placeholder', { name: chatSkinWho(p) });   // under a card the box says where the answer goes
-  if (cs.input.placeholder === ph) return;
+  const base = t(chatSkinCardOn(cs) ? 'chat.skin.dlg.placeholder' : 'chat.placeholder', { name: chatSkinWho(p) });   // under a card the box says where the answer goes
+  /* "Message r2-chat…   ↵ send · ⇧↵ new line": the keys follow the name when the box is wide enough to hold both on one
+     line (a placeholder that wraps clips in a narrow pane); the full hint is always the box's tooltip. */
+  const ph = !chatSkinCardOn(cs) && cs.input.clientWidth >= 380 ? base + '   ' + t('chat.hintShort') : base;
+  if (cs.recording || cs.input.placeholder === ph) return;   // while voice listens, the placeholder is the words it hears
   cs.input.placeholder = ph;
-  cs.input.setAttribute('aria-label', ph);
+  cs.placeholder0 = ph;
+  cs.input.setAttribute('aria-label', base);
 }
 function chatSkinPaintAlert(p) {
   const cs = p.chatSkin;
@@ -9081,6 +9086,7 @@ function chatSkinPaintJump(cs) {
   cs.jumpBtn.hidden = cs.stick || cs.log.scrollHeight <= cs.log.clientHeight + 48;
 }
 function chatSkinAutosize(cs) {
+  if (cs.box) cs.box.classList.toggle('bang', cs.input.value.startsWith('!'));   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
   cs.input.style.height = 'auto';
   cs.input.style.height = Math.min(cs.input.scrollHeight, 220, Math.round(window.innerHeight * 0.4)) + 'px';   // grows with the text up to a ceiling, then scrolls
 }
@@ -9094,12 +9100,28 @@ function chatSkinAutosize(cs) {
 function chatSkinSlashRefresh(cs, p) {
   const s = cs.slash;
   const text = cs.input.value;
-  if (text.charCodeAt(0) !== 47) { chatSkinSlashClose(cs); return; }   // only a leading slash opens it; main applies the finer rules
+  if (text.charCodeAt(0) !== 47) { chatSkinMentionRefresh(cs, p); return; }   // only a leading slash opens it; main applies the finer rules (an @word opens the file list instead)
   const seq = ++s.seq;
   Promise.resolve(window.glassShell.slashCommands(p.cwd || null, text)).then((rows) => {
     if (seq !== s.seq || cs.input.value !== text) return;   // a later keystroke already asked again, or the box moved on
     if (!Array.isArray(rows) || !rows.length || p.view !== 'chat' || cs.promptKind) { chatSkinSlashClose(cs); return; }
     chatSkinSlashShow(cs, rows);
+  }).catch(() => chatSkinSlashClose(cs));
+}
+/* The `@` mention, in the same popup: the files and folders of the session's folder, ranked by main for the word after the
+   `@` the caret is in. Like the commands, it only ever COMPLETES text in the box. */
+function chatSkinMentionRefresh(cs, p) {
+  const s = cs.slash;
+  const text = cs.input.value;
+  const caret = cs.input.selectionStart ?? text.length;
+  const before = text.slice(0, caret);
+  if (!/@[^\s@"']*$/.test(before) || typeof window.glassShell.chatMention !== 'function') { chatSkinSlashClose(cs); return; }   // a cheap look first; main applies the rule
+  const seq = ++s.seq;
+  Promise.resolve(window.glassShell.chatMention(p.sessionId || null, before)).then((r) => {
+    if (seq !== s.seq || cs.input.value !== text) return;
+    if (!r || !Array.isArray(r.rows) || !r.rows.length || p.view !== 'chat' || cs.promptKind) { chatSkinSlashClose(cs); return; }
+    s.at = { start: r.start, end: caret };
+    chatSkinSlashShow(cs, r.rows.map((x) => ({ file: true, name: String(x.path), dir: x.dir === true })));
   }).catch(() => chatSkinSlashClose(cs));
 }
 /* One row per command: its name, its usage hint, what it does, and where it comes from when that is not obvious
@@ -9114,12 +9136,12 @@ function chatSkinSlashShow(cs, rows) {
     row.id = s.list.id + '-' + i;
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', 'false');
-    row.appendChild(el('span', 'csl-name', '/' + c.name));
-    const hintFull = c.argumentHint || '';
+    row.appendChild(el('span', 'csl-name', (c.file ? '@' : '/') + c.name));
+    const hintFull = c.file ? '' : c.argumentHint || '';
     const hintEl = el('span', 'csl-hint', chatSkinSlashHint(hintFull));   // always present, even empty: the rows share columns (name · usage · what it does · tag)
     if (hintEl.textContent !== hintFull) hintEl.title = hintFull;   // shortened: the whole usage is one hover away
     row.appendChild(hintEl);
-    row.appendChild(el('span', 'csl-desc', c.descKey ? t(c.descKey) : String(c.description || '')));
+    row.appendChild(el('span', 'csl-desc', c.file ? (c.dir ? t('chat.at.dir') : '') : c.descKey ? t(c.descKey) : String(c.description || '')));
     const tag = c.source === 'project' ? t('chat.slash.src.project') : c.source === 'user' ? t('chat.slash.src.user') : '';
     if (tag) row.appendChild(el('span', 'csl-tag', tag));
     row.addEventListener('mousemove', () => { if (s.index !== i) chatSkinSlashMove(cs, i, false); });   // mousemove, not mouseover: a list that scrolls under a resting pointer must not change the choice
@@ -9179,7 +9201,21 @@ function chatSkinSlashClose(cs) {
 function chatSkinSlashPick(cs, i) {
   const c = cs.slash.items[i];
   if (!c) return;
+  const at = cs.slash.at;
   chatSkinSlashClose(cs);
+  if (c.file && at) {
+    /* `@word` becomes `@path `; a folder keeps the caret right after its slash and lists what is inside it. */
+    const v = cs.input.value;
+    const ins = '@' + c.name + (c.dir ? '' : ' ');
+    cs.input.value = v.slice(0, at.start) + ins + v.slice(at.end);
+    const end = at.start + ins.length;
+    cs.input.setSelectionRange(end, end);
+    chatSkinAutosize(cs);
+    chatSkinControls(cs.pane);
+    try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ }
+    if (c.dir) chatSkinMentionRefresh(cs, cs.pane);
+    return;
+  }
   cs.input.value = '/' + c.name + ' ';
   cs.input.setSelectionRange(cs.input.value.length, cs.input.value.length);
   chatSkinAutosize(cs);
@@ -9288,7 +9324,8 @@ function chatSkinDropBind(cs) {
 const CHAT_TOOL_KINDS = [
   ['read', /^(Read|NotebookRead)$/, 'eye'],
   ['edit', /^(Edit|Write|MultiEdit|NotebookEdit)$/, 'design'],
-  ['bash', /^(Bash|BashOutput)$/, 'term'],
+  ['bash', /^(Bash|BashOutput|Shell)$/, 'term'],
+  ['command', /^\//, 'term'],   // a slash command's printout (/context, /cost): the operator's own, shown like a shell's
   ['search', /^(Grep|Glob|LS)$/, 'search'],
   ['web', /^(WebFetch|WebSearch)$/, 'globe'],
   ['agent', /^(Task|Agent)$/, 'robot'],
@@ -9340,6 +9377,12 @@ function chatSkinPaintTool(rec, item) {
   const k = chatToolKind(name);
   rec.node.classList.remove('running', 'ok', 'error');
   rec.node.classList.add(status);
+  /* The operator's own run (! date, /cost) is what they asked to see: it arrives open, once. Claude's calls stay folded. */
+  if (tl.own === true && !rec.node.classList.contains('own')) {
+    rec.node.classList.add('own', 'open');
+    x.head.setAttribute('aria-expanded', 'true');
+    x.head.parentNode.querySelector('.ct-body').hidden = false;
+  }
   rec.node.dataset.kind = k.kind;
   if (x.kindName !== k.ico) { x.kind.replaceChildren(csIcon(k.ico, 12)); x.kindName = k.ico; }
   x.name.textContent = name;
@@ -9491,7 +9534,7 @@ function chatSkinRegroup(cs) {
     if (n.csGroup) flat.push(...n.csGroup.body.children); else flat.push(n);
   }
   const isItem = (n) => n.classList.contains('chat-row') || n.classList.contains('chat-note');
-  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));
+  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs stand alone
   const spans = new Map();
   for (const r of runs) if (r.length > 1) spans.set(r[0], r[r.length - 1]);
   const focus = typeof document !== 'undefined' ? document.activeElement : null;
@@ -10142,8 +10185,17 @@ function chatSkinEffortPick(id, p, level) {
 /* Esc cuts a running turn, exactly as in the terminal. Only while something is running: an idle
    Esc is not harmless in Claude Code (a second one opens the rewind menu). */
 function chatSkinInterrupt(id, p) {
-  if (p.exited || !chatSkinWorking(p)) return;
+  if (p.exited) return;
+  if (chatSkinWorking(p)) { window.glassShell.ptyWrite(id, '\x1b'); return; }
+  /* Idle: Esc twice is the terminal's "go back to an earlier message". The second Esc within 600 ms passes BOTH on, the way
+     they arrive in the terminal; a single Esc on an idle session does nothing. A draft in the box is left alone. */
+  const cs = p.chatSkin;
+  if (!cs || cs.input.value.trim()) return;
+  const now = Date.now();
+  if (now - (cs.escAt || 0) > 600) { cs.escAt = now; return; }
+  cs.escAt = 0;
   window.glassShell.ptyWrite(id, '\x1b');
+  setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, '\x1b'); }, 90);
 }
 
 /* Best effort: a session replaced under the same pty (/clear, a resume that forks) has a new id
