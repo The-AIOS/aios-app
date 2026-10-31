@@ -1696,7 +1696,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .pane.cs-strip > .chatskin .chat-bar, .pane.cs-strip > .chatskin .cc-meta, .pane.cs-strip > .chatskin .chat-compose, .pane.cs-strip > .chatskin .cs-working { display: none; }   /* the whole compose block (status bar included) steps aside for a live dialog */
 .cs-working { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin: var(--cs-m) 0 0; color: var(--subtle); font-size: .88em; }
 .cw-dots { display: inline-flex; align-items: center; gap: 4px; height: 14px; }
-.cw-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--st-busy); animation: cs-wave 1.3s ease-in-out infinite; }
+.cw-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent);   /* coral: the brand thinking (0.14.0 round, the operator's call) */ animation: cs-wave 1.3s ease-in-out infinite; }
 .cw-dots i:nth-child(2) { animation-delay: .16s; }
 .cw-dots i:nth-child(3) { animation-delay: .32s; }
 @keyframes cs-wave { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-4px); opacity: 1; } }
@@ -2180,10 +2180,29 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-mode:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
 .cb-bg .cb-v { color: var(--ink); }
 /* the session's name on the card's top edge, where the terminal prints it on the prompt's rule */
-.cc-name { position: absolute; top: 0; right: 22px; transform: translateY(-78%);   /* on the card's outline like the terminal's rule, raised clear of the mic and send buttons (0.14.0 round) */ z-index: 2; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-           padding: 1px 8px; border: 1px solid var(--chat-composer-line); border-radius: 8px; background: var(--chat-composer-bg); color: var(--subtle);
+.cc-name { position: absolute; top: 0; right: 22px; transform: translateY(-62%);   /* on the card's outline like the terminal's rule, raised clear of the mic and send buttons (0.14.0 round) */ z-index: 2; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+           padding: 1px 8px; border: 1px solid var(--chat-composer-line); border-radius: 8px; background: var(--chat-composer-bg); color: var(--ink);
            font-size: 10.5px; font-weight: 600; line-height: 1.4; pointer-events: none; }
 .cc-name[hidden] { display: none; }
+.cc-keys { align-self: center; margin-right: 4px; color: var(--faint); font-size: 10.5px; letter-spacing: .01em; white-space: nowrap; }
+.cc-keys[hidden], .cc-box:not(:focus-within) .cc-keys, .cc-box.has-text .cc-keys { display: none; }
+/* running subagents, above the card, as the terminal lists them under its prompt */
+.cs-agents { display: flex; flex-direction: column; gap: 1px; margin: 0 6px 6px; }
+.cs-agents[hidden] { display: none; }
+.csa-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 3px 10px; border: 0; border-radius: 8px; background: transparent;
+           color: var(--subtle); font: 11.5px/1.4 var(--mono, ui-monospace, Menlo, monospace); text-align: left; cursor: pointer; }
+.csa-row:hover { background: var(--chat-row-hover); }
+.csa-row:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -2px; }
+.csa-mark { color: var(--chat-model-ink); }
+.csa-who { color: var(--ink); font-weight: 600; }
+.csa-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csa-meta { flex: 0 0 auto; color: var(--faint); }
+/* a message the bus typed: its sender above the bubble, in the cool link hue */
+.chat-from { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin: 0 4px 3px; color: var(--chat-link); font-size: 11px; font-weight: 600; }
+.from-bus .chat-bubble { border-style: dashed; }
+/* a skill loading wears its own mark in the cool hue, so it reads apart from the tools it then calls */
+.chat-tool[data-kind="skill"] .ct-kind { color: var(--chat-model-ink); }
+.chat-tool[data-kind="skill"] .ct-arg { color: var(--ink); }
 /* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
 .cc-box.bang, .cc-box.bang:focus-within { border-color: var(--chat-bang); }
 .cc-box.bang .chat-input { color: var(--chat-bang-ink); }

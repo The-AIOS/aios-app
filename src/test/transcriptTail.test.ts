@@ -317,7 +317,7 @@ const aios = read('src/main/aios.ts');
 test('main and preload agree on every chatSkin channel, and the SDK is gone', () => {
   const invoked = new Set([...preload.matchAll(/ipcRenderer\.invoke\('(chatSkin:[a-zA-Z]+|chat:[a-zA-Z]+)'/g)].map((m) => m[1]));
   const handled = new Set([...main.matchAll(/ipcMain\.handle\('(chatSkin:[a-zA-Z]+|chat:[a-zA-Z]+)'/g)].map((m) => m[1]));
-  assert.deepEqual([...invoked].sort(), ['chat:mention', 'chat:status', 'chat:voice', 'chat:where', 'chatSkin:earlier', 'chatSkin:unwatch', 'chatSkin:watch']);
+  assert.deepEqual([...invoked].sort(), ['chat:busFrom', 'chat:mention', 'chat:status', 'chat:voice', 'chat:where', 'chatSkin:earlier', 'chatSkin:unwatch', 'chatSkin:watch']);
   assert.deepEqual([...handled].sort(), [...invoked].sort(), 'a channel with only one side is a button that does nothing');
   assert.match(preload, /ipcRenderer\.on\('chatSkin:event'/);
   assert.match(main, /sender\.send\('chatSkin:event', ev\)/);

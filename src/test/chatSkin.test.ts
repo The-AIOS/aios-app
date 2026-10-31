@@ -928,7 +928,7 @@ test('every string the redesigned skin shows goes through t() and exists in ever
 test('no coral in a status role: the cards and marks take their hue from --st-*, never --accent', () => {
   const sk = css.slice(css.indexOf('/* ═══ Chat skin')).replace(/\/\*[\s\S]*?\*\//g, '');
   const rule = (sel: string): string => new RegExp(`(?:^|\\n)${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`).exec(sk)?.[0] ?? '';
-  for (const sel of ['.cs-alert', '.cs-alert.prompt', '.ct-spin', '.cw-dots i', '.chat-tool.error .ct-kind']) {
+  for (const sel of ['.cs-alert', '.cs-alert.prompt', '.ct-spin', '.chat-tool.error .ct-kind']) {   // the working dots are coral by the operator's call (0.14.0 round): brand, not a status
     const r = rule(sel);
     assert.ok(r, `${sel} exists`);
     assert.doesNotMatch(r, /--accent/, `${sel} must not use coral`);
@@ -975,9 +975,9 @@ const coralUsers = (sheet: string): string[] => skinRules(sheet)
 const coralTokens = (sheet: string): string[] => [...sheet.matchAll(/^\s*(--chat-[a-z-]+):([^;]*);/gm)]
   .filter(([, name, value]) => name !== '--chat-on-accent' && /--accent/.test(value)).map((m) => m[1]);
 
-test('coral is the send button and nothing else in the chat: focus, links, rings and tokens are neutral or cool', () => {
+test('coral is the send button and the working dots, nothing else in the chat: focus, links, rings and tokens are neutral or cool', () => {
   const inView = (sheet: string): string[] => coralUsers(sheet);
-  assert.deepEqual([...new Set(inView(css))].sort(), ['.cc-send', '.cc-send:hover:not(:disabled)'], 'only the send button may use the accent');
+  assert.deepEqual([...new Set(inView(css))].sort(), ['.cc-send', '.cc-send:hover:not(:disabled)', '.cw-dots i'], 'only the send button and the working dots (the brand thinking, 0.14.0 round) may use the accent');
   assert.deepEqual(coralTokens(css), [], 'no chat token is built from the accent');
   // the composer card keeps a neutral focus (a border and a faint halo), and links use their own cool token
   const rule = (sel: string): string => skinRules(css).find(([s]) => s === sel)?.[1] ?? '';
@@ -1238,9 +1238,9 @@ guarded('the status payload is asked for with THIS tab\'s session id, and per-se
 guarded('the status bar is built UNDER the card, and the card holds only the text and send/stop (no chips, no usage row)',
   (src) => {
     const b = fnBody(slice(src), 'chatSkinBuild');
-    return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, wrap, meta\)/.test(b)
+    return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, agentsEl, wrap, meta\)/.test(b)
       && /root\.append\(log, alertEl, compose\)/.test(b)   // log, notice, compose block: nothing above the log
-      && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(micBtn, stopBtn, sendBtn\)/.test(b)   // the mic joined send/stop (0.14.0 round)
+      && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(keysHint, micBtn, stopBtn, sendBtn\)/.test(b)   // the mic joined send/stop, the keys hint sits beside them (0.14.0 round)
       && !/cc-chip|chat-usage|usageEl|usageVals/.test(slice(src))
       && b.indexOf('wrap.append(slashPop, box)') > 0 && b.indexOf('wrap.append(slashPop, box)') < b.indexOf('compose.append(')
       && !/cc-chip|chat-usage/.test(css);
@@ -3375,7 +3375,7 @@ test('background work: the chip reads "1 shell" from the line under the prompt, 
   const bgSrc = skin.slice(skin.indexOf('function chatSkinBgPaint'), skin.indexOf('\n}\n', skin.indexOf('function chatSkinBgPaint')) + 2);
   const v = { textContent: '' };
   const seg: Record<string, unknown> = { hidden: true, querySelector: () => v, setAttribute() { /* */ } };
-  const cs: Record<string, unknown> = { root: { querySelector: () => seg } };
+  const cs: Record<string, unknown> = { root: { querySelector: (q: string) => (q === '.cb-bg' ? seg : null) } };
   const paint = new Function('t', bgSrc + '; return chatSkinBgPaint;')((k: string, o: Record<string, unknown>) => k + JSON.stringify(o));
   paint(cs, '  ⏵⏵ auto mode on · 1 shell');
   assert.equal(v.textContent, '1 shell'); assert.equal(seg.hidden, false); assert.equal(cs.bgCount, 1);

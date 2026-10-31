@@ -8,6 +8,8 @@ import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
 import { mentionAt, rankMentions } from '../core/fileMention';
+import { busFingerprint } from '../core/busLog';
+import { busLogPath } from './busSent';
 import { listSlashCommands } from './slashCommandsIo';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
@@ -577,6 +579,28 @@ ipcMain.handle('chat:mention', async (_e, sessionId: unknown, before: unknown) =
   const cwd = hit && hit.cwd && path.isAbsolute(hit.cwd) ? hit.cwd : null;
   if (!cwd) return null;
   return { start: at.start, rows: rankMentions(await mentionList(cwd), at.query) };
+});
+/* Who delivered a user message, when the bus typed it: the App and Glass record every text they type for the bus in
+   bus-sent.jsonl (AI-172), by fingerprint, with the sender's name when the request carried one. The chat labels such a
+   message "from <name>" instead of "You". A claim, never an identity (contract 4): it is a label, nothing acts on it. */
+let busSentCache: { mtime: number; byFp: Map<string, { from?: string; at: number }> } | null = null;
+ipcMain.handle('chat:busFrom', (_e, text: unknown) => {
+  if (typeof text !== 'string' || !text.trim() || text.length > 200_000) return null;
+  const p = busLogPath();
+  let st: fs.Stats;
+  try { st = fs.statSync(p); } catch { return null; }
+  if (!busSentCache || busSentCache.mtime !== st.mtimeMs) {
+    const byFp = new Map<string, { from?: string; at: number }>();
+    try {
+      const raw = fs.readFileSync(p, 'utf8');
+      for (const line of raw.slice(-2_000_000).split('\n')) {
+        try { const e = JSON.parse(line) as { fp?: string; from?: string; at?: number }; if (e.fp) byFp.set(e.fp, { from: typeof e.from === 'string' ? e.from.slice(0, 80) : undefined, at: e.at ?? 0 }); } catch { /* a torn line */ }
+      }
+    } catch { /* unreadable: no labels */ }
+    busSentCache = { mtime: st.mtimeMs, byFp };
+  }
+  const hit = busSentCache.byFp.get(busFingerprint(text));
+  return hit ? { from: hit.from ?? '' } : null;
 });
 ipcMain.handle('chat:voice', () => {
   try {

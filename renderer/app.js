@@ -192,6 +192,7 @@ const ICONS = {
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  shield: '<path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/>',
   sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   id: '<rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="8" cy="10" r="2"/><path d="M6.5 16a2.5 2.5 0 0 1 5 0M14 9h4M14 13h3"/>',
   chart: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
@@ -8192,7 +8193,7 @@ function chatSkinBuild(id, p) {
   const modeSeg = el('button', 'cb-mode');
   modeSeg.type = 'button';
   modeSeg.hidden = true;
-  modeSeg.append(csIcon('sliders', 12), el('span', 'cb-v', ''));
+  modeSeg.append(csIcon('shield', 12), el('span', 'cb-v', ''));   // the permission mode: a shield (0.14.0 round)
   modeSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinModeMenu(id, p); });
   /* "1 shell", "2 agents": what Claude Code lists after the mode under its prompt. Clicking it (or ↓ in an empty box) opens
      Claude Code's own panel for them, shown as the live terminal strip; Esc closes it, x stops a shell. */
@@ -8354,7 +8355,11 @@ function chatSkinBuild(id, p) {
   micBtn.append(csIcon('mic', 16));
   micBtn.title = t('chat.voice.start'); micBtn.setAttribute('aria-label', t('chat.voice.start'));
   micBtn.addEventListener('click', () => void chatSkinVoice(id, p));
-  ccRow.append(micBtn, stopBtn, sendBtn);
+  /* The keys, small and light beside the buttons, while the box is empty and has the caret (0.14.0 round: in the placeholder
+     they read as loud as the name). chatSkinPlaceholder hides them when the box is too narrow to hold both. */
+  const keysHint = el('span', 'cc-keys', t('chat.hintShort'));
+  keysHint.setAttribute('aria-hidden', 'true');   // the same words are the box's tooltip
+  ccRow.append(keysHint, micBtn, stopBtn, sendBtn);
   /* The drop affordance: a quiet veil over the card while a file is dragged across it (see chatSkinDropBind). */
   const dropEl = el('div', 'cc-drop', t('chat.drop.label'));
   dropEl.setAttribute('aria-hidden', 'true');
@@ -8394,7 +8399,11 @@ function chatSkinBuild(id, p) {
   slRow.title = t('chat.sl.tip');
   meta.appendChild(slRow);
 
-  compose.append(jumpBtn, wrap, meta);
+  /* Running subagents, as the terminal lists them under its prompt ("◯ general-purpose  Summarize …  14s · ↓ 77k tokens").
+     Painted by chatSkinBgPaint; a click opens /tasks. */
+  const agentsEl = el('div', 'cs-agents');
+  agentsEl.hidden = true;
+  compose.append(jumpBtn, agentsEl, wrap, meta);
 
   root.append(log, alertEl, compose);
   p.el.appendChild(root);
@@ -8673,7 +8682,9 @@ function chatSkinPlaceholder(p) {
   const base = t(chatSkinCardOn(cs) ? 'chat.skin.dlg.placeholder' : 'chat.placeholder', { name: chatSkinWho(p) });   // under a card the box says where the answer goes
   /* "Message r2-chat…   ↵ send · ⇧↵ new line": the keys follow the name when the box is wide enough to hold both on one
      line (a placeholder that wraps clips in a narrow pane); the full hint is always the box's tooltip. */
-  const ph = !chatSkinCardOn(cs) && cs.input.clientWidth >= 380 ? base + '   ' + t('chat.hintShort') : base;
+  const ph = base;
+  const keys = cs.box && cs.box.querySelector('.cc-keys');
+  if (keys) keys.hidden = chatSkinCardOn(cs) || cs.input.clientWidth < 380;
   if (cs.recording || cs.input.placeholder === ph) return;   // while voice listens, the placeholder is the words it hears
   cs.input.placeholder = ph;
   cs.placeholder0 = ph;
@@ -8918,6 +8929,25 @@ function chatSkinBgPaint(cs, rowsText) {
   if (agents.length) items.push(t(agents.length === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: agents.length }));
   cs.bgCount = items.reduce((a, x) => a + (Number(x.split(' ')[0]) || 0), 0) || agents.length;
   cs.bgAgents = agents.length;
+  const list = cs.root.querySelector('.cs-agents');
+  if (list) {
+    const raw = lines.filter((l) => /^\s*[◯◉●◐◑◒◓]\s+\S/.test(l)).map((l) => l.trim());
+    const sig = raw.join('\n');
+    if (list.dataset.sig !== sig) {
+      list.dataset.sig = sig;
+      list.replaceChildren(...raw.map((l) => {
+        const [, mark, rest] = /^(\S+)\s+(.*)$/.exec(l) || [, '', l];
+        const parts = rest.split(/\s{2,}/);
+        const row = el('button', 'csa-row');
+        row.type = 'button';
+        row.append(el('span', 'csa-mark', mark), el('span', 'csa-who', parts[0] || ''), el('span', 'csa-what', parts[1] || ''), el('span', 'csa-meta', parts.slice(2).join('  ')));
+        row.title = t('chat.bg.agentTip');
+        row.addEventListener('click', () => chatSkinBgOpen(cs.id, cs.pane));
+        return row;
+      }));
+    }
+    list.hidden = !raw.length;
+  }
   seg.hidden = !items.length;
   if (!items.length) return;
   const what = items.join(' · ') + (agents.length ? '\n' + agents.join('\n') : '');
@@ -9096,7 +9126,7 @@ function chatSkinPaintJump(cs) {
   cs.jumpBtn.hidden = cs.stick || cs.log.scrollHeight <= cs.log.clientHeight + 48;
 }
 function chatSkinAutosize(cs) {
-  if (cs.box) cs.box.classList.toggle('bang', cs.input.value.startsWith('!'));   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
+  if (cs.box) { cs.box.classList.toggle('bang', cs.input.value.startsWith('!')); cs.box.classList.toggle('has-text', cs.input.value !== ''); }   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
   cs.input.style.height = 'auto';
   cs.input.style.height = Math.min(cs.input.scrollHeight, 220, Math.round(window.innerHeight * 0.4)) + 'px';   // grows with the text up to a ceiling, then scrolls
 }
@@ -9339,6 +9369,7 @@ const CHAT_TOOL_KINDS = [
   ['search', /^(Grep|Glob|LS)$/, 'search'],
   ['web', /^(WebFetch|WebSearch)$/, 'globe'],
   ['agent', /^(Task|Agent)$/, 'robot'],
+  ['skill', /^Skill$/, 'skill'],   // a skill loading: its own mark, so it reads apart from the tools it then uses
 ];
 function chatToolKind(name) {
   for (const [kind, re, ico] of CHAT_TOOL_KINDS) if (re.test(String(name || ''))) return { kind, ico };
@@ -9591,6 +9622,21 @@ function chatSkinMakeItem(role, cs) {
   const node = el('div', 'chat-note');
   return { node, body: node, role: 'system' };
 }
+/* A message the bus typed (another session, a routine) is labelled with its sender instead of passing as the operator's own.
+   Main matches the text against the provenance log the surfaces keep (AI-172). */
+function chatSkinBusLabel(rec, text) {
+  const gs = typeof window !== 'undefined' ? window.glassShell : null;
+  if (!text.trim() || !gs || typeof gs.chatBusFrom !== 'function') return;
+  Promise.resolve(gs.chatBusFrom(text)).then((r) => {
+    if (!r || rec.text !== text || !rec.node.isConnected) return;
+    rec.node.classList.add('from-bus');
+    let tag = rec.node.querySelector('.chat-from');
+    if (!tag) { tag = el('div', 'chat-from'); rec.node.insertBefore(tag, rec.node.querySelector('.chat-bubble')); }
+    tag.replaceChildren(csIcon('inbox', 11), el('span', '', r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon')));
+    const who = rec.node.querySelector('.chat-who');
+    if (who) who.textContent = r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon');
+  }).catch(() => { /* no label */ });
+}
 function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
   let rec = cs.items.get(item.uuid);
@@ -9610,7 +9656,7 @@ function chatSkinUpsert(cs, item, animate, before) {
     if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
-    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
     rec.node.hidden = !text.trim();
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
