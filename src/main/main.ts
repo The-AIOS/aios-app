@@ -809,7 +809,10 @@ async function chatViewSmoke(win: BrowserWindow): Promise<SmokeChatVerdict> {
     const inherited = Object.keys(process.env)
       .filter((k) => (/^CLAUDE_CODE_/.test(k) && k !== 'CLAUDE_CODE_FORCE_SESSION_PERSIST') || k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT')
       .map((k) => `-u ${k}`).join(' ');
-    const flags = JSON.stringify({ disableAllHooks: true, remoteControlAtStartup: false, statusLine: { type: 'command', command: 'true' } });
+    /* permissions.ask: the permission step must raise its dialog on ANY machine. An operator's own allow rule (seen on the
+       maintainer's Mac: "Bash(touch *)") let the command run unasked and failed the gate before tonight's changes too; an
+       ask rule outranks an allow rule, so the dialog appears whatever the user settings say. */
+    const flags = JSON.stringify({ disableAllHooks: true, remoteControlAtStartup: false, statusLine: { type: 'command', command: 'true' }, permissions: { ask: ['Bash(touch:*)', 'Bash(touch *)'] } });
     const opened = await js<number | null>(`(async () => {
       const cmd = 'cd ' + shq(${JSON.stringify(dir)}) + ' && env ${inherited} ' + CLAUDE + ' --model haiku --name ' + shq(${JSON.stringify(name)})
         + ' --permission-mode default --strict-mcp-config --settings ' + shq(${JSON.stringify(flags)});
