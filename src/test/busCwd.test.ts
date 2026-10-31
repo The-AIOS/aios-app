@@ -23,12 +23,13 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('cwd: a directory inside a folder the operator allowed is accepted, resolved to its real path', () => {
+test('cwd: only the AIOS folder itself, resolved to its real path; an allowed folder is for addDirs, never a start (operator rule, 0.14.0)', () => {
   const s = sandbox();
   try {
-    const roots = { allowed: [path.join(s.home, 'work')] };
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home, roots), { cwd: path.join(s.home, 'work', 'guard') });
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work', 'guard'), s.home, roots), { cwd: path.join(s.home, 'work', 'guard') });
+    const fw = path.join(s.home, 'work');
+    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work'), s.home, { framework: fw, allowed: [] }), { cwd: fw });
+    const r = resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home, { framework: path.join(s.home, 'aios'), allowed: [fw] }) as { error: string };
+    assert.match(r.error, /always starts in the AIOS folder.*addDirs/);
   } finally { s.done(); }
 });
 
@@ -42,24 +43,19 @@ test('#87 cwd: the framework root itself, never a folder planted inside it; neve
     const roots = { framework: fw, allowed: [path.join(s.home, 'work')] };
     assert.deepEqual(resolveBusCwd(fw, s.home, roots), { cwd: fw }, 'the framework root, as before 0.13.0');
     const why = (raw: string, r: { framework?: string; allowed: string[] } = roots): string => (resolveBusCwd(raw, s.home, r) as { error?: string }).error ?? '';
-    assert.match(why(planted), /not allowed — it is inside the AIOS folder/, 'the issue\'s scenario: a vault subfolder with a planted .claude/');
-    assert.match(why(s.home), /home folder itself/, 'the $HOME variant');
-    assert.match(why(s.home, { framework: fw, allowed: [s.home] }), /home folder itself/, 'even if home were listed');
-    assert.match(why(dot, { framework: fw, allowed: [path.join(s.home, '.claude')] }), /hidden folder/, 'a hidden folder even when listed');
-    assert.match(why(path.join(s.home, 'work', 'guard'), { allowed: [] }), /Bus folders/, 'nothing allowed: only the framework');
+    assert.match(why(planted), /always starts in the AIOS folder/, 'the issue\'s scenario: a vault subfolder with a planted .claude/');
+    assert.match(why(s.home), /always starts in the AIOS folder/, 'the $HOME variant');
+    assert.match(why(dot, { framework: fw, allowed: [path.join(s.home, '.claude')] }), /always starts in the AIOS folder/, 'a hidden folder even when listed');
     // security review: an allowed folder that CONTAINS the framework, or one inside it, still never opens the framework's subfolders
-    assert.match(why(planted, { framework: fw, allowed: [s.home + '/aios'] }), /inside the AIOS folder/);
-    assert.match(why(planted, { framework: fw, allowed: [path.join(fw, 'vault')] }), /inside the AIOS folder/);
+    assert.match(why(planted, { framework: fw, allowed: [path.join(fw, 'vault')] }), /always starts in the AIOS folder/, 'an allow entry never makes a start');
     // security review: a different letter case is the same folder on macOS and Windows, and still inside the framework
     if (process.platform === 'darwin' || process.platform === 'win32') {
-      assert.match(why(path.join(s.home, 'AIOS', 'vault', 'x')), /inside the AIOS folder/, 'case-insensitive volume');
+      assert.match(why(path.join(s.home, 'AIOS', 'vault', 'x')), /always starts in the AIOS folder/, 'case-insensitive volume');
     }
     // an allow entry AROUND the framework, however it was saved, opens nothing next to it either
     fs.mkdirSync(path.join(s.home, 'side'), { recursive: true });
-    assert.match(why(path.join(s.home, 'side'), { framework: fw, allowed: [s.home + path.sep + '.'] }), /Bus folders|home folder|hidden/);
-    // control: an allowed folder outside the framework works, so the refusals above are the rule, not an accident
-    fs.mkdirSync(path.join(s.home, 'work', 'guard'), { recursive: true });
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home, roots), { cwd: path.join(s.home, 'work', 'guard') });
+    // control: the AIOS folder itself starts, so the refusals above are the rule, not an accident
+    assert.deepEqual(resolveBusCwd(fw, s.home, roots), { cwd: fw });
   } finally { s.done(); }
 });
 

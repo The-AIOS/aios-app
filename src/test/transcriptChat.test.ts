@@ -141,9 +141,9 @@ test('lines that are not the conversation are ignored (negative control: the sam
   const mixed = feedAll([userStr('<system-reminder>noise</system-reminder>\nreal question')]).items;
   assert.equal(mixed[0].text, 'real question');
 
-  // local command output is a system note, not a bubble from the operator
+  // local command output is the operator's own card, not a bubble from the operator (one line: folded, the text in its header)
   const out = feedAll([userStr('<local-command-stdout>Set model to x</local-command-stdout>')]).items;
-  assert.deepEqual(out.map((i) => [i.role, i.text]), [['system', 'Set model to x']]);
+  assert.deepEqual(out.map((i) => [i.role, i.tool?.summary, i.tool?.fold, i.tool?.own]), [['tool', 'Set model to x', true, true]]);
   assert.equal(feedAll([userStr('<local-command-stdout></local-command-stdout>')]).items.length, 0);
 });
 
@@ -379,4 +379,15 @@ test('output: feedAll hands the final item, with its output, in the place the to
   const u = feedAll([userStr('q'), toolUse('b1', 'Read', { file_path: '/p/a.md' }), toolResult('b1', '# title')]);
   assert.equal(u.items.length, 2);
   assert.deepEqual(u.items[1].tool, { id: 'b1', name: 'Read', summary: u.items[1].tool?.summary, status: 'ok', output: '# title' });
+});
+
+test('Claude Code 2.1.31x: /rename as system local_command records becomes the typed command and a folded card titled by it', () => {
+  const sys = (uuid: string, content: string, extra = ''): string => `{"parentUuid":null,"isSidechain":false,"type":"system","subtype":"local_command","content":${JSON.stringify(content)},"uuid":"${uuid}","timestamp":"2026-10-31T00:47:24.928Z","isMeta":false${extra}}`;
+  const r = feedAll([
+    sys('a', '<command-name>/rename</command-name>\n            <command-message>rename</command-message>\n            <command-args>r2-chat</command-args>'),
+    sys('b', '<local-command-stdout>Session renamed to: r2-chat</local-command-stdout>', ',"commandRun":{"command":"rename","args":"r2-chat"}'),
+  ]).items;
+  assert.deepEqual(r.map((i) => i.role), ['user', 'tool']);
+  assert.equal(r[0].text, '/rename r2-chat');
+  assert.deepEqual([r[1].tool?.name, r[1].tool?.summary, r[1].tool?.fold], ['/rename', 'Session renamed to: r2-chat', true]);
 });

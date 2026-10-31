@@ -372,7 +372,7 @@
   "settings.ignorePaths": "Ignore paths",
   "settings.ignorePathsHint": "names hidden from the explorer + skipped by git (comma-separated)",
   "settings.busFolders": "Bus folders",
-  "settings.busFoldersHint": "Folders where sessions started by the bus (another session, a routine) may open, besides the AIOS folder. Only add folders you trust: a session there loads that folder’s own Claude settings and hooks.",
+  "settings.busFoldersHint": "Folders a session started by the bus (another session, a routine) may also work in, when the request lists them in addDirs. Every bus session still starts in the AIOS folder. Only add folders you trust.",
   "settings.busFoldersRefused": "Not added (not the AIOS folder or around it, must be a folder inside your home, not home itself, not hidden): {list}",
   "settings.vault": "Vault",
   "settings.noVault": "no vault found",

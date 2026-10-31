@@ -44,8 +44,10 @@ export function setBusRoots(fn: () => BusRoots): void { rootsOf = fn; }
 export function resolveBusCwd(raw: unknown, home: string = os.homedir(), roots: BusRoots = rootsOf()): BusCwd {
   const r = resolveBusDir(raw, 'cwd', home);
   if ('error' in r) return r;
-  const why = placeProblem(r.dir, home, roots);
-  return why ? { error: `cwd '${shownOf(raw)}' is not allowed — ${why}` } : { cwd: r.dir };
+  /* The operator's rule (0.14.0 round): a bus session ALWAYS starts in the AIOS folder, or it skips the framework's own
+     CLAUDE.md and everything the AIOS is. So cwd is the AIOS folder itself or nothing; the allow list is for addDirs. */
+  const why = placeProblem(r.dir, home, { framework: roots.framework, allowed: [] });
+  return why ? { error: `cwd '${shownOf(raw)}' is not allowed — a bus session always starts in the AIOS folder (it would skip the AIOS's own CLAUDE.md otherwise). To let it work in another folder, send that folder in "addDirs" and allow it in AIOS Settings → Bus folders` } : { cwd: r.dir };
 }
 
 /* Why a resolved directory may not be used, or '' when it may. */

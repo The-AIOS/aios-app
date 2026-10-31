@@ -372,7 +372,7 @@
   "settings.ignorePaths": "Caminhos ignorados",
   "settings.ignorePathsHint": "nomes ocultos do explorador e ignorados pelo git (separados por vírgula)",
   "settings.busFolders": "Pastas do bus",
-  "settings.busFoldersHint": "Pastas onde as sessões iniciadas pelo bus (outra sessão, uma rotina) podem abrir, além da pasta do AIOS. Adicione só pastas confiáveis: uma sessão ali carrega as configurações e hooks do Claude dessa pasta.",
+  "settings.busFoldersHint": "Pastas em que uma sessão iniciada pelo bus (outra sessão, uma rotina) também pode trabalhar, quando o pedido as lista em addDirs. Toda sessão do bus continua começando na pasta do AIOS. Adicione só pastas confiáveis.",
   "settings.busFoldersRefused": "Não adicionadas (não a pasta do AIOS nem em volta dela, devem ser pastas dentro da sua pasta pessoal, não ela mesma, nem ocultas): {list}",
   "settings.vault": "Cofre",
   "settings.noVault": "nenhum cofre encontrado",

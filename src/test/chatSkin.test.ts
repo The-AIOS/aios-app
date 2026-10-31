@@ -1357,13 +1357,13 @@ test('the bar\'s CSS: thresholds through --chat-* tokens, the detail card on the
 
 test('a narrow pane: two fixed steps (the account address, then the bars; the labels are always the short 5h/7d/Cx), then a MEASURED cut in priority order — the model and numbers never', () => {
   const widths = (sel: RegExp): number[] => [...css.matchAll(/@container \(max-width: (\d+)px\) \{([^@\n]*)\}/g)].filter((m) => sel.test(m[2])).map((m) => Number(m[1]));
-  const addr = Math.max(...widths(/\.cb-acct \.cb-v \{ display: none/));
   const labels = Math.max(...widths(/\.cb-meter \{ display: none/));
-  assert.ok(addr > labels && labels > 0, `address ${addr} goes before labels ${labels}`);
+  assert.ok(labels > 0, 'the bars give way at a fixed width');
+  assert.equal(widths(/\.cb-acct \.cb-v \{ display: none/).length, 0, 'the account address is measured, never hidden at a guessed width (0.14.0 round)');
   assert.match(skin, /el\('span', 'cb-k', t\(short\)\)/, 'the label is the short form at every width');
   // no guessed width hides a segment whose size depends on its text (0.14.0 round: folder and branch hidden at 543px with room to spare)
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.(cb-dir|cb-branch|cb-effort)[^}]*display: none/);
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k'\];/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k'\];/);
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.cb-m \.cb-v[^}]*display: none/, 'nothing hides the numbers');
   assert.match(skinRules(css).find(([sel]) => sel === '.chat-bar .fit-cut')?.[1] ?? '', /display: none/);
   // run it: a stub bar that only fits once the folder and the branch are gone
@@ -1778,7 +1778,7 @@ test('the effort menu\'s look: a neutral popover with its own tokens, a tick on 
   assert.match(css, /\.cb-effort:hover:not\(:disabled\), \.cb-effort\[aria-expanded="true"\] \{ background-color: var\(--chat-row-hover\); \}/);
   assert.match(css, /\.cb-effort:focus-visible \{ outline: 2px solid var\(--chat-focus\)/);
   // the narrow-pane step is still there: measured now, the effort goes after the folder and the branch
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-effort'/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-effort'/);
 });
 
 test('the slash popup wires: the box is a combobox over a listbox, input asks, send/hide/blocked close it, and the IPC is read-only with a leading-slash gate', () => {

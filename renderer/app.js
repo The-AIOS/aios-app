@@ -5418,18 +5418,25 @@ async function openViewer(p) {
   }
 
   if (renderable && editable) {
-    const seg = document.createElement('div');
-    seg.className = 'seg';
-    const mk = (label, m) => {
-      const b = document.createElement('button');
-      b.textContent = label;
+    /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
+       recessed track, the coral thumb on the chosen side; the words are the tooltips. */
+    const seg = el('span', 'zview vview');
+    seg.setAttribute('role', 'radiogroup');
+    const mk = (label, m, ico) => {
+      const b = el('button', 'zv-b');
+      b.type = 'button';
+      b.append(csIcon(ico, 14));
+      b.title = label; b.setAttribute('aria-label', label); b.setAttribute('role', 'radio');
       b.addEventListener('click', () => { if (mode !== m) { mode = m; sync(); paint(); } });
       seg.appendChild(b);
       return b;
     };
-    const bR = mk(t('viewer.rendered'), 'rendered');
-    const bS = mk(t('viewer.edit'), 'source');
-    const sync = () => { bR.classList.toggle('on', mode === 'rendered'); bS.classList.toggle('on', mode === 'source'); };
+    const bR = mk(t('viewer.rendered'), 'rendered', 'eye');
+    const bS = mk(t('viewer.edit'), 'source', 'design');
+    const sync = () => {
+      seg.dataset.mode = mode === 'source' ? 'terminal' : 'chat';   // the thumb's two sides, shared with the Chat | Terminal switch
+      for (const [b, on] of [[bR, mode === 'rendered'], [bS, mode === 'source']]) { b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+    };
     sync();
     head.appendChild(seg);
   }
@@ -8117,7 +8124,7 @@ async function chatSkinWherePaint(cs) {
    4 characters or 40, so no fixed width can say when the folder must go (0.14.0 round: at 543px both fitted and were hidden
    anyway). The account's address and the labels-for-bars swap stay CSS steps, their sizes are fixed. The model and the three
    numbers are never cut. */
-const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-effort', '.cb-mode .cb-v', '.cb-k'];
+const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-acct .cb-v', '.cb-effort', '.cb-mode .cb-v', '.cb-k'];   // the account's address is measured too (0.14.0 round: a fixed width hid it with room to spare)
 function chatSkinFitBar(bar) {
   if (!bar || !bar.isConnected) return;
   const id = bar.querySelector('.cb-id'), meters = bar.querySelector('.cb-meters');
@@ -8177,14 +8184,15 @@ function chatSkinBuild(id, p) {
   const acctSeg = el('button', 'cb-acct');
   acctSeg.type = 'button';
   acctSeg.hidden = true;
-  acctSeg.append(csIcon('users', 12), el('span', 'cb-v', ''));
+  const acctChev = csIcon('chevUpDown', 12);
+  acctChev.classList.add('cb-acct-chev');
+  acctSeg.append(csIcon('users', 12), el('span', 'cb-v', ''), acctChev);   // the chevrons only when there is another account to switch to
   acctSeg.addEventListener('click', (e) => { e.stopPropagation(); void chatSkinAccountMenu(p); });
-  /* Where it works, as the status line says it: the folder (a click reveals it) and the git branch with uncommitted changes. */
-  const dirSeg = el('button', 'cb-where cb-dir');
-  dirSeg.type = 'button';
+  /* Where it works, as the status line says it: the folder and the git branch with uncommitted changes. Both are words,
+     not buttons (0.14.0 round): the full path is the folder's tooltip. */
+  const dirSeg = el('span', 'cb-where cb-dir');
   dirSeg.hidden = true;
   dirSeg.append(csIcon('folder', 12), el('span', 'cb-v', ''));
-  dirSeg.addEventListener('click', () => { if (dirSeg.dataset.path) void revealPath(dirSeg.dataset.path); });
   const branchSeg = el('span', 'cb-where cb-branch');
   branchSeg.hidden = true;
   branchSeg.append(csIcon('branch', 12), el('span', 'cb-v', ''));
@@ -8193,7 +8201,7 @@ function chatSkinBuild(id, p) {
   const modeSeg = el('button', 'cb-mode');
   modeSeg.type = 'button';
   modeSeg.hidden = true;
-  modeSeg.append(csIcon('shield', 12), el('span', 'cb-v', ''));   // the permission mode: a shield (0.14.0 round)
+  modeSeg.append(csIcon('shield', 12), el('span', 'cb-v', ''), csIcon('chevUpDown', 12));   // the permission mode: a shield, and the chevrons of a choice like model and effort (0.14.0 round)
   modeSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinModeMenu(id, p); });
   /* "1 shell", "2 agents": what Claude Code lists after the mode under its prompt. Clicking it (or ↓ in an empty box) opens
      Claude Code's own panel for them, shown as the live terminal strip; Esc closes it, x stops a shell. */
@@ -9061,6 +9069,7 @@ async function chatSkinAccountPaint(p) {
   if (!cur) return;
   seg.querySelector('.cb-v').textContent = chatAcctLabel(cur);
   seg.disabled = list.length < 2;
+  seg.classList.toggle('one', list.length < 2);
   const tip = list.length < 2 ? t('chat.acct.one', { email: cur.email }) : t('chat.acct.tip', { email: cur.email });
   seg.title = tip; seg.setAttribute('aria-label', tip);
 }
@@ -9420,9 +9429,12 @@ function chatSkinPaintTool(rec, item) {
   rec.node.classList.add(status);
   /* The operator's own run (! date, /cost) is what they asked to see: it arrives open, once. Claude's calls stay folded. */
   if (tl.own === true && !rec.node.classList.contains('own')) {
-    rec.node.classList.add('own', 'open');
-    x.head.setAttribute('aria-expanded', 'true');
-    x.head.parentNode.querySelector('.ct-body').hidden = false;
+    rec.node.classList.add('own');
+    if (tl.fold !== true) {   // a one-line confirmation already says it all in its header
+      rec.node.classList.add('open');
+      x.head.setAttribute('aria-expanded', 'true');
+      x.head.parentNode.querySelector('.ct-body').hidden = false;
+    }
   }
   rec.node.dataset.kind = k.kind;
   if (x.kindName !== k.ico) { x.kind.replaceChildren(csIcon(k.ico, 12)); x.kindName = k.ico; }

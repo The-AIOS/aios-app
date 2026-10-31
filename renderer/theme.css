@@ -1445,6 +1445,7 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
                  box-shadow: 0 1px 2px var(--line-strong); transition: transform .18s ease; }
 .zview[data-mode="terminal"]::before { transform: translateX(28px); }
 .zview + .zexp { margin-left: 0; }
+.vview { margin-left: 0; margin-right: 0; }   /* in a viewer's header: placed by the header's own flow */
 .zv-b { position: relative; z-index: 1; width: 28px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
         border: 0; border-radius: 7px; background: transparent; color: var(--subtle); cursor: pointer; transition: color .18s ease; }
 .zv-b:hover:not(.on) { color: var(--ink); }
@@ -1892,7 +1893,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cbp-opt.auto::before { content: ''; position: absolute; left: 10px; right: 10px; top: -3px; height: 1px; background: var(--line); }   /* the way back to the model's own default sits apart */
 .cbp-f { margin: 3px 0 0; padding: 7px 10px 5px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10.5px; line-height: 1.4; }
 .cb-k { color: var(--faint); font-weight: 500; }
-.cb-v { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.cb-v { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }   /* room for descenders: "high" lost its g at line-height 1 (0.14.0 round) */
 .cb-v.none { color: var(--faint); font-weight: 500; }
 .cb-of { color: var(--faint); font-weight: 500; font-variant-numeric: tabular-nums; }
 .cb-of:empty { display: none; }
@@ -1940,7 +1941,6 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
    tooltip), then the meter labels AND bars together (the short "5h · 7d · Cx" and the coloured number take over). The widths are the bar's own (the
    bar is the size container). */
 .cb-model, .cb-effort, .cb-mode, .cb-where, .cb-acct, .cb-m { flex-shrink: 0; }
-@container (max-width: 1120px) { .cb-acct .cb-v { display: none; } }
 @container (max-width: 960px) { .cb-meter { display: none; } .cb-m { gap: 5px; } }
 @container (max-width: 700px) { .cb-of { display: none; } .cb-meter { width: 26px; } .cb-model, .cb-effort, .cb-m, .cb-mode { padding: 0 10px; } }
 /* …and past those two steps the bar is measured: chatSkinFitBar cuts the folder, the branch, the effort, the mode's word and then
@@ -2144,6 +2144,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-acct:hover:not(:disabled) { background-color: var(--chat-row-hover); }
 .cb-acct:disabled { cursor: default; }
 .cb-acct .cs-ico { color: var(--faint); }
+.cb-acct.one .cb-acct-chev { display: none; }
 .cb-acct:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
 .cb-gen[hidden] { display: none; }
 /* the mic: beside send, quiet until it listens */
@@ -2160,11 +2161,9 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-where[hidden] { display: none; }
 .cb-where .cb-v { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .cb-where .cs-ico { color: var(--faint); }
-.cb-dir { cursor: pointer; }
 .cb-dir .cb-v:not(.none) { color: var(--chat-dir-ink); }
 .cb-branch .cb-v:not(.none) { color: var(--chat-ok-ink); }
 .cb-acct .cb-v:not(.none) { color: var(--chat-acct-ink); }
-.cb-dir:hover { background-color: var(--chat-row-hover); }
 .cb-branch.dirty .cb-v { color: var(--chat-hot-ink); }   /* uncommitted changes: red, as the status line draws them */
 /* the words Claude hears, live, while the mic listens */
 .chat-input.listening::placeholder { color: var(--ink); font-style: italic; }
@@ -2199,7 +2198,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .csa-meta { flex: 0 0 auto; color: var(--faint); }
 /* a message the bus typed: its sender above the bubble, in the cool link hue */
 .chat-from { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin: 0 4px 3px; color: var(--chat-link); font-size: 11px; font-weight: 600; }
-.from-bus .chat-bubble { border-style: dashed; }
+.from-bus .chat-bubble { border-style: dashed; border-color: color-mix(in srgb, var(--chat-link) 45%, transparent); background: color-mix(in srgb, var(--chat-link) 9%, var(--chat-user-bg)); font-style: italic; }
 /* a skill loading wears its own mark in the cool hue, so it reads apart from the tools it then calls */
 .chat-tool[data-kind="skill"] .ct-kind { color: var(--chat-model-ink); }
 .chat-tool[data-kind="skill"] .ct-arg { color: var(--ink); }

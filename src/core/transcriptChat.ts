@@ -51,6 +51,9 @@ export interface ChatItem {
     /** The OPERATOR ran it, not Claude: a `! command` typed at the prompt, or the output a slash command printed. The
      *  renderer shows it open and on its own, never folded into a run of Claude's calls. Absent for Claude's tools. */
     own?: true;
+    /** An operator run whose whole output fits its header (a one-line confirmation such as "Session renamed to: r3"):
+     *  the card starts folded. Absent: it starts open, or it is Claude's own call. */
+    fold?: true;
   };
   ts?: string;
 }
@@ -238,20 +241,23 @@ export function createTranscriptTracker(): TranscriptTracker {
   let bang: ChatItem | null = null;
   let lastCommand = '';
   /** A `! command` and a slash command's printout become a card like a tool's, marked as the operator's own. */
-  function ownRun(uuid: string, ts: string | undefined, r: { text: string; local?: true; bang?: 'input' | 'output' | 'error' }, u: TranscriptUpdate): boolean {
+  function ownRun(uuid: string, ts: string | undefined, r: { text: string; local?: true; bang?: 'input' | 'output' | 'error' }, u: TranscriptUpdate, command?: string): boolean {
     const at = ts ? { ts } : {};
     if (r.bang === 'input') {
       bang = { uuid, role: 'tool', tool: { id: 'bang:' + uuid, name: 'Shell', summary: r.text, status: 'running', own: true }, ...at };
       u.items.push(bang);
       return true;
     }
-    // a slash command's one-line confirmation ("Set model to x") stays a quiet note; a printout (/context, /cost) is a card
-    if (r.bang || (r.local && (r.text.includes('\n') || r.text.length > 160))) {
+    /* Every slash command's output is a card titled by the command (0.14.0 round: /rename, /model, /voice showed nothing):
+       a one-line confirmation sits folded with its text in the header, a printout (/context, /cost) opens. */
+    if (r.bang || r.local) {
       const out = previewToolOutput(r.text);
       const status = r.bang === 'error' ? 'error' : 'ok';
       const extra = out ? { output: out.text, ...(out.truncated ? { outputTruncated: true as const } : {}) } : {};
+      const oneLine = !!out && !out.text.includes('\n') && out.text.length <= 160;
       if (r.bang && bang?.tool) u.items.push({ ...bang, tool: { ...bang.tool, status, ...extra } });
-      else u.items.push({ uuid, role: 'tool', tool: { id: 'own:' + uuid, name: r.bang ? 'Shell' : lastCommand || 'Output', summary: '', status, own: true, ...extra }, ...at });
+      else if (r.bang) u.items.push({ uuid, role: 'tool', tool: { id: 'own:' + uuid, name: 'Shell', summary: '', status, own: true, ...extra }, ...at });
+      else u.items.push({ uuid, role: 'tool', tool: { id: 'own:' + uuid, name: command || lastCommand || 'Output', summary: oneLine ? out!.text : '', status, own: true, ...(oneLine ? { fold: true as const } : {}), ...extra }, ...at });
       if (r.bang) bang = null;
       return true;
     }
@@ -386,7 +392,19 @@ export function createTranscriptTracker(): TranscriptTracker {
 
   function onSystem(d: Obj, u: TranscriptUpdate): void {
     // turn_duration is written once per finished turn; stop_hook_summary closes the same moment
-    if (d.subtype === 'turn_duration' || d.subtype === 'stop_hook_summary') setTurn(false, u);
+    if (d.subtype === 'turn_duration' || d.subtype === 'stop_hook_summary') { setTurn(false, u); return; }
+    /* Claude Code 2.1.31x writes a slash command and its output as system records (subtype local_command, with commandRun
+       naming the command), where older versions wrote user records. Same meaning, so the same items. */
+    if (d.subtype === 'local_command' && typeof d.content === 'string' && d.isMeta !== true) {
+      const uuid = str(d.uuid) ?? '';
+      const ts = str(d.timestamp);
+      const r = userText(d.content);
+      if (!r || !uuid) return;
+      const run = isObj(d.commandRun) ? str(d.commandRun.command) : undefined;
+      if (ownRun(uuid, ts, r, u, run ? '/' + run.replace(/^\//, '') : undefined)) return;
+      if (r.role === 'user' && r.text.startsWith('/')) lastCommand = r.text.split(/\s/)[0];
+      u.items.push({ uuid, role: r.role, text: r.text, ...(ts ? { ts } : {}) });
+    }
   }
 
   function feed(line: string): TranscriptUpdate {
