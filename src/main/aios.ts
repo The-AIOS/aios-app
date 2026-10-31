@@ -1059,7 +1059,7 @@ function runIdentity(args: string[]): Promise<{ ok: boolean; out: string; messag
   if (!bash) return Promise.resolve({ ok: false, out: '', message: 'Git Bash not found. Install Git for Windows.' });
   const script = path.join(r, 'hooks', 'claude-identity', 'claude-identity.sh');
   return new Promise((res) => {
-    execFile(bash, [script, ...args], { timeout: 20000 }, (err, out, stderr) => {
+    execFile(bash, [script, ...args], { timeout: 20000, windowsHide: true }, (err, out, stderr) => {
       res(err ? { ok: false, out: '', message: String(stderr || err.message).trim().slice(0, 300) } : { ok: true, out: String(out), message: '' });
     });
   });

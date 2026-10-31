@@ -83,3 +83,11 @@ test('the swap refuses an unlisted address and an expired account before touchin
   assert.equal((await aios.swapAccount('c@example.com')).ok, true);
   assert.match(fw.calls(), /switch c@example\.com/);
 });
+
+test('every call goes through the resolver: the bare word can be WSL\'s on Windows', () => {
+  const src = fs.readFileSync('src/main/aios.ts', 'utf8');
+  const fn = src.slice(src.indexOf('function runIdentity('), src.indexOf('export async function anthropicAccounts'));
+  assert.match(fn, /const bash = resolveBash\(\)/);
+  assert.match(fn, /execFile\(bash, /);
+  assert.match(fn, /windowsHide: true/);
+});

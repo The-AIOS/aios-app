@@ -61,3 +61,10 @@ test('a missing LOCALAPPDATA drops the per-user candidate rather than inventing 
   assert.equal(c.length, 2);
   assert.ok(!c.some((x) => /undefined/.test(x)), 'no undefined may reach a candidate path');
 });
+
+test('WSL\'s launcher on PATH is passed over for Git for Windows', () => {
+  const WSL = 'C:\\Windows\\System32\\bash.exe';
+  const GIT = 'C:\\Program Files\\Git\\bin\\bash.exe';
+  assert.equal(pickBash('win32', { pathHit: WSL, exists: only(WSL, GIT), programFiles: 'C:\\Program Files' }), GIT);
+  assert.equal(pickBash('win32', { pathHit: WSL, exists: only(WSL) }), null, 'better a refusal by name than the wrong home');
+});

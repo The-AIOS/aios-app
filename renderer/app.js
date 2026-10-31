@@ -7066,7 +7066,7 @@ async function accountSwapFlow() {
   if (!list.length) { toast(t('account.none')); return; }
   const pick = await listModal(t('account.title'), list.map((a) => ({
     label: a.label + (a.current ? '  ·  ' + t('account.current') : ''),
-    desc: a.note, icon: a.current ? 'check' : (a.canSwitch ? 'id' : 'warning'), value: a,
+    desc: a.note, icon: a.current ? 'check' : (a.canSwitch ? 'id' : 'stop'), value: a,
   })), t('account.placeholder'));
   if (!pick || pick.current) return;
   /* Listed anyway: an account missing from the menu reads as lost, not as expired. */
