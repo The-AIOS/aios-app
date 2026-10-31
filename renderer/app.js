@@ -8885,7 +8885,7 @@ function chatSkinMirrorStatus(p) {
   const aios = /^\s*\[[^\]]+\]\s*📁/.test(text);   // the AIOS line, recognised by its start: before the first reply its context reads "🔵 ???" and the bar shows a dash
   if (ctx) cs.slCtxPct = Number(ctx[1]);
   chatSkinModePaint(cs, text);
-  chatSkinBgPaint(cs, rows.length ? rows[rows.length - 1].translateToString(true) : '');
+  chatSkinBgPaint(cs, rows.map((r) => r.translateToString(true)));
   chatSkinNamePaint(p);
   host.hidden = !lines.length || aios;
   cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
@@ -8904,15 +8904,23 @@ function chatSkinModePaint(cs, text) {
   const tip = t('chat.mode.tip', { mode: t('chat.mode.' + mode) });
   seg.title = tip; seg.setAttribute('aria-label', tip);
 }
-/* What runs in the background, from the last line under the prompt: "⏵⏵ auto mode on · 1 shell" → "1 shell". */
-function chatSkinBgPaint(cs, last) {
+/* What runs in the background, from the lines under the prompt (verified on Claude Code 2.1.314):
+     · shells ride on the mode line: "⏵⏵ auto mode on · 1 shell" → "1 shell";
+     · running subagents are listed under it, one row each: "◯ general-purpose  Summarize …  14s · ↓ 130.0k tokens"
+       (with "⏺ main" above them, which is this session itself). */
+function chatSkinBgPaint(cs, rowsText) {
   const seg = cs.root && cs.root.querySelector('.cb-bg');
   if (!seg) return;
-  const items = String(last).split('·').map((x) => x.replace(/\(.*?\)/g, '').trim()).filter((x) => /^\d+ [a-z][a-z ]{1,24}$/i.test(x));
-  cs.bgCount = items.reduce((a, x) => a + Number(x.split(' ')[0]), 0);
+  const lines = Array.isArray(rowsText) ? rowsText : [String(rowsText || '')];
+  const modeLine = lines.find((l) => /⏵|shift\+tab|·\s*\d+ \w/.test(l)) || '';
+  const items = modeLine.split('·').map((x) => x.replace(/\(.*?\)/g, '').trim()).filter((x) => /^\d+ [a-z][a-z ]{1,24}$/i.test(x));
+  const agents = lines.filter((l) => /^\s*[◯◉●◐◑◒◓]\s+\S/.test(l)).map((l) => l.trim().replace(/^\S+\s+/, '').replace(/\s{2,}/g, ' · '));
+  if (agents.length) items.push(t(agents.length === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: agents.length }));
+  cs.bgCount = items.reduce((a, x) => a + (Number(x.split(' ')[0]) || 0), 0) || agents.length;
+  cs.bgAgents = agents.length;
   seg.hidden = !items.length;
   if (!items.length) return;
-  const what = items.join(' · ');
+  const what = items.join(' · ') + (agents.length ? '\n' + agents.join('\n') : '');
   seg.querySelector('.cb-v').textContent = what;
   const tip = t('chat.bg.tip', { what });
   seg.title = tip; seg.setAttribute('aria-label', tip);
@@ -8937,6 +8945,8 @@ function chatSkinNamePaint(p) {
    presses in the terminal to open "1 shell". The panel arrives as a dialog, and the chat view shows the live strip for it. */
 function chatSkinBgOpen(id, p) {
   if (panes.get(id) !== p || p.exited || !p.chatSkin || p.chatSkin.promptKind) return;
+  /* Subagents have no footer item to reach with ↓: Claude Code points at /tasks, whose "Background" panel the chat shows as a card. */
+  if (p.chatSkin.bgAgents) { chatSkinSubmit(id, p, '/tasks'); return; }
   window.glassShell.ptyWrite(id, '\x1b[B');
   const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
   setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, enter); }, 150);

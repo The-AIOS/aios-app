@@ -1256,6 +1256,8 @@
   "chat.usage.sevenDayShort": "7d",
   "chat.usage.contextShort": "Cx",
   "chat.bg.tip": "Em segundo plano: {what}. Clique (ou ↓ com a caixa vazia) para abrir; Esc fecha, x interrompe um shell.",
+  "chat.bg.agent": "1 agente",
+  "chat.bg.agents": "{n} agentes",
   "chat.at.dir": "pasta",
   "chat.name.tip": "Esta sessão se chama {name} (como o Claude Code mostra no prompt; /rename muda)",
   "chat.usage.model": "Modelo",
