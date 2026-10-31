@@ -8567,7 +8567,7 @@ function chatSkinSetView(id, view) {
   else chatSkinHandBack(id, p);
   /* Back in chat: close a Background panel left open and give the keyboard back to the prompt, so what is typed next goes to
      Claude, not into a list. A subagent the operator chose to view in the terminal stays viewed (the bar says so). */
-  if (view === 'chat' && p.chatSkin) setTimeout(() => void chatSkinFooterRelease(id, p, true), 200);
+  if (view === 'chat' && p.chatSkin) setTimeout(() => { if (p.chatSkin.agentViewing && !chatSkinWorking(p)) void chatSkinBackToMain(id, p); else void chatSkinFooterRelease(id, p, true); }, 300);
   paintZoneView();   // the switch follows the pane in front
   return true;
 }
@@ -8992,10 +8992,13 @@ function chatSkinBgPaint(cs, rowsText) {
   if (bar && bar.dataset.v !== cs.agentViewing) {
     bar.dataset.v = cs.agentViewing;
     if (cs.agentViewing) {
-      const back = el('button', 'csa-back', t('chat.agents.toTerm'));
+      const back = el('button', 'csa-back', t('chat.agents.back'));
       back.type = 'button';
-      back.addEventListener('click', () => chatSkinSetView(cs.id, 'term'));   // the way back to main is the terminal's own (the list under its prompt)
-      bar.replaceChildren(csIcon('robot', 13), el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back);
+      back.addEventListener('click', () => void chatSkinBackToMain(cs.id, cs.pane).then((ok) => { if (!ok) toast(t('chat.agents.backFail')); }));
+      const term = el('button', 'csa-back', t('chat.agents.toTerm'));
+      term.type = 'button';
+      term.addEventListener('click', () => chatSkinSetView(cs.id, 'term'));
+      bar.replaceChildren(csIcon('robot', 13), el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back, term);
     }
     bar.hidden = !cs.agentViewing;
     /* Rare in chat: the menu views an agent in TERMINAL view, and entering chat returns to main. This bar covers a subagent
@@ -9109,6 +9112,44 @@ function chatSkinSettle(p) {
     };
     setTimeout(tick, 150);
   });
+}
+/* THE back-to-main chokepoint: a subagent the operator brought to the foreground in the terminal, sent back so the chat
+   (which shows main's conversation) and the prompt talk to main again. Measured on 2.1.314, one key at a time: ↓ from the
+   prompt highlights the shells item when there is one, the next ↓ enters the agent list, Enter on "main" brings it back.
+   Each key is checked; a panel opened by surprise is closed with one Esc and the walk stops; the cursor goes back to the
+   prompt only through chatSkinFooterRelease (↑ while the footer holds the keyboard). Returns whether main is back. */
+async function chatSkinBackToMain(id, p) {
+  const cs = p.chatSkin;
+  if (panes.get(id) !== p || p.exited || !cs || !cs.agentViewing || cs.agentBusy) return false;
+  cs.agentBusy = true;
+  const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
+  const alive = () => panes.get(id) === p && !p.exited;
+  const press = async (k) => { if (!alive()) return false; window.glassShell.ptyWrite(id, k); await new Promise((r) => setTimeout(r, 350)); return alive(); };
+  let ok = false;
+  try {
+    if (chatSkinAgentCursor(p) === -1 && !chatSkinPromptEmpty(p)) return false;   // a draft in the prompt: ↓ would walk it
+    for (let n = 0; n < 3 && (chatSkinAgentCursor(p) ?? -1) < 0; n++) {
+      if (!(await press('\x1b[B'))) return false;
+      if (chatSkinPanelOpen(p)) return false;   // released (closed) in finally
+    }
+    let c = chatSkinAgentCursor(p);
+    const main = (cs.agentRows || []).findIndex((r) => r.name === 'main');
+    if (c === null || c < 0 || main < 0) return false;
+    for (let n = 0; n < 20 && c !== main; n++) {
+      const step = main > c ? 1 : -1;
+      if (!(await press(step > 0 ? '\x1b[B' : '\x1b[A'))) return false;
+      const now = chatSkinAgentCursor(p);
+      if (now !== c + step) return false;
+      c = now;
+    }
+    if (!(await press(enter))) return false;
+    ok = true;
+  } finally {
+    await chatSkinFooterRelease(id, p, true);
+    cs.agentBusy = false;
+    if (alive()) chatSkinMirrorStatus(p);
+  }
+  return ok && !cs.agentViewing;
 }
 /* Is a panel of Claude Code's open over its prompt (its footer offers "Esc to close")? */
 function chatSkinPanelOpen(p) {

@@ -102,9 +102,10 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
     const bg = fnBody(s, 'chatSkinBgOpen');   // the background chokepoint (0.14.0 round): ↓ then Enter on the empty prompt, nothing else
     const ag = fnBody(s, 'chatSkinTasksOpen');   // the Background-panel chokepoint (0.14.0 round): arrows only, checked per key, never Enter
-    const rel = fnBody(s, 'chatSkinFooterRelease');   // gives the keyboard back: one Esc for an open panel, ↑ only while the footer holds it
+    const rel = fnBody(s, 'chatSkinFooterRelease');
+    const btm = fnBody(s, 'chatSkinBackToMain');   // back to main: arrows and one Enter, checked per key   // gives the keyboard back: one Esc for an open panel, ↑ only while the footer holds it
     const bgWrites = [...bg.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').replace(rel, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').replace(rel, '').replace(btm, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
@@ -116,6 +117,9 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && /now\.cursor !== c \+ step/.test(ag) && /submitToPty\(id, '\/tasks'\)/.test(ag)
       && [...rel.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === "id, esc|id, '\\x1b[A'"
       && /chatSkinFooterFocus\(p\)/.test(rel)   // ↑ only while the footer holds the keyboard
+      && [...btm.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k'
+      && [...btm.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', 'k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))
+      && /chatSkinPromptEmpty\(p\)\) return false;/.test(btm) && /if \(now !== c \+ step\) return false;/.test(btm)
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
