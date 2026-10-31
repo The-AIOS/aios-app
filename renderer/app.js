@@ -4346,7 +4346,15 @@ const TH_DEFAULT = 0.38, TH_MAX = 0.93, TH_MIN = 0.07;
    is a preference and gets left alone, and this never touches a zone that is already visible. */
 function revealZone(z) {
   if (!split) return;
-  const squeezed = z === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
+  let squeezed = z === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
+  /* Beside the view the zones share the WIDTH, which the side panel also takes from: a drag to
+     80% left the editor ~160 px wide and a file opened there read as not opening (operator test).
+     So beside, a zone narrower than one pane's floor counts as squeezed: MEASURED, like homePane. */
+  if (!squeezed && termPos !== 'below') {
+    const zEl = document.getElementById(z === 'term' ? 'termzone' : 'viewzone');
+    const w = zEl ? zEl.getBoundingClientRect().width : 0;
+    squeezed = w > 0 && w < minPaneFor(z);
+  }
   if (!squeezed) return;
   th = TH_DEFAULT;
   applySplit(); saveLayout(); fitTerms();

@@ -69,3 +69,12 @@ test('the layout menu offers all three, the native intent validates, and every l
     }
   }
 });
+
+test('beside the view, opening into a zone narrower than one pane restores the balanced split', () => {
+  // operator test: terminals left at 80% with the side panel open left the editor ~160 px wide,
+  // and a file opened there read as not opening. The squeeze is MEASURED against the pane floor.
+  const body = app.slice(app.indexOf('function revealZone(z) {'), app.indexOf('const MIN_TERM_ROWS'));
+  assert.match(body, /if \(!squeezed && termPos !== 'below'\)/);
+  assert.match(body, /squeezed = w > 0 && w < minPaneFor\(z\);/);
+  assert.match(body, /th = TH_DEFAULT;/);
+});
