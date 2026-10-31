@@ -21,57 +21,48 @@ export type BusCwd = { cwd: string } | { error: string };
 const MAX_LEN = 4096;
 
 /**
- * WHERE A BUS SESSION MAY START (#87). 0.13.0 accepted any directory under home, home itself and `~/.claude` included,
- * so anything that could write the inbox (a sandboxed agent, or one prompt-injected by what it read) could choose a folder
- * whose `.claude/settings.json` (hooks, allow rules), `CLAUDE.md` and `.mcp.json` it had planted, and open an
- * unsandboxed worker there; or `$HOME`, to widen the worker's project scope to the whole home folder. Now:
- *   · the framework root ITSELF (the default, as before 0.13.0), never a folder inside it: a sandboxed agent can write
- *     under the vault, so "inside the framework" is exactly where a planted config would sit;
- *   · or inside a folder the OPERATOR allowed (Settings → Bus folders). That list is kept in the App's own data folder,
- *     outside the framework, where an agent sandboxed to the vault cannot add to it;
- *   · never home itself, never through a hidden folder (`.claude`, `.ssh`, `.aios`, …), whatever the list says.
- * `addDirs` follow the SAME rules (security review: Claude Code can load skills and CLAUDE.md from an added folder, so a
- * planted vault subfolder is the same channel). Nothing strictly inside the framework is ever accepted, even under an
- * allowed folder that contains the framework: an allow entry is a folder the operator trusts, not a key to the vault.
- * A refusal names the folder and the fix.
+ * WHERE A BUS SESSION MAY START, AND WHAT ELSE IT MAY REACH (issue 87). 0.13.0 accepted any directory under home for `cwd`,
+ * home itself and `~/.claude` included, so anything that could write the inbox (a sandboxed agent, or one prompt-injected
+ * by what it read) could open an unsandboxed worker in a folder whose `.claude/settings.json` (hooks, allow rules),
+ * `CLAUDE.md` and `.mcp.json` it had planted, or in `$HOME`. The operator's rule settles it (0.14.0 round): a bus session
+ * ALWAYS starts in the AIOS folder, or it skips the framework's own CLAUDE.md, the context floor and INTENT.md, which is
+ * the whole point of an AIOS session. So:
+ *   · `cwd` is the AIOS folder itself, or refused;
+ *   · work in a repo is `addDirs` (the bus form of `spawn --add-dir`, the AIOS way): any folder inside home, except home
+ *     itself, a hidden folder (`.claude`, `.ssh`, `.aios`, …), and a folder inside the AIOS folder (already in reach, and
+ *     where an agent can plant a `.claude/`: Claude Code can load skills from an added folder).
+ * Paths are compared on their on-disk spelling, case-folded on macOS and Windows (security review). A refusal names
+ * the folder and why.
  */
-export interface BusRoots { framework?: string; allowed: string[] }
-let rootsOf: () => BusRoots = () => ({ allowed: [] });
-/** Main wires where the framework is and what the operator allowed; tests pass their own. */
+export interface BusRoots { framework?: string }
+let rootsOf: () => BusRoots = () => ({});
+/** Main wires where the framework is; tests pass their own. */
 export function setBusRoots(fn: () => BusRoots): void { rootsOf = fn; }
 
 /** Validate a raw `cwd` field. `home` and `roots` are injectable for tests. */
 export function resolveBusCwd(raw: unknown, home: string = os.homedir(), roots: BusRoots = rootsOf()): BusCwd {
   const r = resolveBusDir(raw, 'cwd', home);
   if ('error' in r) return r;
-  /* The operator's rule (0.14.0 round): a bus session ALWAYS starts in the AIOS folder, or it skips the framework's own
-     CLAUDE.md and everything the AIOS is. So cwd is the AIOS folder itself or nothing; the allow list is for addDirs. */
-  const why = placeProblem(r.dir, home, { framework: roots.framework, allowed: [] });
-  return why ? { error: `cwd '${shownOf(raw)}' is not allowed — a bus session always starts in the AIOS folder (it would skip the AIOS's own CLAUDE.md otherwise). To let it work in another folder, send that folder in "addDirs" and allow it in AIOS Settings → Bus folders` } : { cwd: r.dir };
+  return placeProblem(r.dir, home, roots, true)
+    ? { error: `cwd '${shownOf(raw)}' is not allowed — a bus session always starts in the AIOS folder (it would skip the AIOS's own CLAUDE.md, floor and limits otherwise). To work in a repo, leave cwd out and list the repo in "addDirs"` }
+    : { cwd: r.dir };
 }
 
-/* Why a resolved directory may not be used, or '' when it may. */
-function placeProblem(dir: string, home: string, roots: BusRoots): string {
-  /* Compared on the ON-DISK spelling (security review): macOS and Windows volumes ignore case, so `/Users/x/AIOS/vault`
-     is the framework's vault even though it does not start with `/Users/x/aios`. realpathSync.native returns the
-     disk's own case; lower-casing on top covers a volume that does not report it. */
+/* Why a resolved directory may not be used, or '' when it may. `start`: as the folder a session opens in (only the AIOS
+   folder), else as an added folder. */
+function placeProblem(dir: string, home: string, roots: BusRoots, start: boolean): string {
   const fold = process.platform === 'darwin' || process.platform === 'win32';
   const norm = (p: string): string => { const q = (process.platform === 'win32' ? p.replace(/\\/g, '/') : p).replace(/\/+$/, ''); return fold ? q.toLowerCase() : q; };
   const real = (p: string): string | null => { try { return norm(fs.realpathSync.native(p)); } catch { return null; } };
   const d = real(dir) ?? norm(dir);
+  const fw = roots.framework ? real(roots.framework) : null;
+  if (start) return fw && d === fw ? '' : 'not the AIOS folder';
   const h = real(home);
   if (!h) return 'the home directory could not be resolved';
-  if (d === h) return 'a session may not start in the home folder itself';
+  if (d === h) return 'it is the home folder itself';
   if (d.slice(h.length + 1).split('/').some((c) => c.startsWith('.'))) return 'it is inside a hidden folder (a name starting with a dot), where settings and keys live';
-  const fw = roots.framework ? real(roots.framework) : null;
-  if (fw && d === fw) return '';
-  if (fw && d.startsWith(fw + '/')) return 'it is inside the AIOS folder, where an agent can write; only the AIOS folder itself may be used';
-  for (const a of roots.allowed) {
-    const ar = real(a);
-    if (!ar || ar === h || (fw && (ar === fw || ar.startsWith(fw + '/') || fw.startsWith(ar + '/')))) continue;   // never an entry around the AIOS folder, however it was saved
-    if (d === ar || d.startsWith(ar + '/')) return '';
-  }
-  return `it is not the framework folder or inside a folder allowed for the bus. If you trust it, add '${dir}' in AIOS Settings → Bus folders`;
+  if (fw && (d === fw || d.startsWith(fw + '/'))) return 'it is the AIOS folder or inside it, which a bus session already starts in';
+  return '';
 }
 
 /**
@@ -111,7 +102,7 @@ export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), pla
     }
     const r = resolveBusDir(raw[i], field, home);
     if ('error' in r) return r;
-    const why = placeProblem(r.dir, home, roots);
+    const why = placeProblem(r.dir, home, roots, false);
     if (why) return { error: `${field} '${shownOf(raw[i])}' is not allowed — ${why}` };
     /* What is typed is the RESOLVED path, so check it too: a clean name can be a symlink to one
        that is not. */

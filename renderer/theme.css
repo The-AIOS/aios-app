@@ -2196,6 +2196,14 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .csa-who { color: var(--ink); font-weight: 600; }
 .csa-what { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .csa-meta { flex: 0 0 auto; color: var(--faint); }
+.csa-row.on { background: var(--chat-row-hover); cursor: default; }
+.csa-row.on .csa-mark { color: var(--chat-ok-ink); }
+.csa-view { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; padding: 6px 10px; border-radius: 10px;
+            background: color-mix(in srgb, var(--chat-link) 10%, var(--surface)); color: var(--ink); font-size: 12px; }
+.csa-viewing { flex: 1 1 auto; min-width: 0; }
+.csa-back { flex: 0 0 auto; padding: 3px 10px; border: 1px solid var(--chat-composer-line); border-radius: 8px; background: var(--chat-composer-bg); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; }
+.csa-back:hover { background: var(--chat-row-hover); }
+.csa-back:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; }
 /* a message the bus typed: its sender above the bubble, in the cool link hue */
 .chat-from { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin: 0 4px 3px; color: var(--chat-link); font-size: 11px; font-weight: 600; }
 .from-bus .chat-bubble { border-style: dashed; border-color: color-mix(in srgb, var(--chat-link) 45%, transparent); background: color-mix(in srgb, var(--chat-link) 9%, var(--chat-user-bg)); font-style: italic; }

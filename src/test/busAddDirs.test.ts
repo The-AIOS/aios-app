@@ -10,10 +10,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveBusAddDirs, setBusRoots } from '../main/busCwd';
-/* #87: each sandbox's home/dev is an allowed folder, so the older tests' directories stay in reach; the place rules
-   themselves are tested at the end. */
-let allowRoot = '';
-setBusRoots(() => ({ allowed: allowRoot ? [allowRoot] : [] }));
+/* Issue 87: no AIOS folder in these sandboxes unless a test names one; the place rules are tested at the end. */
+setBusRoots(() => ({}));
 import { parseRequest, fallbackSpawnRequest, buildSpawnCmd, buildResumeCmd, shq, taskFileInstruction } from '../core/commandBus';
 
 function sandbox(): { home: string; outside: string; done: () => void } {
@@ -24,7 +22,6 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   fs.mkdirSync(path.join(home, 'dev', 'other'), { recursive: true });
   fs.mkdirSync(outside);
   fs.writeFileSync(path.join(home, 'file.txt'), 'x');
-  allowRoot = path.join(home, 'dev');
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -183,17 +180,17 @@ test('INVARIANT: both launches validate addDirs and hand them to the command', (
   assert.match(src, /function launchAddDirs[\s\S]*?markUndelivered\(heldPath, req, r\.error\); return null;/, 'a bad entry is dead-lettered');
 });
 
-test('#87 addDirs: the framework itself or inside an allowed folder; never inside the framework, never home, never hidden, never elsewhere', () => {
+test('issue 87 addDirs: any folder inside home (the bus form of spawn --add-dir), never home, never hidden, never inside the AIOS folder', () => {
   const s = sandbox();
   try {
-    const fw = path.join(s.home, 'aios'), code = path.join(s.home, 'code'), dot = path.join(s.home, '.claude');
-    for (const d of [path.join(fw, 'vault'), path.join(code, 'repo'), dot, path.join(s.home, 'elsewhere')]) fs.mkdirSync(d, { recursive: true });
-    const roots = { framework: fw, allowed: [code] };
-    assert.match((resolveBusAddDirs([path.join(fw, 'vault')], s.home, 'darwin', roots) as { error: string }).error, /inside the AIOS folder/, 'security review: a planted vault subfolder is refused for addDirs too');
-    assert.deepEqual(resolveBusAddDirs([fw], s.home, 'darwin', roots), { dirs: [fw] }, 'the AIOS folder itself');
-    assert.deepEqual(resolveBusAddDirs([path.join(code, 'repo')], s.home, 'darwin', roots), { dirs: [path.join(code, 'repo')] }, 'inside an allowed folder');
-    assert.match((resolveBusAddDirs([dot], s.home, 'darwin', { framework: fw, allowed: [dot] }) as { error: string }).error, /hidden folder/, 'a hidden folder is refused even when listed');
-    const other = resolveBusAddDirs([path.join(s.home, 'elsewhere')], s.home, 'darwin', roots) as { error: string };
-    assert.match(other.error, /^addDirs\[0\] '.*' is not allowed — .*Settings → Bus folders/, 'the refusal names the field and the fix');
+    const fw = path.join(s.home, 'aios'), code = path.join(s.home, 'code', 'repo'), dot = path.join(s.home, '.claude');
+    for (const d of [path.join(fw, 'vault'), code, dot]) fs.mkdirSync(d, { recursive: true });
+    const roots = { framework: fw };
+    assert.deepEqual(resolveBusAddDirs([code], s.home, 'darwin', roots), { dirs: [code] }, 'a repo: the AIOS way to work in one');
+    const err = (d: string): string => (resolveBusAddDirs([d], s.home, 'darwin', roots) as { error?: string }).error ?? '';
+    assert.match(err(path.join(fw, 'vault')), /^addDirs\[0\] '.*' is not allowed — it is the AIOS folder or inside it/, 'a planted vault subfolder');
+    assert.match(err(fw), /AIOS folder or inside it/);
+    assert.match(err(dot), /hidden folder/);
+    assert.match(err(s.home), /home folder itself/);
   } finally { s.done(); }
 });

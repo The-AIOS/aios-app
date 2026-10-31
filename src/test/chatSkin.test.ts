@@ -101,14 +101,16 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     const tap = fnBody(s, 'chatSkinVoiceTap');   // the voice chokepoint (0.14.0 round): one space, nothing else
     const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
     const bg = fnBody(s, 'chatSkinBgOpen');   // the background chokepoint (0.14.0 round): ↓ then Enter on the empty prompt, nothing else
+    const ag = fnBody(s, 'chatSkinAgentView');   // the agent chokepoint (0.14.0 round): arrows and Enter only, through one variable write
     const bgWrites = [...bg.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').replace(ag, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
       && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
       && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
-      && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg);
+      && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg)
+      && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k' && /Array\(index \+ 1\)\.fill\('\\x1b\[B'\), enter, \.\.\.Array\(index \+ 1\)\.fill\('\\x1b\[A'\)/.test(ag);
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
@@ -3392,4 +3394,25 @@ test('background work: the chip reads "1 shell" from the line under the prompt, 
   assert.match(name, /\/\^❯\//, 'the rule right above the prompt line');
   assert.match(name, /─\{3,\}/);
   assert.ok(skin.indexOf("if (!cs.hist && !up && v === '' && cs.bgCount)") > 0, '↓ in an empty box reaches the background panel, as in the terminal');
+});
+
+test('openViewer never calls the global el(): it shadows it with a local of the same name (a file open threw, 0.14.0 round)', () => {
+  const body = fnBody(fs.readFileSync('renderer/app.js', 'utf8'), 'openViewer');
+  assert.ok(body.length > 1000, 'openViewer found');
+  const shadows = /\b(?:const|let)\s+el\b\s*=/.test(body) || /\bel\s*[,)]\s*=>/.test(body);
+  if (shadows) assert.doesNotMatch(body, /\bel\('/, 'a local el is not the element helper');
+});
+
+test('agent rows: main and each subagent in screen order; the viewed one is known, and the box says who it talks to', () => {
+  const bgSrc = skin.slice(skin.indexOf('function chatSkinBgPaint'), skin.indexOf('\n}\n', skin.indexOf('function chatSkinBgPaint')) + 2);
+  const v = { textContent: '' };
+  const seg: Record<string, unknown> = { hidden: true, querySelector: () => v, setAttribute() { /* */ } };
+  const cs: Record<string, unknown> = { root: { querySelector: (q: string) => (q === '.cb-bg' ? seg : null) } };
+  const paint = new Function('t', bgSrc + '; return chatSkinBgPaint;')((k: string, o: Record<string, unknown>) => k + JSON.stringify(o));
+  paint(cs, ['  ⏵⏵ auto mode on (shift+tab to cycle)', '', '  ◯ main', '  ⏺ general-purpose  Summarize project notes                32s · ↓ 260.4k tokens']);
+  assert.equal(cs.agentViewing, 'general-purpose', '⏺ on a subagent: the terminal is showing it');
+  assert.deepEqual((cs.agentRows as { name: string }[]).map((r) => r.name), ['main', 'general-purpose']);
+  paint(cs, ['  ⏵⏵ auto mode on', '', '❯ ⏺ main', '  ◯ general-purpose  Summarize project notes   41s']);
+  assert.equal(cs.agentViewing, '', 'back on main (the list cursor may still sit on it)');
+  assert.match(fnBody(skin, 'chatSkinNamePaint'), /cs\.agentViewing \? '@' \+ cs\.agentViewing/);
 });

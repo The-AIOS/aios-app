@@ -5420,10 +5420,12 @@ async function openViewer(p) {
   if (renderable && editable) {
     /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
        recessed track, the coral thumb on the chosen side; the words are the tooltips. */
-    const seg = el('span', 'zview vview');
+    const seg = document.createElement('span');   // not el(): openViewer has its own local named el (a viewer-open threw on every file, 0.14.0 round)
+    seg.className = 'zview vview';
     seg.setAttribute('role', 'radiogroup');
     const mk = (label, m, ico) => {
-      const b = el('button', 'zv-b');
+      const b = document.createElement('button');
+      b.className = 'zv-b';
       b.type = 'button';
       b.append(csIcon(ico, 14));
       b.title = label; b.setAttribute('aria-label', label); b.setAttribute('role', 'radio');
@@ -8933,28 +8935,44 @@ function chatSkinBgPaint(cs, rowsText) {
   const lines = Array.isArray(rowsText) ? rowsText : [String(rowsText || '')];
   const modeLine = lines.find((l) => /⏵|shift\+tab|·\s*\d+ \w/.test(l)) || '';
   const items = modeLine.split('·').map((x) => x.replace(/\(.*?\)/g, '').trim()).filter((x) => /^\d+ [a-z][a-z ]{1,24}$/i.test(x));
-  const agents = lines.filter((l) => /^\s*[◯◉●◐◑◒◓]\s+\S/.test(l)).map((l) => l.trim().replace(/^\S+\s+/, '').replace(/\s{2,}/g, ' · '));
+  /* The agent list under the prompt, in screen order: "⏺ main" (this session) then one row per subagent; ⏺ marks the one on
+     screen, ❯ the list cursor. Viewing a subagent is a mode of the hidden terminal: its prompt then talks to that agent. */
+  const agentRows = lines.map((l) => /^\s*(?:❯\s*)?([◯⏺●◉])\s+(\S+)(?:\s{2,}(.*))?$/.exec(l)).filter(Boolean)
+    .map((m) => ({ mark: m[1], name: m[2], rest: (m[3] || '').trim() }));
+  const agents = agentRows.filter((r) => r.name !== 'main').map((r) => [r.name, ...r.rest.split(/\s{2,}/)].join(' · '));
+  cs.agentRows = agentRows;
+  cs.agentViewing = (agentRows.find((r) => r.mark === '⏺' && r.name !== 'main') || {}).name || '';
   if (agents.length) items.push(t(agents.length === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: agents.length }));
   cs.bgCount = items.reduce((a, x) => a + (Number(x.split(' ')[0]) || 0), 0) || agents.length;
   cs.bgAgents = agents.length;
   const list = cs.root.querySelector('.cs-agents');
   if (list) {
-    const raw = lines.filter((l) => /^\s*[◯◉●◐◑◒◓]\s+\S/.test(l)).map((l) => l.trim());
-    const sig = raw.join('\n');
+    const rows = agentRows.length > 1 ? agentRows : [];   // "main" alone is no list
+    const sig = JSON.stringify(rows) + cs.agentViewing;
     if (list.dataset.sig !== sig) {
       list.dataset.sig = sig;
-      list.replaceChildren(...raw.map((l) => {
-        const [, mark, rest] = /^(\S+)\s+(.*)$/.exec(l) || [, '', l];
-        const parts = rest.split(/\s{2,}/);
-        const row = el('button', 'csa-row');
+      const nodes = [];
+      if (cs.agentViewing) {
+        /* The hidden terminal is showing a subagent, and its prompt now talks to it: say so, and offer the way back. */
+        const bar = el('div', 'csa-view');
+        const back = el('button', 'csa-back', t('chat.agents.back'));
+        back.type = 'button';
+        back.addEventListener('click', () => chatSkinAgentView(cs.id, cs.pane, 0));
+        bar.append(el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back);
+        nodes.push(bar);
+      }
+      rows.forEach((r, i) => {
+        const parts = r.rest.split(/\s{2,}/);
+        const row = el('button', 'csa-row' + (r.mark === '⏺' ? ' on' : ''));
         row.type = 'button';
-        row.append(el('span', 'csa-mark', mark), el('span', 'csa-who', parts[0] || ''), el('span', 'csa-what', parts[1] || ''), el('span', 'csa-meta', parts.slice(2).join('  ')));
-        row.title = t('chat.bg.agentTip');
-        row.addEventListener('click', () => chatSkinBgOpen(cs.id, cs.pane));
-        return row;
-      }));
+        row.append(el('span', 'csa-mark', r.mark), el('span', 'csa-who', r.name), el('span', 'csa-what', parts[0] || ''), el('span', 'csa-meta', parts.slice(1).join('  ')));
+        row.title = r.name === 'main' ? t('chat.agents.mainTip') : t('chat.agents.viewTip', { name: r.name });
+        row.addEventListener('click', () => { if (r.mark !== '⏺') chatSkinAgentView(cs.id, cs.pane, i); });
+        nodes.push(row);
+      });
+      list.replaceChildren(...nodes);
     }
-    list.hidden = !raw.length;
+    list.hidden = !rows.length;
   }
   seg.hidden = !items.length;
   if (!items.length) return;
@@ -8974,10 +8992,21 @@ function chatSkinNamePaint(p) {
   for (let i = lines.length - 1; i > 0; i--) if (/^❯/.test(lines[i])) { at = i; break; }
   if (at < 0) return;
   const m = /^─{3,}\s+(.+?)\s+─+\s*$/.exec(lines[at - 1].trimEnd());
-  const name = m ? m[1] : '';
+  const name = cs.agentViewing ? '@' + cs.agentViewing : m ? m[1] : '';   // viewing a subagent: the pill says who the box talks to
   tag.hidden = !name;
   tag.textContent = name;
   tag.title = name ? t('chat.name.tip', { name }) : '';
+}
+/* THE agent chokepoint: view row `index` of the agent list under Claude Code's prompt (0 is "main", this session) with the
+   keys the terminal takes, measured on 2.1.314: ↓ from the prompt enters the list at main, each ↓ moves one row, Enter
+   shows that row, and ↑ from main returns to the prompt. So: ↓ × (index + 1), Enter, ↑ × (index + 1), and the cursor is back
+   in the prompt, which now talks to the agent on screen (0.14.0 round: clicking an agent left no way back). */
+function chatSkinAgentView(id, p, index) {
+  if (panes.get(id) !== p || p.exited || !p.chatSkin || p.chatSkin.promptKind || !Number.isInteger(index) || index < 0 || index > 20) return;
+  const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
+  const keys = [...Array(index + 1).fill('\x1b[B'), enter, ...Array(index + 1).fill('\x1b[A')];
+  keys.forEach((k, n) => setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, k); }, n * 120));
+  setTimeout(() => { if (panes.get(id) === p) chatSkinMirrorStatus(p); }, keys.length * 120 + 500);
 }
 /* THE background chokepoint, beside chatSkinModeCycle: ↓ then Enter on Claude Code's empty prompt, exactly what the operator
    presses in the terminal to open "1 shell". The panel arrives as a dialog, and the chat view shows the live strip for it. */
@@ -10963,20 +10992,6 @@ function openSettingsTab() {
       toast(t('settings.saved'));
     });
     row(wrap, t('settings.ignorePaths'), ignoreIn, t('settings.ignorePathsHint'));
-
-    /* #87 — folders a bus session may start in besides the framework root. Comma-separated like the ignore list; main
-       checks each one and keeps it in the App's own data folder, where an agent cannot add to it. */
-    const busIn = document.createElement('input');
-    busIn.className = 'tinput';
-    busIn.dataset.setting = 'busFolders';
-    busIn.placeholder = '~/code/my-repo';
-    busIn.value = (await window.glassShell.busFolders().catch(() => [])).join(', ');
-    busIn.addEventListener('change', async () => {
-      const r = await window.glassShell.setBusFolders(busIn.value.split(',').map((s) => s.trim()).filter(Boolean));
-      busIn.value = r.folders.join(', ');
-      toast(r.refused.length ? t('settings.busFoldersRefused', { list: r.refused.join(', ') }) : t('settings.saved'));
-    });
-    row(wrap, t('settings.busFolders'), busIn, t('settings.busFoldersHint'));
 
     const cc = await window.glassShell.claudeConfig();
     const h2 = document.createElement('div'); h2.className = 'ttitle'; h2.textContent = t('settings.claude'); wrap.appendChild(h2);

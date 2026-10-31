@@ -602,42 +602,8 @@ ipcMain.handle('chat:busFrom', (_e, text: unknown) => {
   const hit = busSentCache.byFp.get(busFingerprint(text));
   return hit ? { from: hit.from ?? '' } : null;
 });
-/* #87 — the folders the operator allows bus sessions to start in, besides the framework root. Kept in the App's own data
-   folder, NOT in <framework>/.glass/shell.json: an agent sandboxed to the vault can write the framework, and an allow
-   list it could edit would allow nothing. Each entry is checked when saved (absolute, a directory, inside home, not home,
-   no hidden folder) and again by busCwd when used. */
-const busFoldersFile = (): string => path.join(app.getPath('userData'), 'bus-folders.json');
-function busFolders(): string[] {
-  try {
-    const v = JSON.parse(fs.readFileSync(busFoldersFile(), 'utf8')) as unknown;
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && path.isAbsolute(x)).slice(0, 50) : [];
-  } catch { return []; }
-}
-setBusRoots(() => ({ framework: aios.frameworkRoot(), allowed: busFolders() }));
-ipcMain.handle('bus:folders', () => busFolders());
-ipcMain.handle('bus:setFolders', (_e, list: unknown) => {
-  if (!Array.isArray(list)) return { folders: busFolders(), refused: [] };
-  const home = (() => { try { return fs.realpathSync.native(os.homedir()); } catch { return os.homedir(); } })();
-  const ok: string[] = [], refused: string[] = [];
-  for (const raw of list.slice(0, 50)) {
-    if (typeof raw !== 'string' || !raw.trim()) continue;
-    const p = raw.trim().replace(/^~(?=$|[\\/])/, os.homedir());
-    let real = '';
-    try { real = fs.realpathSync.native(p); if (!fs.statSync(real).isDirectory()) real = ''; } catch { real = ''; }
-    const rel = real ? path.relative(home, real) : '';
-    /* Never the AIOS folder, anything inside it, or anything containing it (security review): an allowed folder must not
-       become a way into the vault, where an agent can plant a .claude/ folder. */
-    const fold = (x: string): string => (process.platform === 'darwin' || process.platform === 'win32' ? x.toLowerCase() : x);   // case-insensitive volumes (security review)
-    const fw = (() => { try { return fold(fs.realpathSync.native(aios.frameworkRoot() ?? '')); } catch { return ''; } })();
-    const rf = fold(real);
-    const touchesFw = !!fw && (rf === fw || rf.startsWith(fw + path.sep) || fw.startsWith(rf + path.sep));
-    const fine = real && real !== home && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.split(path.sep).some((c) => c.startsWith('.')) && !touchesFw;
-    if (fine) { if (!ok.includes(real)) ok.push(real); } else refused.push(raw.trim());
-  }
-  fs.mkdirSync(path.dirname(busFoldersFile()), { recursive: true });
-  fs.writeFileSync(busFoldersFile(), JSON.stringify(ok, null, 2) + '\n');
-  return { folders: ok, refused };
-});
+/* Issue 87: busCwd needs to know where the AIOS folder is (the only folder a bus session starts in). */
+setBusRoots(() => ({ framework: aios.frameworkRoot() }));
 ipcMain.handle('chat:voice', () => {
   try {
     const s = JSON.parse(fs.readFileSync(path.join(aios.claudeConfigDir(), 'settings.json'), 'utf8')) as { voice?: { enabled?: unknown; mode?: unknown }; voiceEnabled?: unknown };

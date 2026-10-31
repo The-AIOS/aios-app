@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveBusCwd, grantBusCwd, isBusCwdGranted, setBusRoots } from '../main/busCwd';
-setBusRoots(() => ({ allowed: [] }));   // the default the place tests below override per call
+setBusRoots(() => ({}));   // no AIOS folder unless a test names one
 import { parseRequest, fallbackSpawnRequest, buildSpawnCmd } from '../core/commandBus';
 
 function sandbox(): { home: string; outside: string; done: () => void } {
@@ -23,39 +23,18 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('cwd: only the AIOS folder itself, resolved to its real path; an allowed folder is for addDirs, never a start (operator rule, 0.14.0)', () => {
+test('issue 87 cwd: only the AIOS folder itself, resolved to its real path; anything else is refused naming addDirs (operator rule, 0.14.0)', () => {
   const s = sandbox();
   try {
     const fw = path.join(s.home, 'work');
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work'), s.home, { framework: fw, allowed: [] }), { cwd: fw });
-    const r = resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home, { framework: path.join(s.home, 'aios'), allowed: [fw] }) as { error: string };
-    assert.match(r.error, /always starts in the AIOS folder.*addDirs/);
-  } finally { s.done(); }
-});
-
-test('#87 cwd: the framework root itself, never a folder planted inside it; never home; never a hidden folder; anything else names the fix', () => {
-  const s = sandbox();
-  try {
-    const fw = path.join(s.home, 'aios');
-    const planted = path.join(fw, 'vault', 'x');
-    const dot = path.join(s.home, '.claude', 'p');
-    fs.mkdirSync(planted, { recursive: true }); fs.mkdirSync(dot, { recursive: true });
-    const roots = { framework: fw, allowed: [path.join(s.home, 'work')] };
-    assert.deepEqual(resolveBusCwd(fw, s.home, roots), { cwd: fw }, 'the framework root, as before 0.13.0');
-    const why = (raw: string, r: { framework?: string; allowed: string[] } = roots): string => (resolveBusCwd(raw, s.home, r) as { error?: string }).error ?? '';
-    assert.match(why(planted), /always starts in the AIOS folder/, 'the issue\'s scenario: a vault subfolder with a planted .claude/');
-    assert.match(why(s.home), /always starts in the AIOS folder/, 'the $HOME variant');
-    assert.match(why(dot, { framework: fw, allowed: [path.join(s.home, '.claude')] }), /always starts in the AIOS folder/, 'a hidden folder even when listed');
-    // security review: an allowed folder that CONTAINS the framework, or one inside it, still never opens the framework's subfolders
-    assert.match(why(planted, { framework: fw, allowed: [path.join(fw, 'vault')] }), /always starts in the AIOS folder/, 'an allow entry never makes a start');
-    // security review: a different letter case is the same folder on macOS and Windows, and still inside the framework
-    if (process.platform === 'darwin' || process.platform === 'win32') {
-      assert.match(why(path.join(s.home, 'AIOS', 'vault', 'x')), /always starts in the AIOS folder/, 'case-insensitive volume');
+    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work'), s.home, { framework: fw }), { cwd: fw });
+    for (const d of [path.join(fw, 'guard'), s.home]) {
+      const r = resolveBusCwd(d, s.home, { framework: fw }) as { error?: string };
+      assert.match(r.error ?? '', /always starts in the AIOS folder.*addDirs/, d);
     }
-    // an allow entry AROUND the framework, however it was saved, opens nothing next to it either
-    fs.mkdirSync(path.join(s.home, 'side'), { recursive: true });
-    // control: the AIOS folder itself starts, so the refusals above are the rule, not an accident
-    assert.deepEqual(resolveBusCwd(fw, s.home, roots), { cwd: fw });
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      assert.match((resolveBusCwd(path.join(s.home, 'WORK', 'guard'), s.home, { framework: fw }) as { error?: string }).error ?? '', /always starts/, 'case-insensitive volume');
+    }
   } finally { s.done(); }
 });
 

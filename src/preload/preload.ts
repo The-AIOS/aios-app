@@ -79,8 +79,6 @@ contextBridge.exposeInMainWorld('glassShell', {
   chatWhere: (sessionId: string | null): Promise<{ cwd: string | null; branch: string | null; changes: number }> => ipcRenderer.invoke('chat:where', sessionId),
   /* The chat composer's slash popup: the rows for what is in the box (built-in, project, user and plugin commands, ranked), [] for no popup. */
   slashCommands: (cwd: string | null, text: string): Promise<SlashCommand[]> => ipcRenderer.invoke('slashCommands:list', cwd, text),
-  busFolders: (): Promise<string[]> => ipcRenderer.invoke('bus:folders'),
-  setBusFolders: (list: string[]): Promise<{ folders: string[]; refused: string[] }> => ipcRenderer.invoke('bus:setFolders', list),
   chatBusFrom: (text: string): Promise<{ from: string } | null> => ipcRenderer.invoke('chat:busFrom', text),
   chatMention: (sessionId: string | null, before: string): Promise<{ start: number; rows: { path: string; dir: boolean }[] } | null> => ipcRenderer.invoke('chat:mention', sessionId, before),
   /* An image pasted or dragged from a browser has no path: main saves the bytes to a temp file it names and returns that
