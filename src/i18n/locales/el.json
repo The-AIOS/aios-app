@@ -1268,6 +1268,8 @@
   "chat.usage.fiveHourShort": "5h",
   "chat.usage.sevenDayShort": "7d",
   "chat.usage.contextShort": "Cx",
+  "chat.bg.tip": "Στο παρασκήνιο: {what}. Κάντε κλικ (ή ↓ με κενό πλαίσιο) για να το ανοίξετε· το Esc κλείνει, το x σταματά ένα shell.",
+  "chat.name.tip": "Αυτή η συνεδρία ονομάζεται {name} (όπως τη δείχνει το Claude Code στο prompt· το /rename την αλλάζει)",
   "chat.usage.model": "Model",
   "chat.usage.effort": "Effort",
   "menu.chatView": "Switch Claude Sessions Between Chat and Terminal",

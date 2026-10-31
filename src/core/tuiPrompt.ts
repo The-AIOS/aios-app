@@ -115,6 +115,10 @@ const QUESTION = /(Type something|Chat about this|^\s*[←→]?\s*[☐☒]\s)/m;
 const PERMISSION = /(Do you want to |Would you like to proceed|tell Claude what to do differently|Yes, and don't ask again|Yes, allow all edits|Yes, during this session)/i;
 // 'other': a prompt that is not a menu but still waits on a keypress
 const OTHER = /(Press Enter to continue|\(y\/n\)\s*$|\[y\/N\]\s*$|\[Y\/n\]\s*$)/i;
+// a panel Claude Code opens over its prompt (↓ then Enter on "1 shell": "Shell details" … "← to go back · Esc/Enter/Space to
+// close · x to stop"). Not a menu, so it is an 'other' prompt: the chat view shows the live terminal strip for it.
+const PANEL = /(Esc\/Enter\/Space to close|←\s*to go back|\bx to stop\b)/i;
+const PANEL_TITLE = /^\s*((?:Shell|Agent|Task|Background)[\w ]{0,30}|[\w ]{0,30}(?:details|tasks))\s*$/i;
 
 /** Only the lines at the very end of the screen can be a live dialog. */
 const TAIL_LINES = 40;
@@ -345,6 +349,10 @@ export function detectTuiPrompt(screenText: string): TuiPrompt | null {
 
   // 2. not a menu, but still waiting on a keypress — only trusted on the very last lines
   const endText = lines.slice(-2).join('\n');
+  if (PANEL.test(lines[n - 1])) {
+    const title = lines.slice(Math.max(0, n - 30), n - 1).reverse().find((l) => PANEL_TITLE.test(l));
+    return { kind: 'other', hint: clip(title ?? lines[n - 1]) };
+  }
   const o = OTHER.exec(endText);
   if (o) return { kind: 'other', hint: clip(lines[n - 1]) };
   return null;

@@ -372,3 +372,12 @@ test('the monitor emits when the dialog changes, not on a moved cursor, and hand
   m.screen('⏺ ok\n'.repeat(10)); clock.advance(20);
   assert.equal(seen[2][0], null);
 });
+
+test('Claude Code\'s own background panel ("Shell details" … "x to stop") is an other-prompt, so the chat shows the live strip', () => {
+  const screen = ['⏺ ok', '', '✻ Worked for 3s · 1 shell still running', '', '─'.repeat(60), '  Shell details', '', '  Status:   running', '  Runtime:  40s', '  Command:  sleep 600', '', '  Output:', '  No output available', '', '  ← to go back · Esc/Enter/Space to close · x to stop'].join('\n');
+  const r = detectTuiPrompt(screen);
+  assert.equal(r?.kind, 'other');
+  assert.equal(r?.hint, 'Shell details');
+  // control: the same words in Claude's prose higher up the screen are not a live panel
+  assert.equal(detectTuiPrompt(['Press x to stop it, Esc/Enter/Space to close.', '', '─'.repeat(40), '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on · 1 shell'].join('\n')), null);
+});

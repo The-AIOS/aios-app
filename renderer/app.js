@@ -8194,7 +8194,13 @@ function chatSkinBuild(id, p) {
   modeSeg.hidden = true;
   modeSeg.append(csIcon('sliders', 12), el('span', 'cb-v', ''));
   modeSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinModeMenu(id, p); });
-  idBox.append(modelSeg, effortSeg, modeSeg, dirSeg, branchSeg, acctSeg);
+  /* "1 shell", "2 agents": what Claude Code lists after the mode under its prompt. Clicking it (or ↓ in an empty box) opens
+     Claude Code's own panel for them, shown as the live terminal strip; Esc closes it, x stops a shell. */
+  const bgSeg = el('button', 'cb-mode cb-bg');
+  bgSeg.type = 'button';
+  bgSeg.hidden = true;
+  bgSeg.append(csIcon('term', 12), el('span', 'cb-v', ''));
+  idBox.append(modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
   /* The effort menu. It cannot be a child of the bar (the bar clips what overflows it), so it floats over the end of the log like
@@ -8368,6 +8374,11 @@ function chatSkinBuild(id, p) {
   slashFoot.setAttribute('aria-hidden', 'true');
   slashPop.append(slashList, slashFoot);
   slashPop.addEventListener('mousedown', (e) => e.preventDefault());   // a press on a row must not pull the caret out of the box
+  /* The session's name on the card's top edge, where the terminal draws it on the prompt's rule ("──── r2-chat ─"). Read
+     from that rule, so it is the name Claude Code itself holds (it follows /rename), not the tab's. */
+  const nameTag = el('span', 'cc-name');
+  nameTag.hidden = true;
+  box.appendChild(nameTag);
   wrap.append(slashPop, box);
   wrap.appendChild(effortPop);
   input.setAttribute('role', 'combobox');
@@ -8463,6 +8474,16 @@ function chatSkinBuild(id, p) {
     chatSkinInterrupt(id, p);
   });
   sendBtn.addEventListener('click', () => chatSkinSendNow(id, p));
+  bgSeg.addEventListener('click', () => chatSkinBgOpen(id, p));
+  /* Space on an empty box is the terminal's tap-to-talk (and a second space sends what it heard), when voice is on in tap
+     mode. Otherwise a space is a space. The setting is read when the box takes focus, so the key itself never waits. */
+  input.addEventListener('focus', () => { Promise.resolve(window.glassShell.chatVoice?.()).then((v) => { cs.voiceTap = !!(v && v.enabled && (!v.mode || v.mode === 'tap')); }).catch(() => { cs.voiceTap = false; }); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== ' ' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || input.value !== '' || !(cs.voiceTap || cs.recording) || cs.promptKind) return;
+    e.preventDefault();
+    if (cs.recording) chatSkinVoiceTap(id, p);
+    else { chatSkinVoiceTap(id, p); chatSkinVoicePaint(cs, true); }
+  });
   modelSeg.addEventListener('click', () => chatSkinModelMenu(id, p));
   effortSeg.addEventListener('click', () => chatSkinEffortMenu(cs, !cs.effort.open));
   effortPop.addEventListener('click', (e) => {
@@ -8859,6 +8880,8 @@ function chatSkinMirrorStatus(p) {
   const aios = /^\s*\[[^\]]+\]\s*📁/.test(text);   // the AIOS line, recognised by its start: before the first reply its context reads "🔵 ???" and the bar shows a dash
   if (ctx) cs.slCtxPct = Number(ctx[1]);
   chatSkinModePaint(cs, text);
+  chatSkinBgPaint(cs, rows.length ? rows[rows.length - 1].translateToString(true) : '');
+  chatSkinNamePaint(p);
   host.hidden = !lines.length || aios;
   cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
   if (ctx) chatPaintUsage(cs);
@@ -8875,6 +8898,43 @@ function chatSkinModePaint(cs, text) {
   seg.querySelector('.cb-v').textContent = t('chat.mode.' + mode);
   const tip = t('chat.mode.tip', { mode: t('chat.mode.' + mode) });
   seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+/* What runs in the background, from the last line under the prompt: "⏵⏵ auto mode on · 1 shell" → "1 shell". */
+function chatSkinBgPaint(cs, last) {
+  const seg = cs.root && cs.root.querySelector('.cb-bg');
+  if (!seg) return;
+  const items = String(last).split('·').map((x) => x.replace(/\(.*?\)/g, '').trim()).filter((x) => /^\d+ [a-z][a-z ]{1,24}$/i.test(x));
+  cs.bgCount = items.reduce((a, x) => a + Number(x.split(' ')[0]), 0);
+  seg.hidden = !items.length;
+  if (!items.length) return;
+  const what = items.join(' · ');
+  seg.querySelector('.cb-v').textContent = what;
+  const tip = t('chat.bg.tip', { what });
+  seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+/* The session's name: the words on the rule right above Claude Code's prompt line. Kept while a dialog hides the prompt. */
+function chatSkinNamePaint(p) {
+  const cs = p.chatSkin;
+  const tag = cs && cs.box && cs.box.querySelector('.cc-name');
+  if (!tag) return;
+  let lines = [];
+  try { lines = chatSkinScreenText(p).split('\n'); } catch { return; }
+  let at = -1;
+  for (let i = lines.length - 1; i > 0; i--) if (/^❯/.test(lines[i])) { at = i; break; }
+  if (at < 0) return;
+  const m = /^─{3,}\s+(.+?)\s+─+\s*$/.exec(lines[at - 1].trimEnd());
+  const name = m ? m[1] : '';
+  tag.hidden = !name;
+  tag.textContent = name;
+  tag.title = name ? t('chat.name.tip', { name }) : '';
+}
+/* THE background chokepoint, beside chatSkinModeCycle: ↓ then Enter on Claude Code's empty prompt, exactly what the operator
+   presses in the terminal to open "1 shell". The panel arrives as a dialog, and the chat view shows the live strip for it. */
+function chatSkinBgOpen(id, p) {
+  if (panes.get(id) !== p || p.exited || !p.chatSkin || p.chatSkin.promptKind) return;
+  window.glassShell.ptyWrite(id, '\x1b[B');
+  const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
+  setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, enter); }, 150);
 }
 /* THE mode chokepoint, beside chatSkinSendKey and chatSkinVoiceTap: Shift+Tab (ESC [ Z) and nothing else, exactly what the
    operator presses in the terminal. The status line confirms the new mode on the next read. */
@@ -9912,6 +9972,7 @@ function chatSkinHistKey(cs, e) {
   const v = inp.value;
   const up = e.key === 'ArrowUp';
   if (up ? inp.selectionStart > 0 && v.lastIndexOf('\n', inp.selectionStart - 1) !== -1 : v.indexOf('\n', inp.selectionStart) !== -1) return false;   // not on the first / last line
+  if (!cs.hist && !up && v === '' && cs.bgCount) { e.preventDefault(); chatSkinBgOpen(cs.id, cs.pane); return true; }   // as in the terminal: ↓ reaches "1 shell"
   if (!cs.hist) { if (!up) return false; cs.hist = { list: chatSkinHistList(cs), i: -1, draft: v }; }
   const h = cs.hist;
   const n = h.i === -1 ? (up ? h.list.length - 1 : -1) : h.i + (up ? -1 : 1);

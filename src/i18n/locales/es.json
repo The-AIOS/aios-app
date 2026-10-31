@@ -1255,6 +1255,8 @@
   "chat.usage.fiveHourShort": "5h",
   "chat.usage.sevenDayShort": "7d",
   "chat.usage.contextShort": "Cx",
+  "chat.bg.tip": "En segundo plano: {what}. Haz clic (o ↓ con el cuadro vacío) para abrirlo; Esc lo cierra, x detiene un shell.",
+  "chat.name.tip": "Esta sesión se llama {name} (como la muestra Claude Code en el prompt; /rename lo cambia)",
   "chat.usage.model": "Modelo",
   "chat.usage.effort": "Esfuerzo",
   "menu.chatView": "Alternar las sesiones de Claude entre chat y terminal",

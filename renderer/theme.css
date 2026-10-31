@@ -2174,3 +2174,9 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-mode[data-mode="auto"] .cb-v, .cb-mode[data-mode="bypass"] .cb-v { color: var(--chat-meter-warn); }
 .cb-mode[data-mode="plan"] .cb-v { color: var(--ink); font-weight: 600; }   /* coral is the send button's alone in the chat */
 .cb-mode:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
+.cb-bg .cb-v { color: var(--ink); }
+/* the session's name on the card's top edge, where the terminal prints it on the prompt's rule */
+.cc-name { position: absolute; top: 0; right: 22px; transform: translateY(-50%); z-index: 2; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+           padding: 1px 8px; border: 1px solid var(--chat-composer-line); border-radius: 8px; background: var(--chat-composer-bg); color: var(--subtle);
+           font-size: 10.5px; font-weight: 600; line-height: 1.4; pointer-events: none; }
+.cc-name[hidden] { display: none; }

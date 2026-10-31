@@ -100,12 +100,15 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     // every direct pty write in the skin is the lone ESC, or one chunk of a dialog key inside the key chokepoint; nothing writes text or a CR
     const tap = fnBody(s, 'chatSkinVoiceTap');   // the voice chokepoint (0.14.0 round): one space, nothing else
     const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const bg = fnBody(s, 'chatSkinBgOpen');   // the background chokepoint (0.14.0 round): ↓ then Enter on the empty prompt, nothing else
+    const bgWrites = [...bg.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(bg, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
       && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
-      && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'";
+      && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
+      && bgWrites.length === 2 && bgWrites[0] === "id, '\\x1b[B'" && bgWrites[1] === "id, enter" && /const enter = '\\r';/.test(bg) && /p\.chatSkin\.promptKind\) return/.test(bg);
   },
   (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
 
@@ -3365,4 +3368,24 @@ test('↑/↓ in the composer walk the prompts already sent, from the first/last
   assert.equal(key('ArrowUp').done, false, 'inside a multi-line draft ↑ moves the caret, not the history');
   assert.match(skin, /input\.addEventListener\('keydown', \(e\) => \{ if \(chatSkinHistKey\(cs, e\)\) e\.stopImmediatePropagation\(\); \}\);/);
   assert.ok(skin.indexOf('chatSkinSlashKey(cs, e)') < skin.indexOf('chatSkinHistKey(cs, e)) e.stop'), 'an open slash popup keeps ↑/↓ for its own list');
+});
+
+test('background work: the chip reads "1 shell" from the line under the prompt, and the name is the one on the prompt\'s rule', () => {
+  const bgSrc = skin.slice(skin.indexOf('function chatSkinBgPaint'), skin.indexOf('\n}\n', skin.indexOf('function chatSkinBgPaint')) + 2);
+  const v = { textContent: '' };
+  const seg: Record<string, unknown> = { hidden: true, querySelector: () => v, setAttribute() { /* */ } };
+  const cs: Record<string, unknown> = { root: { querySelector: () => seg } };
+  const paint = new Function('t', bgSrc + '; return chatSkinBgPaint;')((k: string, o: Record<string, string>) => k + JSON.stringify(o));
+  paint(cs, '  ⏵⏵ auto mode on · 1 shell');
+  assert.equal(v.textContent, '1 shell'); assert.equal(seg.hidden, false); assert.equal(cs.bgCount, 1);
+  paint(cs, '  ⏵⏵ auto mode on (shift+tab to cycle) · 2 shells · 1 agent');
+  assert.equal(v.textContent, '2 shells · 1 agent'); assert.equal(cs.bgCount, 3);
+  paint(cs, '  ⏵⏵ auto mode on (shift+tab to cycle)');
+  assert.equal(seg.hidden, true, 'nothing running, no chip'); assert.equal(cs.bgCount, 0);
+  paint(cs, '  [Opus 5.5] 📁 aios | 🌿 main | 🟢 10% | ⚡ 5h:18% ↻2h34m · 7d:67% ↻66h54m');
+  assert.equal(seg.hidden, true, 'the status line\'s own "·" pieces are not background work');
+  const name = fnBody(skin, 'chatSkinNamePaint');
+  assert.match(name, /\/\^❯\//, 'the rule right above the prompt line');
+  assert.match(name, /─\{3,\}/);
+  assert.ok(skin.indexOf("if (!cs.hist && !up && v === '' && cs.bgCount)") > 0, '↓ in an empty box reaches the background panel, as in the terminal');
 });
