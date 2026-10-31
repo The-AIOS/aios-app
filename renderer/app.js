@@ -8666,7 +8666,7 @@ function chatSkinLayout(p) {
   if (!cs) return;
   const on = p.view === 'chat';
   p.el.classList.toggle('view-chat', on);
-  p.el.classList.toggle('cs-strip', on && chatSkinStrip(cs));
+  p.el.classList.toggle('cs-strip', on && (chatSkinStrip(cs) || !!cs.lostPrompt));   // a panel nothing recognised: its live terminal (chatSkinLostPrompt)
   cs.root.hidden = !on;
   if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
   cs.input.disabled = !!cs.promptKind || !!p.exited;
@@ -10560,6 +10560,29 @@ function chatSkinFirstRun(id, p) {
     if (p.view !== 'chat') chatSkinSetView(id, 'chat');
   }
 }
+/* A PANEL NOTHING RECOGNISED. Claude Code 2.1.314's /cost (also /status, /config, /usage, /stats) opens a full-screen Settings
+   panel whose "Esc" footer falls below a short terminal's last row, so no detector sees it: the chat looked idle while
+   every key went into the panel (0.14.0 sweep). The general rule: Claude Code's prompt box gone for 1.5 s, while it is not
+   working and no known dialog explains it, means something is up that only the terminal can show. The chat then shows the
+   live terminal (the strip) and gives it the keyboard; when the prompt box comes back (Esc), the chat returns by itself. */
+function chatSkinLostPrompt(id, p, now) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  const box = chatSkinAgentCursor(p) !== null;
+  if (box) {
+    cs.sawPrompt = true;
+    cs.lostSince = 0;
+    if (cs.lostPrompt) { cs.lostPrompt = false; chatSkinLayout(p); chatSkinFocus(p); }
+    return;
+  }
+  if (!cs.sawPrompt || cs.promptKind || chatSkinWorking(p) || p.exited) { cs.lostSince = 0; return; }
+  if (!cs.lostSince) { cs.lostSince = now; return; }
+  if (!cs.lostPrompt && now - cs.lostSince > 1500) {
+    cs.lostPrompt = true;
+    chatSkinLayout(p);
+    setTimeout(() => { if (panes.get(id) === p && cs.lostPrompt) { repaintTerm(p); try { p.term.focus(); } catch { /* gone */ } } }, 60);
+  }
+}
 function chatSkinTick() {
   if (document.hidden) return;
   const now = Date.now();
@@ -10577,6 +10600,7 @@ function chatSkinTick() {
       if (ok && chatMode === 'chat' && p.view !== 'chat' && !p.firstRunTerm) chatSkinSetView(id, 'chat');
     }
     else if (p.view === 'chat') chatSkinSync(id, p);
+    if (p.view === 'chat') chatSkinLostPrompt(id, p, now);
     const cs = p.chatSkin;
     if (p.view !== 'chat' || !cs) continue;
     chatSkinControls(p);

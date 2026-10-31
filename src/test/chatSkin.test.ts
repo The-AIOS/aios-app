@@ -2431,7 +2431,7 @@ test('the layout decides strip or card from ONE rule: a card is drawn, the strip
   assert.equal(strip(), true, 'no options: the strip');
   h.cs.promptKind = null;
   assert.equal(strip(), false, 'no dialog: neither');
-  assert.match(fnBody(skin, 'chatSkinLayout'), /classList\.toggle\('cs-strip', on && chatSkinStrip\(cs\)\)/);   // a subagent is viewed in terminal view, never as a strip (0.14.0 round)
+  assert.match(fnBody(skin, 'chatSkinLayout'), /classList\.toggle\('cs-strip', on && \(chatSkinStrip\(cs\) \|\| !!cs\.lostPrompt\)\)/);   // a dialog's strip, or a panel nothing recognised; never a subagent (0.14.0)
   assert.match(fnBody(skin, 'chatSkinPaintAlert'), /chatSkinCardOn\(cs\) \? '' :/, 'a card is its own notice');
 });
 
@@ -3480,4 +3480,29 @@ test('Claude Code\'s first run shows in the terminal, then the pane returns to c
   const q: Record<string, unknown> = { view: 'chat' };
   run(2, q);
   assert.equal(views.length, 2);
+});
+
+test('a panel nothing recognised (the prompt box gone 1.5 s, not working, no dialog) shows the live terminal, and the chat returns with the prompt box', () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
+  let box = true, working = false;
+  const layouts: boolean[] = [];
+  const cs: Record<string, unknown> = { promptKind: null };
+  const p: Record<string, unknown> = { chatSkin: cs, exited: false, term: { focus() { /* */ } } };
+  const fn = new Function('chatSkinAgentCursor', 'chatSkinWorking', 'chatSkinLayout', 'chatSkinFocus', 'repaintTerm', 'panes', grab('chatSkinLostPrompt') + '; return chatSkinLostPrompt;')(
+    () => (box ? -1 : null), () => working, () => layouts.push(!!cs.lostPrompt), () => { /* */ }, () => { /* */ }, new Map([[1, p]]));
+  fn(1, p, 1000);                          // the prompt box is up: seen
+  box = false;
+  fn(1, p, 2000); fn(1, p, 3000);          // gone for 1 s: nothing yet
+  assert.equal(cs.lostPrompt, undefined);
+  fn(1, p, 3600);                          // gone 1.6 s: the terminal
+  assert.equal(cs.lostPrompt, true);
+  box = true; fn(1, p, 4000);              // Esc closed the panel: the chat
+  assert.equal(cs.lostPrompt, false);
+  assert.deepEqual(layouts, [true, false]);
+  // controls: while Claude works, or a known dialog is up, the box may be gone without a strip
+  const cs2: Record<string, unknown> = { promptKind: null, sawPrompt: true };
+  const p2: Record<string, unknown> = { chatSkin: cs2, exited: false, term: { focus() { /* */ } } };
+  box = false; working = true;
+  fn(1, p2, 1000); fn(1, p2, 5000);
+  assert.equal(cs2.lostPrompt, undefined, 'working: no strip');
 });
