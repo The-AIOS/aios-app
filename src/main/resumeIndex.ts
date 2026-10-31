@@ -208,6 +208,11 @@ export class ResumeIndex {
     return pickResume(name, this.candidates(name), excludeSessionId);
   }
 
+  /** The transcript file a session id came from, for the launch-time name check (AI-228). */
+  fileOf(sessionId: string): string | undefined {
+    return Object.keys(this.files).find((f) => this.files[f].sessionId === sessionId);
+  }
+
   /** How many transcripts are indexed — for the log line and the tests. */
   size(): number { return Object.keys(this.files).length; }
 }

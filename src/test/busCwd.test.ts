@@ -50,6 +50,13 @@ test('#87 cwd: the framework root itself, never a folder planted inside it; neve
     // security review: an allowed folder that CONTAINS the framework, or one inside it, still never opens the framework's subfolders
     assert.match(why(planted, { framework: fw, allowed: [s.home + '/aios'] }), /inside the AIOS folder/);
     assert.match(why(planted, { framework: fw, allowed: [path.join(fw, 'vault')] }), /inside the AIOS folder/);
+    // security review: a different letter case is the same folder on macOS and Windows, and still inside the framework
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      assert.match(why(path.join(s.home, 'AIOS', 'vault', 'x')), /inside the AIOS folder/, 'case-insensitive volume');
+    }
+    // an allow entry AROUND the framework, however it was saved, opens nothing next to it either
+    fs.mkdirSync(path.join(s.home, 'side'), { recursive: true });
+    assert.match(why(path.join(s.home, 'side'), { framework: fw, allowed: [s.home + path.sep + '.'] }), /Bus folders|home folder|hidden/);
     // control: an allowed folder outside the framework works, so the refusals above are the rule, not an accident
     fs.mkdirSync(path.join(s.home, 'work', 'guard'), { recursive: true });
     assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home, roots), { cwd: path.join(s.home, 'work', 'guard') });

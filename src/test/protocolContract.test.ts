@@ -449,7 +449,7 @@ test('PROTOCOL: the verb module is byte-identical across both fulfillers', () =>
    is RACED for, so if the two surfaces disagreed about which session a name resolves to, the same
    `resume` would reopen different sessions depending on who won — non-determinism that would look
    like a Claude bug, not ours. core/resumeTarget.ts is therefore copied byte-identical as well. */
-const RESUME_SHA = '1942c31911cb512a';
+const RESUME_SHA = '5444bfed034874b1';
 
 test('PROTOCOL: the name→session resolution is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/core/resumeTarget.ts', 'utf8');
@@ -584,7 +584,7 @@ test('PROTOCOL: this surface refuses an unknown verb before launching anything',
 
 /* AI-204 — the resume index is ONE file in two repos (App main/resumeIndex.ts, Glass
    agents/resumeIndex.ts). Pinned whole, like sendQueue: an edit on one side alone goes red. */
-const RESUME_INDEX_SHA = '674f54a7f91a1435';
+const RESUME_INDEX_SHA = '7fde43f2237783bf';
 test('PROTOCOL: the resume index is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/main/resumeIndex.ts', 'utf8');
   assert.equal(crypto.createHash('sha256').update(src).digest('hex').slice(0, 16), RESUME_INDEX_SHA,

@@ -617,18 +617,20 @@ setBusRoots(() => ({ framework: aios.frameworkRoot(), allowed: busFolders() }));
 ipcMain.handle('bus:folders', () => busFolders());
 ipcMain.handle('bus:setFolders', (_e, list: unknown) => {
   if (!Array.isArray(list)) return { folders: busFolders(), refused: [] };
-  const home = (() => { try { return fs.realpathSync(os.homedir()); } catch { return os.homedir(); } })();
+  const home = (() => { try { return fs.realpathSync.native(os.homedir()); } catch { return os.homedir(); } })();
   const ok: string[] = [], refused: string[] = [];
   for (const raw of list.slice(0, 50)) {
     if (typeof raw !== 'string' || !raw.trim()) continue;
     const p = raw.trim().replace(/^~(?=$|[\\/])/, os.homedir());
     let real = '';
-    try { real = fs.realpathSync(p); if (!fs.statSync(real).isDirectory()) real = ''; } catch { real = ''; }
+    try { real = fs.realpathSync.native(p); if (!fs.statSync(real).isDirectory()) real = ''; } catch { real = ''; }
     const rel = real ? path.relative(home, real) : '';
     /* Never the AIOS folder, anything inside it, or anything containing it (security review): an allowed folder must not
        become a way into the vault, where an agent can plant a .claude/ folder. */
-    const fw = (() => { try { return fs.realpathSync(aios.frameworkRoot() ?? ''); } catch { return ''; } })();
-    const touchesFw = !!fw && (real === fw || real.startsWith(fw + path.sep) || fw.startsWith(real + path.sep));
+    const fold = (x: string): string => (process.platform === 'darwin' || process.platform === 'win32' ? x.toLowerCase() : x);   // case-insensitive volumes (security review)
+    const fw = (() => { try { return fold(fs.realpathSync.native(aios.frameworkRoot() ?? '')); } catch { return ''; } })();
+    const rf = fold(real);
+    const touchesFw = !!fw && (rf === fw || rf.startsWith(fw + path.sep) || fw.startsWith(rf + path.sep));
     const fine = real && real !== home && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.split(path.sep).some((c) => c.startsWith('.')) && !touchesFw;
     if (fine) { if (!ok.includes(real)) ok.push(real); } else refused.push(raw.trim());
   }

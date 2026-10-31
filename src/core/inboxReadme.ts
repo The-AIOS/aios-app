@@ -146,6 +146,8 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
   \`send\` would. Resuming a live session would give one identity two processes.
 - **Any age.** A name is found however old its session is: an index of every transcript, not a
   count of the newest ones. If a session was renamed, its latest name is the one that counts.
+  An OLD name is refused with a dead letter that names the current one; it is never reopened
+  under the old name (its terminal and tab would disagree, and messages to either would be lost).
 - **Nothing to resume?** A dead letter naming the session — never a silent spawn.
   Add \`"fallback": "spawn"\` to opt into starting a fresh one instead:
 

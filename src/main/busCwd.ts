@@ -50,9 +50,13 @@ export function resolveBusCwd(raw: unknown, home: string = os.homedir(), roots: 
 
 /* Why a resolved directory may not be used, or '' when it may. */
 function placeProblem(dir: string, home: string, roots: BusRoots): string {
-  const norm = (p: string): string => (process.platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p).replace(/\/+$/, '');
-  const real = (p: string): string | null => { try { return norm(fs.realpathSync(p)); } catch { return null; } };
-  const d = norm(dir);
+  /* Compared on the ON-DISK spelling (security review): macOS and Windows volumes ignore case, so `/Users/x/AIOS/vault`
+     is the framework's vault even though it does not start with `/Users/x/aios`. realpathSync.native returns the
+     disk's own case; lower-casing on top covers a volume that does not report it. */
+  const fold = process.platform === 'darwin' || process.platform === 'win32';
+  const norm = (p: string): string => { const q = (process.platform === 'win32' ? p.replace(/\\/g, '/') : p).replace(/\/+$/, ''); return fold ? q.toLowerCase() : q; };
+  const real = (p: string): string | null => { try { return norm(fs.realpathSync.native(p)); } catch { return null; } };
+  const d = real(dir) ?? norm(dir);
   const h = real(home);
   if (!h) return 'the home directory could not be resolved';
   if (d === h) return 'a session may not start in the home folder itself';
@@ -62,7 +66,8 @@ function placeProblem(dir: string, home: string, roots: BusRoots): string {
   if (fw && d.startsWith(fw + '/')) return 'it is inside the AIOS folder, where an agent can write; only the AIOS folder itself may be used';
   for (const a of roots.allowed) {
     const ar = real(a);
-    if (ar && ar !== h && (d === ar || d.startsWith(ar + '/'))) return '';
+    if (!ar || ar === h || (fw && (ar === fw || ar.startsWith(fw + '/') || fw.startsWith(ar + '/')))) continue;   // never an entry around the AIOS folder, however it was saved
+    if (d === ar || d.startsWith(ar + '/')) return '';
   }
   return `it is not the framework folder or inside a folder allowed for the bus. If you trust it, add '${dir}' in AIOS Settings → Bus folders`;
 }

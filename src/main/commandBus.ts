@@ -11,6 +11,7 @@ import { contract4LaunchArgs, cleanFrom, advisorModelFor } from '../core/contrac
 import { needsConsultBlock, ADVISOR_CONSULT_BLOCK } from '../core/advisor';
 import { normalizeVerb } from '../core/busVerbs';
 import { ResumeIndex } from './resumeIndex';
+import { staleResumeName } from '../core/resumeTarget';
 import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '../core/supersede';
 import { resolveSessionName, resolveFormerName, sessionKey } from '../core/nameMatch';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
@@ -418,6 +419,22 @@ const resumeIndex = new ResumeIndex(
 );
 function resumeIdFor(name: string, excludeSessionId?: string): Promise<string | undefined> {
   return resumeIndex.lookup(name, excludeSessionId).catch(() => undefined);
+}
+/* AI-228: the session's current name as its own transcript says it NOW (the last 2 MB hold the newest records), or '' when
+   it matches `want` or cannot be read. A read failure never blocks a resume: the index already matched the name. */
+function currentNameIfStale(sessionId: string, want: string): string {
+  const f = resumeIndex.fileOf(sessionId);
+  if (!f) return '';
+  try {
+    const st = fs.statSync(f);
+    const len = Math.min(st.size, 2 * 1024 * 1024);
+    const fd = fs.openSync(f, 'r');
+    try {
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, st.size - len);
+      return staleResumeName(buf.toString('utf8'), want);
+    } finally { fs.closeSync(fd); }
+  } catch { return ''; }
 }
 
 /** AI-205 — every send currently held by any surface (both surfaces' `.holding` files). */
@@ -953,6 +970,12 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       }
       log(`resume '${req.name}' — no transcript; falling back to spawn as asked`);
     } else {
+      const now = currentNameIfStale(sid, req.name);
+      if (now) {
+        markUndelivered(heldPath, req, `resume '${req.name}': that session is now called '${now}', so resume it as '${now}'. `
+          + 'It was not reopened under the old name: its terminal and its tab would carry different names, and bus messages to either would be lost (AI-228).');
+        return;
+      }
       const where = launchCwd(heldPath, req);
       if (!where) return;
       const addDirs = launchAddDirs(heldPath, req);
