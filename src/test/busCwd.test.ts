@@ -9,7 +9,8 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { resolveBusCwd, grantBusCwd, isBusCwdGranted } from '../main/busCwd';
+import { resolveBusCwd, grantBusCwd, isBusCwdGranted, setBusRoots } from '../main/busCwd';
+setBusRoots(() => ({ allowed: [] }));   // the default the place tests below override per call
 import { parseRequest, fallbackSpawnRequest, buildSpawnCmd } from '../core/commandBus';
 
 function sandbox(): { home: string; outside: string; done: () => void } {
@@ -22,12 +23,32 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('cwd: an existing directory inside home is accepted, resolved to its real path', () => {
+test('cwd: a directory inside a folder the operator allowed is accepted, resolved to its real path', () => {
   const s = sandbox();
   try {
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home), { cwd: path.join(s.home, 'work', 'guard') });
-    assert.deepEqual(resolveBusCwd(s.home, s.home), { cwd: s.home }, 'home itself is inside home');
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work', 'guard'), s.home), { cwd: path.join(s.home, 'work', 'guard') });
+    const roots = { allowed: [path.join(s.home, 'work')] };
+    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home, roots), { cwd: path.join(s.home, 'work', 'guard') });
+    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work', 'guard'), s.home, roots), { cwd: path.join(s.home, 'work', 'guard') });
+  } finally { s.done(); }
+});
+
+test('#87 cwd: the framework root itself, never a folder planted inside it; never home; never a hidden folder; anything else names the fix', () => {
+  const s = sandbox();
+  try {
+    const fw = path.join(s.home, 'aios');
+    const planted = path.join(fw, 'vault', 'x');
+    const dot = path.join(s.home, '.claude', 'p');
+    fs.mkdirSync(planted, { recursive: true }); fs.mkdirSync(dot, { recursive: true });
+    const roots = { framework: fw, allowed: [path.join(s.home, 'work')] };
+    assert.deepEqual(resolveBusCwd(fw, s.home, roots), { cwd: fw }, 'the framework root, as before 0.13.0');
+    const why = (raw: string, r: { framework?: string; allowed: string[] } = roots): string => (resolveBusCwd(raw, s.home, r) as { error?: string }).error ?? '';
+    assert.match(why(planted), /not allowed — it is not the framework folder or inside a folder allowed for the bus.*Settings → Bus folders/, 'the issue\'s scenario: a vault subfolder with a planted .claude/');
+    assert.match(why(s.home), /home folder itself/, 'the $HOME variant');
+    assert.match(why(s.home, { framework: fw, allowed: [s.home] }), /home folder itself/, 'even if home were listed');
+    assert.match(why(dot, { framework: fw, allowed: [path.join(s.home, '.claude')] }), /hidden folder/, 'a hidden folder even when listed');
+    assert.match(why(path.join(s.home, 'work', 'guard'), { allowed: [] }), /Bus folders/, 'nothing allowed: only the framework');
+    // control: the same planted folder IS accepted once the operator allows its parent, so the refusal above is the rule, not an accident
+    assert.deepEqual(resolveBusCwd(planted, s.home, { framework: fw, allowed: [path.join(fw, 'vault')] }), { cwd: planted });
   } finally { s.done(); }
 });
 

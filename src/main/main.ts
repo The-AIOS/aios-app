@@ -33,7 +33,7 @@ import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
 import { initCommandBus, appLog } from './commandBus';
-import { isBusCwdGranted } from './busCwd';
+import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
 import { composeBuilderBrief, slugify, type DesignerKind, type DesignerFields } from '../core/designer';
@@ -601,6 +601,36 @@ ipcMain.handle('chat:busFrom', (_e, text: unknown) => {
   }
   const hit = busSentCache.byFp.get(busFingerprint(text));
   return hit ? { from: hit.from ?? '' } : null;
+});
+/* #87 — the folders the operator allows bus sessions to start in, besides the framework root. Kept in the App's own data
+   folder, NOT in <framework>/.glass/shell.json: an agent sandboxed to the vault can write the framework, and an allow
+   list it could edit would allow nothing. Each entry is checked when saved (absolute, a directory, inside home, not home,
+   no hidden folder) and again by busCwd when used. */
+const busFoldersFile = (): string => path.join(app.getPath('userData'), 'bus-folders.json');
+function busFolders(): string[] {
+  try {
+    const v = JSON.parse(fs.readFileSync(busFoldersFile(), 'utf8')) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && path.isAbsolute(x)).slice(0, 50) : [];
+  } catch { return []; }
+}
+setBusRoots(() => ({ framework: aios.frameworkRoot(), allowed: busFolders() }));
+ipcMain.handle('bus:folders', () => busFolders());
+ipcMain.handle('bus:setFolders', (_e, list: unknown) => {
+  if (!Array.isArray(list)) return { folders: busFolders(), refused: [] };
+  const home = (() => { try { return fs.realpathSync(os.homedir()); } catch { return os.homedir(); } })();
+  const ok: string[] = [], refused: string[] = [];
+  for (const raw of list.slice(0, 50)) {
+    if (typeof raw !== 'string' || !raw.trim()) continue;
+    const p = raw.trim().replace(/^~(?=$|[\\/])/, os.homedir());
+    let real = '';
+    try { real = fs.realpathSync(p); if (!fs.statSync(real).isDirectory()) real = ''; } catch { real = ''; }
+    const rel = real ? path.relative(home, real) : '';
+    const fine = real && real !== home && rel && !rel.startsWith('..') && !path.isAbsolute(rel) && !rel.split(path.sep).some((c) => c.startsWith('.'));
+    if (fine) { if (!ok.includes(real)) ok.push(real); } else refused.push(raw.trim());
+  }
+  fs.mkdirSync(path.dirname(busFoldersFile()), { recursive: true });
+  fs.writeFileSync(busFoldersFile(), JSON.stringify(ok, null, 2) + '\n');
+  return { folders: ok, refused };
 });
 ipcMain.handle('chat:voice', () => {
   try {

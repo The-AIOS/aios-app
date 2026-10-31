@@ -10952,6 +10952,20 @@ function openSettingsTab() {
     });
     row(wrap, t('settings.ignorePaths'), ignoreIn, t('settings.ignorePathsHint'));
 
+    /* #87 — folders a bus session may start in besides the framework root. Comma-separated like the ignore list; main
+       checks each one and keeps it in the App's own data folder, where an agent cannot add to it. */
+    const busIn = document.createElement('input');
+    busIn.className = 'tinput';
+    busIn.dataset.setting = 'busFolders';
+    busIn.placeholder = '~/code/my-repo';
+    busIn.value = (await window.glassShell.busFolders().catch(() => [])).join(', ');
+    busIn.addEventListener('change', async () => {
+      const r = await window.glassShell.setBusFolders(busIn.value.split(',').map((s) => s.trim()).filter(Boolean));
+      busIn.value = r.folders.join(', ');
+      toast(r.refused.length ? t('settings.busFoldersRefused', { list: r.refused.join(', ') }) : t('settings.saved'));
+    });
+    row(wrap, t('settings.busFolders'), busIn, t('settings.busFoldersHint'));
+
     const cc = await window.glassShell.claudeConfig();
     const h2 = document.createElement('div'); h2.className = 'ttitle'; h2.textContent = t('settings.claude'); wrap.appendChild(h2);
     // These are Claude's own settings, and this is a curated few of them — point at the

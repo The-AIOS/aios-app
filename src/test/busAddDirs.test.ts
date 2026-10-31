@@ -9,7 +9,11 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { resolveBusAddDirs } from '../main/busCwd';
+import { resolveBusAddDirs, setBusRoots } from '../main/busCwd';
+/* #87: each sandbox's home stands in as the framework root, so a folder inside it is in reach (addDirs may name subfolders
+   of the framework); the place rules themselves are tested at the end. */
+let fwRoot = '';
+setBusRoots(() => ({ framework: fwRoot, allowed: [] }));
 import { parseRequest, fallbackSpawnRequest, buildSpawnCmd, buildResumeCmd, shq, taskFileInstruction } from '../core/commandBus';
 
 function sandbox(): { home: string; outside: string; done: () => void } {
@@ -20,6 +24,7 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   fs.mkdirSync(path.join(home, 'dev', 'other'), { recursive: true });
   fs.mkdirSync(outside);
   fs.writeFileSync(path.join(home, 'file.txt'), 'x');
+  fwRoot = home;
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -32,7 +37,7 @@ test('addDirs: existing directories inside home are accepted, resolved, in order
     assert.deepEqual(resolveBusAddDirs([path.join(s.home, 'dev', '..', 'dev', 'repo'), repo], s.home), { dirs: [repo] },
       'the same directory written twice is granted once');
     assert.deepEqual(resolveBusAddDirs([], s.home), { dirs: [] }, 'an empty list is no directories');
-    assert.deepEqual(resolveBusAddDirs([s.home], s.home), { dirs: [s.home] }, 'home itself is inside home');
+    assert.match((resolveBusAddDirs([s.home], s.home) as { error: string }).error, /home folder itself/, '#87: never home itself');
   } finally { s.done(); }
 });
 
@@ -176,4 +181,18 @@ test('INVARIANT: both launches validate addDirs and hand them to the command', (
   assert.match(src, /buildSpawnCmd\(aios\.shellSettings\(\)\.claudeCmd, req\.name, \{\s*task: [^}]*addDirs,/, 'spawn passes the directories');
   assert.match(src, /buildResumeCmd\(aios\.shellSettings\(\)\.claudeCmd, sid, \{[^}]*addDirs,/, 'resume passes the directories');
   assert.match(src, /function launchAddDirs[\s\S]*?markUndelivered\(heldPath, req, r\.error\); return null;/, 'a bad entry is dead-lettered');
+});
+
+test('#87 addDirs: inside the framework or an allowed folder; never home, never a hidden folder, never elsewhere', () => {
+  const s = sandbox();
+  try {
+    const fw = path.join(s.home, 'aios'), code = path.join(s.home, 'code'), dot = path.join(s.home, '.claude');
+    for (const d of [path.join(fw, 'vault'), path.join(code, 'repo'), dot, path.join(s.home, 'elsewhere')]) fs.mkdirSync(d, { recursive: true });
+    const roots = { framework: fw, allowed: [code] };
+    assert.deepEqual(resolveBusAddDirs([path.join(fw, 'vault')], s.home, 'darwin', roots), { dirs: [path.join(fw, 'vault')] }, 'a folder inside the framework is in reach');
+    assert.deepEqual(resolveBusAddDirs([path.join(code, 'repo')], s.home, 'darwin', roots), { dirs: [path.join(code, 'repo')] }, 'inside an allowed folder');
+    assert.match((resolveBusAddDirs([dot], s.home, 'darwin', { framework: fw, allowed: [dot] }) as { error: string }).error, /hidden folder/, 'a hidden folder is refused even when listed');
+    const other = resolveBusAddDirs([path.join(s.home, 'elsewhere')], s.home, 'darwin', roots) as { error: string };
+    assert.match(other.error, /^addDirs\[0\] '.*' is not allowed — .*Settings → Bus folders/, 'the refusal names the field and the fix');
+  } finally { s.done(); }
 });

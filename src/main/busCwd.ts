@@ -20,10 +20,48 @@ export type BusCwd = { cwd: string } | { error: string };
 
 const MAX_LEN = 4096;
 
-/** Validate a raw `cwd` field. `home` is injectable for tests. */
-export function resolveBusCwd(raw: unknown, home: string = os.homedir()): BusCwd {
+/**
+ * WHERE A BUS SESSION MAY START (#87). 0.13.0 accepted any directory under home, home itself and `~/.claude` included,
+ * so anything that could write the inbox (a sandboxed agent, or one prompt-injected by what it read) could choose a folder
+ * whose `.claude/settings.json` (hooks, allow rules), `CLAUDE.md` and `.mcp.json` it had planted, and open an
+ * unsandboxed worker there; or `$HOME`, to widen the worker's project scope to the whole home folder. Now:
+ *   · the framework root ITSELF (the default, as before 0.13.0), never a folder inside it: a sandboxed agent can write
+ *     under the vault, so "inside the framework" is exactly where a planted config would sit;
+ *   · or inside a folder the OPERATOR allowed (Settings → Bus folders). That list is kept in the App's own data folder,
+ *     outside the framework, where an agent sandboxed to the vault cannot add to it;
+ *   · never home itself, never through a hidden folder (`.claude`, `.ssh`, `.aios`, …), whatever the list says.
+ * `addDirs` follow the same rules except that a folder inside the framework is fine: it only widens what the session may
+ * reach, and the framework is already in reach of a session started there. A refusal names the folder and the fix.
+ */
+export interface BusRoots { framework?: string; allowed: string[] }
+let rootsOf: () => BusRoots = () => ({ allowed: [] });
+/** Main wires where the framework is and what the operator allowed; tests pass their own. */
+export function setBusRoots(fn: () => BusRoots): void { rootsOf = fn; }
+
+/** Validate a raw `cwd` field. `home` and `roots` are injectable for tests. */
+export function resolveBusCwd(raw: unknown, home: string = os.homedir(), roots: BusRoots = rootsOf()): BusCwd {
   const r = resolveBusDir(raw, 'cwd', home);
-  return 'error' in r ? r : { cwd: r.dir };
+  if ('error' in r) return r;
+  const why = placeProblem(r.dir, home, roots, false);
+  return why ? { error: `cwd '${shownOf(raw)}' is not allowed — ${why}` } : { cwd: r.dir };
+}
+
+/* Why a resolved directory may not be used, or '' when it may. */
+function placeProblem(dir: string, home: string, roots: BusRoots, insideFrameworkOk: boolean): string {
+  const norm = (p: string): string => (process.platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p).replace(/\/+$/, '');
+  const real = (p: string): string | null => { try { return norm(fs.realpathSync(p)); } catch { return null; } };
+  const d = norm(dir);
+  const h = real(home);
+  if (!h) return 'the home directory could not be resolved';
+  if (d === h) return 'a session may not start in the home folder itself';
+  if (d.slice(h.length + 1).split('/').some((c) => c.startsWith('.'))) return 'it is inside a hidden folder (a name starting with a dot), where settings and keys live';
+  const fw = roots.framework ? real(roots.framework) : null;
+  if (fw && (d === fw || (insideFrameworkOk && d.startsWith(fw + '/')))) return '';
+  for (const a of roots.allowed) {
+    const ar = real(a);
+    if (ar && ar !== h && (d === ar || d.startsWith(ar + '/'))) return '';
+  }
+  return `it is not the framework folder or inside a folder allowed for the bus. If you trust it, add '${dir}' in AIOS Settings → Bus folders`;
 }
 
 /**
@@ -44,7 +82,7 @@ export type BusAddDirs = { dirs: string[] } | { error: string };
 const MAX_ADD_DIRS = 16;
 
 /** Validate a raw `addDirs` field. `home` and `platform` are injectable for tests. */
-export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), platform: string = process.platform): BusAddDirs {
+export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), platform: string = process.platform, roots: BusRoots = rootsOf()): BusAddDirs {
   if (!Array.isArray(raw)) {
     return { error: `addDirs '${shownOf(raw)}' is not valid — it must be a list of directories, e.g. ["/Users/<you>/dev/repo"]` };
   }
@@ -63,6 +101,8 @@ export function resolveBusAddDirs(raw: unknown, home: string = os.homedir(), pla
     }
     const r = resolveBusDir(raw[i], field, home);
     if ('error' in r) return r;
+    const why = placeProblem(r.dir, home, roots, true);
+    if (why) return { error: `${field} '${shownOf(raw[i])}' is not allowed — ${why}` };
     /* What is typed is the RESOLVED path, so check it too: a clean name can be a symlink to one
        that is not. */
     const badReal = typedProblem(r.dir, platform);
