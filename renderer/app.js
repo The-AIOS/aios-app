@@ -9108,7 +9108,7 @@ function chatSkinControls(p) {
   }
   if (cs.workEl.hidden === showWork) { cs.workEl.hidden = !showWork; if (showWork) chatSkinScroll(cs); }   // appearing pushes the end of the log down: follow it if the view is following the tail
 }
-const CS_KEYS_MIN_CARD = 600;   // px of composer card that hold the name, the key hint and the buttons on one line
+const CS_KEYS_MIN_CARD = 700;   // the hint grew "esc interrupt" (0.14.0 round)   // px of composer card that hold the name, the key hint and the buttons on one line
 function chatSkinPlaceholder(p) {
   const cs = p.chatSkin;
   const base = t(chatSkinCardOn(cs) ? 'chat.skin.dlg.placeholder' : 'chat.placeholder', { name: chatSkinWho(p) });   // under a card the box says where the answer goes
@@ -9667,7 +9667,7 @@ function chatSkinMarkInterrupt(id, p) {
     const cs = p.chatSkin;
     if (!cs || panes.get(id) !== p || p.exited) return;
     const last = [...cs.log.children].filter((n) => !n.hidden && (n.classList.contains('chat-row') || n.classList.contains('chat-note') || n.classList.contains('chat-tool') || n.csGroup)).pop();
-    if (last && last.classList.contains('chat-note') && /^\[Request interrupted by user/.test(last.textContent.trim())) return;
+    if (last && last.classList.contains('chat-note') && /^\[?Request interrupted by user/.test(last.textContent.trim())) return;
     chatSkinUpsert(cs, { uuid: 'local-interrupt-' + Date.now(), role: 'system', text: '[Request interrupted by user]' }, true);
   }, 1800);
 }
@@ -10478,7 +10478,7 @@ function chatSkinUpsert(cs, item, animate, before) {
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
   } else {
-    rec.body.textContent = text;
+    rec.body.textContent = text.replace(/^\[(Request interrupted by user[^\]]*)\]$/, '$1');   // Claude Code's marker without its brackets (0.14.0 round)
     rec.node.hidden = !text.trim();
   }
 }

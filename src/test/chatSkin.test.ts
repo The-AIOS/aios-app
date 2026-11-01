@@ -190,7 +190,7 @@ test('the interrupt shows in the chat every time, and a lost Enter is pressed ag
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const mk = app.slice(app.indexOf('function chatSkinMarkInterrupt'), app.indexOf('\n}\n', app.indexOf('function chatSkinMarkInterrupt')));
   assert.match(mk, /text: '\[Request interrupted by user\]'/, 'Claude Code\'s own words');
-  assert.match(mk, /\/\^\\\[Request interrupted by user\/\.test\(last\.textContent\.trim\(\)\)\) return;/, 'never twice for one turn');
+  assert.ok(mk.includes("/^\\[?Request interrupted by user/.test(last.textContent.trim())) return;"), 'never twice for one turn');
   assert.doesNotMatch(app, /t\('chat\.stopped'/, 'no toast saying so while nothing shows');
   const sub = app.slice(app.indexOf('function submitToPty'), app.indexOf('\n}\n', app.indexOf('function submitToPty')));
   assert.match(sub, /for \(const ms of \[1200, 2600\]\)/, 'pressed again twice at most');
