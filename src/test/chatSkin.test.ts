@@ -2804,10 +2804,10 @@ guarded('the group row says what is running now (name and argument), and the sta
     const [live, done, one, two] = en;
     return live.cls.includes('running') && live.spin && live.live === 'Bash|npm test --watch' && live.count === '3 actions' && live.list === 'Bash ×2, Read' && live.hiddenFail && live.sr === 'running'
       && done.cls.includes('ok') && !done.spin && done.sr === 'done' && done.hiddenFail && !done.cls.includes('running')
-      && one.cls.includes('error') && !one.cls.includes('ok') && one.fail === '1 failed' && !one.hiddenFail && one.sr === '1 failed'
-      && two.fail === '2 failed' && two.sr === '2 failed'
+      && one.cls.includes('error') && !one.cls.includes('ok') && one.fail === "1 didn't go through" && !one.hiddenFail && one.sr === "1 didn't go through"
+      && two.fail === "2 didn't go through" && two.sr === "2 didn't go through"
       // plurals are different words in Spanish and Portuguese
-      && es[2].fail === '1 falló' && es[3].fail === '2 fallaron' && pt[2].fail === '1 falhou' && pt[3].fail === '2 falharam' && es[0].count === '3 acciones' && pt[0].count === '3 ações';
+      && es[2].fail === '1 no se completó' && es[3].fail === '2 no se completaron' && pt[2].fail === '1 não foi concluído' && pt[3].fail === '2 não foram concluídos' && es[0].count === '3 acciones' && pt[0].count === '3 ações';
   },
   (src) => src.replace("t(sum.failed === 1 ? 'chat.skin.tg.failed.one' : 'chat.skin.tg.failed.other', { n: sum.failed })", "t('chat.skin.tg.failed.other', { n: sum.failed })"));
 
@@ -2996,9 +2996,12 @@ test('the folded row\'s CSS: as short as a tool row, the call in progress only w
   assert.match(decl('.cg-la'), /text-overflow: ellipsis/);
   assert.match(decl('.chat-tg.running .cg-list, .chat-tg:not(.running) .cg-live'), /display: none/);
   assert.match(decl('.chat-tg.ok .cg-state'), /--st-ok-ink/);
-  assert.match(decl('.chat-tg.error .cg-state'), /--st-error-ink/);
-  assert.match(decl('.cg-fail'), /--st-error-ink/);
-  assert.match(decl('.chat-tg.error .cg-kind'), /--st-error/);
+  /* 0.14.0 round: a call that did not go through is neutral, not red. Red read as "the App broke" to a newcomer, and most
+     of these are a sandbox no or a missing file that Claude works around in the next step. */
+  for (const sel of ['.chat-tg.error .cg-state', '.cg-fail', '.chat-tg.error .cg-kind']) {
+    assert.match(decl(sel), /var\(--subtle\)/, sel);
+    assert.doesNotMatch(decl(sel), /--st-error|--accent/, sel);
+  }
   assert.match(decl('.chat-tg.open > .cg-head .ct-chev'), /rotate\(90deg\)/);
   assert.match(decl('.chat-tool, .chat-tg'), /margin: var\(--cs-m\) 0/);
   assert.match(decl('.cg-body > .chat-tool'), /border-radius: 0/);
@@ -3564,6 +3567,19 @@ test('every custom property the stylesheet uses is defined (an undefined one pai
   const used = new Set([...css.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].map((m) => m[1]));
   const defined = new Set([...css.matchAll(/(--[\w-]+)\s*:/g), ...js.matchAll(/'(--[\w-]+)'/g)].map((m) => m[1]));
   assert.deepEqual([...used].filter((v) => !defined.has(v)), []);
+});
+
+test('0.14.0 round: copy takes no room, the chat stays on its newest message when resized, and chat paths get the explorer menu', () => {
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.chat-acts \{ position: absolute;/, 'the copy button is out of the flow, so it adds no gap');
+  assert.doesNotMatch(css, /\.chat-acts \{[^}]*height: 26px/, 'no reserved row under every message');
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /new ResizeObserver\(\(\) => \{ if \(cs\.stick\) chatSkinScroll\(cs\); \}\)\.observe\(log\);/);
+  assert.match(app, /el\('span', 'chat-text'\)/, 'the operator text has its own node, so writing it never removes the button');
+  const menu = app.slice(app.indexOf('function chatPathMenu'), app.indexOf('\n}\n', app.indexOf('function chatPathMenu')));
+  assert.match(menu, /ctxMenu\(\)/, 'the explorer\'s own menu: Reveal in Finder, Open outside AIOS, Copy path');
+  assert.match(app, /a\.addEventListener\('contextmenu', \(e\) => \{ e\.preventDefault\(\); e\.stopPropagation\(\); hidePathTip\(\); chatPathMenu\(target/);
+  assert.match(app, /more\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); chatPathMenu\(\{ abs: hit\.abs, dir: false \}/);
 });
 
 test('the mic with voice off in Claude Code: a notice saying how to turn it on, and nothing typed into the session', async () => {

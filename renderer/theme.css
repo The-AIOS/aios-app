@@ -1819,12 +1819,12 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .ct-head:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -2px; }
 .ct-kind { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px;
            background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line); color: var(--subtle); }
-.chat-tool.error .ct-kind { color: var(--st-error-ink); background: color-mix(in srgb, var(--st-error) 11%, var(--surface)); border-color: color-mix(in srgb, var(--st-error) 34%, transparent); }
+.chat-tool.error .ct-kind { color: var(--subtle); }   /* neutral, not red (0.14.0 round): a call that did not go through is usually a sandbox no or a missing file Claude works around, and red read as "something broke" */
 .ct-name { flex: 0 0 auto; font-size: 12px; font-weight: 620; letter-spacing: .005em; }
 .ct-arg { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); font-family: var(--mono); font-size: 11px; }
 .ct-state { display: inline-flex; align-items: center; flex: 0 0 auto; }
 .chat-tool.ok .ct-state { color: var(--st-ok-ink); }
-.chat-tool.error .ct-state { color: var(--st-error-ink); }
+.chat-tool.error .ct-state { color: var(--subtle); }
 .ct-spin { width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--st-busy) 24%, transparent);
            border-top-color: var(--st-busy); animation: cs-spin .8s linear infinite; }
 .ct-chev { color: var(--faint); transition: transform .16s ease; }
@@ -1832,7 +1832,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .ct-body { padding: 0 8px 8px; }
 .ct-out { margin: 0; max-height: 240px; overflow: auto; padding: 10px 12px; border: 1px solid var(--chat-claude-line); border-radius: 8px; background: var(--chat-out-bg);
           color: var(--ink); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.chat-tool.error .ct-out { border-color: color-mix(in srgb, var(--st-error) 38%, transparent); }
+.chat-tool.error .ct-out { border-color: var(--line-strong); }
 .ct-note { margin-top: 6px; padding: 0 2px; color: var(--faint); font-size: 11.5px; }
 .ct-out:not([hidden]) + .ct-note { margin-top: 7px; }
 .ct-body:has(.ct-out[hidden]) .ct-note { padding: 8px 2px 0; }
@@ -1851,7 +1851,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
    the pale ring all but vanishes at 12px next to a 20px chip. */
 .chat-tg.running .cg-kind { color: var(--st-busy-ink); background: color-mix(in srgb, var(--st-busy) 12%, var(--surface)); border-color: color-mix(in srgb, var(--st-busy) 38%, transparent); }
 .chat-tg.running .ct-spin { border-color: color-mix(in srgb, var(--st-busy) 36%, transparent); border-top-color: var(--st-busy-ink); }   /* the ink variant: amber alone is too pale on the light surface */
-.chat-tg.error .cg-kind { color: var(--st-error-ink); background: color-mix(in srgb, var(--st-error) 11%, var(--surface)); border-color: color-mix(in srgb, var(--st-error) 34%, transparent); }
+.chat-tg.error .cg-kind { color: var(--subtle); }
 .cg-n { flex: 0 0 auto; font-size: 12px; font-weight: 620; letter-spacing: .005em; }
 .cg-list, .cg-live { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); font-size: 11.5px; }
 .cg-list::before, .cg-live::before { content: '·'; flex: 0 0 auto; margin-right: 8px; color: var(--faint); }
@@ -1859,11 +1859,11 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cg-live { display: flex; }
 .cg-ln { flex: 0 1 auto; min-width: 0; margin-right: 7px; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-size: 12px; font-weight: 620; }   /* a long MCP name gives way before the argument does, and ends in an ellipsis */
 .cg-la { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); font-size: 11px; }
-.cg-fail { flex: 0 0 auto; color: var(--st-error-ink); font-size: 11px; font-weight: 620; }
+.cg-fail { flex: 0 0 auto; color: var(--subtle); font-size: 11px; font-weight: 560; }
 .cg-fail[hidden] { display: none; }
 .cg-state { display: inline-flex; align-items: center; flex: 0 0 auto; }
 .chat-tg.ok .cg-state { color: var(--st-ok-ink); }
-.chat-tg.error .cg-state { color: var(--st-error-ink); }
+.chat-tg.error .cg-state { color: var(--subtle); }
 .chat-tg.open > .cg-head .ct-chev { transform: rotate(90deg); }
 .cg-body > .chat-tool { margin: 0; border: 0; border-top: 1px solid var(--chat-claude-line); border-radius: 0; background: none; }
 @keyframes cs-spin { to { transform: rotate(360deg); } }
@@ -2068,9 +2068,13 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
                color: var(--ink); font: inherit; font-size: 11.5px; cursor: pointer; }
 .ct-file-btn:hover { background: var(--chat-row-hover); }
 .ct-file-btn:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; }
-/* The per-message copy row: present for keyboard and screen readers, visible on hover or focus only. */
-.chat-acts { display: flex; height: 26px; margin-top: 2px; opacity: 0; transition: opacity .12s ease; }
-.chat-row.who-user .chat-acts { justify-content: flex-end; }
+/* The per-message copy button: present for keyboard and screen readers, visible on hover or focus only, and it takes no
+   room in the column (0.14.0 round): left of the operator's bubble, in the gap under a reply. */
+.chat-row.who-claude, .who-user .chat-bubble { position: relative; }
+.chat-acts { position: absolute; z-index: 2; display: flex; opacity: 0; transition: opacity .12s ease; pointer-events: none; }
+.chat-acts .cm-copy { height: 20px; padding: 0 6px; pointer-events: auto; }
+.who-user .chat-bubble > .chat-acts { right: 100%; bottom: 0; padding-right: 6px; }
+.chat-row.who-claude > .chat-acts { left: -6px; top: 100%; }
 .chat-row:hover .chat-acts, .chat-acts:focus-within, .chat-acts:has(.done, .fail) { opacity: 1; }
 @media (hover: none) { .chat-acts { opacity: 1; } }
 .chat-md pre code.hljs { padding: 0; background: none; }   /* highlight.js's own 1em padding would double the block's */

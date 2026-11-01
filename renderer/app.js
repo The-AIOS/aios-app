@@ -8117,6 +8117,15 @@ function chatPathOpen(target, ev) {
   if (target.dir) { void revealPath(target.abs); return; }
   void openViewer(target.abs);
 }
+/* The explorer's own right-click menu (Reveal in Finder, Open outside AIOS, Copy path, Open a terminal here, Send the path),
+   for a path shown in the chat: one set of choices wherever a file appears. `at` is a rect, or a click point. */
+function chatPathMenu(target, at) {
+  const m = ctxMenu();
+  ctxTarget = { path: target.abs, dir: !!target.dir };
+  if (ctxOutsideRow) ctxOutsideRow.hidden = !!target.dir;
+  m.hidden = false;
+  anchorMenu(m, at, { gap: 2, width: 190 });
+}
 /* One link, built from nothing the model wrote: a span (not an <a>: there is no href to give it) whose target lives in
    a property. Inside a button (a tool row's header) it is mouse-only, because a focusable element nested in a button
    is not valid; everywhere else it is a link for the keyboard too. */
@@ -8137,6 +8146,7 @@ function chatPathMakeLink(seg, inButton) {
     a.addEventListener('focus', () => { const r = a.getBoundingClientRect(); showPathTip(r.left, r.top, tip()); });
     a.addEventListener('blur', hidePathTip);
   }
+  a.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); hidePathTip(); chatPathMenu(target, { left: e.clientX, bottom: e.clientY, top: e.clientY }); });
   a.addEventListener('mouseenter', (e) => showPathTip(e.clientX, e.clientY, tip()));
   a.addEventListener('mouseleave', hidePathTip);
   a.addEventListener('click', (e) => {
@@ -8706,6 +8716,9 @@ function chatSkinBuild(id, p) {
     if (log.scrollTop < CS_EARLIER_NEAR_PX) chatSkinWantEarlier(id, p);   // the operator is reaching for what main did not send
   });
   log.addEventListener('wheel', (e) => { if (e.deltaY < 0) cs.autoUntil = 0; }, { passive: true });   // the operator reaching for the past takes the wheel back at once
+  /* The column changing size keeps the newest message in view when the operator was following it (0.14.0 round): opening a
+     file from the chat un-maximized the Running zone, the log got shorter from the bottom, and the reply seemed to jump up. */
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (cs.stick) chatSkinScroll(cs); }).observe(log);
   jumpBtn.addEventListener('click', () => { cs.stick = true; chatSkinScroll(cs, true); chatSkinPaintJump(cs); try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ } });
   // links never navigate this window: they open in the system browser
   log.addEventListener('click', (e) => {
@@ -10003,7 +10016,13 @@ function chatSkinFileCard(rec, cs, raw) {
     reveal.type = 'button';
     reveal.setAttribute('aria-label', t('chat.file.revealLabel', { name }));
     reveal.addEventListener('click', (e) => { e.stopPropagation(); void revealPath(hit.abs); });
-    bar.append(csIcon('design', 13), el('span', 'ct-file-what', t('chat.file.saved')), label, open, reveal);
+    const more = el('button', 'ct-file-btn ct-file-more', '⋯');
+    more.type = 'button';
+    more.title = t('chat.file.more');
+    more.setAttribute('aria-label', t('chat.file.moreLabel', { name }));
+    more.addEventListener('click', (e) => { e.stopPropagation(); chatPathMenu({ abs: hit.abs, dir: false }, more.getBoundingClientRect()); });
+    bar.addEventListener('contextmenu', (e) => { e.preventDefault(); chatPathMenu({ abs: hit.abs, dir: false }, { left: e.clientX, bottom: e.clientY, top: e.clientY }); });
+    bar.append(csIcon('design', 13), el('span', 'ct-file-what', t('chat.file.saved')), label, open, reveal, more);
     rec.node.insertBefore(bar, rec.node.querySelector('.ct-body'));
     rec.node.classList.add('created');
     chatSkinRegroup(cs);   // it leaves the folded run it was counted in
@@ -10179,8 +10198,9 @@ function chatSkinMakeItem(role, cs) {
     const row = el('div', 'chat-row who-' + (role === 'user' ? 'user' : 'claude'));
     const bubble = el('div', 'chat-bubble');
     row.append(el('div', 'chat-who', role === 'user' ? t('chat.you') : t('chat.claude', { name: chatSkinWho(cs.pane) })), bubble);
-    const body = role === 'assistant' ? el('div', 'chat-md') : bubble;
-    if (role === 'assistant') bubble.appendChild(body);
+    /* The operator's text has its own span, so writing it (textContent) never removes the copy button that sits in the bubble. */
+    const body = role === 'assistant' ? el('div', 'chat-md') : el('span', 'chat-text');
+    bubble.appendChild(body);
     const rec = { node: row, body, role };
     /* Copy the whole message, as Claude does: the raw text (markdown for a reply), never the rendered
        HTML. Under the bubble, shown on hover or keyboard focus so the column stays quiet. */
@@ -10193,7 +10213,8 @@ function chatSkinMakeItem(role, cs) {
     copy.setAttribute('aria-label', t('chat.msg.copyLabel'));
     copy.addEventListener('click', () => chatCopyTo(copy, label, rec.text || ''));
     acts.appendChild(copy);
-    row.appendChild(acts);
+    /* Takes no room (0.14.0 round: a row under every message doubled the gaps). Beside the operator's bubble, under a reply. */
+    (role === 'user' ? bubble : row).appendChild(acts);
     return rec;
   }
   if (role === 'tool') return chatSkinMakeTool(cs);
