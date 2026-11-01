@@ -398,3 +398,25 @@ test('the permission requirement is stated in the SETTING, not left to be discov
   assert.doesNotMatch(en['settings.attentionHint'], /phone/i,
     'the hint described phone push settings that do not exist in this panel');
 });
+
+test('a smoke run never puts a banner on the operator\'s screen', () => {
+  const { Attention, lastBanner, clearBanner } = loadAttention();
+  const blocked = [{ name: 'smoke-chat-x', status: 'waiting', waitingFor: 'approve Bash', pid: 7, sessionId: 'sid-smoke' } as RunningAgent];
+
+  /* Control: the same block, outside a smoke run, does notify. Without it the assertion below
+     could pass because banners were broken altogether. */
+  clearBanner();
+  new Attention({ ...NOOP_WIN, reveal: () => { }, notifyBlocked: () => { } }).tick(blocked, 'banner');
+  assert.ok(lastBanner(), 'outside a smoke run a blocked session notifies');
+
+  const argv = process.argv;
+  process.argv = [...argv, '--smoke'];
+  try {
+    clearBanner();
+    let flashed = false;
+    new Attention({ ...NOOP_WIN, flash: (on) => { flashed = flashed || on; }, isFocused: () => false, reveal: () => { }, notifyBlocked: () => { } })
+      .tick(blocked, 'banner');
+    assert.equal(lastBanner(), undefined, 'a run started with --smoke posts no notification');
+    assert.equal(flashed, false, 'and does not flash the taskbar');
+  } finally { process.argv = argv; }
+});
