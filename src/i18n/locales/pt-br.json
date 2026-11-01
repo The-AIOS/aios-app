@@ -1134,7 +1134,7 @@
   "whatsnew.title": "Novidades do AIOS {version}",
   "whatsnew.sub": "O Claude ganha uma visão de chat, os terminais vão para onde você quiser e um Mac sem ninguém por perto traz suas sessões de volta sozinho.",
   "whatsnew.h1": "Uma visão de chat para o Claude",
-  "whatsnew.b1": "Alterne qualquer aba do Claude entre chat e terminal com a chave no cabeçalho Em execução (⌘⇧L). O chat mantém tudo o que a linha de status mostrava: modelo, esforço, modo de permissão, pasta, branch, conta, 5h, 7d e contexto. Comandos de shell (!), saída de comandos, arquivos (@), voz e shells e agentes em segundo plano aparecem nele.",
+  "whatsnew.b1": "Alterne qualquer aba do Claude entre chat e terminal com o botão no cabeçalho de Em execução (⌘⇧L). O chat mantém tudo o que a linha de status mostrava: modelo, esforço, modo de permissão, pasta, branch, conta, 5h, 7d e contexto, e troca de conta pelo menu de contas. Copie qualquer mensagem com um clique e abra um arquivo que o Claude escreveu direto do cartão dele. Comandos de shell (!), saída de comandos, arquivos (@), voz e shells e agentes em segundo plano também aparecem nele.",
   "whatsnew.h2": "Terminais abaixo, à esquerda ou à direita",
   "whatsnew.b2": "Coloque suas sessões onde for melhor para você: abaixo do editor ou ao lado dele, de qualquer lado. Escolha pelo botão de layout na barra de título.",
   "whatsnew.h3": "Um Mac sem supervisão reabre suas sessões",

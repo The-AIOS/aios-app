@@ -1134,7 +1134,7 @@
   "whatsnew.title": "What's new in AIOS {version}",
   "whatsnew.sub": "Claude gets a chat view, terminals go where you want them, and an unattended Mac brings its sessions back by itself.",
   "whatsnew.h1": "A chat view for Claude",
-  "whatsnew.b1": "Switch any Claude tab between chat and terminal with the switch in the Running header (⌘⇧L). The chat keeps everything the status line showed: model, effort, permission mode, folder, branch, account, 5h, 7d and context. Shell commands (!), command output, files (@), voice and background shells and agents all show up in it.",
+  "whatsnew.b1": "Switch any Claude tab between chat and terminal with the switch in the Running header (⌘⇧L). The chat keeps everything the status line showed: model, effort, permission mode, folder, branch, account, 5h, 7d and context, and switches accounts from the account menu. Copy any message with one click, and open a file Claude wrote straight from its card. Shell commands (!), command output, files (@), voice and background shells and agents all show up in it.",
   "whatsnew.h2": "Terminals below, left or right",
   "whatsnew.b2": "Put your sessions where they suit you: below the editor, or beside it on either side. Pick it from the layout button in the title bar.",
   "whatsnew.h3": "An unattended Mac reopens its sessions",
