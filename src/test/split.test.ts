@@ -304,7 +304,7 @@ test('reordering the strip reorders the split — free, because order is DERIVED
      tab past another re-tiles the panes with no second list to keep in step — and no second way
      for the two to disagree. All moveTab has to do is ask for a re-layout. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  const fn = app.slice(app.indexOf('function moveTab(z, dragId, overId, after) {'));
+  const fn = app.slice(app.indexOf('function moveTab(z, dragId, overId, after, keepGroup) {'));
   const body = fn.slice(0, fn.indexOf('\n}'));
   assert.match(body, /setVisible\(z\);/, 'a reorder must re-lay-out, or the panes keep the old order');
   assert.match(body, /saveLayout\(\);/, 'and the new order must survive a restart');
