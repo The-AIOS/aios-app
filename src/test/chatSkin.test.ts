@@ -3582,6 +3582,20 @@ test('0.14.0 round: copy takes no room, the chat stays on its newest message whe
   assert.match(app, /more\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); chatPathMenu\(\{ abs: hit\.abs, dir: false \}/);
 });
 
+test("0.14.0 round 2: Claude's text is a bubble with a tail, copy never wraps, and the key hint cannot blink", () => {
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.who-claude \.chat-bubble \{ position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 14px 14px 14px 4px;/);
+  assert.match(css, /background: var\(--chat-claude-bg\)/);
+  assert.match(css, /\.who-user \.chat-bubble::after \{ right: -7px;[^}]*clip-path: path\(/, 'the operator\'s tail, bottom right');
+  assert.match(css, /\.who-claude \.chat-bubble::after \{ left: -7px;[^}]*clip-path: path\(/, 'Claude\'s tail, bottom left');
+  assert.match(css, /\.chat-acts \.cm-copy \{[^}]*white-space: nowrap;/, 'never one letter per line');
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const ph = app.slice(app.indexOf('function chatSkinPlaceholder'), app.indexOf('\n}\n', app.indexOf('function chatSkinPlaceholder')));
+  assert.match(ph, /cs\.box \? cs\.box\.clientWidth : cs\.input\.clientWidth\) < CS_KEYS_MIN_CARD/, 'measured on the card, whose width the hint does not change');
+  assert.doesNotMatch(ph, /cs\.input\.clientWidth < 380/);
+  assert.match(app, /observe\(box \|\| input\);/);
+});
+
 test('the mic with voice off in Claude Code: a notice saying how to turn it on, and nothing typed into the session', async () => {
   const grab = (name: string): string => skin.slice(skin.indexOf('async function ' + name), skin.indexOf('\n}\n', skin.indexOf('async function ' + name)) + 2);
   let termEmpty = true;

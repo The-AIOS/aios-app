@@ -8613,7 +8613,7 @@ function chatSkinBuild(id, p) {
   input.rows = 1;
   input.placeholder = t('chat.placeholder', { name: chatSkinWho(p) });
   input.setAttribute('aria-label', input.placeholder);
-  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (p.chatSkin) chatSkinPlaceholder(p); }).observe(input);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (p.chatSkin) chatSkinPlaceholder(p); }).observe(box || input);   // the card: its width does not move when the hint shows
   input.title = t('chat.inputHint');   // the full key hints live in the tooltip; the row under the card shows a short version only while the box has focus (a long placeholder wraps and clips in a narrow dock)
   const sendBtn = el('button', 'cc-send');
   sendBtn.type = 'button';
@@ -8967,6 +8967,7 @@ function chatSkinControls(p) {
   }
   if (cs.workEl.hidden === showWork) { cs.workEl.hidden = !showWork; if (showWork) chatSkinScroll(cs); }   // appearing pushes the end of the log down: follow it if the view is following the tail
 }
+const CS_KEYS_MIN_CARD = 600;   // px of composer card that hold the name, the key hint and the buttons on one line
 function chatSkinPlaceholder(p) {
   const cs = p.chatSkin;
   const base = t(chatSkinCardOn(cs) ? 'chat.skin.dlg.placeholder' : 'chat.placeholder', { name: chatSkinWho(p) });   // under a card the box says where the answer goes
@@ -8974,7 +8975,9 @@ function chatSkinPlaceholder(p) {
      line (a placeholder that wraps clips in a narrow pane); the full hint is always the box's tooltip. */
   const ph = base;
   const keys = cs.box && cs.box.querySelector('.cc-keys');
-  if (keys) keys.hidden = chatSkinCardOn(cs) || cs.input.clientWidth < 380;
+  /* Measured on the CARD, never on the input (0.14.0 round): the hint shares the input's line, so showing it narrowed the
+     input under the threshold, which hid it, which widened the input again: it blinked many times a second. */
+  if (keys) keys.hidden = chatSkinCardOn(cs) || (cs.box ? cs.box.clientWidth : cs.input.clientWidth) < CS_KEYS_MIN_CARD;
   if (cs.recording || cs.input.placeholder === ph) return;   // while voice listens, the placeholder is the words it hears
   cs.input.placeholder = ph;
   cs.placeholder0 = ph;

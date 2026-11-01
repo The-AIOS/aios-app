@@ -65,6 +65,7 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
      existing --st-input hue, which is exactly what a permission card is. ── */
   --chat-user-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* the operator's message: a whisper of tone, lighter than the code and tool surfaces so it never competes with the answer */
   --chat-user-line: var(--line);
+  --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));   /* Claude's bubble: a shade lighter than the operator's */
   --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
@@ -721,6 +722,7 @@ body.light {
      in the light theme. Re-declaring makes them resolve against this block's own --ink/--surface. */
   --chat-user-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
   --chat-user-line: var(--line);
+  --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));   /* Claude's bubble: a shade lighter than the operator's */
   --chat-claude-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 6%, var(--surface));
@@ -2011,6 +2013,17 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
                          font-size: .96em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }   /* a step under the answer's size, a thinner skin, no edge-light: a prompt is a line you said, not a card */
 /* Claude's reply: no box at all, just well-set text across the whole column. */
 .who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
+/* 0.14.0 round: Claude's text is a bubble too, a shade lighter than the operator's, its tail on the left. As wide as its
+   text, up to the column. Tool rows, cards and notes stay as they are: only what Claude SAYS is a bubble. */
+.chat-row.who-claude { align-items: flex-start; }
+.who-claude .chat-bubble { position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 14px 14px 14px 4px;
+                           background: var(--chat-claude-bg); border: 1px solid var(--chat-user-line); }
+.who-claude .chat-md > :first-child { margin-top: 0; }
+.who-claude .chat-md > :last-child { margin-bottom: 0; }
+/* The tail: a small curved wedge in the bubble's own colour, drawn without knowing what is behind it. */
+.who-user .chat-bubble::after, .who-claude .chat-bubble::after { content: ''; position: absolute; bottom: -1px; width: 8px; height: 11px; }
+.who-user .chat-bubble::after { right: -7px; background: var(--chat-user-bg); clip-path: path('M0 0 C0 6 3 10 8 11 L0 11 Z'); }
+.who-claude .chat-bubble::after { left: -7px; background: var(--chat-claude-bg); clip-path: path('M8 0 C8 6 5 10 0 11 L8 11 Z'); }
 .chat-md { line-height: 1.7; letter-spacing: .005em; }
 .chat-md > :first-child { margin-top: 0; }
 .chat-md > :last-child { margin-bottom: 0; }
@@ -2072,7 +2085,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
    room in the column (0.14.0 round): left of the operator's bubble, in the gap under a reply. */
 .chat-row.who-claude, .who-user .chat-bubble { position: relative; }
 .chat-acts { position: absolute; z-index: 2; display: flex; opacity: 0; transition: opacity .12s ease; pointer-events: none; }
-.chat-acts .cm-copy { height: 20px; padding: 0 6px; pointer-events: auto; }
+.chat-acts .cm-copy { height: 20px; padding: 0 6px; pointer-events: auto; white-space: nowrap; }
+.who-user .chat-acts .cm-copy-t { display: none; }   /* beside the bubble, the icon alone (its label is the tooltip) */
 .who-user .chat-bubble > .chat-acts { right: 100%; bottom: 0; padding-right: 6px; }
 .chat-row.who-claude > .chat-acts { left: -6px; top: 100%; }
 .chat-row:hover .chat-acts, .chat-acts:focus-within, .chat-acts:has(.done, .fail) { opacity: 1; }
