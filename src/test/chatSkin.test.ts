@@ -3645,6 +3645,8 @@ test("0.14.0 round 2: Claude's text is a bubble with a tail, copy never wraps, a
   assert.match(css, /\.who-user \.chat-bubble::after \{ right: -6px;[^}]*clip-path: path\(/, 'the operator\'s tail, bottom right');
   assert.match(css, /\.who-claude \.chat-bubble::after \{ left: -6px;[^}]*clip-path: path\(/, 'Claude\'s tail, bottom left');
   assert.match(css, /\.chat-acts \.cm-copy \{[^}]*white-space: nowrap;/, 'never one letter per line');
+  assert.match(css, /\.who-user \.chat-bubble, \.who-claude \.chat-bubble \{ isolation: isolate; \}/);
+  assert.match(css, /\.chat-bubble::after \{ content: ''; position: absolute; bottom: 0; width: 22px; height: 18px; z-index: -1; \}/, 'the tail sits under the words, never over the last letter');
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const ph = app.slice(app.indexOf('function chatSkinPlaceholder'), app.indexOf('\n}\n', app.indexOf('function chatSkinPlaceholder')));
   assert.match(ph, /cs\.box \? cs\.box\.clientWidth : cs\.input\.clientWidth\) < CS_KEYS_MIN_CARD/, 'measured on the card, whose width the hint does not change');

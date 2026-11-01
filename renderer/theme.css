@@ -2034,7 +2034,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .who-claude .chat-md > :first-child { margin-top: 0; }
 .who-claude .chat-md > :last-child { margin-bottom: 0; }
 /* The tail: a small curved wedge in the bubble's own colour, drawn without knowing what is behind it. */
-.who-user .chat-bubble::after, .who-claude .chat-bubble::after { content: ''; position: absolute; bottom: 0; width: 22px; height: 18px; }
+.who-user .chat-bubble, .who-claude .chat-bubble { isolation: isolate; }   /* its own layer, so the tail can sit under the words */
+.who-user .chat-bubble::after, .who-claude .chat-bubble::after { content: ''; position: absolute; bottom: 0; width: 22px; height: 18px; z-index: -1; }   /* above the bubble's fill, below its text: it used to bite the last letter (0.14.0 round) */
 /* A horn out of the bottom corner (0.14.0 round 2): it fills the bubble's rounded corner completely (no notch where the two
    meet) and curves out to a soft point on the bubble's baseline. */
 .who-user .chat-bubble::after { right: -6px; background: var(--chat-user-bg); clip-path: path('M0 0 L16 0 C16 8 18 14 22 18 L0 18 Z'); }
