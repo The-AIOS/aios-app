@@ -102,6 +102,7 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
   --chat-ok-ink: var(--st-ok-ink);
   --chat-high-ink: var(--chat-meter-high);
   --chat-model-ink: var(--st-input-ink);
+  --chat-effort-ink: var(--st-testing);   /* effort: the bar's violet, the one hue no other segment uses */
   --chat-dir-ink: var(--st-warn-ink);
   --chat-bang: #f472b6;   /* Claude Code's bash-mode pink: "!" runs a shell command */
   --chat-bang-ink: #f472b6;
@@ -766,6 +767,7 @@ body.light {
   --chat-ok-ink: var(--st-ok-ink);
   --chat-high-ink: #a4490c;   /* orange as type on paper: the bright fill reads 2.4:1, this clears 4.5 */
   --chat-model-ink: var(--st-input-ink);
+  --chat-effort-ink: var(--st-testing);   /* re-declared here so it resolves against the light theme's violet */
   --chat-dir-ink: var(--st-warn-ink);
   --chat-bang: #e05299;
   --chat-bang-ink: #b0246a;
@@ -1920,7 +1922,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-model:focus-visible, .cb-m:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
 .cb-m { flex: 0 0 auto; cursor: default; }
 .cb-effort { color: var(--subtle); }
-.cb-effort .cb-v { color: var(--subtle); font-weight: 500; }
+.cb-effort .cb-v { color: var(--chat-effort-ink); font-weight: 500; }
+.cb-effort .cb-v::first-letter, .cb-mode .cb-v::first-letter { text-transform: uppercase; }   /* "Extra high" like "Auto": one case rule across the bar, in every language (0.14.0 round) */
 .cb-effort .cb-v.none { color: var(--faint); }
 .cb-effort[aria-expanded="true"], .cb-effort[aria-expanded="true"] .cb-v { color: var(--ink); }   /* while its menu is open the segment reads as the one the menu belongs to */
 /* ── the effort menu: a small popover over the end of the log, above the card and under no one's way ─────────────────

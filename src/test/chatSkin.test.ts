@@ -209,6 +209,17 @@ test('a live spinner on screen counts as working even when the transcript lags (
   assert.ok(!re.test('● Background command "Wait 20 seconds" completed (exit code 0)'));
 });
 
+test('every segment of the status bar wears an icon and a colour, and the words start with a capital', () => {
+  /* 0.14.0 round: model and effort had no icon, effort had no colour and read "extra high" beside "Auto". */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /modelSeg\.append\(csIcon\('sparkles', 12\)/);
+  assert.match(app, /effortSeg\.append\(csIcon\('bolt', 12\)/);
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.cb-effort \.cb-v \{ color: var\(--chat-effort-ink\);/);
+  assert.equal((css.match(/--chat-effort-ink: var\(--st-testing\);/g) || []).length, 2, 'declared in both themes, like the model ink');
+  assert.match(css, /\.cb-effort \.cb-v::first-letter, \.cb-mode \.cb-v::first-letter \{ text-transform: uppercase; \}/);
+});
+
 // ── watch / unwatch follow the session and the pane's life ──────────────────
 
 guarded('closing the pane or losing the pty unwatches the transcript',

@@ -8551,12 +8551,12 @@ function chatSkinBuild(id, p) {
   const idBox = el('div', 'cb-id');
   const modelSeg = el('button', 'cb-model');
   modelSeg.type = 'button';
-  modelSeg.append(el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // the chevrons say "this opens a choice"
+  modelSeg.append(csIcon('sparkles', 12), el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // an icon like every segment (0.14.0 round); the chevrons say "this opens a choice"
   const effortSeg = el('button', 'cb-effort');
   effortSeg.type = 'button';
   effortSeg.setAttribute('aria-haspopup', 'menu');
   effortSeg.setAttribute('aria-expanded', 'false');
-  effortSeg.append(el('span', 'cb-v none', t('chat.bar.effortWord')), csIcon('chevUpDown', 12));
+  effortSeg.append(csIcon('bolt', 12), el('span', 'cb-v none', t('chat.bar.effortWord')), csIcon('chevUpDown', 12));
   /* The account the session runs on, as the status line names it; a click lists the USER.md accounts and switches. */
   const acctSeg = el('button', 'cb-acct');
   acctSeg.type = 'button';
