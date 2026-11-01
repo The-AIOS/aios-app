@@ -3740,7 +3740,8 @@ test('review fixes: no mode press into a dialog, no agents menu over one, no sen
   const to = fnBody(skin, 'chatSkinModeTo');
   assert.match(to, /p\.chatSkin\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null/, 'checked before every Shift+Tab');
   assert.ok(to.indexOf('promptKind') < to.indexOf('chatSkinModeCycle'), 'the check comes before the press');
-  assert.match(fnBody(skin, 'chatSkinBgMenu'), /cs\.promptKind \|\| chatSkinWorking\(p\)/);
+  assert.match(fnBody(skin, 'chatSkinBgMenu'), /if \(cs && cs\.promptKind\) \{ toast\(t\('chat\.agents\.busy'\)\); return; \}/, 'never a menu over a dialog');
+  assert.match(fnBody(skin, 'chatSkinBgMenu'), /if \(chatSkinWorking\(p\)\) \{\n\s*toast\(t\('chat\.agents\.waitFree'/, 'a pick while main works waits for it (0.14.0 round)');
   assert.match(fnBody(skin, 'chatSkinTasksOpen'), /cs\.promptKind \|\| chatSkinWorking\(p\)/);
   const send = fnBody(skin, 'chatSkinSendNow');
   assert.ok(send.indexOf('chatSkinPanelOpen(p)') > 0 && send.indexOf('chatSkinPanelOpen(p)') < send.indexOf('chatSkinSubmit('), 'a panel stops the send before anything is typed');

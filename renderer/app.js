@@ -9802,7 +9802,7 @@ function chatSkinClearTermPrompt(id, p, n = 0) {
    (/tasks) apart. Shells alone keep the terminal's own panel. */
 function chatSkinBgMenu(id, p) {
   const cs = p.chatSkin;
-  if (cs && (cs.promptKind || chatSkinWorking(p))) { toast(t('chat.agents.busy')); return; }   // review: no menu over a dialog or a working turn
+  if (cs && cs.promptKind) { toast(t('chat.agents.busy')); return; }   // review: no menu over a dialog. A working turn is fine: the pick waits for it (below)
   if (!cs) return;
   const rows = cs.agentRows && cs.agentRows.length > 1 ? cs.agentRows : [];
   const shells = cs.bgShells || [];
@@ -9826,6 +9826,20 @@ function chatSkinBgMenu(id, p) {
     const i = key.startsWith('a') || key.startsWith('s') ? Number(key.slice(1)) : -1;
     const target = key.startsWith('s') ? { kind: 'shell', n: i } : key.startsWith('a') && i > 0 ? { kind: 'agent', n: i - 1 } : null;
     if (key.startsWith('a') && i === 0) return;   // main: this session, already on screen in chat
+    /* Busy (0.14.0 round): each background agent that finishes gives main a short turn of its own, so with several running the
+       operator kept landing in one and got refused. The pick now WAITS for main to be free (up to a minute) and then opens. */
+    if (chatSkinWorking(p)) {
+      toast(t('chat.agents.waitFree', { name: chatSkinWho(p) }));
+      const until = Date.now() + 60000;
+      const later = () => {
+        if (panes.get(id) !== p || p.exited || !p.chatSkin) return;
+        if (chatSkinWorking(p) || p.chatSkin.promptKind) { if (Date.now() < until) setTimeout(later, 700); return; }
+        chatSkinSetView(id, 'term');
+        void chatSkinSettle(p).then(() => chatSkinTasksOpen(id, p, target));
+      };
+      setTimeout(later, 700);
+      return;
+    }
     chatSkinSetView(id, 'term');
     void chatSkinSettle(p).then(() => chatSkinTasksOpen(id, p, target));
   });

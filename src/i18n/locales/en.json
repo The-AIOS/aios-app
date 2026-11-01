@@ -1294,6 +1294,7 @@
   "chat.agents.shellDesc": "A command running in the background. Opens in the terminal view.",
   "chat.agents.all": "All background tasks",
   "chat.agents.allDesc": "Opens the list in the terminal view, on the first agent",
+  "chat.agents.waitFree": "{name} is answering an agent; this opens as soon as it is done.",
   "chat.agents.busy": "The session is busy or the list moved; nothing was pressed beyond that. Try again in a moment.",
   "chat.bg.agent": "1 agent",
   "chat.bg.agents": "{n} agents",

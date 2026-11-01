@@ -1294,6 +1294,7 @@
   "chat.agents.shellDesc": "Un comando corriendo en segundo plano. Se abre en la vista de terminal.",
   "chat.agents.all": "Todas las tareas en segundo plano",
   "chat.agents.allDesc": "Abre la lista en la vista de terminal, en el primer agente",
+  "chat.agents.waitFree": "{name} está respondiendo a un agente; esto se abre en cuanto termine.",
   "chat.agents.busy": "La sesión está ocupada o la lista cambió; no se presionó nada más. Intenta de nuevo en un momento.",
   "chat.bg.agent": "1 agente",
   "chat.bg.agents": "{n} agentes",
