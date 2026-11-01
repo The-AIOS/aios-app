@@ -355,20 +355,35 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
    (inset) or the state dot — three axes, three places. The line overhangs by half the strip gap so
    a run reads as one bar. A folded group hides its members except the focused one. */
 .tab.grouped { position: relative; }
+.tabstrip > .tab { align-self: stretch; }   /* as tall as the row, like the chip, so every group line sits on one baseline (0.14.0 round) */
 .tab.grouped::after, .tgchip::after { content: ''; position: absolute; left: -3px; right: -3px; bottom: -5px;
                                       height: 2px; border-radius: 1px; background: var(--tg); pointer-events: none; }
 .tgchip::after { left: 50%; }
 .tab.tgcollapsed { display: none; }
-.tgchip { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; border: 0;
-          border-radius: 7px; padding: 3px 9px; min-height: 20px; max-width: 150px; background: var(--tg); color: var(--tg-ink);
-          font: 600 11.5px var(--font); cursor: pointer; transition: filter .12s; }
-.tgchip:hover { filter: brightness(1.08); }
+.tgchip { position: relative; flex: 0 0 auto; align-self: stretch; display: inline-flex; align-items: center; border: 0; padding: 0;
+          background: none; cursor: pointer; font: 600 11.5px var(--font); }
+/* The button stretches to the tab height, so its ::after line shares the members' baseline (0.14.0 round: the chip's
+   line sat higher, because the pill is shorter than a tab). The pill carries the colour. */
+.tgchip .tgpill { display: inline-flex; align-items: center; gap: 5px; border-radius: 7px; padding: 3px 9px; min-height: 20px; box-sizing: border-box;
+                  max-width: 150px; background: var(--tg); color: var(--tg-ink); transition: filter .12s; }
+.tgchip:hover .tgpill { filter: brightness(1.08); }
+.tgchip:focus-visible { outline: none; }
+.tgchip:focus-visible .tgpill { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tgchip .tgname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tgchip.unnamed { padding: 0; width: 14px; min-height: 14px; height: 14px; border-radius: 50%; }
-.tgchip.unnamed.collapsed { width: auto; padding: 0 6px; border-radius: 7px; }
+.tgchip.unnamed .tgpill { padding: 0; width: 14px; min-height: 14px; height: 14px; border-radius: 50%; }
+.tgchip.unnamed.collapsed .tgpill { width: auto; padding: 0 6px; border-radius: 7px; }
 .tgchip.collapsed::after { display: none; }
 .tgchip .tgcount { font-weight: 700; font-size: 10.5px; }
 .tgchip:not(.unnamed) .tgcount::before { content: '· '; }
+/* Name + colour, one popover by the chip. */
+.tgedit { position: fixed; z-index: 60; width: 236px; padding: 10px; border-radius: 10px; background: var(--surface);
+          border: 1px solid var(--line-strong); box-shadow: var(--edge), 0 10px 30px rgba(0, 0, 0, .28); display: flex; flex-direction: column; gap: 9px; }
+.tgedit-name { font: 13px var(--font); color: var(--ink); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; outline: none; }
+.tgedit-name:focus { border-color: var(--accent); }
+.tgedit-sw { display: flex; gap: 6px; flex-wrap: wrap; }
+.tgedit-c { width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0; background: var(--tg); cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
+.tgedit-c.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--tg); }
+.tgedit-c:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* #24.2b — session state on the tab. Its own element, never the icon's colour: the group stripe
    is a separate axis and the two must not share a pixel. Same four meanings as the side panel's

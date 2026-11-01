@@ -3029,6 +3029,7 @@ const tabGroups = new Map();   // gid → { name, color, collapsed }
 let tgSeq = 0;
 const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
 const tgOf = (id) => { const p = panes.get(id); return p && p.group && tabGroups.has(p.group) ? p.group : ''; };
+const tgFolded = (gid) => !!gid && !!tabGroups.get(gid) && tabGroups.get(gid).collapsed;
 
 /* Members of each group pulled together at the position of their FIRST member, everything else in
    its existing relative order. Pure: `groupOf(id)` is the only input besides the order. */
@@ -3058,7 +3059,28 @@ function tgAfterMove(order, groupOf, id) {
   return '';
 }
 
+/* A group lives in ONE zone (0.14.0 round): Home in the Editor strip and two terminals in Running shared a chip. The zone
+   holding most of its members owns it (a tie goes to the editor zone); a tab that ends up elsewhere (moved, or the layout
+   re-homed it) leaves the group, as a tab dragged to another window leaves its group in Chrome. Pure in its inputs. */
+function tgHomeOf(orders, groupOf) {
+  const count = new Map();
+  for (const z of ['main', 'term']) for (const id of orders[z] || []) {
+    const g = groupOf(id);
+    if (!g) continue;
+    if (!count.has(g)) count.set(g, { main: 0, term: 0 });
+    count.get(g)[z]++;
+  }
+  const home = new Map();
+  for (const [g, c] of count) home.set(g, c.term > c.main ? 'term' : 'main');
+  return home;
+}
+const tgHomeZones = () => tgHomeOf(tabOrder, tgOf);
+function tgSettleZones() {
+  const home = tgHomeZones();
+  for (const z of ['main', 'term']) for (const id of tabOrder[z]) { const g = tgOf(id); if (g && home.get(g) !== z) panes.get(id).group = ''; }
+}
 function tgNormalize(z) {
+  tgSettleZones();
   const next = tgContiguous(tabOrder[z], tgOf);
   tabOrder[z].splice(0, tabOrder[z].length, ...next);
 }
@@ -3098,7 +3120,7 @@ function paintGroups(z) {
     const gid = tgOf(id);
     const g = gid ? tabGroups.get(gid) : null;
     p.tab.classList.toggle('grouped', !!g);
-    p.tab.classList.toggle('tgcollapsed', !!g && g.collapsed && id !== active[z]);
+    p.tab.classList.toggle('tgcollapsed', !!g && g.collapsed && id !== active[z] && !zones[z].visible.includes(id));
     if (g) p.tab.style.setProperty('--tg', `var(--tg-${g.color})`); else p.tab.style.removeProperty('--tg');
     if (g && !seen.has(gid)) { seen.add(gid); strip.insertBefore(tgChip(gid), p.tab); }
   }
@@ -3110,12 +3132,15 @@ function tgChip(gid) {
   c.className = 'tgchip' + (g.collapsed ? ' collapsed' : '') + (g.name ? '' : ' unnamed');
   c.dataset.group = gid;
   c.style.setProperty('--tg', `var(--tg-${g.color})`);
+  /* The button is as tall as a tab, so its colour line sits on the same baseline as the members'; the pill is inside it. */
+  const pill = document.createElement('span'); pill.className = 'tgpill';
   const nm = document.createElement('span'); nm.className = 'tgname'; nm.textContent = g.name;
-  c.appendChild(nm);
+  pill.appendChild(nm);
   if (g.collapsed) {
     const n = document.createElement('span'); n.className = 'tgcount'; n.textContent = String(tgMembers(gid).length);
-    c.appendChild(n);
+    pill.appendChild(n);
   }
+  c.appendChild(pill);
   c.title = `${tgLabel(gid)} — ${t(g.collapsed ? 'tg.expand' : 'tg.collapse')}`;
   c.addEventListener('click', () => tgToggle(gid));
   c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void tgChipMenu(gid); });
@@ -3139,8 +3164,18 @@ function tgToggle(gid) {
       if (tgOf(active[z]) !== gid) continue;
       const order = tabOrder[z].filter((v) => panes.has(v));
       const at = order.indexOf(active[z]);
-      const out = [...order.slice(at + 1), ...order.slice(0, at).reverse()].find((v) => tgOf(v) !== gid && panes.get(v).kind !== 'restore');
+      /* Never into ANOTHER folded group: activating a tab unfolds its group, so folding B used to unfold A (0.14.0 round). */
+      const out = [...order.slice(at + 1), ...order.slice(0, at).reverse()]
+        .find((v) => tgOf(v) !== gid && !tgFolded(tgOf(v)) && panes.get(v).kind !== 'restore');
       if (out) setActive(out);
+    }
+    /* A split showing members of the folded group lets them go, so no pane stays on screen without its tab. */
+    for (const z of ['main', 'term']) {
+      const vis = zones[z].visible;
+      if (vis.length < 2 || !vis.some((v) => tgOf(v) === gid)) continue;
+      const keep = vis.filter((v) => tgOf(v) !== gid);
+      zones[z].visible = keep.length ? keep : [active[z]];
+      zones[z].frac = evenFrac(zones[z].visible.length);
     }
   }
   tgRepaint();
@@ -3149,6 +3184,7 @@ function tgToggle(gid) {
 function tgAdd(id, gid) {
   const p = panes.get(id);
   if (!p || !tabGroups.has(gid)) return;
+  if (tgHomeZones().get(gid) && tgHomeZones().get(gid) !== zoneOf(p)) return;   // never across zones
   p.group = gid;
   tabGroups.get(gid).collapsed = false;
   tgRepaint();
@@ -3163,8 +3199,69 @@ async function tgNew(id) {
   tabGroups.set(gid, { name: '', color, collapsed: false });
   p.group = gid;
   tgRepaint();
-  const name = ((await inputModal(t('tg.nameTitle'), '', [])) || '').trim();
-  if (name && tabGroups.has(gid)) { tabGroups.get(gid).name = name.slice(0, 40); tgRepaint(); }
+  await tgEdit(gid, t('tg.nameTitle'));
+}
+
+/* Name and colour in one small popover by the group's chip (0.14.0 round: the colour was only reachable from the chip's
+   menu afterwards). Enter or a click outside keeps it, Esc puts back what was there. The swatches preview live. */
+function tgEdit(gid, title) {
+  const g = tabGroups.get(gid);
+  if (!g) return Promise.resolve();
+  document.querySelector('.tgedit')?.remove();
+  const before = { name: g.name, color: g.color };
+  const box = el('div', 'tgedit');
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', title);
+  const input = document.createElement('input');
+  input.className = 'tgedit-name';
+  input.maxLength = 40;
+  input.value = g.name;
+  input.placeholder = title;
+  input.setAttribute('aria-label', title);
+  const sw = el('div', 'tgedit-sw');
+  sw.setAttribute('role', 'radiogroup');
+  for (const c of TG_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tgedit-c' + (c === g.color ? ' on' : '');
+    b.style.setProperty('--tg', `var(--tg-${c})`);
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(c === g.color));
+    b.title = tgCap(t('tg.color.' + c));
+    b.setAttribute('aria-label', b.title);
+    b.addEventListener('mousedown', (e) => e.preventDefault());   // keep the name field focused
+    b.addEventListener('click', () => {
+      g.color = c;
+      for (const o of sw.children) { o.classList.toggle('on', o === b); o.setAttribute('aria-checked', String(o === b)); }
+      tgRepaint();
+    });
+    sw.appendChild(b);
+  }
+  box.append(input, sw);
+  document.body.appendChild(box);
+  const chip = document.querySelector(`.tgchip[data-group="${gid}"]`);
+  const r = chip ? chip.getBoundingClientRect() : { left: 80, bottom: 60, top: 60 };
+  box.style.left = Math.max(8, Math.min(r.left, innerWidth - 260)) + 'px';
+  box.style.top = (r.bottom + 6) + 'px';
+  input.focus();
+  input.select();
+  return new Promise((resolve) => {
+    const done = (keep) => {
+      document.removeEventListener('mousedown', outside, true);
+      box.remove();
+      if (!tabGroups.has(gid)) return resolve();
+      if (keep) g.name = input.value.trim().slice(0, 40); else Object.assign(g, before);
+      tgRepaint();
+      resolve();
+    };
+    const outside = (e) => { if (!box.contains(e.target)) done(true); };
+    document.addEventListener('mousedown', outside, true);
+    input.addEventListener('input', () => { g.name = input.value.trim().slice(0, 40); tgRepaint(); });
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+    });
+  });
 }
 
 function tgRemove(id) {
@@ -3178,7 +3275,7 @@ async function tgChipMenu(gid) {
   const g = tabGroups.get(gid);
   if (!g) return;
   const items = [
-    { label: t('tg.rename'), value: 'rename' },
+    { label: t('tg.edit'), value: 'rename' },
     { label: t('tg.colorMenu'), items: TG_COLORS.map((c) => ({ label: (c === g.color ? '✓ ' : '') + tgCap(t('tg.color.' + c)), value: 'color:' + c })) },
     { label: t(g.collapsed ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
     { label: '-', value: '-' },
@@ -3189,12 +3286,7 @@ async function tgChipMenu(gid) {
   if (!pick || !tabGroups.has(gid)) return;
   if (pick === 'toggle') tgToggle(gid);
   else if (pick.startsWith('color:')) { if (TG_COLORS.includes(pick.slice(6))) { g.color = pick.slice(6); tgRepaint(); } }
-  else if (pick === 'rename') {
-    const name = await inputModal(t('tg.rename'), g.name, []);
-    if (name === null || name === undefined) return;
-    g.name = String(name).trim().slice(0, 40);
-    tgRepaint();
-  } else if (pick === 'ungroup') {
+  else if (pick === 'rename') await tgEdit(gid, t('tg.rename')); else if (pick === 'ungroup') {
     for (const id of tgMembers(gid)) panes.get(id).group = '';
     tgRepaint();
   } else if (pick === 'close') {
@@ -3207,7 +3299,9 @@ async function tgChipMenu(gid) {
 /* The rows the TAB menu adds for groups. */
 function tgTabMenuItems(id) {
   const own = tgOf(id);
-  const others = [...tabGroups.keys()].filter((g) => g !== own);
+  const z = panes.get(id) ? zoneOf(panes.get(id)) : 'main';
+  const home = tgHomeZones();
+  const others = [...tabGroups.keys()].filter((g) => g !== own && (!home.get(g) || home.get(g) === z));   // only this zone's groups
   const items = [{ label: t('tg.newGroup'), value: 'tgNew' }];
   if (others.length) items.push({ label: t('tg.addTo'), items: others.map((g) => ({ label: tgLabel(g), value: 'tgAdd:' + g })) });
   if (own) items.push({ label: t('tg.remove'), value: 'tgRemove' });

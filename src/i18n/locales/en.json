@@ -1124,6 +1124,7 @@
   "tg.remove": "Remove from group",
   "tg.nameTitle": "Name this group (optional)",
   "tg.rename": "Rename group",
+  "tg.edit": "Name and color",
   "tg.colorMenu": "Color",
   "tg.collapse": "Collapse group",
   "tg.expand": "Expand group",

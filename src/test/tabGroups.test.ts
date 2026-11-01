@@ -83,3 +83,53 @@ test('closing a group closes each tab the way its × does, and the tab menu offe
   const main = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(main, /submenu: build\(it\.items\)/, 'the native tab menu renders "Add to group ▸" as a submenu');
 });
+
+/* ── 0.14.0 walkthrough round ─────────────────────────────────────────────────────────────────── */
+type HomeOf = (orders: Record<string, string[]>, groupOf: (id: string) => string) => Map<string, string>;
+const tgHomeOf = fn<HomeOf>('tgHomeOf');
+
+test('a group lives in ONE zone: the one holding most of its members, so a stray tab leaves, not the group', () => {
+  /* Home in the Editor strip and two terminals in Running shared group A, and its chip showed in both strips. */
+  const home = tgHomeOf({ main: ['home'], term: ['t1', 't2', 't3'] }, of({ home: 'A', t1: 'A', t2: 'A', t3: 'B' }));
+  assert.equal(home.get('A'), 'term', 'two members in Running outvote one in the Editor');
+  assert.equal(home.get('B'), 'term');
+  assert.equal(tgHomeOf({ main: ['a'], term: ['b'] }, of({ a: 'G', b: 'G' })).get('G'), 'main', 'a tie goes to the editor zone');
+  assert.equal(tgHomeOf({ main: [], term: [] }, of({})).size, 0);
+  assert.match(app, /function tgSettleZones\(\) \{[\s\S]*?if \(g && home\.get\(g\) !== z\) panes\.get\(id\)\.group = '';/, 'members elsewhere leave');
+  assert.match(fn<() => void>('tgNormalize').toString(), /tgSettleZones\(\);/, 'settled on every normalize');
+  const menu = app.slice(app.indexOf('function tgTabMenuItems'), app.indexOf('\n}\n', app.indexOf('function tgTabMenuItems')));
+  assert.match(menu, /home\.get\(g\) === z/, '"Add to group" offers only this zone\'s groups');
+  assert.match(app, /if \(tgHomeZones\(\)\.get\(gid\) && tgHomeZones\(\)\.get\(gid\) !== zoneOf\(p\)\) return;/, 'tgAdd refuses across zones');
+});
+
+test('folding one group never unfolds another, and a split lets the folded members go', () => {
+  /* Folding B moved the focus to the nearest tab outside B, which was inside folded A, and activating it unfolded A. */
+  const tog = app.slice(app.indexOf('function tgToggle'), app.indexOf('\n}\n', app.indexOf('function tgToggle')));
+  assert.match(tog, /\.find\(\(v\) => tgOf\(v\) !== gid && !tgFolded\(tgOf\(v\)\) && panes\.get\(v\)\.kind !== 'restore'\)/);
+  assert.match(tog, /const keep = vis\.filter\(\(v\) => tgOf\(v\) !== gid\);/, 'a folded member leaves the split');
+  assert.match(app, /p\.tab\.classList\.toggle\('tgcollapsed', !!g && g\.collapsed && id !== active\[z\] && !zones\[z\]\.visible\.includes\(id\)\);/,
+    'a pane on screen always keeps its tab');
+});
+
+test('the chip and its members draw their group line on one baseline', () => {
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.tgchip \{[^}]*align-self: stretch;/, 'the chip is as tall as the row');
+  assert.match(css, /\.tabstrip > \.tab \{ align-self: stretch; \}/, 'and so are the tabs');
+  assert.match(css, /\.tgchip \.tgpill \{[^}]*background: var\(--tg\);/, 'the colour is on the pill inside');
+  assert.match(app, /pill\.className = 'tgpill';/);
+});
+
+test('a new group asks for its name AND its colour together; Esc puts both back', () => {
+  const edit = app.slice(app.indexOf('function tgEdit'), app.indexOf('\n}\n', app.indexOf('function tgEdit')));
+  assert.match(app.slice(app.indexOf('async function tgNew'), app.indexOf('\n}\n', app.indexOf('async function tgNew'))), /await tgEdit\(gid, t\('tg\.nameTitle'\)\);/);
+  assert.match(edit, /for \(const c of TG_COLORS\)/, 'every colour is a swatch');
+  assert.match(edit, /if \(e\.key === 'Enter'\) \{ e\.preventDefault\(\); done\(true\); \}/);
+  assert.match(edit, /else if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); e\.stopPropagation\(\); done\(false\); \}/);
+  assert.match(edit, /if \(keep\) g\.name = input\.value\.trim\(\)\.slice\(0, 40\); else Object\.assign\(g, before\);/);
+  assert.ok(!/inputModal\(t\('tg\./.test(app), 'no native prompt left for groups');
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const L = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    assert.ok(L['tg.edit'], `${loc} has tg.edit`);
+  }
+});
+
