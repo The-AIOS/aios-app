@@ -27,6 +27,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { GLIBC_CEILING, cmpVersion, maxGlibcOfFile } from './glibc.mjs';
 
 const HELPERS = ['', ' (GPU)', ' (Renderer)', ' (Plugin)'];
 /* How long the packaged --smoke may run before the harness gives up on it. The fast gates take well
@@ -281,7 +282,17 @@ function checkStaticLinux(tree) {
       + `before packaging — node-pty publishes no Linux prebuild, so the binary only exists if it was compiled here.`);
   }
 
-  ok(`${label}: ${path.basename(bin)} is ELF+executable, app.asar present, node-pty has ${elf.length} ELF binary(ies)`);
+  /* Issue 93: built on a newer distro than our users run, the binary loads nowhere older. The live smoke below cannot
+     see it, because it runs on the machine that built it. */
+  for (const n of elf) {
+    const need = maxGlibcOfFile(n);
+    if (need && cmpVersion(need, GLIBC_CEILING) > 0) {
+      return fail(`${label}: ${path.relative(tree, n)} needs GLIBC_${need}, newer than ${GLIBC_CEILING} (Ubuntu 22.04). `
+        + `It would not load on Ubuntu 24.04 or older (issue 93). Build Linux on ubuntu-22.04, not ubuntu-latest.`);
+    }
+  }
+
+  ok(`${label}: ${path.basename(bin)} is ELF+executable, app.asar present, node-pty has ${elf.length} ELF binary(ies), none needs glibc above ${GLIBC_CEILING}`);
   return true;
 }
 

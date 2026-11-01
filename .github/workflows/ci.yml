@@ -80,7 +80,7 @@ jobs:
     # macOS smoke, since that is exactly when the answer matters.
     name: Linux build + packaged verify (x64)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # same image as release-linux.yml, so this job proves the release build (issue 93)
     timeout-minutes: 30   # a hang fails in minutes, never GitHub's 6 h cancel (0.13.0 review)
     steps:
       - uses: actions/checkout@v6
