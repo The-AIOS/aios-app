@@ -2409,7 +2409,7 @@ function moveSessionTab(paneId, dir, sid) {
   const i = order.indexOf(paneId);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= order.length) return;
-  moveTab(z, paneId, order[j], dir > 0);   // repaints the panel too
+  moveTab(z, paneId, order[j], dir > 0, true);   // repaints the panel too; ↑/↓ reorders, it never regroups (a drop does)
   const row = [...document.querySelectorAll('#pRun .prow2')].find((x) => x.dataset.sid === sid);
   if (row) row.focus();
 }
@@ -3135,7 +3135,11 @@ function tgNormalize(z) {
 }
 
 /* Forget groups nothing belongs to any more — closed, ungrouped, or dragged empty. */
+/* Held while a restore lays out its placeholder tabs (0.14.0 round): they are made one at a time, and a repaint between two of
+   them pruned the group of the one not made yet, so whichever came later came back without its group. */
+let tgPruneHold = 0;
 function tgPrune() {
+  if (tgPruneHold) return;
   const used = new Set();
   for (const p of panes.values()) if (p.group) used.add(p.group);
   for (const g of [...tabGroups.keys()]) if (!used.has(g)) tabGroups.delete(g);
@@ -3366,7 +3370,7 @@ function paintStrip(z) {
 
 /* Move `dragId` to just before/after `overId` inside one strip. Same-strip only by design:
    a tab cannot cross zones, land in the explorer, or enter the panel. */
-function moveTab(z, dragId, overId, after) {
+function moveTab(z, dragId, overId, after, keepGroup) {
   setTimeout(persistSessions, 0);   // the stored order follows the strip
   const list = tabOrder[z];
   const from = list.indexOf(dragId);
@@ -3378,7 +3382,7 @@ function moveTab(z, dragId, overId, after) {
      tab" and "between tabs 3 and 4" both join; dropped on a tab in no group, it leaves). Past the last tab, the run decides
      (tgAfterMove): inside a group's run joins it, outside leaves. */
   const dp = panes.get(dragId);
-  if (dp) dp.group = overId && panes.has(overId) && overId !== dragId ? tgOf(overId) : tgAfterMove(list, tgOf, dragId);
+  if (dp && !keepGroup) dp.group = overId && panes.has(overId) && overId !== dragId ? tgOf(overId) : tgAfterMove(list, tgOf, dragId);
   tgNormalize(z);
   paintStrip(z);
   /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
@@ -5430,7 +5434,8 @@ function createRestoreTab(s) {
   tab.classList.add('restoring');
   tab.title = t('restore.tabHint');
   const p = { kind: 'restore', name: s.name, el: box, tab, sessionId: s.sessionId, cwd: s.cwd || '',
-              manualName: !!s.manual, exited: false, group: s.group && tabGroups.has(s.group) ? s.group : '' };
+              manualName: !!s.manual, exited: false, group: s.group && tabGroups.has(s.group) ? s.group : '',
+              groupDef: s.group && tabGroups.has(s.group) ? { ...tabGroups.get(s.group), fold: { ...tgFold(tabGroups.get(s.group)) } } : null };   // to bring the group back if it was pruned meanwhile
   go.addEventListener('click', () => void materializeRestore(id));
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // uniform with every other pane kind (split.test's invariant)
@@ -5482,6 +5487,14 @@ async function materializeRestore(id) {
   const ni = order.indexOf(newId);
   if (ni >= 0 && order.includes(id)) { order.splice(ni, 1); order.splice(order.indexOf(id), 0, newId); }
   closePane(id);
+  /* The group, once more, now that the placeholder is gone (0.14.0 round: the session restored FIRST came back without its group,
+     which had been pruned while it was the group's only member and was between its placeholder and its tab). Re-created from the
+     placeholder's copy if it is missing. */
+  if (np && ph.group) {
+    if (!tabGroups.has(ph.group) && ph.groupDef) tabGroups.set(ph.group, { ...ph.groupDef });
+    if (tabGroups.has(ph.group)) np.group = ph.group;
+    tgRepaint();
+  }
   paintStrip(z);
   setActive(newId);
   persistSessions();
@@ -5528,7 +5541,9 @@ async function offerRestore() {
        that can come back does, and every tab is started — the one the operator was in first, as
        the offer does, then the rest. NOT awaited: What's New and the rest of launch go on. */
     const order = [...ready].sort((a, b) => (b.sessionId === saved.active) - (a.sessionId === saved.active));
-    const ids = order.map(createRestoreTab);
+    tgPruneHold++;
+    let ids;
+    try { ids = order.map(createRestoreTab); } finally { tgPruneHold--; }
     tgRepaint();
     toast([t('unattended.restoring', { n: String(order.length) }), report(0)].filter(Boolean).join(' · '));
     void materializeInSequence(ids).then(() => {
@@ -5556,7 +5571,9 @@ async function offerRestore() {
     if (missing.length || elsewhere.length) toast(report(0));
     return;
   }
-  const ids = picked.map(createRestoreTab);
+  tgPruneHold++;
+  let ids;
+  try { ids = picked.map(createRestoreTab); } finally { tgPruneHold--; }
   tgRepaint();
   const at = picked.findIndex((x) => x.sessionId === saved.active);
   void materializeRestore(ids[at >= 0 ? at : 0]);

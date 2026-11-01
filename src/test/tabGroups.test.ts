@@ -167,3 +167,22 @@ test('dropping a tab onto any tab of a group joins it, either half; onto a tab i
   const mv = app.slice(app.indexOf('function moveTab'), app.indexOf('\n}\n', app.indexOf('function moveTab')));
   assert.match(mv, /dp\.group = overId && panes\.has\(overId\) && overId !== dragId \? tgOf\(overId\) : tgAfterMove\(list, tgOf, dragId\);/);
 });
+
+test('a restored session keeps its group even when the group was pruned while it was between placeholder and tab', () => {
+  const mr = app.slice(app.indexOf('async function materializeRestore'), app.indexOf('\n}\n', app.indexOf('async function materializeRestore')));
+  assert.match(mr, /if \(!tabGroups\.has\(ph\.group\) && ph\.groupDef\) tabGroups\.set\(ph\.group, \{ \.\.\.ph\.groupDef \}\);/);
+  assert.ok(mr.indexOf('np.group = ph.group;\n    tgRepaint();') > mr.indexOf('closePane(id);'), 'applied after the placeholder is gone');
+  assert.match(app, /groupDef: s\.group && tabGroups\.has\(s\.group\)/);
+});
+
+test('a restore makes its placeholders with pruning held, so no group is lost before its tab exists', () => {
+  /* 0.14.0 round, measured: the group of the placeholder made second was pruned while the first was being made. */
+  assert.match(app, /function tgPrune\(\) \{\n  if \(tgPruneHold\) return;/);
+  assert.match(app, /tgPruneHold\+\+;\n\s*let ids;\n\s*try \{ ids = order\.map\(createRestoreTab\); \} finally \{ tgPruneHold--; \}/, 'unattended');
+  assert.match(app, /try \{ ids = picked\.map\(createRestoreTab\); \} finally \{ tgPruneHold--; \}/, 'the offer');
+});
+
+test('the panel ↑/↓ reorders a session without regrouping it; only a drop joins or leaves a group', () => {
+  assert.match(app, /moveTab\(z, paneId, order\[j\], dir > 0, true\);/);
+  assert.match(app, /if \(dp && !keepGroup\) dp\.group = /);
+});
