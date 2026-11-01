@@ -2038,7 +2038,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
 /* 0.14.0 round: Claude's text is a bubble too, a shade lighter than the operator's, its tail on the left. As wide as its
    text, up to the column. Tool rows, cards and notes stay as they are: only what Claude SAYS is a bubble. */
-.chat-row.who-claude { align-items: flex-start; }
+.chat-row.who-claude { align-items: flex-start; margin-bottom: 24px; }   /* room for Copy under the reply: two replies in a row left it on the next bubble (0.14.0 round) */
 .who-claude .chat-bubble { position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;
                            background: var(--chat-claude-bg); border: 0; }
 .who-claude .chat-md > :first-child { margin-top: 0; }
