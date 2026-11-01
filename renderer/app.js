@@ -636,6 +636,10 @@ function applyLayout() {
   // every layout/visibility change funnels through. Fire-and-forget: it no-ops when nothing
   // is pending, which is almost always.
   setTimeout(() => { void flushStaleDirs(); }, 0);
+  /* Tabs change zones when the layout does (blended ↔ below/left/right), and a group belongs to one zone: settle the groups
+     right away, not at the next click on a strip (0.14.0 round: a group stayed drawn in the editor until clicked). Deferred, so
+     it never re-enters this function. */
+  setTimeout(() => { if (typeof tgRepaint === 'function' && tabGroups.size) tgRepaint(); }, 0);
   const x = document.getElementById('xwrap');
   const p = document.getElementById('panel');
   const showX = hasExplorer() && xOn; // Zen hides it; otherwise the folder button decides

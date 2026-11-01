@@ -146,3 +146,8 @@ test('the Running card mirrors the tab groups: a heading in the group colour, it
   const rp = app.slice(app.indexOf('function tgRepaint'), app.indexOf('\n}\n', app.indexOf('function tgRepaint')));
   assert.match(rp, /renderPulseRunning\(\)/, 'a rename, a colour or a fold shows in the card at once');
 });
+
+test('a layout change settles the groups into their zones at once', () => {
+  const fn = app.slice(app.indexOf('function applyLayout'), app.indexOf('\n}\n', app.indexOf('function applyLayout')));
+  assert.match(fn, /setTimeout\(\(\) => \{ if \(typeof tgRepaint === 'function' && tabGroups\.size\) tgRepaint\(\); \}, 0\);/);
+});
