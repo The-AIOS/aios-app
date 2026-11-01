@@ -205,6 +205,7 @@
   "pulse.hiddenShow": "{n} hidden · show",
   "pulse.hiddenHide": "{n} hidden · hide",
   "pulse.hiddenTip": "Sessions the panel left out: started outside your workspaces, not a primary, never messaged by your agents. They never notify. If one is yours, open it in an App pane or add its folder as a workspace.",
+  "pulse.hiddenWhy": "Not shown: started outside your workspaces and never messaged. They never notify.",
   "pulse.closeAll": "Close all sessions — each captures itself (/close-session --auto); your primary stays open",
   "pulse.closeAllSent": "Closing {n} session(s) — {primary} stays open.",
   "pulse.closeAllNone": "Only your primary session is running — nothing to close.",

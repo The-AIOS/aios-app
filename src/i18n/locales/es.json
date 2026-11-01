@@ -205,6 +205,7 @@
   "pulse.hiddenShow": "{n} ocultas · mostrar",
   "pulse.hiddenHide": "{n} ocultas · esconder",
   "pulse.hiddenTip": "Sesiones que el panel dejó fuera: iniciadas fuera de tus espacios de trabajo, no son principales y tus agentes nunca les escribieron. Nunca notifican. Si una es tuya, ábrela en un panel de la App o agrega su carpeta como espacio de trabajo.",
+  "pulse.hiddenWhy": "No se muestran: iniciadas fuera de tus espacios de trabajo y nunca contactadas. Nunca notifican.",
   "pulse.closeAll": "Cerrar todas las sesiones — cada una se captura (/close-session --auto); tu sesión primaria queda abierta",
   "pulse.closeAllSent": "Cerrando {n} sesión(es) — {primary} queda abierta.",
   "pulse.closeAllNone": "Solo tu sesión primaria está activa — nada que cerrar.",

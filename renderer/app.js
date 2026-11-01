@@ -1953,9 +1953,10 @@ function renderPulseRunning(m) {
       tg.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); tg.csPressed = true; flip(); });
       tg.addEventListener('click', () => { if (tg.csPressed) { tg.csPressed = false; return; } flip(); });
       box.appendChild(tg);
-      if (pulse.showHidden) box.appendChild(el('div', 'phiddentip', t('pulse.hiddenTip')));
+      if (pulse.showHidden) box.appendChild(el('div', 'phiddentip', t('pulse.hiddenWhy')));   // the short reason; the toggle's tooltip keeps the long one
       if (pulse.showHidden) for (const h of hidden) {
         const r = el('div', 'prow phidden');
+        r.title = [h.name, h.proj, statusInfo(h.status).label || h.status].filter(Boolean).join(' · ');   // the whole row, when a part is cut
         r.appendChild(el('span', 'pname', h.name || '—'));
         if (h.proj) r.appendChild(el('span', 'pproj', h.proj));
         r.appendChild(el('span', 'pstate', statusInfo(h.status).label || h.status || ''));

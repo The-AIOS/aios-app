@@ -3556,6 +3556,16 @@ test('newcomers are decided once and written down; no framework is not a newcome
   assert.match(fn, /let want = chatMode === 'chat';/, 'a new tab follows the view the operator is in');
 });
 
+test('every custom property the stylesheet uses is defined (an undefined one paints black, as --muted did)', () => {
+  /* 0.14.0 round: the "N hidden" toggle turned black on hover in dark theme, because its colour was var(--muted), which no
+     theme defines. A var() with a fallback is fine; one the page sets at run time counts as defined. */
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  const js = fs.readFileSync('renderer/app.js', 'utf8');
+  const used = new Set([...css.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].map((m) => m[1]));
+  const defined = new Set([...css.matchAll(/(--[\w-]+)\s*:/g), ...js.matchAll(/'(--[\w-]+)'/g)].map((m) => m[1]));
+  assert.deepEqual([...used].filter((v) => !defined.has(v)), []);
+});
+
 test('the mic with voice off in Claude Code: a notice saying how to turn it on, and nothing typed into the session', async () => {
   const grab = (name: string): string => skin.slice(skin.indexOf('async function ' + name), skin.indexOf('\n}\n', skin.indexOf('async function ' + name)) + 2);
   let termEmpty = true;
