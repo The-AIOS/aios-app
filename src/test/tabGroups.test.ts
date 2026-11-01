@@ -88,19 +88,17 @@ test('closing a group closes each tab the way its × does, and the tab menu offe
 type HomeOf = (orders: Record<string, string[]>, groupOf: (id: string) => string) => Map<string, string>;
 const tgHomeOf = fn<HomeOf>('tgHomeOf');
 
-test('a group lives in ONE zone: the one holding most of its members, so a stray tab leaves, not the group', () => {
-  /* Home in the Editor strip and two terminals in Running shared group A, and its chip showed in both strips. */
-  const home = tgHomeOf({ main: ['home'], term: ['t1', 't2', 't3'] }, of({ home: 'A', t1: 'A', t2: 'A', t3: 'B' }));
-  assert.equal(home.get('A'), 'term', 'two members in Running outvote one in the Editor');
-  assert.equal(home.get('B'), 'term');
-  assert.equal(tgHomeOf({ main: ['a'], term: ['b'] }, of({ a: 'G', b: 'G' })).get('G'), 'main', 'a tie goes to the editor zone');
-  assert.equal(tgHomeOf({ main: [], term: [] }, of({})).size, 0);
-  assert.match(app, /function tgSettleZones\(\) \{[\s\S]*?if \(g && home\.get\(g\) !== z\) panes\.get\(id\)\.group = '';/, 'members elsewhere leave');
-  assert.match(fn<() => void>('tgNormalize').toString(), /tgSettleZones\(\);/, 'settled on every normalize');
+test('a group lives in every zone that holds one of its tabs: never evicted, a pill in each strip that has members', () => {
+  /* 0.14.0 round 3: evicting the "minority" zone's tabs cost a group its members when the layout moved them. */
+  assert.match(app, /function tgSettleZones\(\) \{\}/, 'nothing is evicted');
+  const add = app.slice(app.indexOf('function tgAdd'), app.indexOf('\n}\n', app.indexOf('function tgAdd')));
+  assert.doesNotMatch(add, /never across zones/, 'a tab from either zone can join');
   const menu = app.slice(app.indexOf('function tgTabMenuItems'), app.indexOf('\n}\n', app.indexOf('function tgTabMenuItems')));
-  assert.match(menu, /home\.get\(g\) === z/, '"Add to group" offers only this zone\'s groups');
-  assert.match(app, /if \(tgHomeZones\(\)\.get\(gid\) && tgHomeZones\(\)\.get\(gid\) !== zoneOf\(p\)\) return;/, 'tgAdd refuses across zones');
+  assert.match(menu, /filter\(\(g\) => g !== own\)/, '"Add to group" offers every group');
+  const paint = app.slice(app.indexOf('function paintGroups'), app.indexOf('\n}\n', app.indexOf('function paintGroups')));
+  assert.match(paint, /const seen = new Set\(\);[\s\S]*for \(const id of tabOrder\[z\]\)/, 'a pill only in a strip where the group has a tab (the stray "A" of round 1 stays fixed)');
 });
+
 
 test('a fold never moves the focus: you stay on your tab, so one fold can never open another group', () => {
   /* Rounds 1-3 (0.14.0): moving the focus out of the folded group first unfolded ANOTHER group (its tab was the nearest),

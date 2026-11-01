@@ -3105,10 +3105,11 @@ function tgHomeOf(orders, groupOf) {
   return home;
 }
 const tgHomeZones = () => tgHomeOf(tabOrder, tgOf);
-function tgSettleZones() {
-  const home = tgHomeZones();
-  for (const z of ['main', 'term']) for (const id of tabOrder[z]) { const g = tgOf(id); if (g && home.get(g) !== z) panes.get(id).group = ''; }
-}
+/* A group lives in every zone that holds one of its tabs (0.14.0 round 3): a pill of the same name and colour in each strip,
+   one group behind them, so a fold or a rename reaches both. Evicting the "minority" side (round 2) cost a group its members
+   when the layout moved them, which the operator undid by hand. Blended again, the tabs share one strip and one pill. Nothing
+   moves here any more; the name stays for its callers. */
+function tgSettleZones() {}
 function tgNormalize(z) {
   tgSettleZones();
   const next = tgContiguous(tabOrder[z], tgOf);
@@ -3208,7 +3209,6 @@ function tgToggle(gid) {
 function tgAdd(id, gid) {
   const p = panes.get(id);
   if (!p || !tabGroups.has(gid)) return;
-  if (tgHomeZones().get(gid) && tgHomeZones().get(gid) !== zoneOf(p)) return;   // never across zones
   p.group = gid;
   tabGroups.get(gid).collapsed = false;
   tgRepaint();
@@ -3323,9 +3323,7 @@ async function tgChipMenu(gid) {
 /* The rows the TAB menu adds for groups. */
 function tgTabMenuItems(id) {
   const own = tgOf(id);
-  const z = panes.get(id) ? zoneOf(panes.get(id)) : 'main';
-  const home = tgHomeZones();
-  const others = [...tabGroups.keys()].filter((g) => g !== own && (!home.get(g) || home.get(g) === z));   // only this zone's groups
+  const others = [...tabGroups.keys()].filter((g) => g !== own);   // any group: it can live in this zone too
   const items = [{ label: t('tg.newGroup'), value: 'tgNew' }];
   if (others.length) items.push({ label: t('tg.addTo'), items: others.map((g) => ({ label: tgLabel(g), value: 'tgAdd:' + g })) });
   if (own) items.push({ label: t('tg.remove'), value: 'tgRemove' });
