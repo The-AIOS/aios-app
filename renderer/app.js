@@ -4265,6 +4265,13 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
+  /* AI-241 (issue 95): never start a second session under a name a live process outside the App
+     already holds. Two sessions with one name make the bus refuse both, and the copy reruns the
+     startup routine. A holder inside the App is each caller's to reveal (byName). */
+  if (cmd) {
+    const held = await window.glassShell.nameHolder(cmd).catch(() => null);
+    if (held) { toast(t('session.heldOutside', { name: held.name, pid: String(held.pid) })); return null; }
+  }
   const el = document.createElement('div');
   el.className = 'pane termcard';
   const term = new Terminal({

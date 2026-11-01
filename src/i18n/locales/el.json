@@ -351,6 +351,7 @@
   "killBehavior.capture": "Πάντα αποθήκευση πρώτα",
   "killBehavior.kill": "Άμεσος τερματισμός",
   "run.where": "Εκτέλεση σε…",
+  "session.heldOutside": "Η {name} εκτελείται ήδη εκτός AIOS (pid {pid}), οπότε δεν ξεκίνησε δεύτερη.",
   "run.newTerminal": "Νέο τερματικό",
   "run.newTerminalHint": "ξεκίνα μια νέα, ονοματισμένη συνεδρία για αυτή την ενέργεια",
   "run.wherePlaceholder": "Επίλεξε μια ενεργή συνεδρία ή ξεκίνα μια νέα",
