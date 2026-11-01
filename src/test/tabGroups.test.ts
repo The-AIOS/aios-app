@@ -186,3 +186,15 @@ test('the panel ↑/↓ reorders a session without regrouping it; only a drop jo
   assert.match(app, /moveTab\(z, paneId, order\[j\], dir > 0, true\);/);
   assert.match(app, /if \(dp && !keepGroup\) dp\.group = /);
 });
+
+test('a restart brings the workspace back: plain terminals (same folder) and file tabs, each in its group', () => {
+  /* 0.14.0 round: an App update quits the App, and only the sessions came back; a group of terminals vanished. */
+  const snap = app.slice(app.indexOf('function sessionsSnapshot'), app.indexOf('\n}\n', app.indexOf('function sessionsSnapshot')));
+  assert.match(snap, /others\.push\(\{ kind: 'term', name: p\.name \|\| 'terminal', cwd: p\.cwd \|\| '', \.\.\.group \}\)/);
+  assert.match(snap, /others\.push\(\{ kind: 'view', path: p\.path, \.\.\.group \}\)/);
+  assert.match(snap, /\[\.\.\.sessions, \.\.\.others\]\.map\(\(x\) => x\.group\)/, 'their groups are saved too');
+  const ro = app.slice(app.indexOf('async function restoreOthers'), app.indexOf('\n}\n', app.indexOf('async function restoreOthers')));
+  assert.match(ro, /tgPruneHold\+\+;/, 'laid out with pruning held, like the sessions');
+  const offer = app.slice(app.indexOf('async function offerRestore'), app.indexOf('\n}\n', app.indexOf('async function offerRestore')));
+  assert.ok((offer.match(/restoreOthers\(saved\)/g) || []).length >= 4, 'unattended, on a yes, with no session, and with no session left');
+});

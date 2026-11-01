@@ -5392,9 +5392,21 @@ function sessionsSnapshot() {
     const a = panes.get(active[z]);
     if (a && a.sessionId) { activeSid = a.sessionId; break; }
   }
-  const groups = [...new Set(sessions.map((x) => x.group).filter(Boolean))]
+  /* The other tabs, so a restart (an App update quits the App) brings the WORKSPACE back, not only its sessions (0.14.0 round):
+     a plain terminal comes back as a fresh shell in the same folder, a file tab reopens its file, each in its group. */
+  const others = [];
+  for (const z of ['main', 'term']) {
+    for (const id of tabOrder[z]) {
+      const p = panes.get(id);
+      if (!p || p.sessionId) continue;
+      const group = tgOf(id) ? { group: tgOf(id) } : {};
+      if (p.kind === 'term' && !p.exited && !p.isSession) others.push({ kind: 'term', name: p.name || 'terminal', cwd: p.cwd || '', ...group });
+      else if (p.kind === 'view' && typeof p.path === 'string' && p.path && !p.path.startsWith('::')) others.push({ kind: 'view', path: p.path, ...group });   // '::home' and the like open on their own
+    }
+  }
+  const groups = [...new Set([...sessions, ...others].map((x) => x.group).filter(Boolean))]
     .map((g) => ({ id: g, name: tabGroups.get(g).name, color: tabGroups.get(g).color, fold: { ...tgFold(tabGroups.get(g)) } }));
-  return { v: 1, at: Date.now(), active: activeSid, sessions, ...(groups.length ? { groups } : {}) };
+  return { v: 1, at: Date.now(), active: activeSid, sessions, ...(others.length ? { others } : {}), ...(groups.length ? { groups } : {}) };
 }
 /* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
    written is the state at the moment of the change, never the state mid-teardown. */
@@ -5511,10 +5523,37 @@ function tgAdopt(saved) {
   }
 }
 
+/* The terminals and file tabs of the last run, back in their groups (see sessionsSnapshot). Cheap and processless to bring back,
+   so they come with the sessions: in unattended mode, on the operator's yes to the offer, or on their own when nothing else was open. */
+async function restoreOthers(saved) {
+  const list = Array.isArray(saved.others) ? saved.others.slice(0, 40) : [];
+  if (!list.length) return;
+  tgAdopt(saved);
+  tgPruneHold++;
+  try {
+    for (const o of list) {
+      let id = null;
+      if (o && o.kind === 'term') {
+        id = await createPane({ name: String(o.name || 'terminal').slice(0, 60), cwd: typeof o.cwd === 'string' && o.cwd ? o.cwd : undefined, background: true });
+      } else if (o && o.kind === 'view' && typeof o.path === 'string') {
+        await openViewer(o.path);
+        const hit = [...panes.entries()].find(([, q]) => q.kind === 'view' && q.path === o.path);
+        id = hit ? hit[0] : null;
+      }
+      const np = id != null ? panes.get(id) : null;
+      if (np && o.group && tabGroups.has(o.group)) np.group = o.group;
+    }
+  } catch (e) { console.error('[restore] other tabs', e); }
+  finally { tgPruneHold--; }
+  tgRepaint();
+  persistSessions();
+}
+
 /** On launch: offer back what was open, lazily. */
 async function offerRestore() {
   const saved = restoreOnLaunch;
-  if (!saved || !saved.sessions.length) return;
+  if (!saved) return;
+  if (!saved.sessions.length) { await restoreOthers(saved); return; }
   let where = {};
   try { where = await window.glassShell.locateSessions(saved.sessions.map((x) => x.sessionId)); } catch { where = {}; }
   const ready = [], missing = [], elsewhere = [];
@@ -5531,7 +5570,7 @@ async function offerRestore() {
   ].filter(Boolean).join(' · ');
   if (!ready.length) {
     if (missing.length || elsewhere.length) toast(report(0));
-    try { localStorage.removeItem(RESTORE_KEY); } catch { /* */ }
+    await restoreOthers(saved);
     return;
   }
   tgAdopt(saved);
@@ -5545,6 +5584,7 @@ async function offerRestore() {
     let ids;
     try { ids = order.map(createRestoreTab); } finally { tgPruneHold--; }
     tgRepaint();
+    void restoreOthers(saved);
     toast([t('unattended.restoring', { n: String(order.length) }), report(0)].filter(Boolean).join(' · '));
     void materializeInSequence(ids).then(() => {
       const back = [...panes.entries()].find(([, q]) => q.kind === 'term' && !q.exited && q.sessionId === saved.active);
@@ -5575,6 +5615,7 @@ async function offerRestore() {
   let ids;
   try { ids = picked.map(createRestoreTab); } finally { tgPruneHold--; }
   tgRepaint();
+  void restoreOthers(saved);
   const at = picked.findIndex((x) => x.sessionId === saved.active);
   void materializeRestore(ids[at >= 0 ? at : 0]);
   persistSessions();
