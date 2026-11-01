@@ -65,7 +65,7 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
      existing --st-input hue, which is exactly what a permission card is. ── */
   --chat-user-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* the operator's message: a whisper of tone, lighter than the code and tool surfaces so it never competes with the answer */
   --chat-user-line: var(--line);
-  --chat-claude-bg: color-mix(in srgb, #ff7a6c 8%, var(--surface));   /* Claude's bubble: a whisper of coral, friendlier than the operator's neutral grey; a tint of the bubble, never the action fill */
+  --chat-claude-bg: color-mix(in srgb, #ff9b8f 8%, var(--surface));   /* dark: a rosier coral, so the tint reads rose, not brown, on the near-black (0.14.0 round) */
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
   --chat-tool-ink: var(--faint);
