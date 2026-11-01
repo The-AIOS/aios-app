@@ -1870,6 +1870,35 @@ function followRotatedId(id, pane) {
 
 /* The RUNNING card (Glass's "Running"): quota · Sessions (registry-wide) ·
    Terminals (this window's panes). Re-renders on the 2s poll AND on pane open/close. */
+/* The Running card's mirror of the tab groups (0.14.0 round): rows given in tab order are put under a small heading in their
+   group's colour whenever the group changes; rows in no group stay in the plain list. The heading folds the strip its tabs are
+   in, exactly like the pill, so the Sessions and Terminals headings of one group fold together. */
+function pgroupRunner(box) {
+  let cur = null, groupBox = null;
+  return (paneId, row) => {
+    const pane = paneId != null ? panes.get(paneId) : null;
+    const gid = pane ? tgOf(paneId) : null;
+    const g = gid ? tabGroups.get(gid) : null;
+    if (gid !== cur) {
+      cur = gid;
+      groupBox = null;
+      if (g) {
+        const hz = zoneOf(pane);   // the strip these tabs are in
+        groupBox = el('div', 'pgroup');
+        groupBox.style.setProperty('--tg', `var(--tg-${g.color})`);
+        const head = el('button', 'pgroup-head');
+        head.type = 'button';
+        head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
+        if (tgFoldedIn(gid, hz)) head.appendChild(el('span', 'pgroup-n', String(tgMembersIn(gid, hz).length)));
+        head.title = `${tgLabel(gid)} — ${t(tgFoldedIn(gid, hz) ? 'tg.expand' : 'tg.collapse')}`;
+        head.addEventListener('click', () => { tgToggle(gid, hz); renderPulseRunning(); });
+        groupBox.appendChild(head);
+        box.appendChild(groupBox);
+      }
+    }
+    (groupBox || box).appendChild(row);
+  };
+}
 function renderPulseRunning(m) {
   if (m && Array.isArray(m.running)) {
     pulse.lastRunning = m;
@@ -1944,30 +1973,11 @@ function renderPulseRunning(m) {
   const inTabOrder = sessions.map((a, i) => ({ a, i, k: sessionTabPos(a) })).sort((x, y) => x.k - y.k || x.i - y.i).map((x) => x.a);
   /* The tab groups, mirrored (0.14.0 round): a group's sessions sit under a small heading in its colour, with a line of it down
      their side. Tab order keeps a group's tabs together, so one pass is enough. A click on the heading folds the group, as the chip does. */
-  let curGroup = null;
-  let groupBox = null;
+  const runIntoGroups = pgroupRunner(box);
   for (const a of inTabOrder) {
     const hit = byName(a.name, a.id);
-    const gid = hit ? tgOf(hit[0]) : null;
-    const g = gid ? tabGroups.get(gid) : null;
-    if (gid !== curGroup) {
-      curGroup = gid;
-      groupBox = null;
-      if (g) {
-        groupBox = el('div', 'pgroup');
-        groupBox.style.setProperty('--tg', `var(--tg-${g.color})`);
-        const head = el('button', 'pgroup-head');
-        head.type = 'button';
-        head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
-        const hz = zoneOf(panes.get(hit[0]));   // the strip these sessions' tabs are in
-        if (tgFoldedIn(gid, hz)) head.appendChild(el('span', 'pgroup-n', String(tgMembersIn(gid, hz).length)));
-        head.title = `${tgLabel(gid)} — ${t(tgFoldedIn(gid, hz) ? 'tg.expand' : 'tg.collapse')}`;
-        head.addEventListener('click', () => { tgToggle(gid, hz); renderPulseRunning(); });
-        groupBox.appendChild(head);
-        box.appendChild(groupBox);
-      }
-    }
-    const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); (groupBox || box).appendChild(r);
+    const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name);
+    runIntoGroups(hit ? hit[0] : null, r);
   }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
     /* Review 13: AI-203's scope can be wrong, and a wrong HIDE is invisible unless it is counted.
@@ -1996,7 +2006,10 @@ function renderPulseRunning(m) {
     }
   }, null); // close-all now lives in the panel toolbar (Glass placement), not this header
   runSection(R, t('pulse.terminals'), 'terminals', terms.length, () => void createPane({ name: 'terminal' }), t('pulse.newTerminal'), (box) => {
-    for (const [tid, p] of terms) { const r = terminalRow(tid, p); feedMark(r, 'term', tid); box.appendChild(r); }
+    /* The same group headings as the sessions above (0.14.0 round): one fold per strip, so a heading here and one there fold together. */
+    const inOrder = [...terms].sort(([a], [b]) => tabOrder[zoneOf(panes.get(a))].indexOf(a) - tabOrder[zoneOf(panes.get(b))].indexOf(b));
+    const runIntoGroups = pgroupRunner(box);
+    for (const [tid, p] of inOrder) { const r = terminalRow(tid, p); feedMark(r, 'term', tid); runIntoGroups(tid, r); }
     if (!terms.length) box.appendChild(el('div', 'psubempty', t('pulse.noTerminals')));
   });
   feedPrime('sess', 'term');

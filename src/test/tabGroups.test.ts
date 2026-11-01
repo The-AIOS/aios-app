@@ -134,16 +134,18 @@ test('a new group asks for its name AND its colour together; Esc puts both back'
 });
 
 
-test('the Running card mirrors the tab groups: a heading in the group colour, its sessions under it, a click folds it', () => {
-  /* 0.14.0 round: "is it feasible to group sessions in running card in panel to reflect the groupings?" */
+test('the Running card mirrors the tab groups in Sessions AND Terminals: a heading in the group colour, a click folds the strip', () => {
+  /* 0.14.0 round: "is it feasible to group sessions in running card", then "we dont do it in terminals". */
+  const run = app.slice(app.indexOf('function pgroupRunner'), app.indexOf('\n}\n', app.indexOf('function pgroupRunner')));
+  assert.match(run, /groupBox = el\('div', 'pgroup'\);/);
+  assert.match(run, /head\.addEventListener\('click', \(\) => \{ tgToggle\(gid, hz\); renderPulseRunning\(\); \}\);/, 'folds the strip the tabs are in, like the pill');
+  assert.match(run, /\(groupBox \|\| box\)\.appendChild\(row\);/, 'a row in no group stays in the plain list');
   const fn = app.slice(app.indexOf('function renderPulseRunning'), app.indexOf('\n}\n', app.indexOf('function renderPulseRunning')));
-  assert.match(fn, /const gid = hit \? tgOf\(hit\[0\]\) : null;/);
-  assert.match(fn, /groupBox = el\('div', 'pgroup'\);/);
-  assert.match(fn, /head\.addEventListener\('click', \(\) => \{ tgToggle\(gid, hz\); renderPulseRunning\(\); \}\);/);
-  assert.match(fn, /\(groupBox \|\| box\)\.appendChild\(r\);/, 'an ungrouped session stays in the plain list');
+  assert.equal((fn.match(/pgroupRunner\(box\)/g) || []).length, 2, 'used by the Sessions and the Terminals section');
   const rp = app.slice(app.indexOf('function tgRepaint'), app.indexOf('\n}\n', app.indexOf('function tgRepaint')));
   assert.match(rp, /renderPulseRunning\(\)/, 'a rename, a colour or a fold shows in the card at once');
 });
+
 
 test('a layout change settles the groups into their zones at once', () => {
   const fn = app.slice(app.indexOf('function applyLayout'), app.indexOf('\n}\n', app.indexOf('function applyLayout')));
