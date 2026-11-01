@@ -187,18 +187,24 @@ const ICONS = {
   skill: '<path d="M12 3.2 22 8l-10 4.8L2 8z"/><path d="M6 10.2V15c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.8"/>',
   command: '<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3z"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/>',
+ branch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  shield: '<path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/>',
   sliders: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   id: '<rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="8" cy="10" r="2"/><path d="M6.5 16a2.5 2.5 0 0 1 5 0M14 9h4M14 13h3"/>',
   chart: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
   sparkles: '<path d="M12 3l1.6 4.9L18.5 9l-4.9 1.1L12 15l-1.6-4.9L5.5 9l4.9-1.1z"/>',
+  brain: '<path d="M12 5a3 3 0 1 0-6 .1 4 4 0 0 0-2.5 5.8 4 4 0 0 0 .6 6.6A4 4 0 1 0 12 18z"/><path d="M12 5a3 3 0 1 1 6 .1 4 4 0 0 1 2.5 5.8 4 4 0 0 1-.6 6.6A4 4 0 1 1 12 18z"/><path d="M12 5v13"/>',
   note: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M15 21v-6a1 1 0 0 1 1-1h6"/>',
   guide: '<circle cx="12" cy="12" r="9.5"/><polygon points="16.2 7.8 13.4 13.4 7.8 16.2 10.6 10.6 16.2 7.8"/>',
+  stack: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
   wrench: '<path d="M14.6 6.4a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.7-3.7a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9l-3.7 3.7z"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"/>',
   sync: '<path d="M21 12a9 9 0 0 0-9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9 9 0 0 0 6.4-2.6L21 16"/><path d="M21 21v-5h-5"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   design: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
 };
 function icon(name, size = 14) {
@@ -356,6 +362,7 @@ void window.glassShell.shellConfig().then((c) => {
   EXPLORER.icons = c.fileIcons !== false;
   EXPLORER.autoReveal = c.autoReveal !== false;
   BUS_FOCUS = c.busFocus === 'follow' ? 'follow' : 'stay';
+  chatReadMode(c);
   SHOWWK = c.showWeekNumbers !== false;
   if (pulse.lastMonth) paintCalendar(); // config may resolve after the first month message
 });
@@ -513,7 +520,12 @@ let xw = layoutState.xw || 230;
    who has never dragged it, not a preference override. */
 const PW_MIN = 280, PW_MAX = 560;
 let pw = layoutState.pw || PW_MIN;
-let th = layoutState.th || 0.38; // terminal zone fraction in split mode
+let th = layoutState.th || 0.38; // terminal zone fraction in split mode (of the height below, of the width left/right)
+/* Where the terminal zone sits relative to the created view: below (the DOM order), or LEFT/RIGHT
+   of it. Like the docks, position is CSS `order` + flex-direction on #work, never a moved node:
+   reparenting #termzone would tear down every live terminal in it. */
+const TERM_POS = ['below', 'left', 'right'];
+let termPos = TERM_POS.includes(layoutState.termPos) ? layoutState.termPos : 'below';
 // which panel layout to restore when leaving Zen — persisted, so a restart in Zen
 // still remembers you were an IDE user
 let lastPanelPreset = (() => {
@@ -605,7 +617,7 @@ function setTermRenderer(v) {
 }
 
 function saveLayout() {
-  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
+  try { localStorage.setItem('shellLayout', JSON.stringify({ preset, split, xw, pw, th, xOn, lastPanelPreset, pOn, termRenderer, termPos, edZoom, zoneFrac: { main: zones.main.frac, term: zones.term.frac } })); } catch { /* ignore */ }
 }
 
 /* Every explicit layout choice (the title-bar menu, ⌘1–4) goes through here.
@@ -624,6 +636,10 @@ function applyLayout() {
   // every layout/visibility change funnels through. Fire-and-forget: it no-ops when nothing
   // is pending, which is almost always.
   setTimeout(() => { void flushStaleDirs(); }, 0);
+  /* Tabs change zones when the layout does (blended ↔ below/left/right), and a group belongs to one zone: settle the groups
+     right away, not at the next click on a strip (0.14.0 round: a group stayed drawn in the editor until clicked). Deferred, so
+     it never re-enters this function. */
+  setTimeout(() => { if (typeof tgRepaint === 'function' && tabGroups.size) tgRepaint(); }, 0);
   const x = document.getElementById('xwrap');
   const p = document.getElementById('panel');
   const showX = hasExplorer() && xOn; // Zen hides it; otherwise the folder button decides
@@ -655,6 +671,7 @@ function applyLayout() {
 }
 
 function applySplit() {
+  document.getElementById('work').dataset.termpos = termPos;   // the stylesheet reads it: row direction + order, no moved nodes
   const tz = document.getElementById('termzone');
   const vz = document.getElementById('viewzone');
   const hs = document.getElementById('hsplit');
@@ -674,7 +691,10 @@ function applySplit() {
   hs.style.display = (show && showMain) ? '' : 'none';
   // Sole survivor takes the whole work area — otherwise a hidden editor leaves th's
   // remainder as dead space below the terminal.
-  tz.style.height = showMain ? Math.round(th * 100) + '%' : '100%';
+  // the zone's size is its HEIGHT below the view and its WIDTH beside it; the other axis is the flex row's own
+  const size = showMain ? Math.round(th * 100) + '%' : '100%';
+  tz.style.height = termPos === 'below' ? size : '';
+  tz.style.width = termPos === 'below' ? '' : size;
   // re-home every pane + tab to its zone
   for (const [id, p] of panes) homePane(id, p);
   ensureActive('main');
@@ -1809,6 +1829,8 @@ function adoptUnidentified() {
       if (!real || !real.id || !p || p.sessionId) continue;
       p.sessionId = real.id;
       p.isSession = true;
+      /* (no chat-skin call here: sessionRestore.test.ts runs this function in isolation, and chatSkinTick
+         reconciles every pane's session within a tick anyway) */
       /* confirmedName is what the liveness pass above keys on to notice a session ENDING, so an
          adopted pane needs it too — taken from the registry, the same authority as the id. */
       if (!p.confirmedName && real.name) p.confirmedName = real.name;
@@ -1819,8 +1841,64 @@ function adoptUnidentified() {
     .finally(() => { adoptInFlight = false; });
 }
 
+/* A session's id is not for life. `/clear` and `/resume` replace the session INSIDE the running claude process: the pty, the pid and
+   the tab stay, the registry entry of that pid gets the new id, and the old id disappears. A pane that only compared its id against the
+   registry took that for the session ending: the tab read "(ended)", `sessionId` was cleared and the chat view was thrown back to the
+   terminal. The pty's process tree is the exact authority (the same one adoptUnidentified uses), so before an id that is no longer
+   registered is called an ending, ask it what lives under this pty. A live session under a different id is the same pane moving to
+   its next session; nothing under it means the old id really is gone, and the next pulse declares that. */
+const rotateInFlight = new Set();
+function followRotatedId(id, pane) {
+  if (rotateInFlight.has(id)) return;
+  rotateInFlight.add(id);
+  const was = pane.sessionId;
+  void window.glassShell.sessionUnder([id]).then((map) => {
+    const real = map && map[id];
+    if (panes.get(id) !== pane || pane.sessionId !== was) return;   // closed, or something else already moved it
+    if (!real || !real.id || real.id === was) { pane.idLostChecked = true; return; }   // nothing alive under this pty: the next pulse ends it
+    pane.sessionId = real.id;
+    pane.idLostChecked = false;
+    if (real.name && real.name !== pane.confirmedName) {
+      pane.confirmedName = real.name;
+      if (!pane.manualName) renamePane(id, real.name);
+    }
+    persistSessions();
+    chatSkinSessionChanged(id, pane);   // the chat view follows: unwatch the old transcript, watch the new one
+  }).catch(() => { pane.idLostChecked = true; })   // ps unavailable: fall back to the old behaviour rather than never ending
+    .finally(() => { rotateInFlight.delete(id); });
+}
+
 /* The RUNNING card (Glass's "Running"): quota · Sessions (registry-wide) ·
    Terminals (this window's panes). Re-renders on the 2s poll AND on pane open/close. */
+/* The Running card's mirror of the tab groups (0.14.0 round): rows given in tab order are put under a small heading in their
+   group's colour whenever the group changes; rows in no group stay in the plain list. The heading folds the strip its tabs are
+   in, exactly like the pill, so the Sessions and Terminals headings of one group fold together. */
+function pgroupRunner(box) {
+  let cur = null, groupBox = null;
+  return (paneId, row) => {
+    const pane = paneId != null ? panes.get(paneId) : null;
+    const gid = pane ? tgOf(paneId) : null;
+    const g = gid ? tabGroups.get(gid) : null;
+    if (gid !== cur) {
+      cur = gid;
+      groupBox = null;
+      if (g) {
+        const hz = zoneOf(pane);   // the strip these tabs are in
+        groupBox = el('div', 'pgroup');
+        groupBox.style.setProperty('--tg', `var(--tg-${g.color})`);
+        const head = el('button', 'pgroup-head');
+        head.type = 'button';
+        head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
+        if (tgFoldedIn(gid, hz)) head.appendChild(el('span', 'pgroup-n', String(tgMembersIn(gid, hz).length)));
+        head.title = `${tgLabel(gid)} — ${t(tgFoldedIn(gid, hz) ? 'tg.expand' : 'tg.collapse')}`;
+        head.addEventListener('click', () => { tgToggle(gid, hz); renderPulseRunning(); });
+        groupBox.appendChild(head);
+        box.appendChild(groupBox);
+      }
+    }
+    (groupBox || box).appendChild(row);
+  };
+}
 function renderPulseRunning(m) {
   if (m && Array.isArray(m.running)) {
     pulse.lastRunning = m;
@@ -1850,8 +1928,13 @@ function renderPulseRunning(m) {
             pane.confirmedName = entry.name;     // followed a /rename
             renamePane(pid, entry.name);
           }
+          pane.idLostChecked = false;
           continue;                              // alive under this id — nothing to declare
         }
+        /* The id is gone from the registry, but that is not yet an ending: /clear and /resume start a NEW session inside the
+           SAME claude process, and the registry entry of that pid carries the new id. Ask the process tree once before
+           declaring a death; the answer lands in followRotatedId (an adoption, or the flag that lets the next pulse end it). */
+        if (!pane.idLostChecked) { followRotatedId(pid, pane); continue; }
       } else if (liveNames.has(pane.confirmedName)) {
         continue;                                // pre-id pane, still matching by label
       }
@@ -1859,6 +1942,8 @@ function renderPulseRunning(m) {
       const was = pane.confirmedName;
       pane.confirmedName = null;
       pane.sessionId = null;
+      pane.chatEnded = true;   // Claude is gone and a shell is left: the chat view has nothing to show
+      chatSkinSessionChanged(pid, pane);
       renamePane(pid, t('tab.endedSession', { name: was }));
     }
   }
@@ -1886,7 +1971,14 @@ function renderPulseRunning(m) {
      in the session display still keyed on a label instead of on what the session is. */
   /* #60: in TAB order, so moving a row and dragging a tab are the same act seen from two places. */
   const inTabOrder = sessions.map((a, i) => ({ a, i, k: sessionTabPos(a) })).sort((x, y) => x.k - y.k || x.i - y.i).map((x) => x.a);
-  for (const a of inTabOrder) { const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); box.appendChild(r); }
+  /* The tab groups, mirrored (0.14.0 round): a group's sessions sit under a small heading in its colour, with a line of it down
+     their side. Tab order keeps a group's tabs together, so one pass is enough. A click on the heading folds the group, as the chip does. */
+  const runIntoGroups = pgroupRunner(box);
+  for (const a of inTabOrder) {
+    const hit = byName(a.name, a.id);
+    const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name);
+    runIntoGroups(hit ? hit[0] : null, r);
+  }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
     /* Review 13: AI-203's scope can be wrong, and a wrong HIDE is invisible unless it is counted.
        So the panel says how many it hid and can show them — plain rows, never notifying. */
@@ -1895,10 +1987,17 @@ function renderPulseRunning(m) {
       const tg = el('button', 'phiddentoggle', t(pulse.showHidden ? 'pulse.hiddenHide' : 'pulse.hiddenShow', { n: String(hidden.length) }));
       tg.type = 'button';
       tg.title = t('pulse.hiddenTip');
-      tg.addEventListener('click', () => { pulse.showHidden = !pulse.showHidden; renderPulseRunning(); });
+      /* The card is rebuilt every 2 s, which threw away the tooltip a second after it appeared and could swallow a
+         click whose press and release straddled a rebuild. So the toggle acts on the PRESS (the keyboard still
+         clicks), and the explanation is printed under it while the list is open instead of living only in a tooltip. */
+      const flip = () => { pulse.showHidden = !pulse.showHidden; renderPulseRunning(); };
+      tg.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); tg.csPressed = true; flip(); });
+      tg.addEventListener('click', () => { if (tg.csPressed) { tg.csPressed = false; return; } flip(); });
       box.appendChild(tg);
+      if (pulse.showHidden) box.appendChild(el('div', 'phiddentip', t('pulse.hiddenWhy')));   // the short reason; the toggle's tooltip keeps the long one
       if (pulse.showHidden) for (const h of hidden) {
         const r = el('div', 'prow phidden');
+        r.title = [h.name, h.proj, statusInfo(h.status).label || h.status].filter(Boolean).join(' · ');   // the whole row, when a part is cut
         r.appendChild(el('span', 'pname', h.name || '—'));
         if (h.proj) r.appendChild(el('span', 'pproj', h.proj));
         r.appendChild(el('span', 'pstate', statusInfo(h.status).label || h.status || ''));
@@ -1907,7 +2006,10 @@ function renderPulseRunning(m) {
     }
   }, null); // close-all now lives in the panel toolbar (Glass placement), not this header
   runSection(R, t('pulse.terminals'), 'terminals', terms.length, () => void createPane({ name: 'terminal' }), t('pulse.newTerminal'), (box) => {
-    for (const [tid, p] of terms) { const r = terminalRow(tid, p); feedMark(r, 'term', tid); box.appendChild(r); }
+    /* The same group headings as the sessions above (0.14.0 round): one fold per strip, so a heading here and one there fold together. */
+    const inOrder = [...terms].sort(([a], [b]) => tabOrder[zoneOf(panes.get(a))].indexOf(a) - tabOrder[zoneOf(panes.get(b))].indexOf(b));
+    const runIntoGroups = pgroupRunner(box);
+    for (const [tid, p] of inOrder) { const r = terminalRow(tid, p); feedMark(r, 'term', tid); runIntoGroups(tid, r); }
     if (!terms.length) box.appendChild(el('div', 'psubempty', t('pulse.noTerminals')));
   });
   feedPrime('sess', 'term');
@@ -2307,7 +2409,7 @@ function moveSessionTab(paneId, dir, sid) {
   const i = order.indexOf(paneId);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= order.length) return;
-  moveTab(z, paneId, order[j], dir > 0);   // repaints the panel too
+  moveTab(z, paneId, order[j], dir > 0, true);   // repaints the panel too; ↑/↓ reorders, it never regroups (a drop does)
   const row = [...document.querySelectorAll('#pRun .prow2')].find((x) => x.dataset.sid === sid);
   if (row) row.focus();
 }
@@ -2433,6 +2535,17 @@ const restoreOnLaunch = (() => {
     return raw && Array.isArray(raw.sessions) ? raw : null;
   } catch { return null; }
 })();
+/* Unattended mode — for a machine nobody is sitting at (a home server running sessions around
+   the clock). Declared here for the same temporal-dead-zone reason as the restore state above:
+   onPtyData reads it from the first byte any terminal prints.
+
+   MACHINE-LOCAL (localStorage), like the terminal renderer and the restore list, and never in
+   .glass/shell.json: in some vaults that file travels between machines, and a mode that answers
+   Claude's prompts by itself must not switch on in the operator's laptop because a server has it.
+   'off' is the default and does exactly what the app did before the mode existed. */
+const UNATTENDED_KEY = 'unattendedMode';
+function unattendedModeOf(v) { return v === 'summary' || v === 'full' ? v : 'off'; }
+let UNATTENDED = (() => { try { return unattendedModeOf(localStorage.getItem(UNATTENDED_KEY)); } catch { return 'off'; } })();
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
 /* AI-82 — `active` is now FOCUS, not visibility.
    It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
@@ -2942,6 +3055,337 @@ function unregisterTab(id) {
   }
 }
 
+/* ═══ TAB GROUPS — Chrome's model ═══
+   Asked for by contributors and the community: name a set of tabs, give it a colour, fold it away.
+   A group is a NAME + COLOUR; membership lives on the pane (`p.group`), so a pane that dies takes
+   its membership with it and a group with no members simply stops being painted (tgPrune).
+
+   ORDER STAYS IN `tabOrder`. A group is not a second list: its members are kept CONTIGUOUS inside
+   the one order the strip, the split and the panel already read (#60, AI-82), by tgContiguous
+   after every change that could break a run. A second ordering would be the drift AI-82 avoided.
+
+   PERSISTED WITH THE SESSIONS (#28's store), keyed by sessionId like everything else there —
+   never by name (AI-228: a name is a label that changes, not an identity). A plain terminal does
+   not come back after a restart, so neither does its membership; that is the restore rule, not a
+   group rule. */
+const TG_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+const tabGroups = new Map();   // gid → { name, color, collapsed }
+let tgSeq = 0;
+const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
+const tgOf = (id) => { const p = panes.get(id); return p && p.group && tabGroups.has(p.group) ? p.group : ''; };
+/* A group folds per STRIP (0.14.0 round 3): with terminals below/left/right its editor tabs and its running tabs each have their
+   own pill, and a click on one must not fold the other. Blended, everything is in one strip and this is just "folded". */
+const tgFold = (g) => g.fold || (g.fold = { main: false, term: false });
+const tgFoldedIn = (gid, z) => !!gid && !!tabGroups.get(gid) && !!tgFold(tabGroups.get(gid))[z];
+const tgMembersIn = (gid, z) => tgMembers(gid).filter((id) => panes.get(id) && zoneOf(panes.get(id)) === z);
+
+/* Members of each group pulled together at the position of their FIRST member, everything else in
+   its existing relative order. Pure: `groupOf(id)` is the only input besides the order. */
+function tgContiguous(order, groupOf) {
+  const out = [];
+  const placed = new Set();
+  for (const id of order) {
+    if (placed.has(id)) continue;
+    const g = groupOf(id);
+    if (!g) { out.push(id); placed.add(id); continue; }
+    for (const m of order) if (!placed.has(m) && groupOf(m) === g) { out.push(m); placed.add(m); }
+  }
+  return out;
+}
+
+/* Which group a tab belongs to after it was DRAGGED to where it now sits. Inside another group's
+   run (same group both sides) → joins it. Still touching its own group, or the only member of it
+   (a group of one travels with its tab) → keeps it. Anywhere else → leaves. Pure, like the above. */
+function tgAfterMove(order, groupOf, id) {
+  const i = order.indexOf(id);
+  const own = groupOf(id);
+  if (i < 0) return own;
+  const left = i > 0 ? groupOf(order[i - 1]) : '';
+  const right = i < order.length - 1 ? groupOf(order[i + 1]) : '';
+  if (left && left === right) return left;
+  if (own && (own === left || own === right || !order.some((v) => v !== id && groupOf(v) === own))) return own;
+  return '';
+}
+
+/* A group lives in ONE zone (0.14.0 round): Home in the Editor strip and two terminals in Running shared a chip. The zone
+   holding most of its members owns it (a tie goes to the editor zone); a tab that ends up elsewhere (moved, or the layout
+   re-homed it) leaves the group, as a tab dragged to another window leaves its group in Chrome. Pure in its inputs. */
+function tgHomeOf(orders, groupOf) {
+  const count = new Map();
+  for (const z of ['main', 'term']) for (const id of orders[z] || []) {
+    const g = groupOf(id);
+    if (!g) continue;
+    if (!count.has(g)) count.set(g, { main: 0, term: 0 });
+    count.get(g)[z]++;
+  }
+  const home = new Map();
+  for (const [g, c] of count) home.set(g, c.term > c.main ? 'term' : 'main');
+  return home;
+}
+const tgHomeZones = () => tgHomeOf(tabOrder, tgOf);
+/* A group lives in every zone that holds one of its tabs (0.14.0 round 3): a pill of the same name and colour in each strip,
+   one group behind them, so a fold or a rename reaches both. Evicting the "minority" side (round 2) cost a group its members
+   when the layout moved them, which the operator undid by hand. Blended again, the tabs share one strip and one pill. Nothing
+   moves here any more; the name stays for its callers. */
+function tgSettleZones() {}
+function tgNormalize(z) {
+  tgSettleZones();
+  const next = tgContiguous(tabOrder[z], tgOf);
+  tabOrder[z].splice(0, tabOrder[z].length, ...next);
+}
+
+/* Forget groups nothing belongs to any more — closed, ungrouped, or dragged empty. */
+/* Held while a restore lays out its placeholder tabs (0.14.0 round): they are made one at a time, and a repaint between two of
+   them pruned the group of the one not made yet, so whichever came later came back without its group. */
+let tgPruneHold = 0;
+function tgPrune() {
+  if (tgPruneHold) return;
+  const used = new Set();
+  for (const p of panes.values()) if (p.group) used.add(p.group);
+  for (const g of [...tabGroups.keys()]) if (!used.has(g)) tabGroups.delete(g);
+}
+
+function tgMembers(gid) {
+  const out = [];
+  for (const z of ['main', 'term']) for (const id of tabOrder[z]) if (tgOf(id) === gid) out.push(id);
+  return out;
+}
+
+const tgCap = (x) => x.charAt(0).toLocaleUpperCase() + x.slice(1);   // colour names are lower-case mid-sentence
+
+function tgLabel(gid) {
+  const g = tabGroups.get(gid);
+  return g && g.name ? g.name : t('tg.unnamed', { color: t('tg.color.' + (g ? g.color : 'grey')) });
+}
+
+/* The chip before a group's first tab, and the colour line under its members. A collapsed group
+   hides its tabs but never the FOCUSED one: hiding the pane the operator is typing into would
+   leave keystrokes going somewhere they cannot see. */
+function paintGroups(z) {
+  const strip = tabsEl(z);
+  if (!strip) return;
+  tgPrune();
+  for (const c of strip.querySelectorAll('.tgchip')) c.remove();
+  const seen = new Set();
+  for (const id of tabOrder[z]) {
+    const p = panes.get(id);
+    if (!p || !p.tab) continue;
+    const gid = tgOf(id);
+    const g = gid ? tabGroups.get(gid) : null;
+    p.tab.classList.toggle('grouped', !!g);
+    p.tab.classList.toggle('tgcollapsed', !!g && tgFoldedIn(gid, z) && id !== active[z] && !zones[z].visible.includes(id));
+    if (g) p.tab.style.setProperty('--tg', `var(--tg-${g.color})`); else p.tab.style.removeProperty('--tg');
+    if (g && !seen.has(gid)) { seen.add(gid); strip.insertBefore(tgChip(gid, z), p.tab); }
+  }
+}
+
+function tgChip(gid, z) {
+  const g = tabGroups.get(gid);
+  const folded = tgFoldedIn(gid, z);
+  const c = document.createElement('button');
+  c.className = 'tgchip' + (folded ? ' collapsed' : '') + (g.name ? '' : ' unnamed');
+  c.dataset.group = gid;
+  c.style.setProperty('--tg', `var(--tg-${g.color})`);
+  /* The button is as tall as a tab, so its colour line sits on the same baseline as the members'; the pill is inside it. */
+  const pill = document.createElement('span'); pill.className = 'tgpill';
+  const nm = document.createElement('span'); nm.className = 'tgname'; nm.textContent = g.name;
+  pill.appendChild(nm);
+  if (folded) {
+    const n = document.createElement('span'); n.className = 'tgcount'; n.textContent = String(tgMembersIn(gid, z).length);   // this strip's tabs
+    pill.appendChild(n);
+  }
+  c.appendChild(pill);
+  c.title = `${tgLabel(gid)} — ${t(folded ? 'tg.expand' : 'tg.collapse')}`;
+  c.addEventListener('click', () => tgToggle(gid, z));
+  /* Drag the pill to move the whole group (0.14.0 aiostest round: "CAN WE DRAG GROUPS?"). */
+  c.draggable = true;
+  c.addEventListener('dragstart', (ev) => {
+    dragTab = { id: null, group: gid, zone: z };
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('application/x-aios-tab', 'group:' + gid); } catch { /* older engines */ }
+    c.classList.add('dragging');
+  });
+  c.addEventListener('dragend', () => { dragTab = null; c.classList.remove('dragging'); clearDropHint(); });
+  c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void tgChipMenu(gid, z); });
+  return c;
+}
+
+function tgRepaint() {
+  for (const z of ['main', 'term']) { tgNormalize(z); paintStrip(z); setVisible(z); }
+  if (typeof renderPulseRunning === 'function' && pulse.lastRunning) renderPulseRunning();   // the Running card mirrors the groups
+  persistSessions();
+  if (document.getElementById('pRun')) { try { renderPulseRunning(); } catch { /* panel not ready */ } }
+}
+
+function tgToggle(gid, zone) {
+  const g = tabGroups.get(gid);
+  if (!g) return;
+  const zs = zone ? [zone] : ['main', 'term'];
+  const fold = !tgFold(g)[zs[0]];
+  for (const z of zs) tgFold(g)[z] = fold;
+  /* Folding the group you are IN keeps you where you are (0.14.0 round 3): the group folds around your tab, which stays
+     visible (paintGroups shows the focused member of a folded group). Moving you out landed on another group's tab, and
+     then on any ungrouped tab; the operator wanted neither. Focus is never moved by a fold, so one fold can never open
+     another group either. */
+  if (fold) {
+    /* A split showing members of the folded group lets them go, so no pane stays on screen without its tab. */
+    for (const z of zs) {
+      const vis = zones[z].visible;
+      if (vis.length < 2 || !vis.some((v) => tgOf(v) === gid)) continue;
+      const keep = vis.filter((v) => tgOf(v) !== gid || v === active[z]);   // the tab you are on stays, as its tab does
+      zones[z].visible = keep.length ? keep : [active[z]];
+      zones[z].frac = evenFrac(zones[z].visible.length);
+    }
+  }
+  tgRepaint();
+}
+
+function tgAdd(id, gid) {
+  const p = panes.get(id);
+  if (!p || !tabGroups.has(gid)) return;
+  p.group = gid;
+  tgFold(tabGroups.get(gid))[zoneOf(p)] = false;
+  tgRepaint();
+}
+
+async function tgNew(id) {
+  const p = panes.get(id);
+  if (!p) return;
+  const used = new Set([...tabGroups.values()].map((g) => g.color));
+  const color = TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length];
+  const gid = tgNewId();
+  tabGroups.set(gid, { name: '', color, collapsed: false });
+  p.group = gid;
+  tgRepaint();
+  await tgEdit(gid, t('tg.nameTitle'));
+}
+
+/* Name and colour in one small popover by the group's chip (0.14.0 round: the colour was only reachable from the chip's
+   menu afterwards). Enter or a click outside keeps it, Esc puts back what was there. The swatches preview live. */
+function tgEdit(gid, title) {
+  const g = tabGroups.get(gid);
+  if (!g) return Promise.resolve();
+  document.querySelector('.tgedit')?.remove();
+  const before = { name: g.name, color: g.color };
+  const box = el('div', 'tgedit');
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', title);
+  const input = document.createElement('input');
+  input.className = 'tgedit-name';
+  input.maxLength = 40;
+  input.value = g.name;
+  input.placeholder = title;
+  input.setAttribute('aria-label', title);
+  const sw = el('div', 'tgedit-sw');
+  sw.setAttribute('role', 'radiogroup');
+  for (const c of TG_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tgedit-c' + (c === g.color ? ' on' : '');
+    b.style.setProperty('--tg', `var(--tg-${c})`);
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(c === g.color));
+    b.title = tgCap(t('tg.color.' + c));
+    b.setAttribute('aria-label', b.title);
+    b.addEventListener('mousedown', (e) => e.preventDefault());   // keep the name field focused
+    b.addEventListener('click', () => {
+      g.color = c;
+      for (const o of sw.children) { o.classList.toggle('on', o === b); o.setAttribute('aria-checked', String(o === b)); }
+      tgRepaint();
+    });
+    sw.appendChild(b);
+  }
+  box.append(input, sw);
+  document.body.appendChild(box);
+  const chip = document.querySelector(`.tgchip[data-group="${gid}"]`);
+  const r = chip ? chip.getBoundingClientRect() : { left: 80, bottom: 60, top: 60 };
+  box.style.left = Math.max(8, Math.min(r.left, innerWidth - 260)) + 'px';
+  box.style.top = (r.bottom + 6) + 'px';
+  input.focus();
+  input.select();
+  return new Promise((resolve) => {
+    const done = (keep) => {
+      document.removeEventListener('mousedown', outside, true);
+      box.remove();
+      if (!tabGroups.has(gid)) return resolve();
+      if (keep) g.name = input.value.trim().slice(0, 40); else Object.assign(g, before);
+      tgRepaint();
+      resolve();
+    };
+    const outside = (e) => { if (!box.contains(e.target)) done(true); };
+    document.addEventListener('mousedown', outside, true);
+    input.addEventListener('input', () => { g.name = input.value.trim().slice(0, 40); tgRepaint(); });
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+    });
+  });
+}
+
+function tgRemove(id) {
+  const p = panes.get(id);
+  if (!p || !p.group) return;
+  p.group = '';
+  tgRepaint();
+}
+
+async function tgChipMenu(gid, z) {
+  const g = tabGroups.get(gid);
+  if (!g) return;
+  const items = [
+    { label: t('tg.edit'), value: 'rename' },
+    { label: t('tg.colorMenu'), items: TG_COLORS.map((c) => ({ label: (c === g.color ? '✓ ' : '') + tgCap(t('tg.color.' + c)), value: 'color:' + c })) },
+    { label: t(tgFoldedIn(gid, z) ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
+    { label: '-', value: '-' },
+    { label: t('tg.ungroup'), value: 'ungroup' },
+    { label: t('tg.close'), value: 'close' },
+  ];
+  const pick = await window.glassShell.tabMenu(items);
+  if (!pick || !tabGroups.has(gid)) return;
+  if (pick === 'toggle') tgToggle(gid, z);
+  else if (pick.startsWith('color:')) { if (TG_COLORS.includes(pick.slice(6))) { g.color = pick.slice(6); tgRepaint(); } }
+  else if (pick === 'rename') await tgEdit(gid, t('tg.rename')); else if (pick === 'ungroup') {
+    for (const id of tgMembers(gid)) panes.get(id).group = '';
+    tgRepaint();
+  } else if (pick === 'close') {
+    /* Each member through the SAME close a tab's × uses, so a live session still gets its
+       capture-or-end picker. One at a time: those pickers are modal. */
+    for (const id of tgMembers(gid)) await requestClosePane(id);
+  }
+}
+
+/* The rows the TAB menu adds for groups. */
+function tgTabMenuItems(id) {
+  const own = tgOf(id);
+  const others = [...tabGroups.keys()].filter((g) => g !== own);   // any group: it can live in this zone too
+  const items = [{ label: t('tg.newGroup'), value: 'tgNew' }];
+  if (others.length) items.push({ label: t('tg.addTo'), items: others.map((g) => ({ label: tgLabel(g), value: 'tgAdd:' + g })) });
+  if (own) items.push({ label: t('tg.remove'), value: 'tgRemove' });
+  return items;
+}
+
+/* Move a group's tabs in strip `z`, as one block, to just before/after `overId`. Dropped on a tab of ANOTHER group, the block goes
+   before or after that whole group, so no group is split. Every tab keeps its own group. */
+function tgMoveGroup(z, gid, overId, after) {
+  setTimeout(persistSessions, 0);
+  const list = tabOrder[z];
+  const block = list.filter((v) => tgOf(v) === gid);
+  if (!block.length || !list.includes(overId)) return;
+  const rest = list.filter((v) => tgOf(v) !== gid);
+  const og = tgOf(overId);
+  let at = rest.indexOf(overId);
+  if (og) {
+    const run = rest.filter((v) => tgOf(v) === og);
+    at = after ? rest.indexOf(run[run.length - 1]) : rest.indexOf(run[0]);
+  }
+  rest.splice(after ? at + 1 : at, 0, ...block);
+  list.splice(0, list.length, ...rest);
+  tgNormalize(z);
+  paintStrip(z);
+  setVisible(z);
+  if (typeof renderPulseRunning === 'function' && pulse.lastRunning) renderPulseRunning();
+}
+
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
    manual order survive the layout churn that used to erase it. */
 function paintStrip(z) {
@@ -2952,11 +3396,12 @@ function paintStrip(z) {
     const p = panes.get(id);
     if (p && p.tab) strip.insertBefore(p.tab, plus);
   }
+  paintGroups(z);
 }
 
 /* Move `dragId` to just before/after `overId` inside one strip. Same-strip only by design:
    a tab cannot cross zones, land in the explorer, or enter the panel. */
-function moveTab(z, dragId, overId, after) {
+function moveTab(z, dragId, overId, after, keepGroup) {
   setTimeout(persistSessions, 0);   // the stored order follows the strip
   const list = tabOrder[z];
   const from = list.indexOf(dragId);
@@ -2964,6 +3409,12 @@ function moveTab(z, dragId, overId, after) {
   list.splice(from, 1);
   let to = list.indexOf(overId);
   if (to < 0) { list.push(dragId); } else { list.splice(after ? to + 1 : to, 0, dragId); }
+  /* Dropped ON a tab, the dragged tab takes that tab's group (0.14.0 round 3: either half, so "between the pill and its first
+     tab" and "between tabs 3 and 4" both join; dropped on a tab in no group, it leaves). Past the last tab, the run decides
+     (tgAfterMove): inside a group's run joins it, outside leaves. */
+  const dp = panes.get(dragId);
+  if (dp && !keepGroup) dp.group = overId && panes.has(overId) && overId !== dragId ? tgOf(overId) : tgAfterMove(list, tgOf, dragId);
+  tgNormalize(z);
   paintStrip(z);
   /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
      derived from `tabOrder` in setVisible rather than stored separately — had the split kept its
@@ -3185,6 +3636,11 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
+  /* Reaching a tab inside a folded group (the panel, a bus reveal) unfolds it, as Chrome does;
+     and the fold is repainted, since it always spares the focused tab. */
+  const fold = p.group && tabGroups.get(p.group);
+  if (fold && tgFold(fold)[z]) tgFold(fold)[z] = false;
+  paintGroups(z);
   /* Choosing a tab IS looking at it. The pulse-measured 3s (#45) meant staying ~4–6s without
      leaving, and every return restarted the clock, so a tab could stay bold through several
      visits (operator-tested on 0.10.1). Now staying on a tab you clicked for 1s clears it; the
@@ -3203,7 +3659,12 @@ function setActive(id) {
   setVisible(z);
   // keep the active tab reachable when the strip has scrolled past the window
   try { p.tab.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } catch { /* older engines */ }
-  if (p.kind === 'term') { p.fit.fit(); p.term.focus(); }
+  if (p.kind === 'term') {
+    p.fit.fit();
+    /* In chat view the caret belongs in the composer; the xterm is only focused when a dialog has
+       brought it forward (chatSkinPrompt). A hidden xterm cannot take focus anyway. */
+    if (p.view === 'chat' && !(p.chatSkin && p.chatSkin.promptKind)) chatSkinFocus(p); else p.term.focus();
+  }
   // auto-reveal: the explorer follows the active file tab (skips synthetic ::tabs)
   if (p.kind === 'view' && p.path && EXPLORER.autoReveal && !String(p.path).startsWith('::')) void revealPath(p.path);
   /* COMING BACK TO SETUP RE-VERIFIES IT. The re-verify that is supposed to follow a setup command
@@ -3214,6 +3675,7 @@ function setActive(id) {
      re-checked since before the install — the step they just completed still glaring at them.
      Returning to the tab is exactly the moment they are asking "did that work?", so answer it. */
   if (p.path === '::setup' && typeof onboardingRepaint === 'function') void onboardingRepaint();
+  paintZoneView();
 }
 
 function ensureActive(z) {
@@ -3549,6 +4011,10 @@ function makeTab(id, name, iconName) {
     /* AI-169 read-aloud is HIDDEN for now (operator decision, 0.11.0): it returns with two-way voice.
        The code stays; flipping READ_ALOUD brings the menu row back. */
     if (READ_ALOUD && pane.kind === 'term' && (pane.isSession || pane.sessionId)) items.push({ label: t(pane.readAloud ? 'tab.readAloudOff' : 'tab.readAloudOn'), value: 'readAloud' });   // AI-169
+    /* The view is ONE setting for every Claude session now (Settings, or the shortcut), so this row is not a per-tab switch. It
+       appears only for a tab that has stepped out of the mode on purpose (the notice's "Show terminal"), and puts it back. */
+    if (pane.kind === 'term' && chatSkinOutOfMode(pane)) items.push({ label: t(chatMode === 'chat' ? 'chat.skin.toChat' : 'chat.skin.toTerminal'), value: 'chatView' });
+    items.push({ label: '-', value: '-' }, ...tgTabMenuItems(id));
     items.push({ label: '-', value: '-' }, { label: t('tab.close'), value: 'close' });
     /* A NATIVE menu, not the app's listModal. That picker carries a filter box because it was
        built for long searchable lists (sessions, skills, commands), and on four rows the operator
@@ -3558,8 +4024,12 @@ function makeTab(id, name, iconName) {
     void window.glassShell.tabMenu(items).then(async (pick) => {
       if (pick === 'right') { if (partner !== null) splitWithPane(z, partner); }
       else if (pick === 'unsplit') unsplitZone(z);
+      else if (pick === 'tgNew') void tgNew(id);
+      else if (pick === 'tgRemove') tgRemove(id);
+      else if (typeof pick === 'string' && pick.startsWith('tgAdd:')) tgAdd(id, pick.slice(6));
       else if (pick === 'close') void requestClosePane(id);
       else if (pick === 'report') void reportThis(id);
+      else if (pick === 'chatView') chatSkinFollowMode(id);
       else if (pick === 'readAloud') setReadAloud(id, !pane.readAloud);
       else if (pick === 'copyAnswer') void window.glassShell.copyLastAnswer(pane.sessionId).then((n) => toast(t(n > 0 ? 'term.copiedAnswer' : 'term.noAnswer')));
       else if (pick === 'rename') {
@@ -3613,7 +4083,7 @@ function makeTab(id, name, iconName) {
   tab.addEventListener('dragover', (ev) => {
     if (!dragTab) return;
     const p = panes.get(id);
-    if (!p || zoneOf(p) !== dragTab.zone || dragTab.id === id) return;   // same strip, not itself
+    if (!p || zoneOf(p) !== dragTab.zone || dragTab.id === id || (dragTab.group && tgOf(id) === dragTab.group)) return;   // same strip, not itself (nor its own group)
     ev.preventDefault();
     ev.dataTransfer.dropEffect = 'move';
     const r = tab.getBoundingClientRect();
@@ -3629,7 +4099,8 @@ function makeTab(id, name, iconName) {
     ev.preventDefault();
     ev.stopPropagation();
     const r = tab.getBoundingClientRect();
-    moveTab(dragTab.zone, dragTab.id, id, (ev.clientX - r.left) > r.width / 2);
+    if (dragTab.group) tgMoveGroup(dragTab.zone, dragTab.group, id, (ev.clientX - r.left) > r.width / 2);   // a pill was dragged: the whole group moves
+    else moveTab(dragTab.zone, dragTab.id, id, (ev.clientX - r.left) > r.width / 2);
     clearDropHint();
     dragTab = null;
   });
@@ -3682,6 +4153,7 @@ function focusPane(id) {
     q.el.classList.toggle('panefocus', split && pid === id);
   }
   paintRunning();   // the RUNNING card marks the focused session too
+  paintZoneView();
 }
 
 function attachPaneDropTarget(p, id) {
@@ -3825,7 +4297,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile });
   oscPane = id;
   const tab = makeTab(id, name, 'term');
-  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd) };
+  const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd), bornAt: Date.now() };
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
   const snap = background ? snapshotFocus() : null;
@@ -4044,6 +4516,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
        decided from this, never from the label — see the pulse handler. */
     p.sessionId = hit.id || null;
     persistSessions();
+    chatSkinSessionChanged(id, p);
     /* …and when the name is AMBIGUOUS, the title cannot tell us which session this is. Two live
        sessions may share a name (`spawn ingest` twice), and `.find()` hands both panes the same
        entry — after which every per-session display mirrors one session onto two tabs.
@@ -4057,6 +4530,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
         if (!real || !real.id) return;
         p.sessionId = real.id;
         persistSessions();
+        chatSkinSessionChanged(id, p);   // the chat view follows the corrected id
         if (real.name && real.name !== p.confirmedName) { p.confirmedName = real.name; renamePane(id, real.name); }
       }).catch(() => { /* ps unavailable — keep the name-matched guess */ });
     }
@@ -4073,6 +4547,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
      Plain-text copy lives on the session TAB as "Copy last answer", read from the transcript —
      no selection needed. A plain terminal keeps select-to-copy. */
   paintRunning(); // reflect the new terminal in the RUNNING card immediately
+  void chatSkinMaybeDefault(id, p);   // claudeView: a new Claude session opens in the view the operator chose in Settings
   return id;
 }
 
@@ -4118,10 +4593,16 @@ function noteOperatorKeys(p, d) {
   }
 }
 
-function submitToPty(id, text) {
+function submitToPty(id, text, stillWaiting) {
   if (!text) return;
   window.glassShell.ptyWrite(id, text);
   setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 80);
+  /* The Enter can be lost while Claude Code redraws (right after an interrupt, the operator's HELLO sat typed in its box and
+     the chat showed it as sent: 0.14.0 round). A caller that can read the box passes `stillWaiting`; while it says the text
+     is still there unsent, the Enter is pressed again, twice at most. */
+  if (typeof stillWaiting === 'function') {
+    for (const ms of [1200, 2600]) setTimeout(() => { try { if (stillWaiting()) window.glassShell.ptyWrite(id, '\r'); } catch { /* gone */ } }, ms);
+  }
 }
 
 /* THE X ON A TAB IS THE ONE CLOSE A HAND CAN MISS — so it, and only it, asks first.
@@ -4169,6 +4650,7 @@ function closePane(id) {
   const z = zoneOf(p);
   if (p.ro) { try { p.ro.disconnect(); } catch { /* already gone */ } }
   if (p.gl) { try { p.gl.dispose(); } catch { /* already gone */ } }
+  chatSkinTeardown(id, p);   // stop tailing the transcript before the pane (and its id) goes away
   if (p.kind === 'term' && !p.exited) window.glassShell.ptyKill(id);
   stopSpeaking(id);   // review nit: a closed pane's answer stops being read aloud
   p.el.remove();
@@ -4250,7 +4732,9 @@ function fitTerms() {
 window.glassShell.onPtyData((m) => {
   const p = panes.get(m.id);
   if (!p || p.kind !== 'term') return;
-  p.term.write(m.data);
+  p.lastPtyAt = Date.now();   // the chat view's "working" indicator and stalled-transcript check read this
+  p.term.write(m.data, p.chatSkin && p.view === 'chat' ? () => { chatSkinFrameState(p.chatSkin, m.data); chatSkinScreenSoon(m.id, p); } : undefined);   // the callback fires once xterm has PARSED the bytes
+  if (UNATTENDED !== 'off' && p.isSession && !p.uaDone && RESUME_CMD.test(p.cmd || '')) unattendedScan(m.id, p, m.data);
   if (p.scheduleAtlasClear) p.scheduleAtlasClear((m.data || '').length);   // volume-gated; see its definition
   // pty-grade theater: tail the latest meaningful output line into the ticker
   // (throttled — TUI spinners redraw constantly; the ticker breathes, not thrashes)
@@ -4261,7 +4745,7 @@ window.glassShell.onPtyData((m) => {
 });
 window.glassShell.onPtyExit((m) => {
   const p = panes.get(m.id);
-  if (p && p.kind === 'term') { p.exited = true; if (p.composing && p.name) { p.composing = false; window.glassShell.busComposing(p.name, false); } p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); paintRunning(); }   // #81: an ended pane holds no draft
+  if (p && p.kind === 'term') { p.exited = true; if (p.composing && p.name) { p.composing = false; window.glassShell.busComposing(p.name, false); } p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); chatSkinOnExit(m.id, p); paintRunning(); }   // #81: an ended pane holds no draft
   /* A guided connect/add session just closed — re-read rather than waiting for focus or the poll.
      Same shape as the Health card's fix panes: run the check that found the problem to prove the
      fix, never trust that the work happened. */
@@ -4337,7 +4821,15 @@ const TH_DEFAULT = 0.38, TH_MAX = 0.93, TH_MIN = 0.07;
    is a preference and gets left alone, and this never touches a zone that is already visible. */
 function revealZone(z) {
   if (!split) return;
-  const squeezed = z === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
+  let squeezed = z === 'term' ? th <= TH_MIN + 0.01 : th >= TH_MAX - 0.01;
+  /* Beside the view the zones share the WIDTH, which the side panel also takes from: a drag to
+     80% left the editor ~160 px wide and a file opened there read as not opening (operator test).
+     So beside, a zone narrower than one pane's floor counts as squeezed: MEASURED, like homePane. */
+  if (!squeezed && termPos !== 'below') {
+    const zEl = document.getElementById(z === 'term' ? 'termzone' : 'viewzone');
+    const w = zEl ? zEl.getBoundingClientRect().width : 0;
+    squeezed = w > 0 && w < minPaneFor(z);
+  }
   if (!squeezed) return;
   th = TH_DEFAULT;
   applySplit(); saveLayout(); fitTerms();
@@ -4350,6 +4842,7 @@ function revealZone(z) {
    operator later squeezes the dock themselves, that is their call and we don't fight it. */
 const MIN_TERM_ROWS = 18, TH_ROOM = 0.62;
 function ensureTermRoom(id, p) {
+  if (termPos !== 'below') return;                          // rows are only short when the dock is a strip under the view
   if (!split || zoneOf(p) !== 'term' || !p.term) return;
   const tz = document.getElementById('termzone');
   if (!tz || !tz.getBoundingClientRect().height) return;   // dock not laid out yet
@@ -4923,7 +5416,7 @@ function sessionsSnapshot() {
       if (!p || !p.sessionId) continue;
       if (p.kind === 'term' ? p.exited : p.kind !== 'restore') continue;
       if (sessions.some((x) => x.sessionId === p.sessionId)) continue;
-      sessions.push({ sessionId: p.sessionId, name: p.name, manual: !!p.manualName, cwd: p.cwd || '' });
+      sessions.push({ sessionId: p.sessionId, name: p.name, manual: !!p.manualName, cwd: p.cwd || '', ...(tgOf(id) ? { group: tgOf(id) } : {}) });
     }
   }
   let activeSid = '';
@@ -4931,7 +5424,21 @@ function sessionsSnapshot() {
     const a = panes.get(active[z]);
     if (a && a.sessionId) { activeSid = a.sessionId; break; }
   }
-  return { v: 1, at: Date.now(), active: activeSid, sessions };
+  /* The other tabs, so a restart (an App update quits the App) brings the WORKSPACE back, not only its sessions (0.14.0 round):
+     a plain terminal comes back as a fresh shell in the same folder, a file tab reopens its file, each in its group. */
+  const others = [];
+  for (const z of ['main', 'term']) {
+    for (const id of tabOrder[z]) {
+      const p = panes.get(id);
+      if (!p || p.sessionId) continue;
+      const group = tgOf(id) ? { group: tgOf(id) } : {};
+      if (p.kind === 'term' && !p.exited && !p.isSession) others.push({ kind: 'term', name: p.name || 'terminal', cwd: p.cwd || '', ...group });
+      else if (p.kind === 'view' && typeof p.path === 'string' && p.path && !p.path.startsWith('::')) others.push({ kind: 'view', path: p.path, ...group });   // '::home' and the like open on their own
+    }
+  }
+  const groups = [...new Set([...sessions, ...others].map((x) => x.group).filter(Boolean))]
+    .map((g) => ({ id: g, name: tabGroups.get(g).name, color: tabGroups.get(g).color, fold: { ...tgFold(tabGroups.get(g)) } }));
+  return { v: 1, at: Date.now(), active: activeSid, sessions, ...(others.length ? { others } : {}), ...(groups.length ? { groups } : {}) };
 }
 /* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
    written is the state at the moment of the change, never the state mid-teardown. */
@@ -4971,7 +5478,8 @@ function createRestoreTab(s) {
   tab.classList.add('restoring');
   tab.title = t('restore.tabHint');
   const p = { kind: 'restore', name: s.name, el: box, tab, sessionId: s.sessionId, cwd: s.cwd || '',
-              manualName: !!s.manual, exited: false };
+              manualName: !!s.manual, exited: false, group: s.group && tabGroups.has(s.group) ? s.group : '',
+              groupDef: s.group && tabGroups.has(s.group) ? { ...tabGroups.get(s.group), fold: { ...tgFold(tabGroups.get(s.group)) } } : null };   // to bring the group back if it was pruned meanwhile
   go.addEventListener('click', () => void materializeRestore(id));
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // uniform with every other pane kind (split.test's invariant)
@@ -4979,21 +5487,23 @@ function createRestoreTab(s) {
   return id;
 }
 
-/** Turn a placeholder into the real session, in the same place in the strip. */
+/** Turn a placeholder into the real session, in the same place in the strip.
+    Resolves true when the session is running (here or elsewhere), false when it could not start —
+    the unattended sequence reads that; every other caller ignores it. */
 async function materializeRestore(id) {
   const ph = panes.get(id);
-  if (!ph || ph.kind !== 'restore' || ph.materializing) return;
+  if (!ph || ph.kind !== 'restore' || ph.materializing) return false;
   ph.materializing = true;
   /* app#59 — never start a second process on a transcript that is already live (a bus `resume`
      may have reopened it first, or another terminal holds it). Two processes on one transcript fork
      the conversation and make the name ambiguous to the bus. Already in one of our tabs → go there;
      running elsewhere → say so, and drop the placeholder instead of duplicating it. */
   const openHere = [...panes.entries()].find(([pid, q]) => pid !== id && q.kind === 'term' && !q.exited && q.sessionId === ph.sessionId);
-  if (openHere) { closePane(id); setActive(openHere[0]); return; }
+  if (openHere) { closePane(id); setActive(openHere[0]); return true; }
   if (await window.glassShell.sessionIsLive(ph.sessionId).catch(() => false)) {
     closePane(id);
     toast(t('restore.alreadyRunning', { name: ph.name }));
-    return;
+    return true;
   }
   const cmd = `${CLAUDE} --resume ${shq(ph.sessionId)}`;
   const newId = await createPane({ name: ph.name, cmd, cwd: ph.cwd || undefined });
@@ -5004,7 +5514,7 @@ async function materializeRestore(id) {
     /* A TOAST, not text in the placeholder: the placeholder is never the visible pane (opening it
        is what replaces it), so a message written into it would be read by nobody. */
     toast(t('restore.failed', { name: ph.name }));
-    return;
+    return false;
   }
   const np = panes.get(newId);
   if (np) {
@@ -5012,6 +5522,8 @@ async function materializeRestore(id) {
        new pane would have no sessionId, and a quit in that window would drop it from the list. */
     np.sessionId = ph.sessionId;
     np.isSession = true;
+    if (ph.group) np.group = ph.group;
+    chatSkinSessionChanged(newId, np);
     if (ph.manualName) np.manualName = true;
   }
   const z = np ? zoneOf(np) : zoneOf(ph);
@@ -5019,15 +5531,61 @@ async function materializeRestore(id) {
   const ni = order.indexOf(newId);
   if (ni >= 0 && order.includes(id)) { order.splice(ni, 1); order.splice(order.indexOf(id), 0, newId); }
   closePane(id);
+  /* The group, once more, now that the placeholder is gone (0.14.0 round: the session restored FIRST came back without its group,
+     which had been pruned while it was the group's only member and was between its placeholder and its tab). Re-created from the
+     placeholder's copy if it is missing. */
+  if (np && ph.group) {
+    if (!tabGroups.has(ph.group) && ph.groupDef) tabGroups.set(ph.group, { ...ph.groupDef });
+    if (tabGroups.has(ph.group)) np.group = ph.group;
+    tgRepaint();
+  }
   paintStrip(z);
   setActive(newId);
+  persistSessions();
+  return true;
+}
+
+/* The saved groups, before their tabs are made. Validated: a store written by a later build, or
+   edited by hand, must not put an unknown colour into a CSS variable name. */
+function tgAdopt(saved) {
+  for (const g of Array.isArray(saved.groups) ? saved.groups : []) {
+    if (!g || typeof g.id !== 'string' || !g.id || tabGroups.has(g.id)) continue;
+    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: TG_COLORS.includes(g.color) ? g.color : 'grey',
+      fold: g.fold && typeof g.fold === 'object' ? { main: !!g.fold.main, term: !!g.fold.term } : { main: !!g.collapsed, term: !!g.collapsed } });   // a save from before the per-strip fold folds both
+  }
+}
+
+/* The terminals and file tabs of the last run, back in their groups (see sessionsSnapshot). Cheap and processless to bring back,
+   so they come with the sessions: in unattended mode, on the operator's yes to the offer, or on their own when nothing else was open. */
+async function restoreOthers(saved) {
+  const list = Array.isArray(saved.others) ? saved.others.slice(0, 40) : [];
+  if (!list.length) return;
+  tgAdopt(saved);
+  tgPruneHold++;
+  try {
+    for (const o of list) {
+      let id = null;
+      if (o && o.kind === 'term') {
+        id = await createPane({ name: String(o.name || 'terminal').slice(0, 60), cwd: typeof o.cwd === 'string' && o.cwd ? o.cwd : undefined, background: true });
+      } else if (o && o.kind === 'view' && typeof o.path === 'string') {
+        await openViewer(o.path);
+        const hit = [...panes.entries()].find(([, q]) => q.kind === 'view' && q.path === o.path);
+        id = hit ? hit[0] : null;
+      }
+      const np = id != null ? panes.get(id) : null;
+      if (np && o.group && tabGroups.has(o.group)) np.group = o.group;
+    }
+  } catch (e) { console.error('[restore] other tabs', e); }
+  finally { tgPruneHold--; }
+  tgRepaint();
   persistSessions();
 }
 
 /** On launch: offer back what was open, lazily. */
 async function offerRestore() {
   const saved = restoreOnLaunch;
-  if (!saved || !saved.sessions.length) return;
+  if (!saved) return;
+  if (!saved.sessions.length) { await restoreOthers(saved); return; }
   let where = {};
   try { where = await window.glassShell.locateSessions(saved.sessions.map((x) => x.sessionId)); } catch { where = {}; }
   const ready = [], missing = [], elsewhere = [];
@@ -5044,7 +5602,26 @@ async function offerRestore() {
   ].filter(Boolean).join(' · ');
   if (!ready.length) {
     if (missing.length || elsewhere.length) toast(report(0));
-    try { localStorage.removeItem(RESTORE_KEY); } catch { /* */ }
+    await restoreOthers(saved);
+    return;
+  }
+  tgAdopt(saved);
+  if (UNATTENDED !== 'off') {
+    /* Nobody is there to answer the offer, and a placeholder tab has no process: the bus, the
+       session registry and anything addressing a session by name cannot reach it. So everything
+       that can come back does, and every tab is started — the one the operator was in first, as
+       the offer does, then the rest. NOT awaited: What's New and the rest of launch go on. */
+    const order = [...ready].sort((a, b) => (b.sessionId === saved.active) - (a.sessionId === saved.active));
+    tgPruneHold++;
+    let ids;
+    try { ids = order.map(createRestoreTab); } finally { tgPruneHold--; }
+    tgRepaint();
+    void restoreOthers(saved);
+    toast([t('unattended.restoring', { n: String(order.length) }), report(0)].filter(Boolean).join(' · '));
+    void materializeInSequence(ids).then(() => {
+      const back = [...panes.entries()].find(([, q]) => q.kind === 'term' && !q.exited && q.sessionId === saved.active);
+      if (back) setActive(back[0]);
+    }).catch((e) => console.error('[unattended] restore sequence failed', e));
     return;
   }
   const items = ready.map((x) => ({
@@ -5066,11 +5643,141 @@ async function offerRestore() {
     if (missing.length || elsewhere.length) toast(report(0));
     return;
   }
-  const ids = picked.map(createRestoreTab);
+  tgPruneHold++;
+  let ids;
+  try { ids = picked.map(createRestoreTab); } finally { tgPruneHold--; }
+  tgRepaint();
+  void restoreOthers(saved);
   const at = picked.findIndex((x) => x.sessionId === saved.active);
   void materializeRestore(ids[at >= 0 ? at : 0]);
   persistSessions();
   toast(report(picked.length));
+}
+
+/* ── UNATTENDED MODE ───────────────────────────────────────────────────────────
+   Two things stop a reopened app on a machine nobody watches, and this answers both — only when
+   the operator turned the mode on, in Settings, on that machine.
+
+   1. Restored tabs are placeholders with no process (see the restore note above). On a server
+      that is not "cheap", it is unreachable: the bus, the registry and every name-addressed
+      message miss a session that is not running. So they are started — ONE AT A TIME, the next
+      when the previous is live in the registry or a cap runs out. That keeps the reasoning of the
+      lazy default (each session is a heavy process; eight at once contend for memory, rate limit
+      and first paint) while still ending with all of them running.
+
+   2. Claude Code can stop a resumed session on a question before it loads:
+        A  "This session is <age> old and <n> tokens." — Resume from summary (focused) /
+           Resume full session as-is / Don't ask me again
+        B  "Resume this conversation?" — Resume / Start a new conversation
+      'summary' takes A's first row (Enter), 'full' its second (Down, Enter). "Don't ask me again"
+      is never chosen: it writes a global flag that changes every later resume on the machine.
+      B is answered with Esc, which Claude Code maps to "dismiss" and treats as keeping the
+      resumed conversation — Enter is NOT safe there, the focus can start on "Start a new
+      conversation". Any other prompt, the workspace-trust question above all, is left alone.
+
+   MATCHED ON TEXT, WITH THE SPACES GONE. Claude Code's renderer does not print the spaces
+   between words: it moves the cursor to each word's column (ESC[<n>G), so the visible sentence
+   never exists as bytes. Measured on a live session. Stripping escapes and whitespace from both
+   sides is what makes "Resume from summary" findable at all. If Claude Code rewords a dialog the
+   pattern stops matching and the mode does nothing — the safe failure, and the reason the
+   patterns are literal rather than loose. */
+const UNATTENDED_WINDOW_MS = 120000;    // a resume question comes up while the session loads, not later
+const UNATTENDED_GRACE_MS = 1500;       // B can swallow keys that arrive right after it appears
+const UNATTENDED_KEY_GAP_MS = 300;
+const UNATTENDED_LIVE_CAP_MS = 90000;   // a tab that never shows up in the registry stops blocking the rest
+const UNATTENDED_POLL_MS = 2000;
+const UNATTENDED_NEXT_MS = 4000;        // breathing room between two sessions starting
+const RESUME_SUMMARY_DIALOG = /Thissessionis.{1,40}?oldand.{1,20}?tokens\..{0,400}?❯(?:\d+\.)?Resumefromsummary\((?:instant,)?recommended\)(?:\d+\.)?Resumefullsessionas-is(?:\d+\.)?Don'taskmeagain/;
+const RESUME_QUOTA_DIALOG = /Resumethisconversation\?.{0,600}?Thisconversationhasbeeninactivefor.{0,600}?(?:\d+\.)?Resume❯?(?:\d+\.)?Startanewconversation/;
+/** Pty output as comparable text: escapes out, every whitespace out (see the note above). */
+function ptyPlain(s) {
+  return String(s || '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '')
+    .replace(/\x1b./g, '')
+    .replace(/\s+/g, '');
+}
+/** The keys that answer the resume question on screen, or null to leave the screen alone. */
+function resumeDialogKeys(plain, mode) {
+  if (mode !== 'summary' && mode !== 'full') return null;
+  if (RESUME_SUMMARY_DIALOG.test(plain)) return mode === 'summary' ? ['\r'] : ['\x1b[B', '\r'];
+  if (RESUME_QUOTA_DIALOG.test(plain)) return ['\x1b'];
+  return null;
+}
+/* THE STREAM ONLY NOMINATES; THE SCREEN DECIDES. Output text is not a dialog: a resumed session
+   redraws its history, and that history (or anything a tool printed) can quote a question word
+   for word. Answering it then lands Enter, or Down+Enter, in the prompt, and Down+Enter resends
+   the previous prompt. So a match in the stream only schedules a look at the screen, and keys go
+   out only while the question is what the bottom of the screen shows — re-checked before each
+   one. Only tabs started with `--resume` are watched: no other launch asks the question. */
+const RESUME_CMD = /(?:^|\s)--resume(?:\s|$)/;
+const DIALOG_LAST_ROW = /Don'taskmeagain|Startanewconversation/;
+/** The viewport's rows as text, trailing blank rows dropped. */
+function screenRows(term) {
+  const b = term && term.buffer && term.buffer.active;
+  if (!b) return [];
+  const rows = [];
+  for (let y = b.viewportY; y < b.viewportY + term.rows; y++) {
+    const line = b.getLine(y);
+    rows.push(line ? line.translateToString(true) : '');
+  }
+  while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
+  return rows;
+}
+/** The bottom of the screen as comparable text when it ends in a resume question's options, else ''. */
+function dialogOnScreen(rows) {
+  const nonBlank = rows.filter((r) => r.trim());
+  if (!DIALOG_LAST_ROW.test(ptyPlain(nonBlank.slice(-3).join('')))) return '';
+  return ptyPlain(nonBlank.slice(-16).join(''));
+}
+/** Watches one resumed claude tab's first output for a resume question; answers it once, at most. */
+function unattendedScan(id, p, data) {
+  if (Date.now() - (p.bornAt || 0) > UNATTENDED_WINDOW_MS) { p.uaDone = true; p.uaRaw = ''; return; }
+  if (p.uaPending) return;
+  p.uaRaw = ((p.uaRaw || '') + (data || '')).slice(-16384);
+  if (!resumeDialogKeys(ptyPlain(p.uaRaw), UNATTENDED)) return;
+  p.uaPending = true;
+  p.uaRaw = '';
+  const seenAt = Date.now();
+  /* Someone typed after the question appeared: it is theirs to answer, not ours. */
+  const stillOurs = () => panes.get(id) === p && !p.exited && (p.lastKeyAt || 0) <= seenAt;
+  setTimeout(() => {
+    p.uaPending = false;
+    if (!stillOurs()) return;
+    const keys = resumeDialogKeys(dialogOnScreen(screenRows(p.term)), UNATTENDED);
+    if (!keys) return;   // the screen is not showing it: keep watching, the window still bounds this
+    p.uaDone = true;
+    console.info('[unattended] answering the resume question in', p.name, keys.length > 1 ? '(full)' : '');
+    keys.forEach((k, i) => setTimeout(() => {
+      if (!stillOurs() || !dialogOnScreen(screenRows(p.term))) return;
+      window.glassShell.ptyWrite(id, k);
+    }, i * UNATTENDED_KEY_GAP_MS));
+  }, UNATTENDED_GRACE_MS);
+}
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Start restored tabs one by one. A tab that fails is reported and skipped, never a stop. */
+async function materializeInSequence(ids) {
+  for (const id of ids) {
+    const ph = panes.get(id);
+    if (!ph || ph.kind !== 'restore') continue;
+    const { sessionId, name } = ph;
+    let started = false;
+    try { started = await materializeRestore(id); } catch (e) { console.error('[unattended] could not start', name, e); }
+    if (!started) { console.error('[unattended] could not start', name); continue; }   // materializeRestore toasted
+    const t0 = Date.now();
+    let live = false;
+    while (Date.now() - t0 < UNATTENDED_LIVE_CAP_MS) {
+      if (await window.glassShell.sessionIsLive(sessionId).catch(() => false)) { live = true; break; }
+      const open = [...panes.values()].find((q) => q.kind === 'term' && q.sessionId === sessionId);
+      if (!open || open.exited) break;
+      await sleepMs(UNATTENDED_POLL_MS);
+    }
+    if (!live) {
+      console.error('[unattended] not live after start', name, sessionId);
+      toast(t('unattended.notLive', { name }));
+    }
+    await sleepMs(UNATTENDED_NEXT_MS);
+  }
 }
 
 /* ── RECENTS ───────────────────────────────────────────────────────────────────
@@ -5195,18 +5902,27 @@ async function openViewer(p) {
   }
 
   if (renderable && editable) {
-    const seg = document.createElement('div');
-    seg.className = 'seg';
-    const mk = (label, m) => {
+    /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
+       recessed track, the coral thumb on the chosen side; the words are the tooltips. */
+    const seg = document.createElement('span');   // not el(): openViewer has its own local named el (a viewer-open threw on every file, 0.14.0 round)
+    seg.className = 'zview vview';
+    seg.setAttribute('role', 'radiogroup');
+    const mk = (label, m, ico) => {
       const b = document.createElement('button');
-      b.textContent = label;
+      b.className = 'zv-b';
+      b.type = 'button';
+      b.append(csIcon(ico, 14));
+      b.title = label; b.setAttribute('aria-label', label); b.setAttribute('role', 'radio');
       b.addEventListener('click', () => { if (mode !== m) { mode = m; sync(); paint(); } });
       seg.appendChild(b);
       return b;
     };
-    const bR = mk(t('viewer.rendered'), 'rendered');
-    const bS = mk(t('viewer.edit'), 'source');
-    const sync = () => { bR.classList.toggle('on', mode === 'rendered'); bS.classList.toggle('on', mode === 'source'); };
+    const bR = mk(t('viewer.rendered'), 'rendered', 'eye');
+    const bS = mk(t('viewer.edit'), 'source', 'design');
+    const sync = () => {
+      seg.dataset.mode = mode === 'source' ? 'terminal' : 'chat';   // the thumb's two sides, shared with the Chat | Terminal switch
+      for (const [b, on] of [[bR, mode === 'rendered'], [bS, mode === 'source']]) { b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+    };
     sync();
     head.appendChild(seg);
   }
@@ -5234,6 +5950,7 @@ async function openViewer(p) {
   function paint() {
     body.replaceChildren();
     body.classList.toggle('fill', mode === 'rendered' && (HTML_EXT.test(name) || PDF_EXT.test(name)));
+    for (const old of head.querySelectorAll('.chgnav')) old.remove();   // one stepper at most: every switch to Edit added another (0.14.0 round)
     if (mode === 'source') {
       // source IS the editor — now syntax-highlighted (code-editor style): autosaves
       // 700ms after you stop typing, on blur, and on ⌘S.
@@ -5254,11 +5971,12 @@ async function openViewer(p) {
       const chgN = mkEl('span', 'chgcount');
       const mk = (label, dir) => { const b2 = mkEl('button', 'chgbtn', label); b2.addEventListener('click', () => editor.stepChange?.(dir)); return b2; };
       chg.append(chgN, mk('‹', -1), mk('›', 1));
+      chg.title = t('viewer.changesTip');
       const editor = buildCodeEditor(file.content, langFor(name), {
         onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },
         onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
-        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t('viewer.changes', { n }); },
+        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
         onStep: (i, n) => { chgN.textContent = i + '/' + n; },
       }, file.path);
       head.appendChild(chg);
@@ -6454,12 +7172,17 @@ document.getElementById('railLayout').addEventListener('click', (e) => {
     menu.appendChild(b);
   }
   const sep = document.createElement('div'); sep.className = 'lsep'; menu.appendChild(sep);
-  const sp = document.createElement('button');
-  // the check goes on the RIGHT, exactly like a selected layout — terminals-below is on
-  // by default, so it should read as "selected", not as a differently-marked option
-  sp.textContent = t('layout.terminalsBelow') + (split ? '  ✓' : '');
-  sp.addEventListener('click', () => { split = !split; applyLayout(); menu.remove(); });
-  menu.appendChild(sp);
+  // Terminals: below / left / right. The check goes on the RIGHT, exactly like a selected layout —
+  // terminals-below is on by default, so it should read as "selected". Picking the side that is
+  // already selected hides the terminals again (what the single "Terminals below" item always did).
+  for (const pos of TERM_POS) {
+    const sp = document.createElement('button');
+    const on = split && termPos === pos;
+    sp.textContent = t('layout.terminals' + pos[0].toUpperCase() + pos.slice(1)) + (on ? '  ✓' : '');
+    sp.classList.toggle('on', on);
+    sp.addEventListener('click', () => { if (on) split = false; else { termPos = pos; split = true; } applyLayout(); menu.remove(); });
+    menu.appendChild(sp);
+  }
   document.body.appendChild(menu);
   anchorMenu(menu, document.getElementById('railLayout').getBoundingClientRect(), { gap: 6, width: 220 });
   setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
@@ -6561,8 +7284,13 @@ dragX(document.getElementById('psplit'), (ev) => {
 });
 dragX(document.getElementById('hsplit'), (ev) => {
   const wr = document.getElementById('work').getBoundingClientRect();
-  th = Math.max(0.15, Math.min(0.8, (wr.bottom - ev.clientY) / wr.height));
-  document.getElementById('termzone').style.height = Math.round(th * 100) + '%';
+  // POSITION-based, so side-dependent like the docks: the terminal zone grows as the pointer
+  // moves AWAY from its own edge — up when it is below, right when it is left, left when it is right.
+  const raw = termPos === 'left' ? (ev.clientX - wr.left) / wr.width
+    : termPos === 'right' ? (wr.right - ev.clientX) / wr.width
+    : (wr.bottom - ev.clientY) / wr.height;
+  th = Math.max(0.15, Math.min(0.8, raw));
+  document.getElementById('termzone').style[termPos === 'below' ? 'height' : 'width'] = Math.round(th * 100) + '%';
 });
 
 /* ── shell intents ────────────────────────────────────────────────────────── */
@@ -6609,6 +7337,7 @@ window.glassShell.onIntent(async (m) => {
       // cwd: a bus request's validated directory (main/busCwd); absent = the framework root.
       await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m) });
       return;
+    case 'toggleChatView': void chatSkinToggleMode(); return;
     case 'spawnWorker': void spawnWorkerFlow(); return;
     case 'launchPrimary': { const c = await window.glassShell.shellConfig(); launchPrimary(c.primary || 'aios'); return; }
     case 'shortcuts': openShortcutsTab(); return;
@@ -6785,6 +7514,7 @@ window.glassShell.onIntent(async (m) => {
       return;
     case 'layout':
       if (m.toggleSplit) split = !split;
+      if (TERM_POS.includes(m.termPos)) { termPos = m.termPos; split = true; }   // validated like the preset below
       // remember which panel layout you came from, so Zen → back lands on IDE if that's
       // where you were (a hardcoded 'Full' silently demoted IDE users on every toggle)
       if (m.togglePanel) { if (!hasPanel()) { preset = lastPanelPreset; pOn = true; } else pOn = !pOn; }
@@ -6916,7 +7646,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'folder'], [2, 'keyboard'], [3, 'wrench'], [4, 'inbox']]) {   // one card per subject
+    for (const [n, glyph] of [[1, 'chat'], [2, 'layout'], [3, 'sync'], [4, 'inbox']]) {   // one card per subject (0.14.0: chat view, terminal place, unattended, bus)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -6961,7 +7691,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -7056,16 +7786,21 @@ async function collaborateActionFlow() {
   return go('--' + action);
 }
 
-/* #32 account rotation — pick from the USER.md roster; the swap itself is the
+/* #32 account rotation — the list and the swap are both the
    framework's own claude-identity.sh (never reimplemented here). */
 async function accountSwapFlow() {
-  const list = await window.glassShell.accountsList().catch(() => []);
+  const ans = await window.glassShell.accountsList().catch(() => ({ accounts: [], error: 'failed' }));
+  /* A malformed list has to be seen: "no accounts" would send the operator looking elsewhere. */
+  if (ans.error) { toast(t('account.swapFailed', { message: ans.error })); return; }
+  const list = ans.accounts;
   if (!list.length) { toast(t('account.none')); return; }
   const pick = await listModal(t('account.title'), list.map((a) => ({
-    label: a.email + (a.current ? '  ·  ' + t('account.current') : ''),
-    desc: a.note, icon: a.current ? 'check' : 'id', value: a,
+    label: a.label + (a.current ? '  ·  ' + t('account.current') : ''),
+    desc: a.note, icon: a.current ? 'check' : (a.canSwitch ? 'id' : 'stop'), value: a,
   })), t('account.placeholder'));
   if (!pick || pick.current) return;
+  /* Listed anyway: an account missing from the menu reads as lost, not as expired. */
+  if (!pick.canSwitch) { toast(t('account.swapFailed', { message: pick.note || pick.state })); return; }
   toast(t('account.swapping', { email: pick.email }));
   const r = await window.glassShell.accountsSwap(pick.email).catch(() => ({ ok: false, message: 'failed' }));
   toast(r.ok ? t('account.swapped', { email: pick.email }) : t('account.swapFailed', { message: r.message }));
@@ -7285,6 +8020,3338 @@ function openHomeTab() {
     //  still reachable from Help → Keyboard shortcuts and ⌘/)
   });
 }
+
+/* ═══ CHAT SKIN (a view over a terminal pane, never a pane of its own) ═══════
+   A Claude Code session already lives in a 'term' pane: a real pty running the real `claude`.
+   The chat skin is a second way of LOOKING at that same pane — bubbles built from the session's
+   transcript, and a text box that writes to the same pty. It adds fields (p.view, p.chatSkin) and
+   DOM nodes inside p.el and nothing else, so everything that finds a pane by id, name or
+   sessionId (byName, ambiguous, resume, the bus, runInPrimary, closing, restoring, read-aloud)
+   keeps working untouched while the skin is up.
+
+   Three rules this block is built on:
+   1. THE XTERM IS HIDDEN, NEVER DETACHED OR DISPLAY:NONE'D. A zero-size container makes the fit
+      addon compute 0 columns, and the resulting resize tears the TUI. The overlay covers the
+      terminal instead (and `.twrap` goes `visibility:hidden`, which keeps its box), so the pty's
+      geometry never moves because of the skin. This block therefore never calls fit() while the
+      skin is up; the only fit is the one that hands the terminal back.
+   2. THE CHAT CANNOT REPRESENT EVERY DIALOG. Trust prompts, permission lists and pickers are
+      drawn by the TUI. When main reports one (a `prompt` event) the REAL xterm is un-hidden in a
+      strip under the bubbles and takes the focus, with a visible, announced notice. A session
+      must never sit blocked on something the operator cannot see.
+   3. EVERY SUBMIT GOES THROUGH submitToPty (see its note: text and CR are two writes), and the
+      only other thing the skin ever writes to the pty is a lone ESC to cut a running turn.
+
+   The data comes from the main process (glassShell.chatSkinWatch tails the session's transcript
+   and emits onChatSkinEvent: reset · items · turn · usage · prompt · missing · error). */
+const CHAT_FONTS = [
+  { key: 'inherit', stack: '', label: 'chat.font.inherit' },
+  { key: 'sans', stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", label: 'chat.font.sans' },
+  { key: 'serif', stack: "'Iowan Old Style', Georgia, 'Times New Roman', serif", label: 'chat.font.serif' },
+  { key: 'mono', stack: "'JetBrains Mono', 'SF Mono', Menlo, monospace", label: 'chat.font.mono' },
+  { key: 'inter', stack: "Inter, -apple-system, 'Segoe UI', sans-serif", label: 'chat.font.inter' },
+];
+const CHAT_SIZES = [12, 13, 14, 15, 16, 18, 20];
+const CHAT_DEFAULT_SIZE = 14;
+const CHAT_PROMPT_KINDS = ['permission', 'trust', 'select', 'question', 'model', 'other'];
+const CS_WORKING_MS = 3000;   // pty output this recent, inside an open turn, reads as "Claude is working"
+const CS_SUBMIT_MS = 4000;    // …and a message just sent counts as work before the first event comes back
+const CS_STALL_MS = 20000;    // open turn + live pty + a silent transcript for this long → offer the terminal
+const CS_TICK_MS = 750;
+const CS_ANIM_AFTER_MS = 1500;   // rows that arrive sooner than this after a reset are history being loaded, not news: they do not animate
+const chatReducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+const CS_STATUS_MS = 20000;
+/* How the screen is sampled for the dialog detector and the streaming preview: a snapshot is taken once the pty has been
+   quiet for CS_SCREEN_QUIET_MS (a TUI repaints in a burst of chunks, and a snapshot taken in the middle of one shows a
+   half-drawn line — seen against the real screen), but never later than CS_SCREEN_MAX_MS after the first unsent byte, so a
+   stream that never goes quiet (a spinner is a repaint every ~100 ms) still gets its snapshot as often as before. */
+const CS_SCREEN_QUIET_MS = 40;
+const CS_SCREEN_MAX_MS = 150;
+const CS_FRAME_WAIT_MS = 250;   // how much longer a snapshot may wait for a half-painted frame to be finished before it is taken anyway
+/* A dialog's answer is a key or two (a digit, or arrows then Enter). Several keys in ONE write can be swallowed by the TUI's
+   input parser as a single chunk, so they go one by one with a short gap, as submitToPty separates a message from its CR. */
+const CS_KEY_GAP_MS = 60;
+const CS_RETRY_MS = 6000;    // a used card whose dialog is STILL up after this long means the key never landed: let the operator answer again
+/* The only keys a dialog card may ever write: a digit, an arrow up/down, Enter. The parser decided which of them picks which
+   option; this is the renderer's own check that nothing else (text, other escapes) can come out of that path. */
+const CHAT_KEY_OK = /^(?:\x1b\[[AB]|\r|[0-9])+$/;
+const CHAT_KEY_CHUNK = /\x1b\[[0-9;]*[A-Za-z]|\r|[^\x1b\r]/g;
+/* One preference pair for every chat view: changing the font in one conversation changing it in
+   the others is what "my chat font" means. Seeded from shellConfig on each entry. */
+const chatPrefs = { family: '', size: CHAT_DEFAULT_SIZE };
+
+/* Glyphs only the chat uses, added to the shared table so icon() stays the one way to draw them.
+   Plain geometric strokes of our own (nothing taken from any brand's set). */
+Object.assign(ICONS, {
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5.5 15A2.2 2.2 0 0 1 4 12.9V6.2A2.2 2.2 0 0 1 6.2 4h6.7A2.2 2.2 0 0 1 15 5.5"/>',
+  arrowUp: '<path d="M12 19V5"/><path d="m5.5 11.5 6.5-6.5 6.5 6.5"/>',
+  arrowDown: '<path d="M12 5v14"/><path d="m18.5 12.5-6.5 6.5-6.5-6.5"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9S9.4 5.6 12 3Z"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  alert: '<path d="M10.3 3.9 2.4 17.5a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9.5v4"/><path d="M12 17h.01"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  chevUpDown: '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+});
+/* An icon as an element. The markup comes from the static ICONS table above, never from model text,
+   which is why this is one of the very few innerHTML writes in the skin (see chatSkin.test.ts). */
+function csIcon(name, size = 14) {
+  const holder = el('span', 'cs-ico');
+  holder.setAttribute('aria-hidden', 'true');
+  holder.innerHTML = icon(name, size);
+  return holder;
+}
+
+/* ── markdown, without ever injecting the model's raw HTML ───────────────────
+   Model output is untrusted text: a reply that quotes a web page, an email or a file can carry
+   `<img onerror=…>` or `<script>`, and this renderer holds the full glassShell bridge. So the
+   markdown goes through TWO independent guards: (1) a private marked instance whose `html`
+   renderer escapes raw HTML tokens instead of emitting them (a private instance, because
+   marked.use() on the global would also change how the operator's vault notes render), and
+   (2) a DOM pass over an inert <template> that keeps only a short tag allowlist, drops every
+   attribute but a vetted href, and unwraps anything else. Either guard alone would be enough
+   for today's marked; both exist because a parser upgrade is exactly when a guard goes missing
+   unnoticed. */
+let chatMd = null;
+const chatEscape = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function chatMarkdown() {
+  if (chatMd) return chatMd;
+  chatMd = new marked.Marked({ gfm: true, breaks: true });
+  chatMd.use({ renderer: {
+    // marked >= 12 passes a token object, older majors a string — accept both
+    html(tok) { return chatEscape(typeof tok === 'string' ? tok : (tok && tok.text) || ''); },
+  } });
+  return chatMd;
+}
+const CHAT_TAGS = new Set(['P', 'BR', 'STRONG', 'EM', 'DEL', 'CODE', 'PRE', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A',
+  'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
+const CHAT_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'BASE', 'FORM', 'TEMPLATE', 'SVG', 'MATH']);
+function chatSanitize(html) {
+  const tpl = document.createElement('template');   // inert: no script runs and no image loads until adopted
+  tpl.innerHTML = html;
+  const walk = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === 3) continue;
+      if (child.nodeType !== 1) { child.remove(); continue; }
+      const tag = child.tagName;
+      if (CHAT_DROP.has(tag)) { child.remove(); continue; }
+      if (tag === 'IMG') {   // a remote image would phone home on render; show its alt text instead
+        child.replaceWith(document.createTextNode(child.getAttribute('alt') || ''));
+        continue;
+      }
+      walk(child);
+      const href = tag === 'A' ? (child.getAttribute('href') || '') : '';
+      if (!CHAT_TAGS.has(tag) || (tag === 'A' && !/^(https?:|mailto:)/i.test(href))) {
+        child.replaceWith(...child.childNodes);   // keep the words, lose the element
+        continue;
+      }
+      const cls = tag === 'CODE' ? child.getAttribute('class') : null;
+      for (const a of [...child.attributes]) child.removeAttribute(a.name);
+      if (tag === 'A') { child.setAttribute('href', href); child.setAttribute('rel', 'noreferrer noopener'); }
+      if (cls && /^language-[\w+#.-]+$/.test(cls)) child.setAttribute('class', cls);
+    }
+  };
+  walk(tpl.content);
+  return tpl.content;
+}
+function chatHighlight(root) {
+  if (!window.hljs) return;
+  for (const code of root.querySelectorAll('pre code[class^="language-"]')) {
+    const lang = code.className.slice('language-'.length);
+    if (!window.hljs.getLanguage(lang)) continue;
+    try {
+      code.innerHTML = window.hljs.highlight(code.textContent, { language: lang, ignoreIllegal: true }).value;
+      code.classList.add('hljs');
+    } catch { /* leave the plain text */ }
+  }
+}
+/* Transcript messages are complete (never a moving target), so every render is the final one and
+   gets highlighted. */
+function chatRender(target, text) {
+  let frag;
+  try { frag = chatSanitize(chatMarkdown().parse(String(text || ''), { async: false })); }
+  catch { target.textContent = String(text || ''); return; }
+  chatHighlight(frag);
+  chatDecorate(frag);
+  target.replaceChildren(frag);
+}
+/* One copy gesture for the chat: the text goes to the clipboard and the button says whether it got there.
+   Shared by the code-block header and the per-message button so both read the same. */
+function chatCopyTo(btn, label, text) {
+  clearTimeout(btn._t);
+  Promise.resolve(window.glassShell.copyText(text)).then((ok) => ok !== false, () => false).then((ok) => {
+    btn.classList.toggle('done', ok);
+    btn.classList.toggle('fail', !ok);
+    label.textContent = t(ok ? 'chat.code.copied' : 'chat.code.copyFailed');
+    btn._t = setTimeout(() => { btn.classList.remove('done', 'fail'); label.textContent = t('chat.code.copy'); }, 1700);
+  });
+}
+/* Chrome around the sanitised markdown, built here as DOM and never taken from the model: a header
+   on every code block (language + copy button) and a scroll wrapper around every table. It runs AFTER
+   chatSanitize on purpose — the allowlist stays exactly as strict as before, and no <button> can ever
+   arrive from model output. The copy button reads the code from the <pre> when clicked, as text. */
+function chatDecorate(frag) {
+  for (const pre of [...frag.querySelectorAll('pre')]) {
+    const code = pre.querySelector('code');
+    const m = code && /(?:^|\s)language-([\w+#.-]+)/.exec(code.getAttribute('class') || '');
+    const wrap = el('div', 'cm-code');
+    const head = el('div', 'cm-code-head');
+    const copy = el('button', 'cm-copy');
+    copy.type = 'button';
+    const label = el('span', 'cm-copy-t', t('chat.code.copy'));
+    copy.append(csIcon('copy', 13), label);
+    copy.title = t('chat.code.copyLabel');
+    copy.setAttribute('aria-label', t('chat.code.copyLabel'));
+    copy.addEventListener('click', () => chatCopyTo(copy, label, pre.textContent || ''));
+    head.append(el('span', 'cm-lang', m ? m[1] : t('chat.code.plain')), copy);
+    pre.replaceWith(wrap);
+    wrap.append(head, pre);
+  }
+  for (const table of [...frag.querySelectorAll('table')]) {
+    const scroller = el('div', 'cm-table');   // a wide table scrolls inside its own box instead of widening the column
+    table.replaceWith(scroller);
+    scroller.appendChild(table);
+  }
+}
+
+/* ── paths in the conversation become links ──────────────────────────────────────────────────────────
+   A message names files and folders all the time ("it is in ~/Projects/site/dist", "I changed src/app.ts"). In the
+   terminal ⌘-click opens them; here the same words are links, with two rules the terminal does not need:
+   · NOTHING comes from the model. The link is an element built here, AFTER chatSanitize, with its target kept in a
+     JS property (never an href, never a file: URL), so the allowlist above stays exactly as strict as it was and
+     model text can neither carry a link of its own nor point one at a file.
+   · NOTHING IS A LINK UNTIL IT EXISTS. Candidates come from the terminal's own pathCandidates (one definition of
+     what a path looks like), are asked about in ONE batch per message (fs:resolvePaths, which applies the same
+     allowed-roots check as everything else), and only the answers that exist are turned into links. The text is
+     on screen first; the links appear when the answer comes. Opening goes through openViewer / revealPath /
+     revealInOS, which validate again. */
+const CHAT_PATH_MAX = 240;      // distinct strings asked about per message: a pasted log must not become hundreds of stat calls
+const CHAT_PATH_BATCH = 200;    // what main answers in one call (RESOLVE_PATHS_LIMIT)
+const CHAT_PATH_LONG = 48;      // a path longer than this is clipped with an ellipsis instead of widening the column
+const CHAT_PATH_LINE_MAX = 2000;
+const CHAT_PATH_NEG_MS = 10000; // "does not exist" is only remembered briefly: a file the answer just wrote must not stay unlinked
+const CHAT_PATH_CACHE_MAX = 4000;
+const CHAT_PATH_SKIP_TAGS = new Set(['A', 'BUTTON', 'SCRIPT', 'STYLE', 'TEXTAREA']);
+const chatPathCache = new Map();   // `${cwd}\n${string}` → { v: { abs, dir } | null, at }
+/* What pathCandidates does not offer, because the terminal never needed it: a folder named on its own. `/tmp`,
+   `~/Desktop` and `renderer/` have no second segment and no extension, so PATH_RE passes them by; and a quoted
+   path that STARTS at a root may hold spaces (`"~/My Files"`). Still just candidates — existence decides. */
+const CHAT_ROOTED_RE = /(?:^|[\s(\[{"'`])((?:~|\.{1,2})?\/\.?[A-Za-z0-9_@+-][A-Za-z0-9._@+-]*\/?|\.?[A-Za-z0-9_@+-][A-Za-z0-9._@+-]*\/)(?=$|[\s)\]},.;:!?'"`])/g;
+const CHAT_QUOTED_ROOTED_RE = /["'`]((?:~|\.{1,2})?\/[^"'`\n]{1,200}?)["'`]/g;
+function chatPathCandidates(line) {
+  const out = pathCandidates(line);
+  const taken = (i, n) => out.some((o) => i < o.index + o.length && i + n > o.index);   // the match itself, not the words it was stretched across
+  const extra = [];
+  for (const m of line.matchAll(CHAT_QUOTED_ROOTED_RE)) {
+    const idx = m.index + 1;
+    if (!taken(idx, m[1].length)) extra.push({ value: m[1], index: idx, length: m[1].length, alts: [] });
+  }
+  for (const m of line.matchAll(CHAT_ROOTED_RE)) {
+    const idx = m.index + m[0].length - m[1].length;
+    if (!taken(idx, m[1].length) && !extra.some((o) => idx < o.index + o.length && idx + m[1].length > o.index)) extra.push({ value: m[1], index: idx, length: m[1].length, alts: [] });
+  }
+  return out.concat(extra);
+}
+/* Every candidate in a block of text, with its position in THAT text. Line by line: pathCandidates extends a match
+   across the spaces that follow it, and across a newline that would glue the first words of the next line onto a
+   path. `whole` adds the entire text as one more candidate, for a tool row whose argument IS a path (Read, Edit). */
+function chatPathScan(text, whole) {
+  const hits = [];
+  let at = 0;
+  for (const line of String(text).split('\n')) {
+    if (line.length >= 2 && line.length <= CHAT_PATH_LINE_MAX) {
+      for (const h of chatPathCandidates(line)) hits.push({ value: h.value, alts: h.alts, index: at + h.index });
+    }
+    at += line.length + 1;
+  }
+  if (whole) {
+    const v = String(text).trim();
+    if (v.length >= 2) hits.push({ value: v, alts: [], index: String(text).indexOf(v) });
+  }
+  return hits;
+}
+/* Which of the strings a candidate could be actually exists decides what is linked: the longest that does, as in the
+   terminal (a file whose name has spaces must beat the shorter prefix that happens to be a folder). Returns the pieces
+   of `text` in order, each plain or a link. Pure: `found` is a Map from a candidate string to { abs, dir } or null. */
+function chatPathSegments(text, hits, found) {
+  const links = [];
+  for (const h of hits) {
+    let best = null;
+    for (const cand of [...h.alts, h.value].sort((a, b) => b.length - a.length)) {
+      const r = found.get(cand);
+      if (r && r.abs) { best = { cand, r }; break; }
+    }
+    if (!best) continue;
+    const shown = best.cand.replace(/[)\]},.;:'"]+$/, '');   // the full stop that ends a sentence is not part of the path
+    if (!shown) continue;
+    links.push({ start: h.index, end: h.index + shown.length, abs: best.r.abs, dir: !!best.r.dir });
+  }
+  links.sort((a, b) => a.start - b.start || b.end - a.end);
+  const segs = [];
+  let pos = 0;
+  for (const l of links) {
+    if (l.start < pos) continue;   // the tail of a path with spaces also looks like a path of its own: the longer one has already won
+    if (l.start > pos) segs.push({ text: text.slice(pos, l.start) });
+    segs.push({ text: text.slice(l.start, l.end), abs: l.abs, dir: l.dir });
+    pos = l.end;
+  }
+  if (pos < text.length) segs.push({ text: text.slice(pos) });
+  return segs;
+}
+/* The text nodes worth looking at: not inside a link, a button (the code header, a tool row's own controls) or a
+   link we already made. A recursive walk rather than a TreeWalker, so it needs nothing but childNodes. */
+function chatPathTextNodes(root) {
+  const out = [];
+  const walk = (n) => {
+    for (const c of [...n.childNodes]) {
+      if (c.nodeType === 3) { if ((c.nodeValue || '').trim().length >= 2) out.push(c); continue; }
+      if (c.nodeType !== 1) continue;
+      if (CHAT_PATH_SKIP_TAGS.has(c.tagName) || c.classList.contains('cm-code-head') || c.classList.contains('cs-path')) continue;
+      walk(c);
+    }
+  };
+  walk(root);
+  return out;
+}
+/* The folder relative paths are read against: the shell's CURRENT folder, as in the terminal. Remembered for a moment
+   per pane, because a chat that is loading its history paints dozens of messages in the same tick. */
+function chatPathBase(cs) {
+  const now = Date.now();
+  if (cs.pathBase && now - cs.pathBase.at < 1500) return cs.pathBase.p;
+  const p = linkBase(cs.id, cs.pane && cs.pane.cwd).then((c) => c || '');
+  cs.pathBase = { at: now, p };
+  return p;
+}
+/* Ask main about every string not already known, in batches. A failed call is NOT remembered as "does not exist". */
+async function chatResolvePaths(cands, cwd) {
+  const now = Date.now();
+  const found = new Map();
+  const need = [];
+  for (const c of cands) {
+    const e = chatPathCache.get(cwd + '\n' + c);
+    if (e && (e.v || now - e.at < CHAT_PATH_NEG_MS)) found.set(c, e.v); else need.push(c);
+  }
+  for (let i = 0; i < need.length; i += CHAT_PATH_BATCH) {
+    const chunk = need.slice(i, i + CHAT_PATH_BATCH);
+    let res = null;
+    try { res = await window.glassShell.resolvePaths(chunk, cwd || undefined); } catch { res = null; }
+    if (!res || typeof res !== 'object') continue;
+    if (chatPathCache.size > CHAT_PATH_CACHE_MAX) chatPathCache.clear();
+    for (const c of chunk) {
+      const r = res[c];
+      const v = r && typeof r.abs === 'string' ? { abs: r.abs, dir: !!r.dir } : null;
+      chatPathCache.set(cwd + '\n' + c, { v, at: Date.now() });
+      found.set(c, v);
+    }
+  }
+  return found;
+}
+/* ⌘/Ctrl+Shift hands the thing to the desktop, as in the terminal. A plain click does what ⌘-click does THERE: a file
+   opens in a viewer, a folder is shown in the explorer. */
+function chatPathOpen(target, ev) {
+  hidePathTip();
+  if (ev.shiftKey && (ev.metaKey || ev.ctrlKey)) { void window.glassShell.revealInOS(target.abs); return; }
+  if (target.dir) { void revealPath(target.abs); return; }
+  void openViewer(target.abs);
+}
+/* The explorer's own right-click menu (Reveal in Finder, Open outside AIOS, Copy path, Open a terminal here, Send the path),
+   for a path shown in the chat: one set of choices wherever a file appears. `at` is a rect, or a click point. */
+function chatPathMenu(target, at) {
+  const m = ctxMenu();
+  ctxTarget = { path: target.abs, dir: !!target.dir };
+  if (ctxOutsideRow) ctxOutsideRow.hidden = !!target.dir;
+  m.hidden = false;
+  anchorMenu(m, at, { gap: 2, width: 190 });
+}
+/* One link, built from nothing the model wrote: a span (not an <a>: there is no href to give it) whose target lives in
+   a property. Inside a button (a tool row's header) it is mouse-only, because a focusable element nested in a button
+   is not valid; everywhere else it is a link for the keyboard too. */
+function chatPathMakeLink(seg, inButton) {
+  const a = el('span', 'cs-path ' + (seg.dir ? 'dir' : 'file') + (seg.text.length > CHAT_PATH_LONG ? ' long' : ''), seg.text);
+  const target = { abs: seg.abs, dir: seg.dir };
+  a.csPath = target;
+  const tip = () => seg.abs + '  ·  ' + t(seg.dir ? 'chat.path.openDir' : 'chat.path.openFile') + '  ·  ' + t(IS_WIN ? 'term.cmdShiftClickRevealWin' : 'term.cmdShiftClickReveal');
+  if (!inButton) {
+    a.setAttribute('role', 'link');
+    a.tabIndex = 0;
+    a.setAttribute('aria-label', t(seg.dir ? 'chat.path.labelDir' : 'chat.path.labelFile', { path: seg.abs }));
+    a.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault(); e.stopPropagation();
+      chatPathOpen(target, e);
+    });
+    a.addEventListener('focus', () => { const r = a.getBoundingClientRect(); showPathTip(r.left, r.top, tip()); });
+    a.addEventListener('blur', hidePathTip);
+  }
+  a.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); hidePathTip(); chatPathMenu(target, { left: e.clientX, bottom: e.clientY, top: e.clientY }); });
+  a.addEventListener('mouseenter', (e) => showPathTip(e.clientX, e.clientY, tip()));
+  a.addEventListener('mouseleave', hidePathTip);
+  /* ⌘⇧-click (Ctrl+Shift on Windows/Linux) reveals in the file manager. In a page, Shift+press EXTENDS the text selection, so
+     the click selected text and then, finding a selection, did nothing (0.14.0 round: "the cmd shift click behaves oddly").
+     The press is kept from selecting when that chord is held. */
+  const reveal = (e) => e.shiftKey && (e.metaKey || e.ctrlKey);
+  a.addEventListener('mousedown', (e) => { if (reveal(e)) e.preventDefault(); });
+  a.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();   // never toggles the tool row it sits in
+    const sel = window.getSelection && window.getSelection();
+    if (!reveal(e) && sel && !sel.isCollapsed && String(sel).length) return;   // dragging to copy a path is not asking to open it
+    chatPathOpen(target, e);
+  });
+  return a;
+}
+/* Called on a block the chat has just painted FINAL (never on the provisional bubble that is still growing: its text
+   changes under every snapshot, and a link that vanishes with the next one is worse than none). `root` is the node
+   whose text to scan; `cs` the chat skin it lives in. Fire and forget. Safe against the node being re-rendered or
+   removed while the answer is on its way: the pieces are checked again before anything is changed. */
+function chatLinkPaths(root, cs, opts) {
+  if (!root || !cs || !window.glassShell || typeof window.glassShell.resolvePaths !== 'function') return;
+  const o = opts || {};
+  const gen = (root.csPathGen = (root.csPathGen || 0) + 1);   // a newer pass over the same node supersedes this one
+  const targets = [];
+  const strings = new Set();
+  for (const node of chatPathTextNodes(root)) {
+    const text = node.nodeValue;
+    const hits = chatPathScan(text, o.whole);
+    const mine = [];
+    for (const h of hits) {
+      for (const s of [h.value, ...h.alts]) { if (strings.size >= CHAT_PATH_MAX && !strings.has(s)) continue; strings.add(s); mine.push(s); }
+    }
+    if (mine.length) targets.push({ node, text, hits });
+  }
+  if (!targets.length) return;
+  void (async () => {
+    const cwd = await chatPathBase(cs);
+    const found = await chatResolvePaths([...strings], cwd);
+    if (root.csPathGen !== gen) return;
+    for (const tg of targets) {
+      if (!tg.node.isConnected || tg.node.nodeValue !== tg.text) continue;   // painted over, or gone, while we waited
+      const segs = chatPathSegments(tg.text, tg.hits, found);
+      if (!segs.some((s) => s.abs)) continue;
+      tg.node.replaceWith(...segs.map((s) => (s.abs ? chatPathMakeLink(s, !!o.inButton) : document.createTextNode(s.text))));
+    }
+  })().catch(() => { /* a link that did not appear is not worth a message */ });
+}
+
+/* ── preferences: font + size ───────────────────────────────────────────────
+   They are CHOSEN in Settings (openSettingsTab); the chat view only applies them. */
+function chatApplyPrefs() {
+  for (const p of panes.values()) if (p.chatSkin) chatStyleSkin(p.chatSkin);
+}
+function chatStyleSkin(cs) {
+  cs.root.style.setProperty('--chat-font', chatPrefs.family || 'inherit');   // '' = follow the app's own font
+  cs.root.style.setProperty('--chat-size', String(chatPrefs.size));
+}
+function chatReadPrefs(c) {
+  if (!c) return;
+  if (typeof c.chatFontFamily === 'string') chatPrefs.family = c.chatFontFamily;
+  const n = Number(c.chatFontSize);
+  if (Number.isFinite(n) && n >= 8 && n <= 40) chatPrefs.size = n;
+}
+
+/* ── status bar: model · effort · 5 h · week · context, in ONE bar under the composer ───────────────────────
+   The card above holds only the text and send/stop; everything the operator wants to know about what answers
+   and what it costs lives here. It is a rounded strip glued under the card, segments with dividers (chosen over a
+   thin line with rings and a capsule per metric; docs/rfcs/chat-view.md has the comparison). */
+const CHAT_METERS = [
+  ['fiveHourPct', 'chat.usage.fiveHour', 'chat.usage.tip.fiveHour', 'chat.usage.fiveHourShort'],
+  ['sevenDayPct', 'chat.usage.sevenDay', 'chat.usage.tip.sevenDay', 'chat.usage.sevenDayShort'],
+  ['contextPct', 'chat.usage.context', 'chat.usage.tip.context', 'chat.usage.contextShort'],
+];
+/* What the statusline payload may carry. The payload is GLOBAL (whichever session wrote it last), so the fields
+   that describe ONE session are only taken when main says the payload is this tab's (sessionMatch === true). */
+const CHAT_STATUS_FIELDS = ['fiveHourPct', 'sevenDayPct', 'contextPct', 'model', 'effort', 'effortDefault', 'fiveHourResetsAt', 'sevenDayResetsAt', 'contextWindow'];
+const CHAT_STATUS_OWN = ['contextPct', 'model', 'effort', 'contextWindow'];
+const CHAT_RESET_OF = { fiveHourPct: 'fiveHourResetsAt', sevenDayPct: 'sevenDayResetsAt' };
+/* The status line's own colours, at its own thresholds (context-monitor.py), so the bar and the line it replaces never
+   disagree: the context goes green, yellow from 50, orange from 75, red from 90; the 5 h and weekly limits have no orange
+   step (yellow from 70, red from 90). [yellow, orange or null, red]. */
+const CHAT_LEVELS = { contextPct: [50, 75, 90], fiveHourPct: [70, null, 90], sevenDayPct: [70, null, 90] };
+function chatUsageLevel(k, pct) {
+  const [warn, high, hot] = CHAT_LEVELS[k];
+  return pct >= hot ? 'hot' : high !== null && pct >= high ? 'high' : pct >= warn ? 'warn' : 'ok';
+}
+const CHAT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/* What the effort menu offers, and the words it types. Read from the installed CLI (claude 2.1.311), not assumed: the binary's
+   /effort handler prints "Usage: /effort [low|medium|high|xhigh|max|auto]" and answers "Effort level set to auto". The five
+   levels are its own list (filtered per model: xhigh and max do not exist on every one, which is why the menu says so and why
+   the value shown is only ever confirmed by the next payload). `auto` clears the override and goes back to the model's default.
+   Nothing outside this list may be typed. */
+const CHAT_EFFORT_AUTO = 'auto';
+const CHAT_EFFORT_MENU = [...CHAT_EFFORTS, CHAT_EFFORT_AUTO];
+const chatTokens = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(Math.round(n)));
+/* Intl wants a BCP-47 tag; the app's locale ids are en · es · pt-br. */
+const chatIntlLocale = () => { const l = window.i18n ? window.i18n.getLocale() : 'en'; return l === 'pt-br' ? 'pt-BR' : l; };
+/* "in 2 d 3 h" · "in 2 h 10 min" · "in 14 min": the two largest units, never a seconds counter (the payload is minutes-accurate at best). */
+function chatResetLeft(sec, now) {
+  const mins = Math.max(0, Math.round((sec * 1000 - now) / 60000));
+  const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+  const parts = [];
+  if (d) parts.push(t('chat.usage.unit.d', { n: d }));
+  if (h) parts.push(t('chat.usage.unit.h', { n: h }));
+  if (!d && (m || !h)) parts.push(t('chat.usage.unit.m', { n: m }));
+  return parts.join(' ');
+}
+/* The reset as a clock time today, or weekday + time otherwise. */
+function chatResetWhen(sec, now) {
+  const d = new Date(sec * 1000);
+  const loc = chatIntlLocale();
+  const time = d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date(now).toDateString() ? time : d.toLocaleDateString(loc, { weekday: 'short' }) + ' ' + time;
+}
+/* "claude-sonnet-5-5" → "Sonnet 5.5". Family names are product names, not prose, so they are not translated; an id this
+   does not recognise is shown as it came (minus the vendor prefix and a date or context-size suffix) rather than guessed at. */
+function chatModelLabel(id) {
+  const s = String(id).replace(/^claude-/, '').replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '');
+  const cap = (f) => f.charAt(0).toUpperCase() + f.slice(1);
+  let m = /^(opus|sonnet|haiku)-(\d+)(?:-(\d+))?$/.exec(s);
+  if (m) return cap(m[1]) + ' ' + m[2] + (m[3] ? '.' + m[3] : '');
+  m = /^(\d+)(?:-(\d+))?-(opus|sonnet|haiku)$/.exec(s);
+  if (m) return cap(m[3]) + ' ' + m[1] + (m[2] ? '.' + m[2] : '');
+  return s;
+}
+/* chatStatus(sessionId) is the statusline payload, which is GLOBAL: whichever session wrote it last, not necessarily this
+   one. Main compares it with the session id it was asked about and answers sessionMatch; when that is not true it has
+   already dropped model/effort/context from the payload, and this is the second lock on the same door: those fields are
+   never written from a payload that is not this tab's. The 5 h and weekly windows belong to the ACCOUNT and always are.
+   MERGE, don't replace: an absent value is simply never written, so it stays '—' (or hidden, for the effort), never 0. */
+function chatApplyStatus(cs, s) {
+  if (!s || typeof s !== 'object') return;
+  for (const k of CHAT_STATUS_FIELDS) {
+    if (s[k] === undefined || s[k] === null || s[k] === '') continue;
+    if (CHAT_STATUS_OWN.includes(k) && s.sessionMatch !== true) continue;
+    cs.status[k] = s[k];
+  }
+  chatPaintUsage(cs);
+}
+/* The context meter: this pane's own tokens over the window size the payload reports, when they agree. The window size
+   is global like the rest of the payload; tokens above it can only mean the payload describes another session's model,
+   so then there is no percentage to draw, only the tokens we do know. */
+function chatContextOf(cs) {
+  const tokens = Number.isFinite(cs.ctxTokens) ? cs.ctxTokens : undefined;
+  const win = cs.status.contextWindow > 0 ? cs.status.contextWindow : 0;
+  const fromPayload = typeof cs.status.contextPct === 'number' && Number.isFinite(cs.status.contextPct) ? cs.status.contextPct
+    : Number.isFinite(cs.slCtxPct) ? cs.slCtxPct : undefined;   // the operator's status line knows the real window (chatSkinMirrorStatus)
+  if (tokens !== undefined && win > 0) return tokens <= win ? { tokens, win, pct: (tokens / win) * 100, fits: true } : { tokens, win, pct: undefined, fits: false };
+  return { tokens, win, pct: fromPayload, fits: false };
+}
+function chatPaintUsage(cs) {
+  const now = Date.now();
+  const parts = cs.barParts;
+  for (const [k, label, tipKey] of CHAT_METERS) {
+    const part = parts[k];
+    const ctx = k === 'contextPct' ? chatContextOf(cs) : null;
+    const pct = ctx ? ctx.pct : cs.status[k];
+    const has = typeof pct === 'number' && Number.isFinite(pct);
+    const hasTokens = !!ctx && ctx.tokens !== undefined;
+    /* The percentage, like the status line, whenever it is known; the tokens only when it is not (they live in the tooltip). */
+    const shown = has ? Math.round(pct) + '%' : hasTokens ? chatTokens(ctx.tokens) : '—';
+    const of = !has && ctx && ctx.fits ? '/ ' + chatTokens(ctx.win) : '';
+    const seg = part.seg;
+    // threshold colour follows the PERCENTAGE, whatever the number on show is
+    seg.classList.toggle('none', !has && shown === '—');
+    const level = has ? chatUsageLevel(k, pct) : '';
+    for (const lv of ['ok', 'warn', 'high', 'hot']) seg.classList.toggle(lv, level === lv);
+    seg.style.setProperty('--p', has ? String(Math.max(0, Math.min(100, Math.round(pct)))) : '0');   // the bar's fill, 0-100; empty without a reading
+    part.v.textContent = shown;
+    part.v.classList.toggle('none', shown === '—');
+    part.of.textContent = of;
+    /* The tooltip: what the glance cannot say. Resets only when the payload carried them, and a reset that
+       is already behind us means the reading is from the previous window. */
+    const lines = [];
+    const resetKey = CHAT_RESET_OF[k];
+    const resetAt = resetKey ? cs.status[resetKey] : undefined;
+    let stale = false;
+    if (typeof resetAt === 'number' && Number.isFinite(resetAt)) {
+      if (resetAt * 1000 <= now) { stale = true; lines.push(t('chat.usage.tip.stale')); }
+      else lines.push(t('chat.usage.tip.resets', { when: chatResetWhen(resetAt, now), left: chatResetLeft(resetAt, now) }));
+    }
+    if (hasTokens) {
+      lines.unshift(ctx.fits ? t('chat.usage.tip.ctxOf', { used: ctx.tokens.toLocaleString(chatIntlLocale()), total: ctx.win.toLocaleString(chatIntlLocale()) })
+        : t('chat.usage.tip.ctxUsed', { used: ctx.tokens.toLocaleString(chatIntlLocale()) }));
+    }
+    seg.classList.toggle('stale', stale);
+    part.tipH.textContent = t(tipKey);
+    part.tipV.textContent = has ? t('chat.usage.tip.used', { pct: Math.round(pct) }) : t('chat.usage.none');
+    part.tipD.replaceChildren(...lines.map((l) => el('span', 'cut-line', l)));
+    seg.setAttribute('aria-label', [t(label) + ': ' + (shown === '—' ? t('chat.usage.none') : shown + (of ? ' ' + of : '')) + (hasTokens && has ? ' (' + Math.round(pct) + '%)' : ''), ...lines].join(' — '));
+    /* A plain tooltip beside the pointer (release round): the detail card that took over the bar's line read as the bar vanishing. */
+    seg.title = [t(tipKey) + ': ' + (has ? t('chat.usage.tip.used', { pct: Math.round(pct) }) : t('chat.usage.none')), ...lines].join('\n');
+  }
+  /* Model: this tab's own transcript wins, then a payload that is this tab's. */
+  const model = cs.model || cs.status.model;
+  const mp = parts.model;
+  mp.v.textContent = model ? chatModelLabel(model) : '—';
+  mp.v.classList.toggle('none', !model);
+  mp.seg.title = model ? t('chat.bar.modelTip', { id: String(model) }) : t('chat.bar.modelPick');
+  mp.seg.setAttribute('aria-label', t('chat.bar.modelAria', { model: model ? chatModelLabel(model) : t('chat.usage.none') }));
+  /* Effort: the value is only ever this tab's own (a payload with sessionMatch, or what the operator just picked here). Until
+     there is one the segment is still a button — the effort has to be choosable even when it is not known — and shows a faint
+     word, not a dash (a dash would read as a failure) and certainly not another session's value. */
+  const effort = cs.status.effort || cs.status.effortDefault;   // the tab's own value, else the level new sessions start at
+  const ep = parts.effort;
+  const word = effort ? (CHAT_EFFORT_MENU.includes(String(effort)) ? t('chat.bar.effort.' + effort) : String(effort)) : t('chat.bar.effortWord');
+  ep.v.textContent = word;
+  ep.v.classList.toggle('none', !effort);
+  ep.seg.title = effort ? t('chat.bar.effortTip', { level: word }) : t('chat.bar.effortPick');
+  ep.seg.setAttribute('aria-label', effort ? t('chat.bar.effortAria', { level: word }) : t('chat.bar.effortPick'));
+}
+/* Show or hide one meter's detail card. Hover and keyboard focus call it; a fixture can force it open. The card is drawn
+   by CSS over the bar's own line (see .cb-tip): it never opens upward, where the text being typed is, and needs no
+   measuring because it cannot go anywhere else. */
+function chatSkinTip(seg, on) {
+  void seg; void on;   // the in-bar card is retired for the plain tooltip (seg.title, chatPaintUsage); kept as the one door hover and focus still call
+}
+function chatSkinRefreshStatus(cs) {
+  const gs = window.glassShell;
+  if (typeof gs.chatStatus !== 'function') return;
+  cs.statusAt = Date.now();
+  // the session id lets main say whether the payload is THIS tab's (sessionMatch) before any per-session field is trusted
+  Promise.resolve(gs.chatStatus(cs.pane.sessionId)).then((s) => { chatApplyStatus(cs, s); }).catch(() => { /* the bar keeps its dashes */ });
+  void chatSkinWherePaint(cs);
+  chatSkinMirrorStatus(cs.pane);   // an idle session never repaints, so the status line is also read on this timer
+}
+async function chatSkinWherePaint(cs) {
+  const gs = window.glassShell;
+  if (typeof gs.chatWhere !== 'function' || !cs.root) return;
+  let w = null;
+  try { w = await gs.chatWhere(cs.pane.sessionId); } catch { w = null; }
+  const dir = cs.root.querySelector('.cb-dir'), br = cs.root.querySelector('.cb-branch');
+  if (!dir || !br) return;
+  const cwd = w && w.cwd;
+  dir.hidden = !cwd;
+  if (cwd) {
+    dir.dataset.path = cwd;
+    dir.querySelector('.cb-v').textContent = xBase(cwd) || cwd;
+    dir.title = t('chat.bar.dirTip', { path: cwd });
+  }
+  br.hidden = !(w && w.branch);
+  if (w && w.branch) {
+    br.querySelector('.cb-v').textContent = w.branch + (w.changes ? ' (' + w.changes + ')' : '');
+    br.classList.toggle('dirty', w.changes > 0);
+    br.title = w.changes ? t('chat.bar.branchDirty', { branch: w.branch, n: w.changes }) : t('chat.bar.branchClean', { branch: w.branch });
+  }
+}
+/* A narrow pane gives up whole segments, least-checked first, until the bar fits. Measured, not guessed: a branch name can be
+   4 characters or 40, so no fixed width can say when the folder must go (0.14.0 round: at 543px both fitted and were hidden
+   anyway). The account's address and the labels-for-bars swap stay CSS steps, their sizes are fixed. The model and the three
+   numbers are never cut. */
+const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-acct .cb-v', '.cb-effort', '.cb-mode .cb-v', '.cb-k'];   // the account's address is measured too (0.14.0 round: a fixed width hid it with room to spare)
+function chatSkinFitBar(bar) {
+  if (!bar || !bar.isConnected) return;
+  const id = bar.querySelector('.cb-id'), meters = bar.querySelector('.cb-meters');
+  if (!id || !meters) return;
+  for (const e of bar.querySelectorAll('.fit-cut')) e.classList.remove('fit-cut');
+  const fits = () => id.scrollWidth + meters.scrollWidth + 8 <= bar.clientWidth;   // 8: the bar's own side padding
+  for (const sel of CHAT_BAR_CUT) {
+    if (fits()) return;
+    for (const e of bar.querySelectorAll(sel)) e.classList.add('fit-cut');
+  }
+}
+function chatSkinFitSoon(bar) {
+  if (!bar || bar._fitQ || typeof requestAnimationFrame !== 'function') return;
+  bar._fitQ = requestAnimationFrame(() => { bar._fitQ = 0; chatSkinFitBar(bar); });
+}
+
+/* ── eligibility ──────────────────────────────────────────────────────────── */
+/* Only a pane that runs Claude has a transcript to show. A plain shell, a viewer or an ended
+   session never takes the chat view (and one that ends while in chat view is handed back to the terminal). */
+function chatSkinEligible(p) {
+  return !!p && p.kind === 'term' && !p.exited && !!(p.isSession || p.sessionId || (paneIsClaude(p.cmd) && !p.chatEnded));
+}
+const chatSkinWorking = (p, now = Date.now()) => {
+  const cs = p.chatSkin;
+  if (!cs) return false;
+  return (cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS) || now - (cs.lastSubmitAt || 0) < CS_SUBMIT_MS
+    || chatSkinSpinnerOn(p);   // on its own: in chat view the terminal is unfocused and Claude Code stops animating, so no output arrives
+};
+/* The screen as a second witness (0.14.0 round): the transcript's open turn lagged while Claude visibly worked, and Esc then
+   took the idle path and did nothing. A live spinner right above the prompt box ("● Wandering… (6s · ↓ 465 tokens)",
+   the timer in brackets is what a finished turn's line never has) means a turn is running. */
+const CS_SPINNER_LIVE = /^\s{0,1}[✻✽✶✳✢·∗✺●*]\s+\S+(?:\s\S+){0,3}\s?(?:…|\.\.\.)\s*\(\d+[ms]/;
+function chatSkinSpinnerLine(p) {
+  let xs;
+  try { xs = chatSkinScreenText(p).split('\n'); } catch { return ''; }
+  const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
+  if (bottom < 1) return '';
+  let top = bottom - 1;
+  while (top > 0 && !/^─{3,}/.test(xs[top]) && bottom - top < 12) top--;
+  for (let y = top - 1; y >= Math.max(0, top - 4); y--) if (CS_SPINNER_LIVE.test(xs[y])) return xs[y].trim();
+  return '';
+}
+/* A spinner frame Claude Code left frozen after the operator's Esc is not a live turn (0.14.0 round: it brought back the
+   working dots, and with them a "quiet for a while" card). chatSkinInterrupt remembers that frame; a new send forgets it. */
+function chatSkinSpinnerOn(p) {
+  const line = chatSkinSpinnerLine(p);
+  return !!line && !(p.chatSkin && p.chatSkin.staleSpinner === line);
+}
+
+/* ── building the overlay (once per pane, on first entry) ────────────────── */
+function chatSkinBuild(id, p) {
+  if (p.chatSkin) return p.chatSkin;
+  const root = el('div', 'chatskin');
+  root.hidden = true;
+  root.setAttribute('role', 'region');
+  root.setAttribute('aria-label', t('chat.skin.logLabel'));
+
+  /* The pane has no header and the tab has no switch: the view is ONE setting for every Claude session (Settings, or the shortcut
+     and the menu item that flip it), and the font lives in Settings too. What answers, and what it costs, is the status bar UNDER the composer (built further down, in the
+     compose block), next to the box it is the cost of. */
+  const barParts = {};
+  const bar = el('div', 'chat-bar');
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', t('chat.bar.label', { name: chatSkinWho(p) }));
+  /* Left: what will answer. The model is a button (it asks for /model, whose own menu card does the choosing); the effort is a
+     button too, but it opens a small menu of its own and types `/effort <level>`. Until a payload that is THIS tab's has
+     reported the effort the segment shows a faint word instead of a value (never the effort of another session). */
+  const idBox = el('div', 'cb-id');
+  const modelSeg = el('button', 'cb-model');
+  modelSeg.type = 'button';
+  modelSeg.append(csIcon('sparkles', 12), el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // an icon like every segment (0.14.0 round); the chevrons say "this opens a choice"
+  const effortSeg = el('button', 'cb-effort');
+  effortSeg.type = 'button';
+  effortSeg.setAttribute('aria-haspopup', 'menu');
+  effortSeg.setAttribute('aria-expanded', 'false');
+  effortSeg.append(csIcon('bolt', 12), el('span', 'cb-v none', t('chat.bar.effortWord')), csIcon('chevUpDown', 12));
+  /* The account the session runs on, as the status line names it; a click lists the USER.md accounts and switches. */
+  const acctSeg = el('button', 'cb-acct');
+  acctSeg.type = 'button';
+  acctSeg.hidden = true;
+  const acctChev = csIcon('chevUpDown', 12);
+  acctChev.classList.add('cb-acct-chev');
+  acctSeg.append(csIcon('users', 12), el('span', 'cb-v', ''), acctChev);   // the chevrons only when there is another account to switch to
+  acctSeg.addEventListener('click', (e) => { e.stopPropagation(); void chatSkinAccountMenu(p); });
+  /* Where it works, as the status line says it: the folder and the git branch with uncommitted changes. Both are words,
+     not buttons (0.14.0 round): the full path is the folder's tooltip. */
+  const dirSeg = el('span', 'cb-where cb-dir');
+  dirSeg.hidden = true;
+  dirSeg.append(csIcon('folder', 12), el('span', 'cb-v', ''));
+  const branchSeg = el('span', 'cb-where cb-branch');
+  branchSeg.hidden = true;
+  branchSeg.append(csIcon('branch', 12), el('span', 'cb-v', ''));
+  /* The permission mode, as the line under Claude Code's prompt says it ("⏵⏵ auto mode on"). A click opens the same kind of
+     menu as the effort; choosing a mode presses Shift+Tab (chatSkinModeCycle) until the line says that mode. */
+  const modeSeg = el('button', 'cb-mode');
+  modeSeg.type = 'button';
+  modeSeg.hidden = true;
+  modeSeg.append(csIcon('shield', 12), el('span', 'cb-v', ''), csIcon('chevUpDown', 12));   // the permission mode: a shield, and the chevrons of a choice like model and effort (0.14.0 round)
+  modeSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinModeMenu(id, p); });
+  /* "1 shell", "2 agents": what Claude Code lists after the mode under its prompt. Clicking it (or ↓ in an empty box) opens
+     Claude Code's own panel for them, shown as the live terminal strip; Esc closes it, x stops a shell. */
+  const bgSeg = el('button', 'cb-mode cb-bg');
+  bgSeg.type = 'button';
+  bgSeg.hidden = true;
+  bgSeg.append(el('span', 'cb-bgico'), el('span', 'cb-v', ''), csIcon('chevUpDown', 12));   // the icon: a robot for agents, a terminal for shells (chatSkinBgPaint)
+  idBox.append(modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
+  barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
+  barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
+  /* The effort menu. It cannot be a child of the bar (the bar clips what overflows it), so it floats over the end of the log like
+     the slash popup, in the card's wrapper, and is placed under the segment by chatSkinEffortMenu. */
+  const effortPop = el('div', 'cb-pop');
+  effortPop.id = 'cb-pop-' + id;
+  effortPop.hidden = true;
+  effortPop.setAttribute('role', 'menu');
+  effortPop.setAttribute('aria-label', t('chat.bar.effortMenu'));
+  effortSeg.setAttribute('aria-controls', effortPop.id);
+  effortPop.appendChild(el('div', 'cbp-h', t('chat.usage.effort')));
+  const effortOpts = [];
+  for (const level of CHAT_EFFORT_MENU) {
+    const b = el('button', 'cbp-opt');
+    b.type = 'button';
+    b.dataset.level = level;
+    b.setAttribute('role', 'menuitemradio');
+    b.setAttribute('aria-checked', 'false');
+    const txt = el('span', 'cbp-txt');
+    txt.append(el('span', 'cbp-t', t('effort.' + level)), el('span', 'cbp-d', t('chat.effort.desc.' + level)));
+    b.append(txt, csIcon('check', 14));
+    if (level === CHAT_EFFORT_AUTO) b.classList.add('auto');   // the way back to the model's own default sits apart, under a hairline
+    effortOpts.push(b);
+    effortPop.appendChild(b);
+  }
+  effortPop.appendChild(el('div', 'cbp-f', t('chat.effort.foot')));
+  /* Right: the three meters. Each is a slim bar with its number. A reading we do not have is a dash and an empty bar, never 0. It is
+     focusable and answers hover AND focus with the same detail card (resets, tokens). Painted by chatPaintUsage;
+     the fill is the --p custom property (0-100). */
+  const metersBox = el('div', 'cb-meters');
+  for (const [k, label, , short] of CHAT_METERS) {
+    const seg = el('span', 'cb-m none');
+    seg.setAttribute('role', 'img');
+    seg.tabIndex = 0;
+    const v = el('span', 'cb-v none', '—');
+    const of = el('span', 'cb-of');
+    const tipH = el('span', 'cut-h'), tipV = el('span', 'cut-v'), tipD = el('span', 'cut-d');
+    const tip = el('span', 'cb-tip');
+    tip.setAttribute('aria-hidden', 'true');   // the same words are the segment's aria-label
+    tip.append(el('span', 'cut-top'), tipD);
+    tip.firstChild.append(tipH, tipV);
+    const meter = el('span', 'cb-meter');
+    meter.setAttribute('aria-hidden', 'true');
+    meter.appendChild(el('i'));
+    seg.append(el('span', 'cb-k', t(short)), meter, v, of, tip);   // "5h · 7d · Cx", the status line's own words, at every width (the full name is the aria-label and tooltip)
+    seg.addEventListener('pointerenter', () => chatSkinTip(seg, true));
+    seg.addEventListener('pointerleave', () => { if (document.activeElement !== seg) chatSkinTip(seg, false); });
+    seg.addEventListener('focus', () => chatSkinTip(seg, true));
+    seg.addEventListener('blur', () => chatSkinTip(seg, false));
+    metersBox.appendChild(seg);
+    barParts[k] = { seg, v, of, tipH, tipV, tipD };
+  }
+  /* The keys hint sits in the bar's middle, faint, and only shows while the caret is in the box (and when there is room). */
+  const hint = el('span', 'cb-hint');
+  // two lengths of the same hint, both children so the hint box can be a size container: the whole sentence when it fits, "↵ send" when only that fits, nothing otherwise (see .cb-hint)
+  hint.append(el('span', 'cb-hint-t', t('chat.hintShort')), el('span', 'cb-hint-s', t('chat.bar.hintTiny')));
+  hint.setAttribute('aria-hidden', 'true');   // the full sentence is the textarea's title and its description for assistive tech
+  bar.append(idBox, metersBox);   // the keys hint now rides in the box's placeholder (0.14.0 round), not in the bar
+  /* refit when the pane resizes AND when a segment's text or visibility changes (a longer branch, a mode word); the fit's own
+     class changes are not watched, so it cannot wake itself */
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => chatSkinFitSoon(bar)).observe(bar);
+  if (typeof MutationObserver === 'function') new MutationObserver(() => chatSkinFitSoon(bar)).observe(bar, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
+
+  const log = el('div', 'chat-log');
+  log.setAttribute('role', 'log');
+  log.setAttribute('aria-live', 'polite');
+  /* connecting · waiting · empty · error: ONE card, first in the log, centred while nothing else is
+     there. Icon, a short title, a sentence; the error one also offers the way back to the terminal. */
+  const stateEl = el('div', 'cs-card cs-state');
+  const stateIco = el('span', 'csc-ico');
+  const stateTitle = el('div', 'csc-title');
+  const stateText = el('div', 'csc-text');
+  const stateBtn = el('button', 'csc-btn', t('chat.skin.showTerminal'));
+  stateBtn.type = 'button';
+  stateBtn.hidden = true;
+  /* The empty card also teaches the three keys that matter before the first message: the slash, send, a new line. Quiet, and shown only
+     for that state (see chatSkinPaintState); the glyphs are the keys themselves, the words go through t(). */
+  const stateTips = el('div', 'csc-tips');
+  for (const [glyph, key] of [['/', 'chat.skin.empty.tip.slash'], ['↵', 'chat.skin.empty.tip.send'], ['⇧↵', 'chat.skin.empty.tip.newline']]) {
+    const tip = el('span', 'csc-tip');
+    tip.append(el('kbd', 'csc-key', glyph), el('span', 'csc-tip-t', t(key)));
+    stateTips.appendChild(tip);
+  }
+  stateTips.hidden = true;
+  stateEl.append(stateIco, stateTitle, stateText, stateTips, stateBtn);
+  log.appendChild(stateEl);
+
+  /* "Claude is working", inside the column and under the last message (it is the log's last child: new
+     rows are inserted before it). Three dots in the busy hue, a gentle wave; still dots under reduced motion. */
+  const workEl = el('div', 'cs-working');
+  const dots = el('span', 'cw-dots');
+  dots.setAttribute('aria-hidden', 'true');
+  dots.append(el('i'), el('i'), el('i'));
+  workEl.append(dots, el('span', 'cw-t', t('chat.skin.working', { name: chatSkinWho(p) })), el('span', 'cw-meta', ''));   // cw-meta: "12s · ↓ 1.2k tokens", as the terminal's spinner says it
+  workEl.hidden = true;
+  workEl.setAttribute('role', 'status');
+  log.appendChild(workEl);
+
+  const alertEl = el('div', 'cs-alert');
+  alertEl.hidden = true;
+  alertEl.setAttribute('role', 'alert');
+  /* "The terminal needs you" (a dialog only the TUI can draw) or "nothing for a while" (stalled): a
+     card with an icon, a title, the sentence and, for the stalled case, the way to the terminal. In the
+     strip layout it docks onto the live terminal strip right below it. */
+  const alertIco = el('span', 'csa-ico');
+  const alertTitle = el('div', 'csa-title');
+  const alertText = el('div', 'cs-alert-text');
+  const alertBody = el('div', 'csa-body');
+  alertBody.append(alertTitle, alertText);
+  const alertBtn = el('button', 'csa-btn', t('chat.skin.showTerminal'));
+  alertBtn.type = 'button';
+  const alertPoint = csIcon('arrowDown', 16);   // under a dialog: "answer down there"
+  alertPoint.classList.add('csa-point');
+  /* When the operator chose "View in the terminal" on a dialog card, this brings the buttons back. */
+  const alertBack = el('button', 'csa-btn', t('chat.skin.dlg.showButtons'));
+  alertBack.type = 'button';
+  alertBack.hidden = true;
+  alertEl.append(alertIco, alertBody, alertBtn, alertBack, alertPoint);
+
+  /* The composer: one big rounded card floating over the end of the conversation. It holds the text and
+     nothing else but a round send button on the right, which becomes a stop button while Claude is working;
+     the text grows with what is typed and the buttons stay at the bottom edge. Model, effort and usage are
+     in the bar under the card. */
+  const compose = el('div', 'chat-compose');
+  const jumpBtn = el('button', 'cs-jump');   // shown only while the operator has scrolled away from the end
+  jumpBtn.type = 'button';
+  jumpBtn.hidden = true;
+  jumpBtn.append(csIcon('arrowDown', 16));
+  jumpBtn.title = t('chat.skin.jump'); jumpBtn.setAttribute('aria-label', t('chat.skin.jump'));
+  const box = el('div', 'cc-box');
+  const input = el('textarea', 'chat-input');
+  input.rows = 1;
+  input.placeholder = t('chat.placeholder', { name: chatSkinWho(p) });
+  input.setAttribute('aria-label', input.placeholder);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (p.chatSkin) chatSkinPlaceholder(p); }).observe(box || input);   // the card: its width does not move when the hint shows
+  input.title = t('chat.inputHint');   // the full key hints live in the tooltip; the row under the card shows a short version only while the box has focus (a long placeholder wraps and clips in a narrow dock)
+  const sendBtn = el('button', 'cc-send');
+  sendBtn.type = 'button';
+  sendBtn.append(csIcon('arrowUp', 16));
+  sendBtn.title = t('chat.send'); sendBtn.setAttribute('aria-label', t('chat.send'));
+  const stopBtn = el('button', 'cc-stop');
+  stopBtn.type = 'button';
+  stopBtn.append(csIcon('stop', 14));
+  stopBtn.title = t('chat.stopHint'); stopBtn.setAttribute('aria-label', t('chat.stop'));
+  stopBtn.hidden = true;
+  const ccRow = el('div', 'cc-btns');
+  /* Voice, Claude Code's own: in tap mode a space on an empty prompt starts listening and a second one sends. The
+     button types that space into the hidden terminal, so the chat view keeps the mic the terminal had. */
+  const micBtn = el('button', 'cc-mic');
+  micBtn.type = 'button';
+  micBtn.append(csIcon('mic', 16));
+  micBtn.title = t('chat.voice.start'); micBtn.setAttribute('aria-label', t('chat.voice.start'));
+  micBtn.addEventListener('click', () => void chatSkinVoice(id, p));
+  /* The keys, small and light beside the buttons, while the box is empty and has the caret (0.14.0 round: in the placeholder
+     they read as loud as the name). chatSkinPlaceholder hides them when the box is too narrow to hold both. */
+  const keysHint = el('span', 'cc-keys', t('chat.hintShort'));
+  keysHint.setAttribute('aria-hidden', 'true');   // the same words are the box's tooltip
+  ccRow.append(keysHint, micBtn, stopBtn, sendBtn);
+  /* The drop affordance: a quiet veil over the card while a file is dragged across it (see chatSkinDropBind). */
+  const dropEl = el('div', 'cc-drop', t('chat.drop.label'));
+  dropEl.setAttribute('aria-hidden', 'true');
+  box.append(input, ccRow, dropEl);
+  /* The box sits in its own wrapper so anything that floats against the card (the slash popup) is positioned
+     against the card, not the whole compose block. Under it, the meta block: the status bar. */
+  const wrap = el('div', 'cc-wrap');
+  /* The slash-command popup floats over the end of the log, right above the card. A container (the shadow, the
+     footer line) around a listbox that holds ONLY options; the footer is a hint for sighted users and is hidden
+     from assistive tech, which hears the options and the combobox state instead. */
+  const slashPop = el('div', 'cc-slash');
+  slashPop.hidden = true;
+  const slashList = el('div', 'csl-list');
+  slashList.id = 'cs-slash-' + id;
+  slashList.setAttribute('role', 'listbox');
+  slashList.setAttribute('aria-label', t('chat.slash.label'));
+  const slashFoot = el('div', 'csl-foot', t('chat.slash.foot'));
+  slashFoot.setAttribute('aria-hidden', 'true');
+  slashPop.append(slashList, slashFoot);
+  slashPop.addEventListener('mousedown', (e) => e.preventDefault());   // a press on a row must not pull the caret out of the box
+  /* The session's name on the card's top edge, where the terminal draws it on the prompt's rule ("──── r2-chat ─"). Read
+     from that rule, so it is the name Claude Code itself holds (it follows /rename), not the tab's. */
+  const nameTag = el('span', 'cc-name');
+  nameTag.hidden = true;
+  box.appendChild(nameTag);
+  wrap.append(slashPop, box);
+  wrap.appendChild(effortPop);
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-controls', slashList.id);
+  const meta = el('div', 'cc-meta');
+  meta.appendChild(bar);
+  /* The operator's own status line, mirrored from the hidden terminal (chatSkinMirrorStatus). Hidden until one is seen. */
+  const slRow = el('div', 'cb-sl');
+  slRow.hidden = true;
+  slRow.title = t('chat.sl.tip');
+  meta.appendChild(slRow);
+
+  compose.append(jumpBtn, wrap, meta);
+  /* While the hidden terminal shows a subagent, the chat steps aside for it (the strip layout): this bar stays above the
+     terminal, says who the keyboard now talks to, and offers the way back. Painted by chatSkinBgPaint. */
+  const agentBar = el('div', 'cs-agentbar');
+  agentBar.hidden = true;
+  root.append(log, alertEl, agentBar, compose);
+  p.el.appendChild(root);
+
+  const cs = {
+    id, pane: p, who: chatSkinWho(p), root, log, stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
+    slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
+    items: new Map(),            // transcript uuid -> { node, role, … }
+    groups: new Map(),           // first tool's uuid -> the folded run of tool calls it opens (see chatSkinRegroup)
+    groupOpen: new Map(),        // same key -> whether the operator has it unfolded; outlives the node so a re-split run keeps its state
+    status: {}, model: '', ctxTokens: undefined, statusAt: 0,
+    watched: null,               // the sessionId main is tailing for this pane, or null
+    earlier: false,              // main says the transcript has lines above the rows on show (it sends only a window of the tail: see chatSkinWantEarlier)
+    earlierBusy: false,          // a request for them is in flight
+    gen: 0,                      // bumps on every watch/unwatch so a late reply can tell it is stale
+    state: 'connecting',         // connecting · waiting · live · error
+    errorCode: '',
+    turnOpen: false, lastEventAt: 0, lastSubmitAt: 0, stick: true, resetAt: Date.now(), autoUntil: 0,
+    promptKind: null, promptHint: '', stalled: false, idCheckedAt: 0, idChecks: 0, watchedAt: 0,
+    promptQ: '', promptOpts: null, promptUsed: false, promptTerm: false, promptGen: 0, dlg: null, dlgSig: '',   // a dialog drawn as a card: see chatSkinPrompt
+    stream: null,                // the provisional bubble of the reply being written: { rec, anchor, text, live } — see chatSkinStream
+    screenTimer: 0, screenSince: 0, framing: false,
+  };
+  p.chatSkin = cs;
+  chatStyleSkin(cs);
+  chatPaintUsage(cs);
+
+  // follow the tail unless the operator scrolled up to read — and resume once they return to it
+  log.addEventListener('scroll', () => {
+    if (performance.now() < cs.autoUntil) return;   // our own smooth scroll passes through "far from the end" on its way down: that is not the operator leaving
+    cs.stick = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+    chatSkinPaintJump(cs);
+    if (log.scrollTop < CS_EARLIER_NEAR_PX) chatSkinWantEarlier(id, p);   // the operator is reaching for what main did not send
+  });
+  log.addEventListener('wheel', (e) => { if (e.deltaY < 0) cs.autoUntil = 0; }, { passive: true });   // the operator reaching for the past takes the wheel back at once
+  /* The column changing size keeps the newest message in view when the operator was following it (0.14.0 round): opening a
+     file from the chat un-maximized the Running zone, the log got shorter from the bottom, and the reply seemed to jump up. */
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (cs.stick) chatSkinScroll(cs); }).observe(log);
+  jumpBtn.addEventListener('click', () => { cs.stick = true; chatSkinScroll(cs, true); chatSkinPaintJump(cs); try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ } });
+  // links never navigate this window: they open in the system browser
+  log.addEventListener('click', (e) => {
+    const a = e.target instanceof Element ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    e.preventDefault();
+    void window.glassShell.openExternal(a.getAttribute('href'));
+  });
+  input.addEventListener('input', () => { cs.hist = null; chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); });   // typing leaves the history walk
+  input.addEventListener('blur', () => chatSkinSlashClose(cs));
+  chatSkinDropBind(cs);
+  /* REGISTERED BEFORE the Enter listener below, and it stops the event for it: with the popup open Enter (and Tab)
+     complete the highlighted command into the box and NEVER send — the operator still reads and edits the line,
+     then sends it with a second Enter. */
+  input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
+  input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
+  input.addEventListener('keydown', (e) => {
+    // Enter sends, Shift+Enter breaks the line. During IME composition Enter confirms the
+    // candidate, so it must never send (keyCode 229 covers engines that clear isComposing early).
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    chatSkinSendNow(id, p);
+  });
+  /* Same rule for the effort menu, registered first: Esc closes it and nothing else, so it never also reaches the listener below
+     that writes a lone ESC to the pty and cuts the turn Claude is in the middle of. */
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !cs.effort.open) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    chatSkinEffortMenu(cs, false, true);
+  });
+  /* Same rule for the slash popup: Esc closes it and nothing else, so the keystroke that dismisses a menu never
+     also reaches the listener below that cuts the turn Claude is in the middle of. */
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !cs.slash.open) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    chatSkinSlashClose(cs);
+  });
+  // Esc anywhere in the overlay cuts the running turn — the same key the TUI itself answers to
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.isComposing || cs.promptKind) return;
+    e.preventDefault(); e.stopPropagation();
+    chatSkinInterrupt(id, p);
+  });
+  sendBtn.addEventListener('click', () => chatSkinSendNow(id, p));
+  bgSeg.addEventListener('click', (e) => { e.stopPropagation(); chatSkinBgMenu(id, p); });
+  /* Space on an empty box is the terminal's tap-to-talk (and a second space sends what it heard), when voice is on in tap
+     mode. Otherwise a space is a space. The setting is read when the box takes focus, so the key itself never waits. */
+  input.addEventListener('focus', () => { Promise.resolve(window.glassShell.chatVoice?.()).then((v) => { cs.voiceTap = !!(v && v.enabled && (!v.mode || v.mode === 'tap')); }).catch(() => { cs.voiceTap = false; }); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== ' ' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || input.value !== '' || !(cs.voiceTap || cs.recording) || cs.promptKind) return;
+    e.preventDefault();
+    if (cs.recording) chatSkinVoiceTap(id, p);
+    else { chatSkinVoiceTap(id, p); chatSkinVoicePaint(cs, true); }
+  });
+  modelSeg.addEventListener('click', () => chatSkinModelMenu(id, p));
+  effortSeg.addEventListener('click', () => chatSkinEffortMenu(cs, !cs.effort.open));
+  effortPop.addEventListener('click', (e) => {
+    const b = e.target instanceof Element ? e.target.closest('[data-level]') : null;
+    if (b) chatSkinEffortPick(id, p, b.dataset.level);
+  });
+  effortPop.addEventListener('keydown', (e) => {
+    // menu keys: the arrows move the focus (and wrap), Home/End jump; Enter and Space press the focused button on their own
+    const keys = { ArrowDown: 1, ArrowUp: -1 };
+    const at = effortOpts.indexOf(document.activeElement);
+    if (at < 0 || !(e.key in keys || e.key === 'Home' || e.key === 'End')) return;
+    e.preventDefault();
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? effortOpts.length - 1 : (at + keys[e.key] + effortOpts.length) % effortOpts.length;
+    for (const o of effortOpts) o.tabIndex = o === effortOpts[to] ? 0 : -1;
+    effortOpts[to].focus({ preventScroll: true });
+  });
+  /* Tab (or anything else that moves the focus out of the menu and off its button) closes it, like a click outside. Decided from
+     where the focus ENDED UP, not from the event's relatedTarget: when the whole window loses focus the event also has no target,
+     but document.activeElement is still the menu's item, and switching to another app must not dismiss a menu. */
+  effortPop.addEventListener('focusout', () => {
+    setTimeout(() => {
+      const at = document.activeElement;
+      if (cs.effort.open && !(at instanceof Node && (effortPop.contains(at) || effortSeg.contains(at)))) chatSkinEffortMenu(cs, false);
+    }, 0);
+  });
+  stopBtn.addEventListener('click', () => chatSkinInterrupt(id, p));
+  alertBtn.addEventListener('click', () => chatSkinSetView(id, 'term'));
+  alertBack.addEventListener('click', () => { cs.promptTerm = false; chatSkinLayout(p); try { p.term.blur(); } catch { /* disposed */ } chatSkinCardFocus(cs); });
+  stateBtn.addEventListener('click', () => chatSkinSetView(id, 'term'));
+  return cs;
+}
+
+/* ── the switch itself ───────────────────────────────────────────────────── */
+/* The ONLY place the view changes. It creates no pane, spawns no pty and never touches the
+   pane's id, name or session — it flips a class, shows or hides the overlay, and (un)watches the
+   transcript. Leaving chat view re-fits the terminal once it is handed back (and only then). */
+function chatSkinSetView(id, view) {
+  const p = panes.get(id);
+  if (!p || p.kind !== 'term') return false;
+  if (view === 'chat' && !chatSkinEligible(p)) { toast(t('chat.skin.notClaude')); return false; }
+  const cur = p.view === 'chat' ? 'chat' : 'term';
+  if (cur === view) return true;
+  p.view = view;
+  if (view === 'chat') {
+    const cs = chatSkinBuild(id, p);
+    cs.promptKind = null; cs.promptHint = ''; cs.stalled = false;
+    cs.promptOpts = null; cs.promptQ = ''; cs.promptUsed = false; cs.promptTerm = false;
+    cs.lastEventAt = Date.now();
+    try { p.term.blur(); } catch { /* disposed */ }
+    void Promise.resolve(window.glassShell.shellConfig()).then((c) => { chatReadPrefs(c); chatApplyPrefs(); }).catch(() => {});
+    chatSkinRefreshStatus(cs);
+    chatSkinMirrorStatus(p);
+    void chatSkinAccountPaint(p);
+  }
+  chatSkinSync(id, p);
+  chatSkinLayout(p);
+  if (view === 'chat') chatSkinFocus(p);
+  else chatSkinHandBack(id, p);
+  /* Back in chat: close a Background panel left open and give the keyboard back to the prompt, so what is typed next goes to
+     Claude, not into a list. A subagent the operator chose to view in the terminal stays viewed (the bar says so). */
+  if (view === 'chat' && p.chatSkin) setTimeout(() => { if (p.chatSkin.agentViewing && !chatSkinWorking(p)) void chatSkinBackToMain(id, p); else void chatSkinFooterRelease(id, p, true); }, 300);
+  paintZoneView();   // the switch follows the pane in front
+  return true;
+}
+/* ── the mode: ONE preference for every Claude session ───────────────────────────────────────────────────
+   Chat or Terminal is chosen in Settings (claudeView) and nowhere on a tab: a per-tab switch meant N answers to one question, and the
+   operator who prefers chat had to flip every new session by hand. The setting is applied LIVE to every pane that runs Claude
+   (chatSkinEligible) and to each one that appears later; a plain shell is never touched, it has no transcript to show.
+   `chatMode` caches the stored value so the tick and the shortcut need no round trip; the stored file stays the truth. */
+let chatMode = 'terminal';
+let chatModeLoaded = false;   // has chatReadMode seen the settings at least once?
+const chatModeSubs = new Set();   // Settings pages showing the selector: the shortcut changes the mode under them
+/* The same setting, where the sessions are: a Chat | Terminal switch in the Running header. Hidden in Settings and a
+   shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is. */
+function paintZoneView() {
+  if (typeof document === 'undefined') return;
+  const z = document.getElementById('zviewTerm');
+  if (!z) return;
+  if (!z.childElementCount) {
+    for (const [mode, ico] of [['chat', 'chat'], ['terminal', 'term']]) {
+      const b = el('button', 'zv-b');
+      b.type = 'button';
+      b.dataset.mode = mode;
+      const label = t(mode === 'chat' ? 'settings.claudeView.chat' : 'settings.claudeView.terminal');
+      b.append(csIcon(ico, 14));   // icons only, like the expand button beside it; the word is the tooltip
+      b.title = label; b.setAttribute('aria-label', label);
+      b.addEventListener('click', () => void chatSkinSetMode(mode));
+      z.appendChild(b);
+    }
+  }
+  /* The switch shows what the pane in front IS showing (0.14.0 round: "Show terminal" on a card flipped that pane only, and
+     the switch kept saying chat). With no Claude pane in front, it shows the setting. */
+  const front = panes.get(active.term) || panes.get(active.main);
+  const shown = front && front.kind === 'term' && chatSkinEligible(front) ? (front.view === 'chat' ? 'chat' : 'terminal') : chatMode;
+  z.dataset.mode = shown;   // the thumb slides to this side (.zview[data-mode])
+  z.setAttribute('role', 'radiogroup');
+  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === shown); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === shown ? 'true' : 'false'); }
+  z.title = t('chat.zone.tip');
+}
+chatModeSubs.add(paintZoneView);
+function chatReadMode(c) {
+  if (c && (c.claudeView === 'chat' || c.claudeView === 'terminal')) { chatMode = c.claudeView; chatModeLoaded = true; }
+  paintZoneView();
+}
+function chatSkinApplyMode(mode) {
+  const view = mode === 'chat' ? 'chat' : 'term';
+  for (const [id, p] of panes) {
+    if (!chatSkinEligible(p)) continue;   // a plain terminal (or a viewer) has no Claude behind it: it stays as it is
+    chatSkinSetView(id, view);
+  }
+}
+/* The one door every change goes through: Settings, the shortcut and the menu item. `persist: false` applies without writing, for
+   the smoke run, whose shell.json is the framework's and not the throwaway userData's. */
+async function chatSkinSetMode(mode, opts) {
+  if (mode !== 'chat' && mode !== 'terminal') return;
+  chatMode = mode;
+  chatSkinApplyMode(mode);
+  for (const sub of [...chatModeSubs]) sub();
+  if (!opts || opts.persist !== false) await window.glassShell.setSetting('claudeView', mode);
+}
+/* ⌘⇧L and File → Switch…: flips the GLOBAL mode (not the focused tab). Read fresh first, so a value synced in from another machine is
+   what gets flipped. */
+async function chatSkinToggleMode() {
+  try { chatReadMode(await window.glassShell.shellConfig()); } catch { /* the cached value stands */ }
+  const next = chatMode === 'chat' ? 'terminal' : 'chat';
+  await chatSkinSetMode(next);
+  toast(t(next === 'chat' ? 'chat.skin.modeNowChat' : 'chat.skin.modeNowTerminal'));
+}
+/* A tab that left the mode on purpose ("Show terminal" on a notice) — the only way a Claude tab differs from the setting. */
+const chatSkinOutOfMode = (p) => chatSkinEligible(p) && (p.view === 'chat') !== (chatMode === 'chat');
+function chatSkinFollowMode(id) {
+  const p = panes.get(id);
+  if (p && chatSkinEligible(p)) chatSkinSetView(id, chatMode === 'chat' ? 'chat' : 'term');
+}
+/* Give the terminal back: re-fit ONCE (the only fit this block performs, and only after the
+   overlay is gone), push the geometry if it moved, and put the caret where the operator expects. */
+function chatSkinHandBack(id, p) {
+  requestAnimationFrame(() => {
+    if (!panes.has(id) || p.view === 'chat' || p.exited) return;
+    try { p.fit.fit(); } catch { return; }
+    pushPtyGeom(id, p);
+    repaintTerm(p);
+    if (paneShown(p) && active[zoneOf(p)] === id) p.term.focus();
+  });
+}
+function chatSkinFocus(p) {
+  requestAnimationFrame(() => {
+    const cs = p.chatSkin;
+    if (!cs || p.view !== 'chat' || !paneShown(p) || cs.promptKind) return;
+    try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ }
+  });
+}
+/* Layout state lives on classes of p.el so one stylesheet rule set decides what is visible:
+   `view-chat` hides the xterm host (visibility, box kept) and shows the overlay; `cs-strip`
+   additionally un-hides the xterm in the lower part for a dialog. */
+function chatSkinLayout(p) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  const on = p.view === 'chat';
+  p.el.classList.toggle('view-chat', on);
+  p.el.classList.toggle('cs-strip', on && (chatSkinStrip(cs) || !!cs.lostPrompt));   // a panel nothing recognised: its live terminal (chatSkinLostPrompt)
+  cs.root.hidden = !on;
+  if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
+  cs.input.disabled = !!cs.promptKind || !!p.exited;
+  if (!on || cs.promptKind) chatSkinSlashClose(cs);   // a popup left open over a hidden or blocked composer would be a ghost
+  const gen = cs.wrap && cs.wrap.querySelector('.cb-pop.cb-gen');
+  if (gen && !gen.hidden && (!on || cs.promptKind)) { gen.hidden = true; if (gen.off) gen.off(); }   // so is a model/mode/agents menu (review: a pick could land in the dialog)
+  chatSkinCardPaint(p);
+  chatSkinControls(p);
+  chatSkinPaintAlert(p);
+  chatSkinPaintState(p);
+}
+function chatSkinControls(p) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  const working = chatSkinWorking(p);
+  cs.stopBtn.hidden = !working;
+  cs.sendBtn.hidden = working && !cs.input.value.trim();
+  cs.sendBtn.disabled = !cs.input.value.trim() || !!cs.promptKind || !!p.exited;
+  const blocked = chatSkinBarBlocked(p);
+  cs.modelSeg.disabled = blocked;   // see chatSkinModelMenu
+  cs.effortSeg.disabled = blocked;  // the same rule, from the same function: see chatSkinEffortPick
+  if (blocked && cs.effort.open) chatSkinEffortMenu(cs, false);   // a menu left open over a turn that just started would type into it
+  const showWork = working && !cs.promptKind;
+  /* A tab renamed mid-session (/rename) changes who is talking: follow it on the next repaint. */
+  const who = chatSkinWho(p);
+  if (cs.who !== who) {
+    cs.who = who;
+    chatSkinPlaceholder(p);
+    const wt = cs.workEl.querySelector('.cw-t');
+    if (wt) wt.textContent = t('chat.skin.working', { name: who });
+  }
+  if (cs.workEl.hidden === showWork) { cs.workEl.hidden = !showWork; if (showWork) chatSkinScroll(cs); }   // appearing pushes the end of the log down: follow it if the view is following the tail
+}
+const CS_KEYS_MIN_CARD = 700;   // the hint grew "esc interrupt" (0.14.0 round)   // px of composer card that hold the name, the key hint and the buttons on one line
+function chatSkinPlaceholder(p) {
+  const cs = p.chatSkin;
+  const base = t(chatSkinCardOn(cs) ? 'chat.skin.dlg.placeholder' : 'chat.placeholder', { name: chatSkinWho(p) });   // under a card the box says where the answer goes
+  /* "Message r2-chat…   ↵ send · ⇧↵ new line": the keys follow the name when the box is wide enough to hold both on one
+     line (a placeholder that wraps clips in a narrow pane); the full hint is always the box's tooltip. */
+  const ph = base;
+  const keys = cs.box && cs.box.querySelector('.cc-keys');
+  /* Measured on the CARD, never on the input (0.14.0 round): the hint shares the input's line, so showing it narrowed the
+     input under the threshold, which hid it, which widened the input again: it blinked many times a second. */
+  if (keys) keys.hidden = chatSkinCardOn(cs) || (cs.box ? cs.box.clientWidth : cs.input.clientWidth) < CS_KEYS_MIN_CARD;
+  if (cs.recording || cs.input.placeholder === ph) return;   // while voice listens, the placeholder is the words it hears
+  cs.input.placeholder = ph;
+  cs.placeholder0 = ph;
+  cs.input.setAttribute('aria-label', base);
+}
+function chatSkinPaintAlert(p) {
+  const cs = p.chatSkin;
+  let text = '';
+  const name = chatSkinWho(p);
+  if (cs.promptKind) text = chatSkinCardOn(cs) ? '' : t('chat.skin.prompt.' + cs.promptKind, { name });   // a card IS the notice; the strip needs the words that point at it
+  else if (cs.stalled) text = t('chat.skin.stalled', { name });
+  cs.alertEl.hidden = !text;
+  cs.alertText.textContent = text;
+  cs.alertEl.classList.toggle('prompt', !!cs.promptKind);
+  cs.alertEl.title = cs.promptHint || '';
+  cs.alertBtn.hidden = !!cs.promptKind;   // under a dialog the terminal is already in front
+  cs.alertBack.hidden = !(cs.promptKind && cs.promptOpts && cs.promptTerm);   // the strip was chosen over a card that could be drawn: offer the way back to it
+  const kind = cs.promptKind ? 'prompt' : 'stalled';
+  if (text && cs.alertKind !== kind) {
+    cs.alertKind = kind;
+    cs.alertIco.replaceChildren(csIcon(kind === 'prompt' ? 'term' : 'alert', 18));
+    cs.alertTitle.textContent = t('chat.skin.alert.' + kind + '.title');
+  }
+}
+const CHAT_STATE_ICONS = { connecting: null, waiting: 'chat', empty: 'chat', error: 'alert' };
+function chatSkinPaintState(p) {
+  const cs = p.chatSkin;
+  let kind = '';
+  if (cs.state === 'error') kind = 'error';
+  else if (!cs.watched) kind = 'connecting';
+  else if (cs.state === 'waiting') kind = 'waiting';
+  else if (cs.state === 'live' && cs.items.size === 0) kind = 'empty';
+  cs.stateEl.hidden = !kind;
+  if (!kind) return;
+  const code = cs.errorCode || '?';
+  const key = 'chat.skin.state.' + kind;
+  cs.stateEl.dataset.kind = kind;
+  cs.stateTitle.textContent = t(key + '.title', { name: chatSkinWho(p) });
+  cs.stateText.textContent = t(key + '.text', { code });
+  cs.stateBtn.hidden = kind !== 'error';
+  if (cs.stateTips) cs.stateTips.hidden = kind !== 'empty';
+  if (cs.stateKind !== kind) {
+    cs.stateKind = kind;
+    // connecting shows the same quiet spinner as a running tool; the others get a glyph
+    cs.stateIco.replaceChildren(CHAT_STATE_ICONS[kind] ? csIcon(CHAT_STATE_ICONS[kind], 20) : el('span', 'ct-spin'));
+  }
+}
+/* ── watching the transcript ─────────────────────────────────────────────── */
+/* Reconcile WHAT IS BEING WATCHED with WHAT THE PANE IS. Called after every change that could move
+   the answer (view switched, sessionId adopted/changed/cleared, pty exited), so it is idempotent:
+   the same inputs do nothing. A session id that changes (/clear, resume) is an unwatch + re-watch,
+   and a pane whose session is not known yet shows "connecting" until adoption calls this again. */
+function chatSkinSync(id, p) {
+  const cs = p && p.chatSkin;
+  if (!cs) return;
+  const gs = window.glassShell;
+  /* null: not watching. '': in chat view but the session has no id yet — main still follows the
+     pty's dialogs, because a new session in a folder Claude has not seen blocks on the trust prompt
+     BEFORE it has an id, and the overlay would otherwise hide the one thing it is waiting on. */
+  const want = p.view === 'chat' && !p.exited ? (p.sessionId ? String(p.sessionId) : '') : null;
+  if (cs.watched === want) return;
+  const prev = cs.watched;
+  if (cs.watched !== null && want === null) {
+    cs.gen++;
+    if (typeof gs.chatSkinUnwatch === 'function') Promise.resolve(gs.chatSkinUnwatch(id)).catch(() => { /* already gone */ });
+  }
+  cs.watched = want;
+  cs.turnOpen = false; cs.stalled = false; cs.watchedAt = Date.now(); cs.idChecks = 0;
+  if (want === null) { chatSkinLayout(p); return; }
+  /* The pane moved from one session to another (/clear, resume): what is on show belongs to the one it left. A new session has no
+     transcript file until its first message, so main announces nothing to replace it with ('missing', not 'reset'), and the old
+     bubbles would stay up under the new session. Empty the view now; a transcript that exists backfills after its own reset. */
+  if (prev) { chatSkinResetView(p); cs.ctxTokens = undefined; chatPaintUsage(cs); }
+  cs.state = 'waiting'; cs.errorCode = '';
+  const gen = ++cs.gen;
+  if (typeof gs.chatSkinWatch !== 'function') { cs.state = 'error'; cs.errorCode = 'unavailable'; chatSkinPaintState(p); return; }
+  // a watch with a new id REPLACES the previous one in main (and keeps its dialog monitor), so no unwatch in between
+  Promise.resolve(gs.chatSkinWatch(id, want || null)).then((r) => {
+    if (gen !== cs.gen || p.chatSkin !== cs) return;   // a newer watch or a closed pane owns the answer now
+    /* 'not-found' is not a failure: a new session has no transcript file until its first message, and
+       main keeps looking and announces the file when it appears (reset + items). */
+    if (r && !r.ok && r.error === 'not-found') { chatSkinPaintState(p); return; }
+    if (!r || !r.ok) { cs.state = 'error'; cs.errorCode = (r && r.error) || '?'; chatSkinPaintState(p); }
+  }).catch((e) => {
+    if (gen !== cs.gen || p.chatSkin !== cs) return;
+    cs.state = 'error'; cs.errorCode = String((e && e.message) || e).slice(0, 60); chatSkinPaintState(p);
+  });
+  chatSkinPaintState(p);
+  chatSkinScreenSoon(id, p);   // a dialog that is already on screen sends no more bytes: describe it now
+}
+/* The dialog detector in main reads what the terminal SHOWS, not the raw byte stream: a TUI repaints
+   a dialog differentially (moving the selection rewrites two lines and not its footer), so the tail
+   of the stream stops looking like a dialog while the dialog is still open. xterm's buffer is the
+   screen; send its last rows, at most one snapshot per window, after the bytes have been parsed. */
+function chatSkinScreenText(p) {
+  const b = p.term.buffer.active;
+  const rows = [];
+  for (let i = Math.max(0, b.length - 60); i < b.length; i++) { const l = b.getLine(i); if (l) rows.push(l.translateToString(true)); }
+  return rows.join('\n');
+}
+/* The CLI paints each screen update between "hide cursor" and "show cursor" (`ESC[?25l` … `ESC[?25h`), and a long update
+   reaches us in pieces of at most ~1 KB, the pieces up to ~100 ms apart (measured on a real session). A snapshot taken
+   between two pieces shows a TORN screen — a line half-erased, the next one already written — and a torn screen read as the
+   reply would put garbage in the preview. So the state after each parsed chunk says whether a frame is still open, and a
+   snapshot waits (a little, and never forever: a menu may leave the cursor hidden for as long as it is up). */
+function chatSkinFrameState(cs, data) {
+  const hidden = data.lastIndexOf('\x1b[?25l');
+  const shown = data.lastIndexOf('\x1b[?25h');
+  if (hidden > shown) cs.framing = true; else if (shown > hidden) cs.framing = false;
+}
+function chatSkinScreenSoon(id, p) {
+  const cs = p.chatSkin;
+  if (!cs || cs.watched === null || p.view !== 'chat') return;
+  /* Trailing edge with a ceiling: every chunk pushes the snapshot back by CS_SCREEN_QUIET_MS (so it is taken once a repaint
+     has finished, not halfway through one), and CS_SCREEN_MAX_MS after the first unsent byte it goes regardless — except
+     that it keeps waiting, up to CS_FRAME_WAIT_MS more, while a frame is open. Measured in the smoke gate: this costs
+     ~0.07 ms of snapshot per send and about 1% CPU while a long answer streams. */
+  const now = performance.now();
+  if (!cs.screenSince) cs.screenSince = now;
+  clearTimeout(cs.screenTimer);
+  const fire = () => {
+    if (cs.framing && performance.now() - cs.screenSince < CS_SCREEN_MAX_MS + CS_FRAME_WAIT_MS) { cs.screenTimer = setTimeout(fire, 15); return; }
+    cs.screenTimer = 0; cs.screenSince = 0;
+    if (p.view !== 'chat' || cs.watched === null || p.exited || !panes.has(id)) return;
+    chatSkinMirrorStatus(p);
+    if (typeof window.glassShell.chatSkinScreen === 'function') window.glassShell.chatSkinScreen(id, chatSkinScreenText(p));
+  };
+  cs.screenTimer = setTimeout(fire, Math.max(0, Math.min(CS_SCREEN_QUIET_MS, cs.screenSince + CS_SCREEN_MAX_MS - now)));
+}
+/* ── the status line, mirrored ───────────────────────────────────────────────────────────────────────────
+   The chat view must not cost the operator what their status line shows: folder, branch, context, the 5-hour and weekly
+   windows, the account, or whatever they configured. Claude Code draws it under its input box in the hidden terminal, so it
+   is read from there, with the terminal's own colours, and shown under the composer. A status line needs Claude Code's live
+   payload (the exact context window, for one), which no file on disk carries per session, so mirroring is the only faithful
+   copy. The PR's meters stay for a session with no status line. Read only when a screen snapshot is taken anyway. */
+const SL_ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'];
+function slPaletteColor(n) {
+  if (n < 16) { const th = termTheme(THEME) || {}; return th[SL_ANSI[n]] || ''; }
+  if (n < 232) { const v = [0, 95, 135, 175, 215, 255], i = n - 16; return `rgb(${v[Math.floor(i / 36)]},${v[Math.floor(i / 6) % 6]},${v[i % 6]})`; }
+  const g = 8 + (n - 232) * 10; return `rgb(${g},${g},${g})`;
+}
+function slCellColor(c) {
+  if (c.isFgRGB()) { const v = c.getFgColor(); return `rgb(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255})`; }
+  if (c.isFgPalette()) return slPaletteColor(c.getFgColor());
+  return '';
+}
+/* The rows under the input box: below the last line made only of ─ that has the prompt (❯) a few rows above it. Null when
+   no prompt box is on screen (a dialog, a repaint): the caller keeps the last good mirror. */
+function chatStatusRows(p) {
+  const b = p.term.buffer.active;
+  const end = b.length;
+  for (let i = end - 1; i >= Math.max(0, end - 30); i--) {
+    const l = b.getLine(i);
+    if (!l || !/^─{20,}$/.test(l.translateToString(true).trim())) continue;
+    let prompt = false;
+    for (let j = i - 1; j >= Math.max(0, i - 8); j--) {
+      const s = (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
+      if (/^\s*❯/.test(s)) { prompt = true; break; }
+    }
+    if (!prompt) continue;
+    const rows = [];
+    for (let k = i + 1; k < end && rows.length < 4; k++) { const r = b.getLine(k); if (r && r.translateToString(true).trim()) rows.push(r); }
+    return rows;
+  }
+  return null;
+}
+function chatSkinMirrorStatus(p) {
+  const cs = p.chatSkin;
+  const host = cs && cs.meta && cs.meta.querySelector('.cb-sl');
+  if (!host) return;
+  let rows = null;
+  try { rows = chatStatusRows(p); } catch { rows = null; }
+  /* Claude Code shows "REC" while tap-to-talk listens; the mic button follows it. */
+  let rec = false;
+  try { rec = /⏺\s*REC\b/.test(chatSkinScreenText(p).split('\n').slice(-14).join('\n')); } catch { rec = false; }
+  chatSkinVoicePaint(cs, rec);
+  chatSkinVoiceLive(p, rec);
+  if (!rows) return;
+  const cell = p.term.buffer.active.getNullCell();
+  const lines = rows.map((line) => {
+    const div = el('div', 'cb-sl-row');
+    const width = line.translateToString(true).length;
+    let span = null, cur = null;
+    for (let x = 0; x < line.length && x < width; x++) {
+      line.getCell(x, cell);
+      if (cell.getWidth() === 0) continue;   // the second half of a wide character
+      const key = slCellColor(cell) + (cell.isBold() ? '|b' : '') + (cell.isDim() ? '|d' : '');
+      if (!span || key !== cur) {
+        span = el('span');
+        const col = key.split('|')[0];
+        if (col) span.style.color = col;
+        if (key.includes('|b')) span.classList.add('b');
+        if (key.includes('|d')) span.classList.add('d');
+        div.appendChild(span);
+        cur = key;
+      }
+      span.textContent += cell.getChars() || ' ';
+    }
+    return div;
+  });
+  host.replaceChildren(...lines);
+  /* Read what the bar can carry natively. The AIOS status line ("[Opus 5.5] 📁 aios | 🌿 main (3) | 🟢 10% ░░ | ⚡ 5h:15% …")
+     gives the exact context percentage, which needs Claude Code's live payload; folder, branch, the windows and the account
+     come from their own sources. When that format is recognised the bar says it all and the mirror hides; any other status
+     line stays mirrored, as configured, so switching to chat never loses it. */
+  const text = rows.map((r) => r.translateToString(true)).join('\n');
+  const ctx = /(?:🟢|🟡|🟠|🔴)\s*(\d{1,3})%/.exec(text);
+  const aios = /^\s*\[[^\]]+\]\s*📁/.test(text);   // the AIOS line, recognised by its start: before the first reply its context reads "🔵 ???" and the bar shows a dash
+  if (ctx) cs.slCtxPct = Number(ctx[1]);
+  chatSkinModePaint(cs, text);
+  try {
+    const xs = chatSkinScreenText(p).split('\n');
+    const above = xs.slice(Math.max(0, xs.findLastIndex((l) => /^❯/.test(l)) - 14));
+    const m = above.map((l) => /Waiting for (\d+) background agents?\b/.exec(l)).filter(Boolean).pop();
+    cs.agentsTotal = m ? Number(m[1]) : 0;   // "✻ Waiting for 3 background agents to finish": the count a short pane's list cannot show
+  } catch { cs.agentsTotal = 0; }
+  chatSkinBgPaint(cs, rows.map((r) => r.translateToString(true)));
+  chatSkinWorkMeta(p);
+  chatSkinNamePaint(p);
+  host.hidden = !lines.length || aios;
+  cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
+  if (ctx) chatPaintUsage(cs);
+}
+/* The modes Shift+Tab cycles through, as Claude Code names them on the line under its prompt; no line is the default. */
+const CS_MODES = [['bypass', /bypass permissions on/i], ['auto', /auto mode on/i], ['plan', /plan mode on/i], ['edits', /accept edits on/i]];
+function chatSkinModePaint(cs, text) {
+  const seg = cs.root && cs.root.querySelector('.cb-mode');
+  if (!seg) return;
+  const hit = CS_MODES.find(([, re]) => re.test(text));
+  const mode = hit ? hit[0] : 'default';
+  seg.hidden = false;
+  seg.dataset.mode = mode;
+  seg.querySelector('.cb-v').textContent = t('chat.mode.' + mode);
+  const tip = t('chat.mode.tip', { mode: t('chat.mode.' + mode) });
+  seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+/* The elapsed time and tokens of the turn, read from Claude Code's spinner line above its prompt
+   ("✻ Crafting… (12s · ↓ 1.2k tokens · esc to interrupt)"): only the measures, in its own words. */
+function chatSkinWorkMeta(p) {
+  const cs = p.chatSkin;
+  const meta = cs && cs.workEl && cs.workEl.querySelector('.cw-meta');
+  if (!meta) return;
+  let parts = [];
+  try {
+    const xs = chatSkinScreenText(p).split('\n');
+    const at = xs.findLastIndex((l) => /^❯/.test(l));
+    const spin = xs.slice(Math.max(0, at - 8), at).reverse().find((l) => /^\s*\S\s+\S.*…\s*\(.*\)/.test(l));
+    const inner = spin ? /\(([^)]*)\)/.exec(spin)[1] : '';
+    parts = inner.split('·').map((x) => x.trim()).filter((x) => /^\d+\s*[hms]\b|^(\d+[hms]\s*)+$|tokens?$/.test(x));
+  } catch { parts = []; }
+  /* Claude Code redraws its spinner only every few seconds while its terminal is unfocused, which in chat view it always is:
+     the time sat at "0s" and then jumped (0.14.0 round, "blind to partial work"). The chat keeps its own clock from the send,
+     ticking each second, and takes the tokens (and "thinking") from Claude Code whenever it redraws. */
+  if ((cs.workSince || cs.turnStartAt) && chatSkinWorking(p)) {
+    /* From when THIS working stretch began (the tick sets workSince), not from the last send: a background agent's report gives
+       main a turn of its own, and a 2 s turn read "working… 1m 23s" counted from the launch (0.14.0 round). */
+    const sec = Math.max(0, Math.round((Date.now() - (cs.workSince || cs.turnStartAt)) / 1000));
+    const clock = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    parts = [clock, ...parts.filter((x) => !/^\d+\s*[hms]\b|^(\d+[hms]\s*)+$/.test(x))];
+  }
+  meta.textContent = parts.length ? parts.join(' · ') : '';
+}
+/* What runs in the background, from the lines under the prompt (verified on Claude Code 2.1.314):
+     · shells ride on the mode line: "⏵⏵ auto mode on · 1 shell" → "1 shell";
+     · running subagents are listed under it, one row each: "◯ general-purpose  Summarize …  14s · ↓ 130.0k tokens"
+       (with "⏺ main" above them, which is this session itself). */
+function chatSkinBgPaint(cs, rowsText) {
+  const seg = cs.root && cs.root.querySelector('.cb-bg');
+  if (!seg) return;
+  const lines = Array.isArray(rowsText) ? rowsText : [String(rowsText || '')];
+  const modeLine = lines.find((l) => /⏵|shift\+tab|·\s*\d+ \w/.test(l)) || '';
+  const items = modeLine.split('·').map((x) => x.replace(/\(.*?\)/g, '').trim()).filter((x) => /^\d+ [a-z][a-z ]{1,24}$/i.test(x));
+  /* The agent list under the prompt, in screen order: "⏺ main" (this session) then one row per subagent; ⏺ marks the one on
+     screen, ❯ the list cursor. Viewing a subagent is a mode of the hidden terminal: its prompt then talks to that agent. */
+  /* "1 shell" rides on the mode line, which Claude Code hides while the cursor is in the agent list ("↑/↓ to select"):
+     then keep what was last seen rather than forget the shells. */
+  const listFocus = lines.some((l) => /↑\/↓ to select/.test(l));
+  if (listFocus && cs.bgShells && cs.bgShells.length) items.push(...cs.bgShells.filter((x) => !items.includes(x)));
+  cs.bgShells = items.slice();
+  const agentRows = lines.map((l) => /^\s*(?:❯\s*)?([◯⏺●◉])\s+(\S+)(?:\s{2,}(.*))?$/.exec(l)).filter(Boolean)
+    .map((m) => ({ mark: m[1], name: m[2], rest: (m[3] || '').trim() }));
+  const agents = agentRows.filter((r) => r.name !== 'main').map((r) => [r.name, ...r.rest.split(/\s{2,}/)].join(' · '));
+  cs.agentRows = agentRows;
+  cs.agentViewing = (agentRows.find((r) => r.mark === '⏺' && r.name !== 'main') || {}).name || '';
+  const nAgents = Math.max(agents.length, cs.agentsTotal || 0);
+  if (nAgents) items.push(t(nAgents === 1 ? 'chat.bg.agent' : 'chat.bg.agents', { n: nAgents }));
+  cs.bgCount = items.reduce((a, x) => a + (Number(x.split(' ')[0]) || 0), 0) || agents.length;
+  cs.bgAgents = agents.length;
+  const ico = seg.querySelector('.cb-bgico');
+  const kind = agents.length ? 'robot' : 'term';
+  if (ico && ico.dataset && ico.dataset.k !== kind) { ico.dataset.k = kind; ico.replaceChildren(csIcon(kind, 12)); }
+  const bar = cs.root.querySelector('.cs-agentbar');
+  if (bar && bar.dataset.v !== cs.agentViewing) {
+    bar.dataset.v = cs.agentViewing;
+    if (cs.agentViewing) {
+      const back = el('button', 'csa-back', t('chat.agents.back'));
+      back.type = 'button';
+      back.addEventListener('click', () => void chatSkinBackToMain(cs.id, cs.pane).then((ok) => { if (!ok) toast(t('chat.agents.backFail')); }));
+      const term = el('button', 'csa-back', t('chat.agents.toTerm'));
+      term.type = 'button';
+      term.addEventListener('click', () => chatSkinSetView(cs.id, 'term'));
+      bar.replaceChildren(csIcon('robot', 13), el('span', 'csa-viewing', t('chat.agents.viewing', { name: cs.agentViewing })), back, term);
+    }
+    bar.hidden = !cs.agentViewing;
+    /* Rare in chat: the menu views an agent in TERMINAL view, and entering chat returns to main. This bar covers a subagent
+       left on screen some other way (chosen in the terminal itself). */
+  }
+  seg.hidden = !items.length;
+  if (!items.length) return;
+  const what = items.join(' · ') + (agents.length ? '\n' + agents.join('\n') : '');
+  seg.querySelector('.cb-v').textContent = items.join(' · ');   // the chip says how many; the tooltip says which
+  const tip = t('chat.bg.tip', { what });
+  seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+/* The session's name: the words on the rule right above Claude Code's prompt line. Kept while a dialog hides the prompt. */
+function chatSkinNamePaint(p) {
+  const cs = p.chatSkin;
+  const tag = cs && cs.box && cs.box.querySelector('.cc-name');
+  if (!tag) return;
+  let lines = [];
+  try { lines = chatSkinScreenText(p).split('\n'); } catch { return; }
+  let at = -1;
+  for (let i = lines.length - 1; i > 0; i--) if (/^❯/.test(lines[i])) { at = i; break; }
+  if (at < 0) return;
+  const m = /^─{3,}\s+(.+?)\s+─+\s*$/.exec(lines[at - 1].trimEnd());
+  const name = cs.agentViewing ? '@' + cs.agentViewing : m ? m[1] : (tag.dataset.last || '');   // a rule without a name (a panel over it) keeps the last one read
+  if (m && !cs.agentViewing) tag.dataset.last = m[1];
+  tag.hidden = !name;
+  tag.textContent = name;
+  tag.title = name ? t('chat.name.tip', { name }) : '';
+}
+/* Where the hidden terminal's cursor is: -1 in the prompt, i on row i of the agent list under it, null when neither can be
+   told (a dialog, a redraw). The list takes the cursor away from the prompt, so its ❯ moves onto a row. */
+function chatSkinAgentCursor(p) {
+  let xs = [];
+  try { xs = chatSkinScreenText(p).split('\n'); } catch { return null; }
+  /* Only BELOW the prompt box's bottom rule: Claude's replies above it start with ⏺ too (a first version counted them). */
+  const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
+  if (bottom < 1) return null;
+  const rows = xs.slice(bottom + 1).filter((l) => /^\s*(?:❯\s*)?[◯⏺●◉]\s+\S/.test(l));
+  const at = rows.findIndex((l) => /^\s*❯/.test(l));
+  if (at >= 0) return at;
+  /* The box's first row carries the ❯, and a draft that wraps (Claude Code puts an interrupted message back) pushes it up:
+     look from the bottom rule up to the box's top rule, not only at the row above the bottom (0.14.0 round: a two-line
+     restored message read as "no prompt box", and the chat fell back to the live terminal). */
+  for (let y = bottom - 1; y >= Math.max(0, bottom - 12); y--) {
+    if (/^─{3,}/.test(xs[y])) break;
+    if (/^❯/.test(xs[y])) return -1;
+  }
+  return null;
+}
+/* The rows of Claude Code's Background panel (/tasks) when it is on screen, with the section each sits in ("Shells (1)",
+   "Local agents (2)", "Completed (1)") and which one carries the cursor; null when the panel is not there. */
+function chatSkinTasksPanel(p) {
+  let xs = [];
+  try { xs = chatSkinScreenText(p).split('\n'); } catch { return null; }
+  const end = xs.findLastIndex((l) => /↑\/↓ to select|Esc\s+$|Esc to close/.test(l));   // the footer may wrap ("· Esc" / "to close")
+  if (end < 0 || !chatSkinPanelOpen(p)) return null;
+  const rows = [];
+  let section = '', cursor = -1;
+  for (let y = Math.max(0, end - 40); y < end; y++) {
+    const l = xs[y];
+    const h = /^\s*([A-Z][A-Za-z ]+?)\s*\(\d+\)\s*$/.exec(l);
+    if (h) { section = h[1]; continue; }
+    const r = /^\s*(❯\s*)?([⏺◯●✔✗✓×])\s+(\S.*)$/.exec(l);
+    if (!r || !section) continue;
+    if (r[1]) cursor = rows.length;
+    rows.push({ section, text: r[3].trim() });
+  }
+  return { rows, cursor };
+}
+/* THE background chokepoint: in terminal view, open the Background panel and put its cursor on `target` ({kind:'shell'|
+   'agent', n}: the n-th shell, or the n-th agent still running). One key at a time, the screen read after each; it stops
+   at the first surprise and never presses Enter: viewing, stopping and closing are the operator's, in the panel. */
+async function chatSkinTasksOpen(id, p, target) {
+  const cs = p.chatSkin;
+  if (panes.get(id) !== p || p.exited || !cs || cs.agentBusy) return;
+  if (cs.promptKind || chatSkinWorking(p)) { toast(t('chat.agents.busy')); return; }
+  cs.agentBusy = true;
+  const alive = () => panes.get(id) === p && !p.exited;
+  const press = async (k) => { if (!alive()) return false; window.glassShell.ptyWrite(id, k); await new Promise((r) => setTimeout(r, 220)); return alive(); };
+  try {
+    await chatSkinFooterRelease(id, p, false);
+    if (!chatSkinPanelOpen(p)) {
+      if (!chatSkinPromptEmpty(p)) { toast(t('chat.agents.busy')); return; }
+      submitToPty(id, '/tasks');
+      await new Promise((r) => setTimeout(r, 400));
+      await chatSkinSettle(p);
+    }
+    const panel = chatSkinTasksPanel(p);
+    if (!panel || !target) return;   // one task: Claude Code opens its details directly; "All": the list as it comes
+    const rows = panel.rows.map((r, i) => ({ ...r, i }));
+    const pool = rows.filter((r) => (target.kind === 'shell' ? /^Shells?$/i.test(r.section) : /agents?$/i.test(r.section)));
+    /* A background agent often finishes between the menu and the panel (0.14.0 round: the operator landed on the shell): it is
+       then under "Completed", where Enter shows its result. Look there before giving up on it. */
+    const done = rows.filter((r) => /^Completed$/i.test(r.section) && (target.kind === 'shell' ? /shell|bash|\$/i.test(r.text) : !/shell|bash/i.test(r.text)));
+    const want = pool[target.n] || pool[0] || (target.kind === 'agent' ? done[done.length - 1] : null);
+    if (!want || panel.cursor < 0) return;
+    let c = panel.cursor;
+    for (let n = 0; n < 30 && c !== want.i; n++) {
+      const step = want.i > c ? 1 : -1;
+      if (!(await press(step > 0 ? '\x1b[B' : '\x1b[A'))) return;
+      /* Wait for the redraw to show the move (a big terminal can take most of a second), reading again rather than once. */
+      let now = chatSkinTasksPanel(p);
+      for (let k = 0; k < 5 && now && now.cursor === c; k++) { await new Promise((r) => setTimeout(r, 200)); now = chatSkinTasksPanel(p); }
+      if (!now || now.cursor !== c + step) { toast(t('chat.agents.busy')); return; }
+      c = now.cursor;
+    }
+  } finally {
+    cs.agentBusy = false;
+  }
+}
+/* Resolves once the hidden terminal has stopped redrawing (two reads 150 ms apart agree, digits ignored so a ticking
+   spinner's seconds and tokens do not count as change), or after 2.5 s: switching to terminal view resizes it, Claude Code
+   redraws, and a key pressed into that redraw is read against a screen that is not there yet. */
+function chatSkinSettle(p) {
+  return new Promise((resolve) => {
+    let last = '', same = 0, n = 0;
+    const tick = () => {
+      let now = '';
+      try { now = chatSkinScreenText(p).split('\n').slice(-14).join('\n').replace(/\d/g, '#'); } catch { /* gone */ }
+      same = now && now === last ? same + 1 : 0;
+      last = now;
+      if (same >= 2 || ++n > 16) resolve(); else setTimeout(tick, 150);
+    };
+    setTimeout(tick, 150);
+  });
+}
+/* THE back-to-main chokepoint: a subagent the operator brought to the foreground in the terminal, sent back so the chat
+   (which shows main's conversation) and the prompt talk to main again. Measured on 2.1.314, one key at a time: ↓ from the
+   prompt highlights the shells item when there is one, the next ↓ enters the agent list, Enter on "main" brings it back.
+   Each key is checked; a panel opened by surprise is closed with one Esc and the walk stops; the cursor goes back to the
+   prompt only through chatSkinFooterRelease (↑ while the footer holds the keyboard). Returns whether main is back. */
+async function chatSkinBackToMain(id, p) {
+  const cs = p.chatSkin;
+  if (panes.get(id) !== p || p.exited || !cs || !cs.agentViewing || cs.agentBusy) return false;
+  cs.agentBusy = true;
+  const enter = '\r';   // a lone keypress, not text + CR (check:tokens guards the latter)
+  const alive = () => panes.get(id) === p && !p.exited;
+  const press = async (k) => { if (!alive()) return false; window.glassShell.ptyWrite(id, k); await new Promise((r) => setTimeout(r, 350)); return alive(); };
+  let ok = false;
+  try {
+    if (chatSkinAgentCursor(p) === -1 && !chatSkinPromptEmpty(p)) return false;   // a draft in the prompt: ↓ would walk it
+    for (let n = 0; n < 3 && (chatSkinAgentCursor(p) ?? -1) < 0; n++) {
+      if (!(await press('\x1b[B'))) return false;
+      if (chatSkinPanelOpen(p)) return false;   // released (closed) in finally
+    }
+    let c = chatSkinAgentCursor(p);
+    const main = (cs.agentRows || []).findIndex((r) => r.name === 'main');
+    if (c === null || c < 0 || main < 0) return false;
+    for (let n = 0; n < 20 && c !== main; n++) {
+      const step = main > c ? 1 : -1;
+      if (!(await press(step > 0 ? '\x1b[B' : '\x1b[A'))) return false;
+      const now = chatSkinAgentCursor(p);
+      if (now !== c + step) return false;
+      c = now;
+    }
+    if (!(await press(enter))) return false;
+    ok = true;
+  } finally {
+    await chatSkinFooterRelease(id, p, true);
+    cs.agentBusy = false;
+    if (alive()) chatSkinMirrorStatus(p);
+  }
+  return ok && !cs.agentViewing;
+}
+/* Is a panel of Claude Code's open over its prompt (its footer offers "Esc to close")? */
+function chatSkinPanelOpen(p) {
+  /* The panel's own footer must be the LAST line on screen: "Esc to close" anywhere else (a reply quoting it) is not a panel,
+     and an Esc pressed on that belief would interrupt a working Claude and put a queued message back in its prompt. */
+  try {
+    const xs = chatSkinScreenText(p).split('\n').filter((l) => l.trim());
+    /* "… · Esc to close", and the agent-details footer "← to go back · Esc/Enter/Space to close · f to foreground" (0.14.0 round:
+       back in chat after viewing an agent, its panel was left open and the chat showed the terminal). Still the LAST line. */
+    return /\bEsc(?:\/Enter\/Space)?\s+to\s+close(?:\s*·\s*[^·]{1,32})*\s*$/.test(xs.slice(-2).map((l) => l.trim()).join(' '));   // a narrow pane wraps the footer: "· Esc" / "to close"
+  } catch { return false; }
+}
+/* Whether the footer under the prompt holds the keyboard: a highlighted item on the mode line ("1 shell", drawn in inverse
+   video) or the cursor on a row of the agent list. */
+function chatSkinFooterFocus(p) {
+  if ((chatSkinAgentCursor(p) ?? -1) >= 0) return true;
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    for (let y = b.length - 1; y >= Math.max(0, b.length - 12); y--) {
+      const line = b.getLine(y);
+      const s = line ? line.translateToString(true) : '';
+      if (!/⏵|·\s*\d+ [a-z]/.test(s)) continue;
+      let inv = '';
+      for (let x = 0; x < s.length; x++) { line.getCell(x, c); if (c.isInverse()) inv += c.getChars() || ''; }
+      if (/\d+\s*[a-z]/i.test(inv)) return true;   // a highlighted item like "2 shells", never any inverse cell (a cursor, a badge: review)
+    }
+  } catch { /* unreadable */ }
+  return false;
+}
+/* Give the keyboard back to the prompt: a panel is closed with ONE Esc (it only closes a panel, and a single Esc on an idle
+   prompt is harmless; two would open the rewind), then ↑ while the footer holds the keyboard, checked after every key, so
+   it never walks the prompt's history. `closePanel` false leaves a panel open (the menu is about to use it). */
+async function chatSkinFooterRelease(id, p, closePanel = true) {
+  const alive = () => panes.get(id) === p && !p.exited;
+  const esc = '\x1b';   // one Esc closes a panel
+  if (closePanel && chatSkinPanelOpen(p) && !chatSkinWorking(p) && alive()) { window.glassShell.ptyWrite(id, esc); await new Promise((r) => setTimeout(r, 300)); }   // never while Claude works: an Esc there interrupts
+  let still = 0;
+  for (let n = 0; n < 25 && alive() && !chatSkinPanelOpen(p) && chatSkinFooterFocus(p); n++) {
+    const before = String(chatSkinAgentCursor(p));
+    window.glassShell.ptyWrite(id, '\x1b[A');
+    await new Promise((r) => setTimeout(r, 220));
+    if (String(chatSkinAgentCursor(p)) === before && chatSkinFooterFocus(p) && ++still >= 2) break;   // nothing moved twice: stop, never keep pressing blind (review)
+  }
+}
+/* Whether Claude Code's prompt line holds nothing typed: its greyed suggestion (dim cells) does not count. */
+function chatSkinPromptEmpty(p) {
+  /* Only the LIVE prompt box: the rows between its top rule and its bottom rule, the first starting with ❯ (review: the last
+     ❯ anywhere could be a stale row above a dialog, read as an empty prompt). No box on screen → not empty. */
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+    let bottom = -1;
+    for (let y = b.length - 1; y >= Math.max(0, b.length - 40); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    if (bottom < 1) return false;
+    let top = bottom - 1;
+    while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+    if (!/^❯/.test(text(top))) return false;
+    for (let y = top; y < bottom; y++) {
+      const line = b.getLine(y);
+      for (let x = y === top ? 2 : 0; x < line.length; x++) { line.getCell(x, c); const ch = c.getChars(); if (ch && ch.trim() && !c.isDim()) return false; }
+    }
+    return true;
+  } catch { return false; }   // unreadable: treat as not empty
+}
+/* The text in Claude Code's own prompt box, as typed (the ❯ and the dim placeholder left out), or '' when it is empty or not
+   on screen. Same box as chatSkinPromptEmpty. */
+function chatSkinPromptDraft(p) {
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+    let bottom = -1;
+    for (let y = b.length - 1; y >= Math.max(0, b.length - 40); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    if (bottom < 1) return '';
+    let top = bottom - 1;
+    while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+    if (!/^❯/.test(text(top))) return '';
+    const rows = [];
+    for (let y = top; y < bottom; y++) {
+      const line = b.getLine(y);
+      let row = '';
+      for (let x = y === top ? 2 : 0; x < line.length; x++) { line.getCell(x, c); row += c.isDim() ? ' ' : (c.getChars() || ' '); }
+      rows.push(row.replace(/\s+$/, ''));
+    }
+    return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
+  } catch { return ''; }
+}
+/* The terminal shows "Interrupted" every time; the transcript only carries "[Request interrupted by user]" when a TOOL was
+   cut, so a reply stopped mid-text just ended in the chat (0.14.0 round: "that's a must when i interrupt"). After the
+   operator's Esc the chat adds the same marker itself, unless the transcript brought one for this turn. Local to the view:
+   the transcript is never written. */
+function chatSkinMarkInterrupt(id, p) {
+  setTimeout(() => {
+    const cs = p.chatSkin;
+    if (!cs || panes.get(id) !== p || p.exited) return;
+    const last = [...cs.log.children].filter((n) => !n.hidden && (n.classList.contains('chat-row') || n.classList.contains('chat-note') || n.classList.contains('chat-tool') || n.csGroup)).pop();
+    if (last && last.classList.contains('chat-note') && /^\[?Request interrupted by user/.test(last.textContent.trim())) return;
+    chatSkinUpsert(cs, { uuid: 'local-interrupt-' + Date.now(), role: 'system', text: '[Request interrupted by user]' }, true);
+  }, 1800);
+}
+/* After the operator's Esc, Claude Code puts a message it had not answered back into ITS prompt box. Left there, the chat
+   refused every send ("text typed in the terminal") and the operator could not see why (0.14.0 round). So the chat takes it
+   back into its own box, the way the terminal shows it, and clears the terminal's: unless the operator already typed
+   something in the chat, which is theirs and wins. Checked twice, since the TUI redraws a moment after the Esc. */
+function chatSkinAdoptRestored(id, p) {
+  /* Decided on the SCREEN, never on chatSkinWorking: right after a send that counts as working for a few seconds by design,
+     and an Esc within them (before Claude answered: the case where Claude Code puts the message back) found it "working". */
+  for (const ms of [500, 1400, 2800, 4500]) setTimeout(() => {
+    const cs = p.chatSkin;
+    if (!cs || panes.get(id) !== p || p.exited || chatSkinSpinnerOn(p) || cs.promptKind) return;
+    const draft = chatSkinPromptDraft(p);
+    if (!draft || cs.input.value.trim()) return;
+    cs.input.value = draft;
+    chatSkinAutosize(cs);
+    chatSkinClearTermPrompt(id, p);
+  }, ms);
+}
+/* Clear Claude Code's prompt line: Ctrl+U deletes to the start of the line; a draft of several lines takes a few. Stops as
+   soon as the box reads empty, at most five times. */
+function chatSkinClearTermPrompt(id, p, n = 0) {
+  if (n >= 5 || panes.get(id) !== p || p.exited || chatSkinPromptEmpty(p)) return;
+  window.glassShell.ptyWrite(id, '\x15');
+  setTimeout(() => chatSkinClearTermPrompt(id, p, n + 1), 120);
+}
+/* The "1 agent" chip opens a menu like the model's: main and each subagent, the one on screen ticked, and the full list
+   (/tasks) apart. Shells alone keep the terminal's own panel. */
+function chatSkinBgMenu(id, p) {
+  const cs = p.chatSkin;
+  if (cs && cs.promptKind) { toast(t('chat.agents.busy')); return; }   // review: no menu over a dialog. A working turn is fine: the pick waits for it (below)
+  if (!cs) return;
+  const rows = cs.agentRows && cs.agentRows.length > 1 ? cs.agentRows : [];
+  const shells = cs.bgShells || [];
+  /* One rule for both kinds (0.14.0 round): picking one opens it in TERMINAL view, where Claude Code handles it natively;
+     coming back to chat returns to main, because the chat shows main's conversation. */
+  let items = rows.map((r, i) => ({ key: 'a' + i, label: r.name, desc: r.name === 'main' ? t('chat.agents.mainDesc') : r.rest.replace(/\s{2,}/g, ' · '), checked: r.mark === '⏺' }));
+  /* A short pane lists fewer agents than run (three running, one row): then one entry for all of them, opening the panel that
+     names each, rather than a partial list that looks complete. */
+  const listed = Math.max(0, rows.length - 1);
+  if ((cs.agentsTotal || 0) > listed) {
+    items = items.filter((it) => it.key === 'a0');
+    items.push({ key: 'a1', label: t('chat.bg.agents', { n: cs.agentsTotal }), desc: t('chat.agents.allDesc') });
+  }
+  shells.forEach((s, i) => items.push({ key: 's' + i, label: s, desc: t('chat.agents.shellDesc') }));
+  items.push({ key: 'tasks', label: t('chat.agents.all'), desc: '/tasks', apart: true });
+  chatSkinBarMenu(cs, cs.root.querySelector('.cb-bg'), t('chat.agents.head'), items, (key) => {
+    /* Every pick opens Claude Code's own Background panel (/tasks) in TERMINAL view, with its cursor on what was picked;
+       the operator acts there natively (Enter to view, x to stop, Esc to close). Measured on 2.1.314: the footer under the
+       prompt is a different maze with a shell running (↓ highlights "1 shell", a second ↓ opens its panel), and its agent
+       rows show activity, not identity. The panel lists both by name with a visible cursor, so it can be checked. */
+    const i = key.startsWith('a') || key.startsWith('s') ? Number(key.slice(1)) : -1;
+    const target = key.startsWith('s') ? { kind: 'shell', n: i } : key.startsWith('a') && i > 0 ? { kind: 'agent', n: i - 1 } : null;
+    if (key.startsWith('a') && i === 0) return;   // main: this session, already on screen in chat
+    /* Busy (0.14.0 round): each background agent that finishes gives main a short turn of its own, so with several running the
+       operator kept landing in one and got refused. The pick now WAITS for main to be free (up to a minute) and then opens. */
+    if (chatSkinWorking(p)) {
+      toast(t('chat.agents.waitFree', { name: chatSkinWho(p) }));
+      const until = Date.now() + 60000;
+      const later = () => {
+        if (panes.get(id) !== p || p.exited || !p.chatSkin) return;
+        if (chatSkinWorking(p) || p.chatSkin.promptKind) { if (Date.now() < until) setTimeout(later, 700); return; }
+        chatSkinSetView(id, 'term');
+        void chatSkinSettle(p).then(() => chatSkinTasksOpen(id, p, target));
+      };
+      setTimeout(later, 700);
+      return;
+    }
+    chatSkinSetView(id, 'term');
+    void chatSkinSettle(p).then(() => chatSkinTasksOpen(id, p, target));
+  });
+}
+/* THE mode chokepoint, beside chatSkinSendKey and chatSkinVoiceTap: Shift+Tab (ESC [ Z) and nothing else, exactly what the
+   operator presses in the terminal. The status line confirms the new mode on the next read. */
+function chatSkinModeCycle(id, p) {
+  if (panes.get(id) !== p || p.exited) return;
+  window.glassShell.ptyWrite(id, '\x1b[Z');
+  setTimeout(() => { if (panes.get(id) === p) chatSkinMirrorStatus(p); }, 700);
+}
+/* While tap-to-talk listens, Claude Code writes the words it hears into its own prompt line in the hidden terminal. The chat box
+   shows them there too (as its placeholder, so nothing is typed twice), and gives its own placeholder back afterwards. */
+function chatSkinVoiceLive(p, rec) {
+  const cs = p.chatSkin;
+  if (!cs || !cs.input) return;
+  if (!cs.placeholder0) cs.placeholder0 = cs.input.placeholder;
+  let heard = '';
+  if (rec) {
+    try {
+      const b = p.term.buffer.active;
+      for (let i = b.length - 1; i >= Math.max(0, b.length - 30); i--) {
+        const s = (b.getLine(i) || { translateToString: () => '' }).translateToString(true);
+        const m = /^\s*❯\s?(.*)$/.exec(s);
+        if (m) { heard = m[1].trim(); break; }
+      }
+    } catch { heard = ''; }
+  }
+  cs.input.classList.toggle('listening', !!rec);
+  cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;
+}
+
+/* ── voice ───────────────────────────────────────────────────────────────────────────────────────────────
+   Measured on Claude Code 2.1.312: with voice on in tap mode, a space on an empty prompt shows "⏺ REC · tap to send",
+   a second space sends, Esc cancels (the root keydown already writes Esc to the pty). The switch itself is global
+   (~/.claude/settings.json voice.enabled), so the button never toggles it: when voice is off it says how to turn it on. */
+function chatSkinVoicePaint(cs, rec) {
+  if (!cs || !cs.root) return;
+  const btn = cs.root.querySelector('.cc-mic');
+  cs.recording = !!rec;
+  if (!btn) return;
+  btn.classList.toggle('rec', cs.recording);
+  const label = t(cs.recording ? 'chat.voice.send' : 'chat.voice.start');
+  btn.title = label; btn.setAttribute('aria-label', label);
+}
+/* THE voice chokepoint, beside chatSkinSendKey (dialogs) and submitToPty (messages): it writes ONE space and nothing else.
+   Kept apart from the dialog key so the rule "only a dialog's own button answers it" stays exactly as narrow as it was. */
+function chatSkinVoiceTap(id, p) {
+  if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, ' ');
+}
+async function chatSkinVoice(id, p) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  if (cs.recording) { chatSkinVoiceTap(id, p); return; }   // tap again: Claude transcribes and sends
+  if (cs.input.value.trim() || !chatSkinPromptEmpty(p)) { toast(t('chat.voice.notEmpty')); return; }   // the terminal's own prompt too (review)
+  let v = null;
+  try { v = await window.glassShell.chatVoice(); } catch { v = null; }
+  if (!v || !v.enabled) { toast(t('chat.voice.off')); return; }
+  if (v.mode && v.mode !== 'tap') { toast(t('chat.voice.hold')); return; }
+  chatSkinVoiceTap(id, p);
+  chatSkinVoicePaint(cs, true);   // the screen confirms it on the next snapshot
+}
+
+/* ── the account ─────────────────────────────────────────────────────────────────────────────────────────
+   The status line names the account a session runs on; the chip does too, and when USER.md lists more than one
+   (## Anthropic accounts) it switches between them with the framework's own claude-identity switch (accounts:swap,
+   which refuses any address not in that list). Running sessions follow the switch on their own, as from the terminal. */
+function chatAcctLabel(a) {
+  const m = /alias \*\*([^*]+)\*\*/i.exec(a.note || '');
+  return m ? m[1].trim() : a.email;   // the whole address: two accounts can share a local part
+}
+/* The account list, in either shape: PR 92 answers { accounts, error } (the framework's own list, with who can be taken),
+   older mains a plain array. A list the framework rejected is shown as an error from the menu, never as "one account". */
+async function chatSkinAccounts(announceError) {
+  let r = null;
+  try { r = await window.glassShell.accountsList(); } catch { r = null; }
+  if (Array.isArray(r)) return r;
+  if (r && r.error && announceError) toast(t('chat.acct.failed', { why: r.error }));
+  return r && Array.isArray(r.accounts) ? r.accounts : [];
+}
+/* What USER.md says the account is for, first clause only ("primary", "secondary"): the menu's second line. */
+const chatAcctRole = (a) => String(a.note || '').split(/[,.;]/)[0].trim();
+async function chatSkinAccountPaint(p) {
+  const cs = p.chatSkin;
+  const seg = cs && cs.root && cs.root.querySelector('.cb-acct');
+  if (!seg) return;
+  const list = await chatSkinAccounts();
+  const cur = list.find((a) => a.current);
+  seg.hidden = !cur;
+  if (!cur) return;
+  seg.querySelector('.cb-v').textContent = chatAcctLabel(cur);
+  seg.disabled = list.length < 2;
+  seg.classList.toggle('one', list.length < 2);
+  const tip = list.length < 2 ? t('chat.acct.one', { email: cur.email }) : t('chat.acct.tip', { email: cur.email });
+  seg.title = tip; seg.setAttribute('aria-label', tip);
+}
+async function chatSkinAccountMenu(p) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  const list = await chatSkinAccounts(true);
+  if (list.length < 2) return;
+  const items = list.map((a) => ({ key: a.email, label: chatAcctLabel(a), desc: chatAcctRole(a) || a.state || a.email, checked: !!a.current }));
+  chatSkinBarMenu(cs, cs.root.querySelector('.cb-acct'), t('chat.acct.head'), items, async (email) => {
+    const a = list.find((x) => x.email === email);
+    if (!a || a.current) return;
+    /* PR 92: an account that cannot be taken (expired, not captured) stays listed, and picking it says why. */
+    if (a.canSwitch === false) { toast(t('chat.acct.failed', { why: a.note || a.state || '?' })); return; }
+    toast(t('chat.acct.switching', { who: chatAcctLabel(a) }));
+    let r = null;
+    try { r = await window.glassShell.accountsSwap(a.email); } catch (e) { r = { ok: false, message: String(e && e.message || e) }; }
+    toast(r && r.ok ? t('chat.acct.switched', { who: chatAcctLabel(a) }) : t('chat.acct.failed', { why: (r && r.message) || '?' }));
+    for (const q of panes.values()) if (q.chatSkin) void chatSkinAccountPaint(q);
+  }, t('chat.acct.foot'));
+}
+/* Called wherever app.js learns, changes or forgets a pane's session. */
+function chatSkinSessionChanged(id, p) {
+  if (!p || p.kind !== 'term') return;
+  if (p.sessionId) p.chatEnded = false;   // a session was (re)adopted after an ending
+  if (p.view === 'chat' && !chatSkinEligible(p)) { chatSkinSetView(id, 'term'); return; }   // the Claude behind it is gone
+  chatSkinSync(id, p);
+}
+/* Closing the pane (closePane) or losing the pty (onPtyExit) ends the watch. */
+function chatSkinTeardown(id, p) {
+  const cs = p && p.chatSkin;
+  if (!cs) return;
+  cs.gen++;
+  if (cs.watched || p.view === 'chat') {
+    if (typeof window.glassShell.chatSkinUnwatch === 'function') Promise.resolve(window.glassShell.chatSkinUnwatch(id)).catch(() => { /* already gone */ });
+  }
+  cs.watched = null;
+}
+function chatSkinOnExit(id, p) {
+  if (!p.chatSkin) return;
+  chatSkinTeardown(id, p);
+  if (p.view === 'chat') chatSkinSetView(id, 'term');   // show "[session ended]" instead of a dead composer
+}
+/* A new Claude pane opens in the chosen view — including panes restored at launch and resumed ones, since both come through
+   createPane with a claude command. Read fresh from the config each time (a value synced from another machine counts), but only
+   ever TOWARD chat: terminal is what a pane already is, and a pane the operator stepped out of the mode with is not ours to move. */
+async function chatSkinMaybeDefault(id, p) {
+  if (!paneIsClaude(p.cmd)) return;
+  /* The view the operator is in, not a fresh read of the file: with no framework there is no file to save a
+     choice into, and re-reading flipped every new tab back to what the file said (review, 0.14.0). The config is
+     only consulted until the startup read has set chatMode. */
+  let want = chatMode === 'chat';
+  if (!chatModeLoaded) { try { want = (await window.glassShell.shellConfig()).claudeView === 'chat'; } catch { want = false; } }
+  if (want && panes.get(id) === p && !p.exited) chatSkinSetView(id, 'chat');
+}
+
+/* ── painting the transcript ─────────────────────────────────────────────── */
+/* Follow the tail unless the operator went up to read (cs.stick). New rows glide down instead of jumping. */
+function chatSkinScroll(cs, smooth) {
+  if (!cs.stick) return;
+  if (smooth && !chatReducedMotion()) {
+    cs.autoUntil = performance.now() + 500;
+    cs.log.scrollTo({ top: cs.log.scrollHeight, behavior: 'smooth' });
+  } else cs.log.scrollTop = cs.log.scrollHeight;
+}
+function chatSkinPaintJump(cs) {
+  cs.jumpBtn.hidden = cs.stick || cs.log.scrollHeight <= cs.log.clientHeight + 48;
+}
+function chatSkinAutosize(cs) {
+  if (cs.box) { cs.box.classList.toggle('bang', cs.input.value.startsWith('!')); cs.box.classList.toggle('has-text', cs.input.value !== ''); }   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
+  cs.input.style.height = 'auto';
+  cs.input.style.height = Math.min(cs.input.scrollHeight, 220, Math.round(window.innerHeight * 0.4)) + 'px';   // grows with the text up to a ceiling, then scrolls
+}
+/* ── slash commands: the popup over the composer ─────────────────────────────────────────────────────────
+   Typing `/` at the very start of the box asks main (slashCommands:list) what to offer: the built-in commands,
+   the AIOS plugin's, the operator's own (~/.claude/commands), the project's (.claude/commands of this pane's
+   folder) and the installed plugins', ranked for what has been typed. Main answers [] when nothing should show
+   (not a lone slash word, no match, or the word is already a complete command), and the popup follows.
+   It only ever COMPLETES text in the box. It never sends and never writes to the pty: the line it leaves behind
+   is sent like any other, by the operator, with Enter. */
+function chatSkinSlashRefresh(cs, p) {
+  const s = cs.slash;
+  const text = cs.input.value;
+  if (text.charCodeAt(0) !== 47) { chatSkinMentionRefresh(cs, p); return; }   // only a leading slash opens it; main applies the finer rules (an @word opens the file list instead)
+  const seq = ++s.seq;
+  Promise.resolve(window.glassShell.slashCommands(p.cwd || null, text)).then((rows) => {
+    if (seq !== s.seq || cs.input.value !== text) return;   // a later keystroke already asked again, or the box moved on
+    if (!Array.isArray(rows) || !rows.length || p.view !== 'chat' || cs.promptKind) { chatSkinSlashClose(cs); return; }
+    chatSkinSlashShow(cs, rows);
+  }).catch(() => chatSkinSlashClose(cs));
+}
+/* The `@` mention, in the same popup: the files and folders of the session's folder, ranked by main for the word after the
+   `@` the caret is in. Like the commands, it only ever COMPLETES text in the box. */
+function chatSkinMentionRefresh(cs, p) {
+  const s = cs.slash;
+  const text = cs.input.value;
+  const caret = cs.input.selectionStart ?? text.length;
+  const before = text.slice(0, caret);
+  if (!/@[^\s@"']*$/.test(before) || typeof window.glassShell.chatMention !== 'function') { chatSkinSlashClose(cs); return; }   // a cheap look first; main applies the rule
+  const seq = ++s.seq;
+  Promise.resolve(window.glassShell.chatMention(p.sessionId || null, before)).then((r) => {
+    if (seq !== s.seq || cs.input.value !== text) return;
+    if (!r || !Array.isArray(r.rows) || !r.rows.length || p.view !== 'chat' || cs.promptKind) { chatSkinSlashClose(cs); return; }
+    s.at = { start: r.start, end: caret };
+    chatSkinSlashShow(cs, r.rows.map((x) => ({ file: true, name: String(x.path), dir: x.dir === true })));
+  }).catch(() => chatSkinSlashClose(cs));
+}
+/* One row per command: its name, its usage hint, what it does, and where it comes from when that is not obvious
+   (a project's or the operator's own; a plugin's name is already the prefix and a built-in needs no tag). Text from
+   command files is the operator's own, but it still only ever goes in through textContent. */
+function chatSkinSlashShow(cs, rows) {
+  const s = cs.slash;
+  s.items = rows;
+  s.index = 0;
+  const nodes = rows.map((c, i) => {
+    const row = el('div', 'csl-row');
+    row.id = s.list.id + '-' + i;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', 'false');
+    row.appendChild(el('span', 'csl-name', (c.file ? '@' : '/') + c.name));
+    const hintFull = c.file ? '' : c.argumentHint || '';
+    const hintEl = el('span', 'csl-hint', chatSkinSlashHint(hintFull));   // always present, even empty: the rows share columns (name · usage · what it does · tag)
+    if (hintEl.textContent !== hintFull) hintEl.title = hintFull;   // shortened: the whole usage is one hover away
+    row.appendChild(hintEl);
+    row.appendChild(el('span', 'csl-desc', c.file ? (c.dir ? t('chat.at.dir') : '') : c.descKey ? t(c.descKey) : String(c.description || '')));
+    const tag = c.source === 'project' ? t('chat.slash.src.project') : c.source === 'user' ? t('chat.slash.src.user') : '';
+    if (tag) row.appendChild(el('span', 'csl-tag', tag));
+    row.addEventListener('mousemove', () => { if (s.index !== i) chatSkinSlashMove(cs, i, false); });   // mousemove, not mouseover: a list that scrolls under a resting pointer must not change the choice
+    row.addEventListener('click', () => chatSkinSlashPick(cs, i));
+    return row;
+  });
+  s.list.replaceChildren(...nodes);
+  s.list.scrollTop = 0;
+  s.list.onscroll = () => chatSkinSlashFade(s.list);   // one handler on the list itself: showing again replaces it instead of stacking another
+  s.pop.hidden = false;
+  s.open = true;
+  cs.input.setAttribute('aria-expanded', 'true');
+  chatSkinSlashMove(cs, 0, true);
+  chatSkinSlashFade(s.list);
+}
+/* A usage hint wider than the column is shortened at a word, not in the middle of one, and its brackets are closed again:
+   `<optional custom summarization instructions>` becomes `<optional custom…>`. The CSS ellipsis stays as the net for a
+   single word that is itself too long. */
+const CHAT_SLASH_HINT_MAX = 22;
+function chatSkinSlashHint(h) {
+  if (h.length <= CHAT_SLASH_HINT_MAX) return h;
+  const close = { '<': '>', '[': ']', '(': ')' }[h[0]] || '';
+  const room = CHAT_SLASH_HINT_MAX - 1 - (close ? 1 : 0);
+  const cut = h.slice(0, room + 1);
+  const at = cut.lastIndexOf(' ');
+  const head = (at > 4 ? cut.slice(0, at) : h.slice(0, room)).replace(/[\s,;:|]+$/, '').replace(/(\s+(or|and|of|the|a|to))+$/i, '');   // never end on a dangling joiner
+  return head + '…' + close;
+}
+/* The popup shows seven rows at most. A soft fade at the edge that still has rows beyond it says "there is more" without a
+   scrollbar (an overlay scrollbar is invisible until it moves). */
+function chatSkinSlashFade(list) {
+  list.classList.toggle('more-t', list.scrollTop > 1);
+  list.classList.toggle('more-b', list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+}
+function chatSkinSlashMove(cs, to, scroll) {
+  const s = cs.slash;
+  const rows = [...s.list.children];
+  if (!rows.length) return;
+  s.index = Math.max(0, Math.min(rows.length - 1, to));
+  rows.forEach((r, i) => { r.classList.toggle('on', i === s.index); r.setAttribute('aria-selected', String(i === s.index)); });
+  cs.input.setAttribute('aria-activedescendant', rows[s.index].id);
+  if (scroll) { rows[s.index].scrollIntoView({ block: 'nearest' }); chatSkinSlashFade(s.list); }   // the list's scroll-padding keeps the active row clear of the fade
+}
+function chatSkinSlashClose(cs) {
+  const s = cs.slash;
+  s.seq++;   // an answer still on its way must not reopen it
+  if (!s.open && s.pop.hidden) return;
+  s.open = false;
+  s.items = [];
+  s.pop.hidden = true;
+  cs.input.setAttribute('aria-expanded', 'false');
+  cs.input.removeAttribute('aria-activedescendant');
+}
+/* Pick a row: `/name ` goes into the box (the space is where its arguments start, and the box's own "send" trims it),
+   the caret goes to the end and the popup closes. The text is set, not typed, so no input event fires and the popup
+   does not ask again. */
+function chatSkinSlashPick(cs, i) {
+  const c = cs.slash.items[i];
+  if (!c) return;
+  const at = cs.slash.at;
+  chatSkinSlashClose(cs);
+  if (c.file && at) {
+    /* `@word` becomes `@path `; a folder keeps the caret right after its slash and lists what is inside it. */
+    const v = cs.input.value;
+    const ins = '@' + c.name + (c.dir ? '' : ' ');
+    cs.input.value = v.slice(0, at.start) + ins + v.slice(at.end);
+    const end = at.start + ins.length;
+    cs.input.setSelectionRange(end, end);
+    chatSkinAutosize(cs);
+    chatSkinControls(cs.pane);
+    try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ }
+    if (c.dir) chatSkinMentionRefresh(cs, cs.pane);
+    return;
+  }
+  cs.input.value = '/' + c.name + ' ';
+  cs.input.setSelectionRange(cs.input.value.length, cs.input.value.length);
+  chatSkinAutosize(cs);
+  chatSkinControls(cs.pane);
+  try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ }
+}
+/* The keys of an open popup. Returns true when it used the key (the caller then stops the event, so the Enter
+   listener that sends never sees it). Modified keys and IME composition are left alone. */
+function chatSkinSlashKey(cs, e) {
+  const s = cs.slash;
+  if (!s.open || e.isComposing || e.keyCode === 229 || e.altKey || e.metaKey || e.ctrlKey) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = s.items.length;
+    chatSkinSlashMove(cs, (s.index + (e.key === 'ArrowDown' ? 1 : -1) + n) % n, true);
+    return true;
+  }
+  if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); chatSkinSlashPick(cs, s.index); return true; }
+  return false;
+}
+/* ── files into the box: drop and paste ─────────────────────────────────────────────────────────────────────
+   Dropping a file or an image on the card, or pasting an image, writes its absolute path into the box inside double
+   quotes — what Claude Code's own terminal does, and what it recognises as a file (a quoted path survives spaces).
+   It INSERTS at the caret and never sends: the path is the start of a message the operator is still writing, the same
+   rule as a drop on a terminal pane. Same sources as that drop (droppedPaths: our explorer rows, Finder files,
+   file:// lists); a picture that has no file behind it (a screenshot on the clipboard, an image dragged from a
+   browser) goes through main (chat:savePastedImage), which stores it in a temp file and returns the path. */
+function chatSkinQuotePath(p) {
+  const s = String(p);
+  // a double quote inside a path is vanishingly rare; the shell-style single quote form (xQuote) handles it without escaping games
+  return s.includes('"') ? xQuote(s) : '"' + s + '"';
+}
+/* Put `paths` at the caret, separated by spaces, with a space before when the text before the caret does not end in
+   one and a space after, so the operator can keep typing. The value is set and the box told, as if it had been typed. */
+function chatSkinInsertPaths(cs, paths) {
+  if (!paths.length) return;
+  const el_ = cs.input;
+  const v = el_.value;
+  const a = el_.selectionStart ?? v.length, b = el_.selectionEnd ?? v.length;
+  const before = v.slice(0, a), after = v.slice(b);
+  const ins = (before && !/\s$/.test(before) ? ' ' : '') + paths.map(chatSkinQuotePath).join(' ') + (/^\s/.test(after) ? '' : ' ');
+  el_.value = before + ins + after;
+  const at = before.length + ins.length;
+  el_.setSelectionRange(at, at);
+  chatSkinSlashClose(cs);
+  chatSkinAutosize(cs);
+  chatSkinControls(cs.pane);
+  try { el_.focus({ preventScroll: true }); } catch { /* detached */ }
+}
+/* The paths of a list of File objects: the real path when the file lives on disk, else (an image only) a temp copy
+   made by main. Files that are neither are skipped, and the caller says so once. Resolves to { paths, failed }. */
+async function chatSkinFilePaths(files) {
+  const paths = []; let failed = 0;
+  for (const f of files) {
+    let real = '';
+    try { real = window.glassShell.pathForFile(f) || ''; } catch { real = ''; }
+    if (real) { paths.push(real); continue; }
+    const saved = /^image\//.test(f.type || '') ? await f.arrayBuffer().then((buf) => window.glassShell.chatSavePastedImage(buf, f.type)).catch(() => null) : null;
+    if (saved) paths.push(saved); else failed++;
+  }
+  return { paths, failed };
+}
+function chatSkinDropBind(cs) {
+  const zone = cs.box;
+  const wants = (ev) => { const ty = [...(ev.dataTransfer?.types || [])]; return !ty.includes('application/x-aios-tab') && ty.some((x) => x === 'Files' || x === 'application/x-aios-path' || x === 'text/uri-list'); };
+  const lit = (on) => { zone.classList.toggle('dropok', on); if (on) cs.pane.el?.classList.remove('dropok'); };   // the pane's own zone would light its coral ring behind the card
+  zone.addEventListener('dragenter', (ev) => { if (wants(ev)) { ev.preventDefault(); ev.stopPropagation(); lit(true); } });
+  zone.addEventListener('dragover', (ev) => {
+    if (!wants(ev)) return;
+    ev.preventDefault(); ev.stopPropagation();   // stopPropagation: the pane under the card has its own drop zone, which would write the path to the pty
+    ev.dataTransfer.dropEffect = 'copy';
+    lit(true);
+  });
+  zone.addEventListener('dragleave', (ev) => { if (!ev.relatedTarget || !zone.contains(ev.relatedTarget)) lit(false); });
+  zone.addEventListener('drop', (ev) => {
+    lit(false);
+    clearDragging();
+    // ALWAYS stop it here: a drop of plain text on the box is the textarea's own (it inserts the text), and must not also reach the pane's zone
+    ev.stopPropagation();
+    if (!wants(ev)) return;
+    ev.preventDefault();
+    const dt = ev.dataTransfer;
+    const own = dt.getData('application/x-aios-path');
+    const files = own ? [] : [...(dt.files || [])];   // read before any await: a DataTransfer is dead once the handler returns
+    const listed = own || files.length ? [] : (droppedPaths(ev)).filter((x) => /^(\/|[A-Za-z]:[\\/])/.test(x));
+    void (async () => {
+      const fromFiles = await chatSkinFilePaths(files);
+      const paths = own ? [own] : files.length ? fromFiles.paths : listed;
+      if (paths.length) chatSkinInsertPaths(cs, paths);
+      if (fromFiles.failed) toast(t('chat.drop.failed'));
+    })();
+  });
+  // an image on the clipboard: a screenshot, or "Copy image" from a browser. Text pastes stay the textarea's own.
+  cs.input.addEventListener('paste', (ev) => {
+    const files = [...(ev.clipboardData?.files || [])];
+    if (!files.length) return;
+    ev.preventDefault();
+    void chatSkinFilePaths(files).then(({ paths, failed }) => {
+      if (paths.length) chatSkinInsertPaths(cs, paths);
+      if (failed) toast(t('chat.drop.failed'));
+    });
+  });
+}
+/* Which glyph a tool wears, by its name: what it DOES, so a column of calls scans at a glance.
+   MCP and unknown tools fall through to the wrench. */
+const CHAT_TOOL_KINDS = [
+  ['read', /^(Read|NotebookRead)$/, 'eye'],
+  ['edit', /^(Edit|Write|MultiEdit|NotebookEdit)$/, 'design'],
+  ['bash', /^(Bash|BashOutput|Shell)$/, 'term'],
+  ['command', /^\//, 'term'],   // a slash command's printout (/context, /cost): the operator's own, shown like a shell's
+  ['search', /^(Grep|Glob|LS)$/, 'search'],
+  ['web', /^(WebFetch|WebSearch)$/, 'globe'],
+  ['agent', /^(Task|Agent)$/, 'robot'],
+  ['skill', /^Skill$/, 'skill'],   // a skill loading: its own mark, so it reads apart from the tools it then uses
+];
+function chatToolKind(name) {
+  for (const [kind, re, ico] of CHAT_TOOL_KINDS) if (re.test(String(name || ''))) return { kind, ico };
+  return { kind: 'tool', ico: 'wrench' };
+}
+let chatToolSeq = 0;
+/* A tool call is one compact row — kind glyph, name, its main argument (ellipsised), a state mark — that
+   opens on click to show what the tool returned. The output is untrusted text and only ever goes in
+   through textContent. */
+function chatSkinMakeTool(cs) {
+  const node = el('div', 'chat-tool running');
+  const head = el('button', 'ct-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', 'false');
+  const kind = el('span', 'ct-kind');
+  kind.setAttribute('aria-hidden', 'true');
+  const name = el('span', 'ct-name');
+  const arg = el('span', 'ct-arg');
+  const state = el('span', 'ct-state');
+  const chev = csIcon('chevR', 11);
+  chev.classList.add('ct-chev');
+  head.append(kind, name, arg, state, chev);
+  const panel = el('div', 'ct-body');
+  panel.id = 'cs-tool-' + (++chatToolSeq);
+  panel.hidden = true;
+  head.setAttribute('aria-controls', panel.id);
+  const out = el('pre', 'ct-out');
+  const note = el('div', 'ct-note');
+  panel.append(out, note);
+  node.append(head, panel);
+  head.addEventListener('click', () => {
+    const open = head.getAttribute('aria-expanded') !== 'true';
+    head.setAttribute('aria-expanded', String(open));
+    panel.hidden = !open;
+    node.classList.toggle('open', open);
+    if (open) chatSkinScroll(cs);   // opening the last row must not push it below the fold while the view is following the tail
+  });
+  return { node, body: node, role: 'tool', tool: { head, kind, name, arg, state, out, note, kindName: '', status: '' } };
+}
+/* Paint a tool item IN PLACE: the row keeps its node (and so whether it was expanded) when the status
+   moves from running to ok/error or the output arrives. */
+function chatSkinPaintTool(rec, item) {
+  const tl = item.tool || {};
+  const { name, summary, status } = chatToolInfo(item);
+  const x = rec.tool;
+  const k = chatToolKind(name);
+  rec.node.classList.remove('running', 'ok', 'error');
+  rec.node.classList.add(status);
+  /* The operator's own run (! date, /cost) is what they asked to see: it arrives open, once. Claude's calls stay folded. */
+  if (tl.own === true && !rec.node.classList.contains('own')) {
+    rec.node.classList.add('own');
+    if (tl.fold !== true) {   // a one-line confirmation already says it all in its header
+      rec.node.classList.add('open');
+      x.head.setAttribute('aria-expanded', 'true');
+      x.head.parentNode.querySelector('.ct-body').hidden = false;
+    }
+  }
+  rec.node.dataset.kind = k.kind;
+  if (x.kindName !== k.ico) { x.kind.replaceChildren(csIcon(k.ico, 12)); x.kindName = k.ico; }
+  x.name.textContent = name;
+  if (x.argText !== summary) { x.arg.textContent = summary; x.argText = summary; x.argFresh = true; }   // only when it changed: rewriting it would throw away the links on it
+  const label = t('chat.skin.tool.' + status);
+  x.head.title = (name + (summary ? ' · ' + summary : '')) + ' — ' + label;
+  if (x.status !== status) {
+    x.status = status;
+    const mark = status === 'running' ? el('span', 'ct-spin') : csIcon(status === 'ok' ? 'check' : 'x', 12);
+    mark.setAttribute('aria-hidden', 'true');
+    const sr = el('span', 'cs-sr', label);   // the mark is a picture; this is what a screen reader hears
+    x.state.replaceChildren(mark, sr);
+  }
+  const text = typeof tl.output === 'string' ? tl.output : '';
+  x.out.textContent = text;
+  x.out.hidden = !text;
+  const cut = tl.outputTruncated === true;
+  x.note.hidden = !!text && !cut;
+  x.note.textContent = cut ? t('chat.skin.tool.truncated') : text ? '' : t(status === 'running' ? 'chat.skin.tool.runningNoOutput' : 'chat.skin.tool.noOutput');
+}
+/* A file Claude wrote is the thing the operator came for, so it never folds into "7 actions": the row stands alone and
+   carries a bar to open the file or show it in the explorer. Built only once the write succeeded and the path resolves
+   on disk; a path that does not resolve keeps the plain row. Buttons sit beside the row's header, never inside it. */
+function chatSkinFileCard(rec, cs, raw) {
+  rec.fileCard = true;
+  void (async () => {
+    const found = await chatResolvePaths([raw], await chatPathBase(cs));
+    const hit = found.get(raw);
+    if (!hit || hit.dir || !rec.node.isConnected) { rec.fileCard = false; return; }
+    const bar = el('div', 'ct-file');
+    const name = hit.abs.split(/[\\/]/).pop() || hit.abs;
+    const label = el('span', 'ct-file-name', name);
+    label.title = hit.abs;
+    const open = el('button', 'ct-file-btn', t('chat.file.open'));
+    open.type = 'button';
+    open.setAttribute('aria-label', t('chat.file.openLabel', { name }));
+    open.addEventListener('click', (e) => { e.stopPropagation(); void openViewer(hit.abs); });
+    const reveal = el('button', 'ct-file-btn', t('chat.file.reveal'));
+    reveal.type = 'button';
+    reveal.setAttribute('aria-label', t('chat.file.revealLabel', { name }));
+    reveal.addEventListener('click', (e) => { e.stopPropagation(); void revealPath(hit.abs); });
+    const more = el('button', 'ct-file-btn ct-file-more', '⋯');
+    more.type = 'button';
+    more.title = t('chat.file.more');
+    more.setAttribute('aria-label', t('chat.file.moreLabel', { name }));
+    more.addEventListener('click', (e) => { e.stopPropagation(); chatPathMenu({ abs: hit.abs, dir: false }, more.getBoundingClientRect()); });
+    bar.addEventListener('contextmenu', (e) => { e.preventDefault(); chatPathMenu({ abs: hit.abs, dir: false }, { left: e.clientX, bottom: e.clientY, top: e.clientY }); });
+    bar.append(csIcon('design', 13), el('span', 'ct-file-what', t('chat.file.saved')), label, open, reveal, more);
+    rec.node.insertBefore(bar, rec.node.querySelector('.ct-body'));
+    rec.node.classList.add('created');
+    chatSkinRegroup(cs);   // it leaves the folded run it was counted in
+  })().catch(() => { rec.fileCard = false; });
+}
+/* What the column needs to know about a tool call, normalised once: the row paints from it and the folded
+   summary of a run counts it. Anything that is not 'ok' or 'error' is still running. */
+function chatToolInfo(item) {
+  const tl = (item && item.tool) || {};
+  return { name: String(tl.name || ''), summary: String(tl.summary || ''), status: tl.status === 'ok' || tl.status === 'error' ? tl.status : 'running' };
+}
+/* Runs of consecutive tool calls. `items` is the column in order, each entry { tool, hidden }: a tool call, a
+   hidden row (an assistant message that was only tool calls leaves no bubble) or anything else that is visible.
+   A run is the indices of the tool calls between two visible non-tool rows; a hidden row does not split it. Pure,
+   so a test can run it. */
+function chatToolRuns(items) {
+  const runs = [];
+  let cur = null;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i] || {};
+    if (it.tool) { if (!cur) cur = []; cur.push(i); continue; }
+    if (it.hidden) continue;
+    if (cur) { runs.push(cur); cur = null; }
+  }
+  if (cur) runs.push(cur);
+  return runs;
+}
+/* One run of calls ({ name, summary, status } each) as the numbers its folded row shows. Counts are by name, in order of
+   first appearance (not by frequency): the line is read while the run is still growing, and a ranking would reorder
+   it under the eye every time a call lands. `current` is the call that is running now (the latest one, when several are). */
+function chatToolSummary(run) {
+  const counts = [];
+  const at = new Map();
+  let running = 0, failed = 0, ok = 0, current = null;
+  for (const x of run) {
+    const name = String(x.name || '').trim() || '?';
+    if (!at.has(name)) { at.set(name, counts.length); counts.push({ name, n: 0 }); }
+    counts[at.get(name)].n++;
+    if (x.status === 'error') failed++;
+    else if (x.status === 'ok') ok++;
+    else { running++; current = { name, summary: String(x.summary || '') }; }
+  }
+  return { total: run.length, counts, running, failed, ok, status: running ? 'running' : failed ? 'error' : 'ok', current };
+}
+/* The same counts as the sentence under the eye: "Bash ×3, Read ×4"; a name used once is just the name. */
+const chatToolCountsText = (counts) => counts.map((c) => (c.n > 1 ? t('chat.skin.tg.each', { name: c.name, n: c.n }) : c.name)).join(', ');
+let chatGroupSeq = 0;
+/* A run of two or more calls is ONE row — an icon, "7 actions", what they were, how it stands, a chevron — that opens
+   to the ordinary rows. The node is made once per run (keyed by the run's first call) and only ever repainted, so
+   whether it is unfolded survives more calls landing, the run growing and the column being re-sorted. */
+function chatSkinMakeGroup(cs, key) {
+  const node = el('div', 'chat-tg');
+  const head = el('button', 'cg-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', 'false');
+  const kind = el('span', 'cg-kind');
+  kind.setAttribute('aria-hidden', 'true');
+  kind.appendChild(csIcon('stack', 12));
+  const count = el('span', 'cg-n');
+  const list = el('span', 'cg-list');
+  const live = el('span', 'cg-live');
+  const liveName = el('span', 'cg-ln');
+  const liveArg = el('span', 'cg-la');
+  live.append(liveName, liveArg);
+  const fail = el('span', 'cg-fail');
+  fail.setAttribute('aria-hidden', 'true');   // the screen reader hears it once, in the state text
+  const state = el('span', 'cg-state');
+  const chev = csIcon('chevR', 11);
+  chev.classList.add('ct-chev');
+  head.append(kind, count, list, live, fail, state, chev);
+  const body = el('div', 'cg-body');
+  body.id = 'cs-tg-' + (++chatGroupSeq);
+  body.hidden = true;
+  head.setAttribute('aria-controls', body.id);
+  node.append(head, body);
+  const g = { node, head, body, kind, count, list, live, liveName, liveArg, fail, state, key, status: '', failed: -1, open: false };
+  node.csGroup = g;
+  head.addEventListener('click', () => {
+    chatSkinGroupOpen(g, !g.open);
+    cs.groupOpen.set(key, g.open);
+    if (g.open) chatSkinScroll(cs);   // unfolding the last run must not push it below the fold while the view is following the tail
+  });
+  return g;
+}
+function chatSkinGroupOpen(g, open) {
+  g.open = open;
+  g.head.setAttribute('aria-expanded', String(open));
+  g.body.hidden = !open;
+  g.node.classList.toggle('open', open);
+}
+/* Paint a run's summary IN PLACE. The spinner and the mark are only rebuilt when the state moves, so the spinner turns
+   without a hitch while calls land around it. */
+function chatSkinPaintGroup(g, sum) {
+  const counts = chatToolCountsText(sum.counts);
+  const total = t('chat.skin.tg.count', { n: sum.total });
+  g.count.textContent = total;
+  g.list.textContent = counts;
+  const cur = sum.current;
+  g.liveName.textContent = cur ? cur.name : '';
+  g.liveArg.textContent = cur ? cur.summary : '';
+  const failText = sum.failed ? t(sum.failed === 1 ? 'chat.skin.tg.failed.one' : 'chat.skin.tg.failed.other', { n: sum.failed }) : '';
+  g.fail.textContent = failText;
+  g.fail.hidden = !failText;
+  g.node.classList.remove('running', 'ok', 'error');
+  g.node.classList.add(sum.status);
+  g.head.title = total + ' · ' + counts + (cur ? ' — ' + cur.name + (cur.summary ? ' · ' + cur.summary : '') : '') + (failText ? ' — ' + failText : '');
+  if (g.status !== sum.status || g.failed !== sum.failed) {
+    g.status = sum.status; g.failed = sum.failed;
+    const mark = sum.status === 'running' ? el('span', 'ct-spin') : csIcon(sum.status === 'ok' ? 'check' : 'x', 12);
+    mark.setAttribute('aria-hidden', 'true');
+    const word = sum.status === 'error' ? failText : t('chat.skin.tool.' + sum.status) + (failText ? ' · ' + failText : '');   // the mark is a picture; this is what a screen reader hears
+    g.state.replaceChildren(mark, el('span', 'cs-sr', word));
+  }
+}
+/* Make `parent`'s children exactly `want`, in order, moving only what is out of place: a node that is already where it
+   belongs is not touched (re-inserting a node blurs it, restarts its animation and can reset a scrolled output). */
+function chatSkinReconcile(parent, want) {
+  let i = 0;
+  for (const w of want) {
+    if (parent.children[i] !== w) parent.insertBefore(w, parent.children[i] || null);
+    i++;
+  }
+  while (parent.children.length > want.length) parent.children[want.length].remove();
+}
+/* Consecutive tool calls fold into ONE row (chatToolRuns decides which). Recomputed from the visible rows after every
+   batch: rows can arrive, hide or change in any order, and a hidden row inside a run stays in the run's body so the
+   order is never lost. A run of one stays a plain row. Whether a run is unfolded is remembered by its first call's
+   uuid; a new run starts folded, except when the operator had already opened one of its rows (it must not vanish). */
+function chatSkinRegroup(cs) {
+  const groups = cs.groups || (cs.groups = new Map());
+  const opened = cs.groupOpen || (cs.groupOpen = new Map());
+  const flat = [];
+  for (const n of [...cs.log.children]) {
+    if (n.csGroup) flat.push(...n.csGroup.body.children); else flat.push(n);
+  }
+  const isItem = (n) => n.classList.contains('chat-row') || n.classList.contains('chat-note');
+  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !n.classList.contains('created') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs, and files written, stand alone
+  const spans = new Map();
+  for (const r of runs) if (r.length > 1) spans.set(r[0], r[r.length - 1]);
+  const focus = typeof document !== 'undefined' ? document.activeElement : null;
+  const top = [];
+  const live = new Set();
+  for (let i = 0; i < flat.length; i++) {
+    if (!spans.has(i)) { top.push(flat[i]); continue; }
+    const members = flat.slice(i, spans.get(i) + 1);
+    const key = flat[i].csRec.uuid;
+    let g = groups.get(key);
+    if (!g) {
+      g = chatSkinMakeGroup(cs, key);
+      groups.set(key, g);
+      const open = opened.has(key) ? opened.get(key) : members.some((m) => m.classList.contains('open') || (m.csRec && opened.get(m.csRec.uuid) === true));   // an older call joining the run from above re-keys it: the run the operator had unfolded must stay unfolded
+      opened.set(key, open);
+      for (const m of members) if (m.csRec && m.csRec.uuid !== key) opened.delete(m.csRec.uuid);   // the keys this run absorbed are spent: left behind, one would reopen a run the operator folds later
+      chatSkinGroupOpen(g, open);
+    }
+    members.forEach((m) => m.classList.remove('cs-in'));   // a row folded away never plays its entrance: it would play when the run is opened
+    chatSkinReconcile(g.body, members);
+    chatSkinPaintGroup(g, chatToolSummary(members.filter((m) => m.csRec && m.csRec.info).map((m) => m.csRec.info)));
+    live.add(key);
+    top.push(g.node);
+    i = spans.get(i);
+  }
+  chatSkinReconcile(cs.log, top);
+  for (const key of [...groups.keys()]) if (!live.has(key)) groups.delete(key);
+  if (focus && focus !== document.activeElement && cs.log.contains(focus)) { try { focus.focus({ preventScroll: true }); } catch { /* detached */ } }   // a moved node loses the focus; give it back
+}
+/* The session's own name stands in for "Claude" across the chat view: the operator runs several
+   named sessions side by side (the primary, agents, rituals) and wants to see which one is talking.
+   An unnamed pane falls back to the product name. */
+function chatSkinWho(p) { const n = p && (p.name || '').trim(); return n && n !== 'terminal' ? n : 'Claude'; }
+function chatSkinMakeItem(role, cs) {
+  if (role === 'user' || role === 'assistant') {
+    const row = el('div', 'chat-row who-' + (role === 'user' ? 'user' : 'claude'));
+    const bubble = el('div', 'chat-bubble');
+    row.append(el('div', 'chat-who', role === 'user' ? t('chat.you') : t('chat.claude', { name: chatSkinWho(cs.pane) })), bubble);
+    /* The operator's text has its own span, so writing it (textContent) never removes the copy button that sits in the bubble. */
+    const body = role === 'assistant' ? el('div', 'chat-md') : el('span', 'chat-text');
+    bubble.appendChild(body);
+    const rec = { node: row, body, role };
+    /* Copy the whole message, as Claude does: the raw text (markdown for a reply), never the rendered
+       HTML. Under the bubble, shown on hover or keyboard focus so the column stays quiet. */
+    const acts = el('div', 'chat-acts');
+    const copy = el('button', 'cm-copy');
+    copy.type = 'button';
+    const label = el('span', 'cm-copy-t', t('chat.code.copy'));
+    copy.append(csIcon('copy', 13), label);
+    copy.title = t('chat.msg.copyLabel');
+    copy.setAttribute('aria-label', t('chat.msg.copyLabel'));
+    copy.addEventListener('click', () => chatCopyTo(copy, label, rec.text || ''));
+    acts.appendChild(copy);
+    /* Takes no room (0.14.0 round: a row under every message doubled the gaps). Beside the operator's bubble, under a reply. */
+    row.appendChild(acts);   // one look for both: under the message, at its outer corner (0.14.0 round 3)
+    return rec;
+  }
+  if (role === 'tool') return chatSkinMakeTool(cs);
+  const node = el('div', 'chat-note');
+  return { node, body: node, role: 'system' };
+}
+/* A message the bus typed (another session, a routine) is labelled with its sender instead of passing as the operator's own.
+   Main matches the text against the provenance log the surfaces keep (AI-172). */
+function chatSkinBusLabel(rec, text) {
+  const gs = typeof window !== 'undefined' ? window.glassShell : null;
+  if (!text.trim() || !gs || typeof gs.chatBusFrom !== 'function') return;
+  Promise.resolve(gs.chatBusFrom(text)).then((r) => {
+    if (!r || rec.text !== text || !rec.node.isConnected) return;
+    rec.node.classList.add('from-bus');
+    let tag = rec.node.querySelector('.chat-from');
+    if (!tag) { tag = el('div', 'chat-from'); rec.node.insertBefore(tag, rec.node.querySelector('.chat-bubble')); }
+    tag.replaceChildren(csIcon('inbox', 11), el('span', '', r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon')));
+    const who = rec.node.querySelector('.chat-who');
+    if (who) who.textContent = r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon');
+  }).catch(() => { /* no label */ });
+}
+/* Commands whose output is a terminal panel, not a message (0.14.0 round): the chat types /tasks itself to open the Background
+   panel, and Claude Code records it, so it came back as the operator's bubble and an empty "/tasks (no content)" card. The panel
+   is in the terminal; the chat shows neither. */
+const CS_HIDDEN_CMD = /^\/tasks$/;
+function chatSkinUpsert(cs, item, animate, before) {
+  if (!item || typeof item !== 'object' || !item.uuid) return;
+  let rec = cs.items.get(item.uuid);
+  if (!rec) {
+    rec = chatSkinMakeItem(item.role, cs);
+    rec.uuid = item.uuid;
+    if (rec.role === 'tool') rec.node.csRec = rec;   // the column is regrouped from its nodes, which need to find their tool call again
+    cs.items.set(item.uuid, rec);
+    cs.log.insertBefore(rec.node, before || (cs.stream && cs.stream.rec.node) || cs.dlg || cs.workEl);   // `before`: older history goes ABOVE what is on show. Otherwise the working indicator stays the last child of the column, and what is still being written or asked stays under everything that has landed
+    if (animate) {   // a few px of rise and a fade; only for news, never for history being loaded
+      rec.node.classList.add('cs-in');
+      rec.node.addEventListener('animationend', (e) => { if (e.target === rec.node) rec.node.classList.remove('cs-in'); });
+    }
+  }
+  const text = typeof item.text === 'string' ? item.text : '';
+  if (rec.role === 'assistant') {
+    if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
+    rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
+  } else if (rec.role === 'user') {
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
+  } else if (rec.role === 'tool') {
+    rec.info = chatToolInfo(item);
+    chatSkinPaintTool(rec, item);
+    if (CS_HIDDEN_CMD.test(rec.info.name)) rec.node.hidden = true;
+    if (!rec.fileCard && rec.info.name === 'Write' && rec.info.status === 'ok' && rec.info.summary) chatSkinFileCard(rec, cs, rec.info.summary);
+    const x = rec.tool;
+    if (x && x.argFresh) {   // the argument was rewritten, so it has no links: look again. Read and Edit rows ARE a path, whatever it contains
+      x.argFresh = false;
+      chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
+    }
+  } else {
+    rec.body.textContent = text.replace(/^\[(Request interrupted by user[^\]]*)\]$/, '$1');   // Claude Code's marker without its brackets (0.14.0 round)
+    rec.node.hidden = !text.trim();
+  }
+}
+/* ── the reply being written ─────────────────────────────────────────────────────────────────────────────────
+   The transcript only records a message when it is complete, so a long answer would appear all at once at the end. Main
+   reads the reply as it is painted on the terminal screen (core/screenStream) and sends `stream` events; this draws them
+   as ONE provisional bubble that grows. It is a preview, never a second source of truth:
+     · when the finished message lands, main says which transcript line it is (`adopt`) just before the `items` event, and
+       the provisional's NODE becomes that item's node — same place in the column, no second bubble, no scroll jump, no
+       flicker (the real markdown is painted into the node already on screen);
+     · `text: null` without `adopt` means nothing is being written right now: the bubble stays where it is (frozen) because
+       the real message is about to arrive;
+     · a turn that ends, a reset or a different block drops a preview that was never adopted.
+   It has no accent colour (the send button owns it): a dimmer ink and a small caret in the busy hue; both go away on
+   adoption. Hidden from assistive tech while it is a preview, so a screen reader hears the finished message once. */
+function chatSkinStreamDrop(cs) {
+  if (!cs.stream) return;
+  cs.stream.rec.node.remove();
+  cs.stream = null;
+  chatSkinRegroup(cs);
+}
+/* The terminal paints list bullets as •/◦ and markdown drops them as text; give markdown the bullet it understands. */
+const chatSkinStreamMd = (text) => text.replace(/^(\s*)[•◦▪▸]\s+/gm, '$1- ');
+function chatSkinStream(cs, ev) {
+  if (typeof ev.adopt === 'string' && ev.adopt) { chatSkinStreamAdopt(cs, ev.adopt); return; }
+  if (typeof ev.text !== 'string') {   // nothing is being written now: freeze, do not remove
+    if (cs.stream) { cs.stream.live = false; cs.stream.rec.node.classList.remove('live'); }
+    return;
+  }
+  const text = ev.text.slice(0, 60000);
+  if (!text.trim()) return;
+  const anchor = typeof ev.anchor === 'string' ? ev.anchor : '';
+  let st = cs.stream;
+  // the anchor is the first words of the block and only grows to a fixed length: two anchors where neither starts the other are two different blocks
+  if (st && anchor && st.anchor && !anchor.startsWith(st.anchor) && !st.anchor.startsWith(anchor)) { chatSkinStreamDrop(cs); st = null; }
+  if (!st) {
+    const rec = chatSkinMakeItem('assistant', cs);
+    rec.node.classList.add('cs-prov');
+    rec.node.setAttribute('aria-hidden', 'true');
+    cs.log.insertBefore(rec.node, cs.dlg || cs.workEl);
+    st = cs.stream = { rec, anchor: '', text: '', live: true };
+    if (Date.now() - cs.resetAt > CS_ANIM_AFTER_MS && !chatReducedMotion()) {   // the same rule as any new row: rises in for news, never while history is loading
+      rec.node.classList.add('cs-in');
+      rec.node.addEventListener('animationend', (e) => { if (e.target === rec.node) rec.node.classList.remove('cs-in'); });
+    }
+  }
+  if (anchor.length > st.anchor.length) st.anchor = anchor;
+  st.live = true;
+  st.rec.node.classList.add('live');
+  if (st.text !== text) { chatRender(st.rec.body, chatSkinStreamMd(text)); st.text = text; }
+  cs.lastEventAt = Date.now(); cs.stalled = false;   // text is appearing: the session is not stuck
+  chatSkinScroll(cs, false);
+  chatSkinPaintJump(cs);
+}
+function chatSkinStreamAdopt(cs, uuid) {
+  const st = cs.stream;
+  if (!st) return;
+  if (cs.items.has(uuid)) { chatSkinStreamDrop(cs); return; }   // that message is already on screen: the preview has nothing to take the place of
+  cs.items.set(uuid, st.rec);
+  st.rec.text = null;                                           // the `items` event that follows paints the real markdown into this very node
+  st.rec.node.classList.remove('cs-prov', 'live');
+  st.rec.node.removeAttribute('aria-hidden');
+  cs.stream = null;
+}
+/* Empty the log (a transcript is about to be read from the top, or the pane moved to another session). */
+function chatSkinResetView(p) {
+  const cs = p.chatSkin;
+  cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
+  cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end
+  cs.log.replaceChildren(cs.stateEl, cs.workEl);
+  cs.turnOpen = false; cs.stalled = false; cs.state = 'waiting'; cs.stick = true; cs.resetAt = Date.now();
+  cs.earlier = false; cs.earlierBusy = false;   // main says (`span`) whether the new transcript has anything above its window
+  chatSkinCardPaint(p);
+}
+/* ── history above the window ─────────────────────────────────────────────────────────────────────────────────
+   Main sends the TAIL of a transcript (the last few hundred lines), not the whole file: every row sent is kept in the DOM
+   and in cs.items, so sending a long session's entire history made the page's size, its memory and the cost of every new
+   line grow with the length of the file (scripts/chat-bench.mjs has the numbers). What is above is asked for when the
+   operator scrolls near the top, one window at a time, and goes ABOVE the rows on show without moving what they are
+   reading. The answer is an `earlier` event tagged with the id of the transcript it was read from, so one already on its
+   way when the pane moved to another session (/clear, resume) is dropped like any other tail event. */
+const CS_EARLIER_NEAR_PX = 240;
+function chatSkinWantEarlier(id, p) {
+  const cs = p && p.chatSkin;
+  if (!cs || !cs.earlier || cs.earlierBusy || cs.watched === null || cs.watched === '') return;
+  cs.earlierBusy = true;
+  Promise.resolve(window.glassShell.chatSkinEarlier(id)).then((r) => { if (!r || !r.ok) cs.earlierBusy = false; }).catch(() => { cs.earlierBusy = false; });
+}
+/* Put `items` (oldest first) above everything on show and keep the operator's place: the browser's own scroll anchoring does
+   not act at scrollTop 0, which is exactly where the operator is when this fires, so it is switched off for the insert and the
+   height that was added above is added to scrollTop by hand. */
+function chatSkinPrepend(cs, items) {
+  if (!Array.isArray(items) || !items.length) return;
+  const log = cs.log;
+  const was = log.scrollHeight;
+  const top = log.scrollTop;
+  const before = cs.stateEl.nextSibling;   // the first row or run; the state line stays on top
+  log.style.overflowAnchor = 'none';
+  for (const it of items) chatSkinUpsert(cs, it, false, before);
+  chatSkinRegroup(cs);
+  log.scrollTop = top + (log.scrollHeight - was);
+  log.style.overflowAnchor = '';
+}
+/* The events that describe a TRANSCRIPT carry the id of the one they were read from (`sid`, added by main). One that was already on
+   its way when the pane moved to another session describes a transcript that is no longer the one on show. */
+const CS_TAIL_EVENTS = ['reset', 'span', 'earlier', 'items', 'turn', 'usage', 'missing', 'error'];
+function chatSkinHandleEvent(ev) {
+  if (!ev || ev.paneId === undefined || ev.paneId === null) return;
+  const id = ev.paneId;
+  const p = panes.get(id);
+  if (!p || !p.chatSkin || p.view !== 'chat') return;
+  const cs = p.chatSkin;
+  if (typeof ev.sid === 'string' && ev.sid !== cs.watched && CS_TAIL_EVENTS.includes(ev.type)) return;
+  switch (ev.type) {
+    case 'reset':
+      chatSkinResetView(p);
+      break;
+    case 'span':
+      cs.earlier = !!ev.earlier;
+      break;
+    case 'earlier':
+      cs.earlierBusy = false;
+      cs.earlier = !!ev.more;
+      chatSkinPrepend(cs, ev.items);
+      chatSkinPaintJump(cs);
+      if (cs.log.scrollTop < CS_EARLIER_NEAR_PX) chatSkinWantEarlier(id, p);   // the window did not fill the view: keep going until it does
+      return;
+    case 'items':
+      {
+        const animate = Date.now() - cs.resetAt > CS_ANIM_AFTER_MS && !chatReducedMotion();
+        if (Array.isArray(ev.items)) for (const it of ev.items) chatSkinUpsert(cs, it, animate);
+        chatSkinRegroup(cs);
+        cs.state = 'live'; cs.lastEventAt = Date.now(); cs.stalled = false;
+        chatSkinScroll(cs, animate);
+        chatSkinPaintJump(cs);
+        if (cs.earlier && cs.log.scrollTop < CS_EARLIER_NEAR_PX) chatSkinWantEarlier(id, p);   // a short window leaves nothing to scroll: fetch what is above it now
+      }
+      break;
+    case 'turn':
+      cs.turnOpen = !!ev.open; cs.lastEventAt = Date.now(); cs.stalled = false;
+      if (!ev.open) { cs.lastSubmitAt = 0; chatSkinStreamDrop(cs); }   // a preview still hanging when the turn ends was never the message that finished
+      break;
+    case 'stream':
+      chatSkinStream(cs, ev);
+      break;
+    case 'usage':
+      if (Number.isFinite(ev.contextTokens)) cs.ctxTokens = ev.contextTokens;
+      if (typeof ev.model === 'string' && ev.model) cs.model = ev.model;
+      chatPaintUsage(cs);
+      return;
+    case 'prompt':
+      chatSkinPrompt(id, p, ev);
+      return;
+    case 'missing':
+      if (cs.state !== 'live') cs.state = 'waiting';   // the transcript file does not exist yet; main keeps retrying
+      break;
+    case 'error':
+      cs.state = 'error'; cs.errorCode = String(ev.code || '?').slice(0, 60);
+      break;
+    default: return;
+  }
+  chatSkinControls(p);
+  chatSkinPaintAlert(p);
+  chatSkinPaintState(p);
+}
+if (window.glassShell && typeof window.glassShell.onChatSkinEvent === 'function') window.glassShell.onChatSkinEvent(chatSkinHandleEvent);
+
+/* ── dialogs: a card with a button per option, or the live terminal strip ─────────────────────────────────────
+   A `prompt` event with a kind means the TUI is asking something only it can render. Two ways to show it:
+     · CARD — when main could read the options (the event carries `options`, each with the key that picks it): the question
+       and one button per option, in the column, with "View in the terminal" for the operator who wants the real thing;
+     · STRIP — when it could not (no `options`): the real xterm comes forward under the bubbles and takes the keys, as before.
+   Either way a dialog that blocks the session is never left unnoticed: a notice or the card itself, a mark on the tab and a
+   toast if the pane is not in front. A null kind removes the card or closes the strip and returns the caret to the box.
+
+   THE RULE THAT DOES NOT BEND: the skin never answers a dialog by itself. The only thing that ever writes an answer is
+   chatSkinPick, and it runs from the operator's click or key on a button. Drawing a card, a refresh of its keys, a
+   timer, an event from main: none of them touch the pty. */
+const chatSkinCardOn = (cs) => !!(cs.promptKind && cs.promptOpts && cs.promptOpts.length && !cs.promptTerm);
+const chatSkinStrip = (cs) => !!cs.promptKind && !chatSkinCardOn(cs);
+const chatSkinOptsSig = (o) => (o ? JSON.stringify(o.map((x) => [x.n, x.label])) : '');
+/* Options as main sent them, checked once more here: one unreadable row (a key that is not a digit, an arrow or Enter, a
+   label that is not text) and the whole list is refused, so the dialog falls back to the strip instead of a card that
+   might write something it should not. */
+function chatSkinPromptOptions(raw) {
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const out = [];
+  for (const o of raw.slice(0, 12)) {
+    if (!o || typeof o.label !== 'string' || !o.label.trim() || typeof o.key !== 'string' || !CHAT_KEY_OK.test(o.key)) return null;
+    out.push({ n: Number.isInteger(o.n) ? o.n : null, label: o.label.slice(0, 200), selected: !!o.selected, key: o.key, freeText: o.freeText === true });
+  }
+  return out;
+}
+function chatSkinPrompt(id, p, ev) {
+  const cs = p.chatSkin;
+  const kind = ev.kind ? (CHAT_PROMPT_KINDS.includes(ev.kind) ? ev.kind : 'other') : null;
+  const opts = kind ? chatSkinPromptOptions(ev.options) : null;
+  const question = kind && typeof ev.question === 'string' ? ev.question.slice(0, 300) : '';
+  cs.promptHint = kind && typeof ev.hint === 'string' ? ev.hint.slice(0, 200) : '';
+  if (kind && ev.refresh === true && kind === cs.promptKind) {
+    /* The SAME dialog with its cursor moved: the keys of an unnumbered menu are relative to the cursor, so adopt the new
+       ones and the new default mark. It is not a new dialog, so a card the operator has already used stays used. */
+    if (opts && cs.promptOpts) { cs.promptOpts = opts; chatSkinCardPaint(p); }
+    chatSkinPaintAlert(p);
+    return;
+  }
+  if (kind === cs.promptKind && question === cs.promptQ && chatSkinOptsSig(opts) === chatSkinOptsSig(cs.promptOpts)) { chatSkinPaintAlert(p); return; }   // announced already
+  cs.promptKind = kind; cs.promptQ = question; cs.promptOpts = opts;
+  cs.promptUsed = false; cs.promptTerm = false; cs.promptGen++;   // a new dialog is a new, enabled card, buttons first
+  cs.stalled = false;
+  chatSkinLayout(p);
+  const card = chatSkinCardOn(cs);
+  if (kind) {
+    const inFront = paneShown(p) && active[zoneOf(p)] === id && !document.hidden;
+    if (card) {
+      cs.stick = true;
+      chatSkinScroll(cs, false);
+      requestAnimationFrame(() => { if (p.view === 'chat' && chatSkinCardOn(cs) && inFront) chatSkinCardFocus(cs); });
+    } else {
+      requestAnimationFrame(() => {
+        if (p.view !== 'chat' || !chatSkinStrip(cs)) return;
+        repaintTerm(p);
+        if (paneShown(p) && active[zoneOf(p)] === id) { try { p.term.focus(); } catch { /* disposed */ } }
+      });
+    }
+    if (!inFront) { markActivity(id); toast(t(card ? 'chat.skin.needsYouHere' : 'chat.skin.needsYou', { name: chatSkinWho(p) })); }
+  } else {
+    try { p.term.blur(); } catch { /* disposed */ }
+    chatSkinFocus(p);
+  }
+}
+/* Draw, update or remove the card to match the pane's dialog state. Idempotent. */
+function chatSkinCardPaint(p) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  chatSkinPlaceholder(p);
+  if (!chatSkinCardOn(cs)) {
+    if (cs.dlg) { cs.dlg.remove(); cs.dlg = null; cs.dlgSig = ''; }
+    return;
+  }
+  const sig = JSON.stringify([cs.promptGen, chatSkinWho(p)]);   // a new dialog (or a renamed session) is a new card; a refresh only updates it
+  if (!cs.dlg || cs.dlgSig !== sig) {
+    if (cs.dlg) cs.dlg.remove();
+    cs.dlg = chatSkinCardBuild(p);
+    cs.dlgSig = sig;
+    cs.log.insertBefore(cs.dlg, cs.workEl);
+    chatSkinRegroup(cs);
+    cs.stick = true; chatSkinScroll(cs, false);
+  }
+  chatSkinCardSync(cs);
+}
+function chatSkinCardBuild(p) {
+  const cs = p.chatSkin;
+  const who = chatSkinWho(p);
+  const card = el('div', 'cs-dlg');
+  card.setAttribute('role', 'group');
+  card.setAttribute('aria-label', t('chat.skin.dlg.label', { name: who }));
+  card.dataset.kind = cs.promptKind;
+  const head = el('div', 'csd-head');
+  head.append(csIcon('term', 15), el('span', 'csd-kind', t('chat.skin.dlg.kind.' + cs.promptKind, { name: who })));
+  const q = el('div', 'csd-q', cs.promptQ || cs.promptHint || t('chat.skin.dlg.noQuestion'));   // the question is the CLI's own words, shown as text and never parsed
+  q.id = 'cs-dlg-q-' + cs.id + '-' + cs.promptGen;
+  card.setAttribute('aria-describedby', q.id);
+  const list = el('div', 'csd-opts');
+  cs.promptOpts.forEach((o, i) => {
+    const b = el('button', 'csd-opt');
+    b.type = 'button';
+    b.dataset.i = String(i);
+    const num = o.n !== null ? o.n : i + 1;   // an unnumbered menu still gets 1, 2, 3…: the badge is where the operator's finger goes
+    b.dataset.num = String(num);
+    if (num >= 1 && num <= 9) b.setAttribute('aria-keyshortcuts', String(num));
+    const def = el('span', 'csd-def', '↵');
+    def.setAttribute('aria-hidden', 'true');
+    b.append(el('span', 'csd-n', String(num)), el('span', 'csd-l', o.label), def, el('span', 'cs-sr', t('chat.skin.dlg.default')));
+    list.appendChild(b);
+  });
+  list.addEventListener('click', (e) => {
+    const b = e.target instanceof Element ? e.target.closest('.csd-opt') : null;
+    if (b && !b.disabled) chatSkinPick(cs.id, p, Number(b.dataset.i));
+  });
+  const foot = el('div', 'csd-foot');
+  const link = el('button', 'csd-link', t('chat.skin.dlg.viewTerminal'));
+  link.type = 'button';
+  link.addEventListener('click', () => {   // the real thing: the strip with the live terminal, exactly as for a dialog we could not read
+    cs.promptTerm = true;
+    chatSkinLayout(p);
+    requestAnimationFrame(() => {
+      if (p.view !== 'chat' || !chatSkinStrip(cs)) return;
+      repaintTerm(p);
+      if (paneShown(p) && active[zoneOf(p)] === cs.id) { try { p.term.focus(); } catch { /* disposed */ } }
+    });
+  });
+  const keys = el('span', 'csd-keys', t('chat.skin.dlg.keys'));
+  keys.setAttribute('aria-hidden', 'true');
+  const sent = el('span', 'csd-sent', t('chat.skin.dlg.sent'));
+  sent.setAttribute('role', 'status');
+  sent.hidden = true;
+  foot.append(link, keys, sent);
+  card.append(head, q, list, foot);
+  card.addEventListener('keydown', (e) => chatSkinCardKey(cs, p, e));
+  return card;
+}
+/* Everything about the card that can change while it stays the same card: which option is the default (the cursor), the
+   keys behind them, and whether it has been used. */
+function chatSkinCardSync(cs) {
+  if (!cs.dlg) return;
+  cs.dlg.querySelectorAll('.csd-opt').forEach((b, i) => {
+    const o = cs.promptOpts[i];
+    if (!o) return;
+    b.classList.toggle('def', !!o.selected);
+    b.disabled = cs.promptUsed;
+    b.querySelector('.csd-def').hidden = !o.selected;
+    b.querySelector('.cs-sr').hidden = !o.selected;
+  });
+  cs.dlg.classList.toggle('used', cs.promptUsed);
+  cs.dlg.setAttribute('aria-busy', String(cs.promptUsed));
+  const sent = cs.dlg.querySelector('.csd-sent');
+  sent.hidden = !cs.promptUsed;
+  cs.dlg.querySelector('.csd-keys').hidden = cs.promptUsed;
+}
+function chatSkinCardFocus(cs) {
+  if (!cs.dlg) return;
+  const b = cs.dlg.querySelector('.csd-opt.def:not(:disabled)') || cs.dlg.querySelector('.csd-opt:not(:disabled)');
+  if (b) try { b.focus({ preventScroll: true }); } catch { /* detached */ }
+}
+/* Arrows move between the buttons, a digit picks that option, Enter/Space press the focused button (the browser does that). */
+function chatSkinCardKey(cs, p, e) {
+  if (e.isComposing || e.altKey || e.metaKey || e.ctrlKey || cs.promptUsed) return;
+  const btns = [...cs.dlg.querySelectorAll('.csd-opt')].filter((b) => !b.disabled);
+  if (!btns.length) return;
+  const at = btns.indexOf(document.activeElement);
+  const move = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (move || e.key === 'Home' || e.key === 'End') {
+    e.preventDefault();
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? btns.length - 1 : (at + (at < 0 ? (move > 0 ? 1 : 0) : move) + btns.length) % btns.length;
+    btns[to].focus({ preventScroll: true });
+    return;
+  }
+  if (/^[0-9]$/.test(e.key)) {
+    const b = btns.find((x) => x.dataset.num === e.key);
+    if (!b) return;
+    e.preventDefault();
+    chatSkinPick(cs.id, p, Number(b.dataset.i));
+  }
+}
+/* THE answer to a dialog: called from a click or a key on a button, never from anything else. It sends exactly the key the
+   parser attached to that option, once (the card is disabled until the next dialog), and nothing else. An option that asks
+   for free text ("Type something") only gets its key; typing is the operator's, so the live terminal comes forward. */
+function chatSkinPick(id, p, i) {
+  const cs = p.chatSkin;
+  if (!cs || !chatSkinCardOn(cs) || cs.promptUsed || p.exited) return;
+  const o = cs.promptOpts[i];
+  if (!o) return;
+  cs.promptUsed = true;
+  const gen = cs.promptGen;
+  chatSkinCardSync(cs);
+  chatSkinSendKey(id, p, o.key);
+  /* If the dialog is STILL up after a while the key never landed (the TUI was busy, the cursor was elsewhere): re-arm the
+     card so the operator is not stuck behind disabled buttons. A dialog that did get answered sends `null` long before this. */
+  setTimeout(() => { if (cs.promptGen === gen && cs.promptKind && cs.promptUsed && panes.get(id) === p) { cs.promptUsed = false; chatSkinCardSync(cs); } }, CS_RETRY_MS);
+  if (o.freeText) { cs.promptTerm = true; chatSkinLayout(p); requestAnimationFrame(() => { if (p.view === 'chat' && chatSkinStrip(cs)) { repaintTerm(p); try { p.term.focus(); } catch { /* disposed */ } } }); }
+}
+/* THE chokepoint for a single dialog key (submitToPty is the one for messages; it appends a CR, which a digit must never
+   get). Only a digit, an arrow up/down or Enter can pass; the chunks go one by one with a short gap. */
+function chatSkinSendKey(id, p, key) {
+  if (typeof key !== 'string' || !CHAT_KEY_OK.test(key)) return false;
+  (key.match(CHAT_KEY_CHUNK) || []).forEach((chunk, n) => {
+    const send = () => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, chunk); };
+    if (n === 0) send(); else setTimeout(send, n * CS_KEY_GAP_MS);
+  });
+  return true;
+}
+
+/* ── actions ──────────────────────────────────────────────────────────────── */
+function chatSkinSendNow(id, p, retried) {
+  const cs = p.chatSkin;
+  if (!cs || p.exited || cs.promptKind) return;
+  /* The hidden terminal must be ready to take a line (review): a panel open over the prompt would read the text as keys (an "x"
+     stops a task), and a draft typed in terminal view would have the message glued onto it. The footer holding the keyboard
+     is handed back first; anything else keeps the message in the box and says why. */
+  if (chatSkinPanelOpen(p) || cs.lostPrompt) { toast(t('chat.send.panel')); return; }
+  if (!retried && chatSkinFooterFocus(p)) { void chatSkinFooterRelease(id, p, false).then(() => chatSkinSendNow(id, p, true)); return; }
+  if (!chatSkinPromptEmpty(p) && chatSkinAgentCursor(p) !== null) { toast(t('chat.send.draft')); return; }
+  const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  if (!text.trim()) return;
+  cs.input.value = '';
+  cs.hist = null;
+  (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
+  chatSkinAutosize(cs);
+  chatSkinSlashClose(cs);
+  chatSkinSubmit(id, p, text);
+}
+/* ↑ and ↓ walk the prompts already sent, as in the terminal: ↑ only from the box's first line and ↓ only from its last, so
+   moving inside a multi-line draft still works. The list is this session's own messages in the order they appear, plus what
+   was just sent here and is not in the transcript yet. The draft being typed is kept, and ↓ past the newest gives it back. */
+function chatSkinHistList(cs) {
+  const rows = [...cs.items.values()].filter((r) => r.role === 'user' && typeof r.text === 'string' && r.text.trim() && r.node.isConnected);
+  rows.sort((a, b) => (a.node.compareDocumentPosition(b.node) & 4 ? -1 : 1));   // 4 = b follows a
+  const list = rows.map((r) => r.text);
+  for (const t2 of cs.sent || []) list.push(t2);
+  return list.filter((x, i) => list.lastIndexOf(x) === i);   // a prompt sent again moves to the newest place, once (as a shell's history)
+}
+function chatSkinHistKey(cs, e) {
+  if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing) return false;
+  const inp = cs.input;
+  if (inp.selectionStart !== inp.selectionEnd) return false;
+  const v = inp.value;
+  const up = e.key === 'ArrowUp';
+  if (up ? inp.selectionStart > 0 && v.lastIndexOf('\n', inp.selectionStart - 1) !== -1 : v.indexOf('\n', inp.selectionStart) !== -1) return false;   // not on the first / last line
+  if (!cs.hist && !up && v === '' && cs.bgCount) { e.preventDefault(); chatSkinBgMenu(cs.id, cs.pane); return true; }   // as in the terminal: ↓ reaches "1 shell"
+  if (!cs.hist) { if (!up) return false; cs.hist = { list: chatSkinHistList(cs), i: -1, draft: v }; }
+  const h = cs.hist;
+  const n = h.i === -1 ? (up ? h.list.length - 1 : -1) : h.i + (up ? -1 : 1);
+  if (n < 0 && up) return h.list.length > 0;   // at the oldest: stay, and keep the caret where it is
+  e.preventDefault();
+  if (n < 0 || n >= h.list.length) { inp.value = h.draft; cs.hist = null; }
+  else { h.i = n; inp.value = h.list[n]; }
+  const end = inp.value.length;
+  inp.setSelectionRange(end, end);
+  chatSkinAutosize(cs);
+  chatSkinControls(cs.pane);
+  return true;
+}
+/* The one way a line of text reaches the pty from the chat view: the typed message and the model button both end here. */
+function chatSkinSubmit(id, p, text) {
+  const cs = p.chatSkin;
+  cs.lastSubmitAt = Date.now();
+  cs.staleSpinner = '';   // a new turn: any spinner from here on is live
+  cs.turnStartAt = Date.now();   // the working line's own clock (chatSkinWorkMeta)
+  cs.workSince = cs.turnStartAt;   // a send starts a working stretch
+  cs.stick = true;
+  const sent = text.replace(/\s+/g, ' ').trim();
+  submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
+  if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
+  chatSkinControls(p);
+}
+/* The model in the bar asks for /model, exactly as if it had been typed: Claude Code answers with its own picker and the
+   dialog card draws it. Not while a turn runs or a dialog is open (a typed line would land in the wrong place). */
+/* The model opens the same kind of menu as the effort (0.14.0 round: three buttons, three behaviours, was the complaint).
+   The list is the one Settings uses (the ladder plus the account's extra models); a pick types "/model <value>" through
+   chatSkinSubmit like any message, and "More…" still opens Claude Code's own picker for anything the list does not hold. */
+async function chatSkinModelMenu(id, p) {
+  const cs = p.chatSkin;
+  if (!cs || chatSkinBarBlocked(p)) return;
+  let opts = [];
+  try { opts = await window.glassShell.modelOptions(); } catch { opts = []; }
+  const now = String(cs.model || cs.status.model || '');
+  const nowLabel = now ? chatModelLabel(now) : '';
+  const items = opts.map((o) => ({ key: o.value, label: o.label, checked: o.value === now || (!!nowLabel && o.label.startsWith(nowLabel)) }));
+  items.push({ key: '', label: t('chat.model.more'), desc: t('chat.model.moreHint'), apart: true });
+  chatSkinBarMenu(cs, cs.modelSeg, t('chat.model.head'), items, (key) => {
+    if (chatSkinBarBlocked(p)) return;
+    chatSkinSubmit(id, p, key ? '/model ' + key : '/model');
+    setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') chatSkinRefreshStatus(cs); }, 2500);
+  });
+}
+/* The permission modes, in the words the chip uses. Bypass is offered only while the session is in it (it can be switched off
+   server-side, and the cycle skips a mode that is not available). */
+function chatSkinModeMenu(id, p) {
+  const cs = p.chatSkin;
+  if (!cs || p.exited || cs.promptKind) return;
+  const seg = cs.root.querySelector('.cb-mode');
+  const now = seg ? seg.dataset.mode || 'default' : 'default';
+  const keys = ['default', 'edits', 'plan', 'auto'].concat(now === 'bypass' ? ['bypass'] : []);
+  const items = keys.map((k) => ({ key: k, label: t('chat.mode.' + k), desc: t('chat.mode.d.' + k), checked: k === now }));
+  chatSkinBarMenu(cs, seg, t('chat.mode.head'), items, (key) => void chatSkinModeTo(id, p, key), t('chat.mode.foot'));
+}
+/* Read the mode Claude Code is in now, from the line under its prompt. */
+function chatSkinModeNow(p) {
+  let rows = null;
+  try { rows = chatStatusRows(p); } catch { rows = null; }
+  if (!rows) return null;
+  const text = rows.map((r) => r.translateToString(true)).join('\n');
+  const hit = CS_MODES.find(([, re]) => re.test(text));
+  return hit ? hit[0] : 'default';
+}
+/* Shift+Tab until the line says the mode that was chosen, at most one full cycle, reading the screen after each press. */
+async function chatSkinModeTo(id, p, target) {
+  for (let i = 0; i < 6; i++) {
+    /* Re-checked before EVERY press (review): a permission dialog that arrives while the menu is open would take Shift+Tab as
+       "allow all edits", and with no prompt box on screen the mode cannot be read, so pressing on would be blind. */
+    if (!p.chatSkin || p.chatSkin.promptKind || chatSkinModeNow(p) === null || chatSkinAgentCursor(p) === null) { toast(t('chat.mode.notAvail', { mode: t('chat.mode.' + target) })); return; }
+    if (chatSkinModeNow(p) === target) break;
+    chatSkinModeCycle(id, p);
+    await new Promise((r) => setTimeout(r, 450));
+    if (panes.get(id) !== p || p.exited) return;
+  }
+  chatSkinMirrorStatus(p);
+  if (chatSkinModeNow(p) !== target) toast(t('chat.mode.notAvail', { mode: t('chat.mode.' + target) }));
+}
+/* ONE menu for the bar's choosers (model, mode; the effort keeps its own, which looks the same): a card over the end of the log,
+   under its button's left edge, the current choice ticked, arrows to move, Enter to pick, Esc or a press outside to close. */
+function chatSkinBarMenu(cs, seg, title, items, onPick, foot) {
+  if (!seg) return;
+  let pop = cs.wrap.querySelector('.cb-pop.cb-gen');
+  if (pop && !pop.hidden && pop.dataset.for === seg.className) { pop.hidden = true; if (pop.off) pop.off(); return; }
+  if (!pop) { pop = el('div', 'cb-pop cb-gen'); pop.setAttribute('role', 'menu'); cs.wrap.appendChild(pop); }
+  if (pop.off) pop.off();
+  chatSkinEffortMenu(cs, false);
+  chatSkinSlashClose(cs);
+  pop.dataset.for = seg.className;
+  pop.replaceChildren(el('div', 'cbp-h', title));
+  const opts = [];
+  for (const it of items) {
+    const o = el('button', 'cbp-opt' + (it.apart ? ' auto' : ''));
+    o.type = 'button';
+    o.setAttribute('role', 'menuitemradio');
+    o.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+    const txt = el('span', 'cbp-txt');
+    txt.append(el('span', 'cbp-t', it.label));
+    if (it.desc) txt.append(el('span', 'cbp-d', it.desc));
+    o.append(txt, csIcon('check', 14));
+    o.addEventListener('click', () => { close(); onPick(it.key); });
+    pop.appendChild(o);
+    opts.push(o);
+  }
+  if (foot) pop.appendChild(el('div', 'cbp-f', foot));
+  const close = () => { pop.hidden = true; if (pop.off) { pop.off(); pop.off = null; } try { seg.focus({ preventScroll: true }); } catch { /* detached */ } };
+  pop.hidden = false;
+  const wr = cs.wrap.getBoundingClientRect(), sr = seg.getBoundingClientRect();
+  pop.style.left = Math.max(0, Math.min(sr.left - wr.left, wr.width - pop.offsetWidth)) + 'px';
+  const away = (e) => { if (e.target instanceof Node && !pop.contains(e.target) && !seg.contains(e.target)) close(); };
+  const keys = (e) => {
+    const i = opts.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); const n = (i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length; opts[n].focus(); }
+  };
+  document.addEventListener('pointerdown', away, true);
+  pop.addEventListener('keydown', keys, true);
+  pop.off = () => { document.removeEventListener('pointerdown', away, true); pop.removeEventListener('keydown', keys, true); };
+  const cur = opts.find((o) => o.getAttribute('aria-checked') === 'true') || opts[0];
+  try { cur.focus({ preventScroll: true }); } catch { /* detached */ }
+}
+/* ONE rule for every control in the status bar that types a command into the session (the model, the effort): not while a turn
+   runs, not while a dialog is open, not once the session has ended. The disabled state, the click and the menu all ask here,
+   so the two buttons can never disagree about when typing a line is safe. */
+function chatSkinBarBlocked(p) {
+  const cs = p.chatSkin;
+  return !cs || !!p.exited || !!cs.promptKind || chatSkinWorking(p);
+}
+/* Open or close the effort menu. It floats over the end of the log (see .cb-pop), under the segment's left edge but kept inside
+   the card's width. While open, a press anywhere outside it (and outside its button) closes it; the listener lives on the
+   document only for that time. Esc is handled by the keydown listener in chatSkinBuild, which stops the event before the one
+   that cuts the running turn. */
+function chatSkinEffortMenu(cs, open, refocus) {
+  const m = cs.effort;
+  if (m.open === open) return;
+  if (open && chatSkinBarBlocked(cs.pane)) return;
+  m.open = open;
+  m.pop.hidden = !open;
+  cs.effortSeg.setAttribute('aria-expanded', String(open));
+  if (m.off) { m.off(); m.off = null; }
+  if (open) {
+    chatSkinSlashClose(cs);   // two popups over the same place would hide each other
+    const now = String(cs.status.effort || '');
+    const cur = m.opts.find((o) => o.dataset.level === now) || m.opts[0];
+    for (const o of m.opts) {
+      o.setAttribute('aria-checked', String(o.dataset.level === now));
+      o.tabIndex = o === cur ? 0 : -1;   // roving tabindex: one stop in the menu, the arrows move inside it
+    }
+    const wr = cs.wrap.getBoundingClientRect(), sr = cs.effortSeg.getBoundingClientRect();
+    m.pop.style.left = Math.max(0, Math.min(sr.left - wr.left, wr.width - m.pop.offsetWidth)) + 'px';
+    const away = (e) => { if (e.target instanceof Node && !m.pop.contains(e.target) && !cs.effortSeg.contains(e.target)) chatSkinEffortMenu(cs, false); };
+    document.addEventListener('pointerdown', away, true);
+    m.off = () => document.removeEventListener('pointerdown', away, true);
+    try { cur.focus({ preventScroll: true }); } catch { /* detached */ }
+  } else if (refocus) {
+    try { cs.effortSeg.focus({ preventScroll: true }); } catch { /* detached */ }
+  }
+}
+/* A level was chosen: ask for it exactly as if it had been typed. Claude Code answers in its own words in the log, and a level
+   the current model does not have is refused there; the segment is updated at once (optimistically) and the next payload that is
+   this tab's confirms or corrects it. Only the verified words may be typed, and only through chatSkinSubmit. */
+function chatSkinEffortPick(id, p, level) {
+  const cs = p.chatSkin;
+  if (!cs || chatSkinBarBlocked(p) || !CHAT_EFFORT_MENU.includes(level)) return;
+  chatSkinEffortMenu(cs, false, true);
+  chatSkinSubmit(id, p, '/effort ' + level);
+  cs.status.effort = level;
+  chatPaintUsage(cs);
+  setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') chatSkinRefreshStatus(cs); }, 2500);   // after Claude Code has redrawn its status line
+}
+/* Esc cuts a running turn, exactly as in the terminal. Only while something is running: an idle
+   Esc is not harmless in Claude Code (a second one opens the rewind menu). */
+function chatSkinInterrupt(id, p) {
+  if (p.exited) return;
+  if (chatSkinWorking(p)) {
+    window.glassShell.ptyWrite(id, '\x1b');
+    /* Claude Code writes no marker for a reply stopped mid-text, so the chat would show it simply ending (0.14.0 round):
+       say it here, where the Esc is known. */
+    chatSkinMarkInterrupt(id, p);
+    chatSkinAdoptRestored(id, p);
+    /* The operator stopped this turn: say so to the view, which the transcript may never do for a reply cut mid-text. */
+    setTimeout(() => {
+      if (panes.get(id) !== p || !p.chatSkin) return;
+      const c = p.chatSkin;
+      c.staleSpinner = chatSkinSpinnerLine(p);
+      c.turnOpen = false;
+      c.stalled = false;
+      c.lastSubmitAt = 0;
+      chatSkinPaintAlert(p);
+      chatSkinControls(p);
+    }, 1500);
+    return;
+  }
+  /* Idle: Esc twice is the terminal's "go back to an earlier message". The second Esc within 600 ms passes BOTH on, the way
+     they arrive in the terminal; a single Esc on an idle session does nothing. A draft in the box is left alone. */
+  const cs = p.chatSkin;
+  if (!cs || cs.input.value.trim()) return;
+  const now = Date.now();
+  if (now - (cs.escAt || 0) > 600) { cs.escAt = now; return; }
+  cs.escAt = 0;
+  window.glassShell.ptyWrite(id, '\x1b');
+  setTimeout(() => { if (panes.get(id) === p && !p.exited) window.glassShell.ptyWrite(id, '\x1b'); }, 90);
+}
+
+/* Best effort: a session replaced under the same pty (/clear, a resume that forks) has a new id
+   that the transcript being tailed will never reach. The process tree knows the live one, so ask
+   it — throttled, and it only ever CORRECTS p.sessionId with the same authority the other
+   adoption sites use (session:under), then the normal unwatch + re-watch follows. This is the one
+   place the skin writes an identity field. */
+function chatSkinRecheckId(id, p) {
+  const cs = p.chatSkin;
+  const now = Date.now();
+  if (!cs || cs.idChecks >= 3 || now - (cs.idCheckedAt || 0) < CS_STALL_MS / 2) return;   // bounded: an idle new session has no transcript yet and must not poll `ps` forever
+  cs.idCheckedAt = now; cs.idChecks++;
+  void window.glassShell.sessionUnder([id]).then((map) => {
+    const real = map && map[id];
+    if (real && real.id && real.id !== p.sessionId && panes.get(id) === p) {
+      p.sessionId = real.id;
+      persistSessions();
+      chatSkinSessionChanged(id, p);
+    }
+  }).catch(() => { /* ps unavailable — the next check retries */ });
+}
+
+/* One timer for the whole window, doing nothing unless a pane is in chat view. It owns the things
+   no event announces: the working indicator going quiet, the stalled-transcript safety net, and a
+   gentle refresh of the global usage numbers. */
+/* Claude Code's FIRST RUN (login method, browser sign-in with a code to paste, text style, security notes) is the terminal's:
+   the "paste the code" step is not a menu a card can draw, and a newcomer waiting on a chat that shows nothing would be
+   stuck. While one of these screens is up and Claude Code's prompt box is not, the pane shows the terminal; once the prompt
+   box appears, it goes back to chat. Phrases checked against the installed 2.1.314. */
+const CS_FIRST_RUN = /Select login method|Choose the text style|Paste code here|Welcome to Claude Code|Let's get started|Security notes|Browser didn't open/;
+function chatSkinFirstRun(id, p) {
+  if (chatMode !== 'chat' || !chatSkinEligible(p)) return;
+  let text = '';
+  try { text = chatSkinScreenText(p); } catch { return; }
+  const ready = chatSkinAgentCursor(p) !== null;   // the prompt box with its status line: Claude Code is past its first run
+  if (!ready && CS_FIRST_RUN.test(text)) {
+    if (p.view === 'chat') { p.firstRunTerm = true; chatSkinSetView(id, 'term'); }
+  } else if (p.firstRunTerm && ready) {
+    p.firstRunTerm = false;
+    if (p.view !== 'chat') chatSkinSetView(id, 'chat');
+  }
+}
+/* A PANEL NOTHING RECOGNISED. Claude Code 2.1.314's /cost (also /status, /config, /usage, /stats) opens a full-screen Settings
+   panel whose "Esc" footer falls below a short terminal's last row, so no detector sees it: the chat looked idle while
+   every key went into the panel (0.14.0 sweep). The general rule: Claude Code's prompt box gone for 1.5 s, while it is not
+   working and no known dialog explains it, means something is up that only the terminal can show. The chat then shows the
+   live terminal (the strip) and gives it the keyboard; when the prompt box comes back (Esc), the chat returns by itself. */
+function chatSkinLostPrompt(id, p, now) {
+  const cs = p.chatSkin;
+  if (!cs) return;
+  const box = chatSkinAgentCursor(p) !== null;
+  if (box) {
+    cs.sawPrompt = true;
+    cs.lostSince = 0;
+    if (cs.lostPrompt) { cs.lostPrompt = false; chatSkinLayout(p); chatSkinFocus(p); }
+    return;
+  }
+  if (!cs.sawPrompt || cs.promptKind || chatSkinWorking(p) || p.exited) { cs.lostSince = 0; return; }
+  if (!cs.lostSince) { cs.lostSince = now; return; }
+  if (!cs.lostPrompt && now - cs.lostSince > 1500) {
+    cs.lostPrompt = true;
+    chatSkinLayout(p);
+    setTimeout(() => { if (panes.get(id) === p && cs.lostPrompt) { repaintTerm(p); try { p.term.focus(); } catch { /* gone */ } } }, 60);
+  }
+}
+function chatSkinTick() {
+  if (document.hidden) return;
+  const now = Date.now();
+  for (const [id, p] of panes) {
+    if (p.kind !== 'term') continue;
+    chatSkinFirstRun(id, p);
+    /* Reconcile sessions learned by a path that does not call chatSkinSessionChanged itself
+       (adoptUnidentified, or an assignment added later): idempotent, no DOM work when nothing moved. */
+    const ok = chatSkinEligible(p);
+    if (ok !== p.csEligible) {
+      p.csEligible = ok;
+      chatSkinSessionChanged(id, p);
+      /* Claude started inside a terminal that was a plain shell until now (or came back after an ending): it takes the mode the
+         operator chose, since there is no tab switch left to reach for. Only on the flip, so a "Show terminal" is never undone. */
+      if (ok && chatMode === 'chat' && p.view !== 'chat' && !p.firstRunTerm) chatSkinSetView(id, 'chat');
+    }
+    else if (p.view === 'chat') chatSkinSync(id, p);
+    if (p.view === 'chat') chatSkinLostPrompt(id, p, now);
+    const cs = p.chatSkin;
+    if (p.view !== 'chat' || !cs) continue;
+    chatSkinControls(p);
+    const busyNow = chatSkinWorking(p, now);
+    if (busyNow && !cs.workSince) cs.workSince = now;   // a working stretch begins: its clock starts here
+    else if (!busyNow) cs.workSince = 0;
+    if (busyNow) chatSkinWorkMeta(p);   // the clock ticks even while Claude Code's own line is still
+    const quiet = now - cs.lastEventAt;
+    /* Not while Claude Code's spinner is live (0.14.0 aiostest round: a long think writes nothing to the transcript until it is done,
+       and "quiet for a while" sat under "working… 1m 55s · ↓ 3.2k tokens"). Quiet AND no live spinner is what stuck looks like. */
+    const stalled = !cs.promptKind && cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS * 2 && quiet > CS_STALL_MS && !chatSkinSpinnerOn(p);
+    if (stalled !== cs.stalled) { cs.stalled = stalled; chatSkinPaintAlert(p); }
+    // a transcript that stays silent (stalled, or never appearing) may belong to a session that was replaced
+    if (stalled || (cs.state === 'waiting' && cs.watched && now - cs.watchedAt > CS_STALL_MS / 2)) chatSkinRecheckId(id, p);
+    if (now - cs.statusAt > CS_STATUS_MS) chatSkinRefreshStatus(cs);
+  }
+}
+setInterval(chatSkinTick, CS_TICK_MS);
+/* ═══ END CHAT SKIN ═══ */
 
 /** Plan my day, dual-use: open today's note if it already exists, else run /aios:today to create
  *  it. One function, so Home and the Next steps page cannot drift into two meanings of the button. */
@@ -7692,12 +11759,96 @@ function openSettingsTab() {
     rendSel.addEventListener('change', () => { setTermRenderer(rendSel.value); toast(t('settings.saved')); });
     row(wrap, t('settings.termRenderer'), rendSel, t('settings.termRendererHint'));
 
+    /* Unattended mode — per machine for the same reason as the renderer above, and more so: it
+       answers Claude's prompts by itself, so it must never ride a synced settings file onto a
+       machine where someone is sitting. Takes effect at once for new tabs, and at next launch
+       for the restore. */
+    const unSel = document.createElement('select');
+    unSel.className = 'tinput';
+    for (const [l, v] of [[t('unattended.off'), 'off'], [t('unattended.summary'), 'summary'], [t('unattended.full'), 'full']]) {
+      const o = document.createElement('option'); o.textContent = l; o.value = v; unSel.appendChild(o);
+    }
+    unSel.value = UNATTENDED;
+    unSel.addEventListener('change', () => {
+      UNATTENDED = unattendedModeOf(unSel.value);
+      try { localStorage.setItem(UNATTENDED_KEY, UNATTENDED); } catch { /* private mode: lasts this run */ }
+      toast(t('settings.saved'));
+    });
+    row(wrap, t('settings.unattended'), unSel, t('settings.unattendedHint'));
+
     const fontIn = document.createElement('input');
     fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = '18'; fontIn.style.width = '70px';
     fontIn.value = String(cfg.termFontSize || 12.5);
     // Live now, like ⌘+/− in a terminal: every open terminal changes, and new ones match.
     fontIn.addEventListener('change', () => setTermFont(Number(fontIn.value) || TERM_FONT_DEFAULT));
     row(wrap, t('settings.termFont'), fontIn, t('settings.termFontHint'));
+
+    /* How Claude sessions look: Chat | Terminal. ONE choice for every session — applied at once to the ones that are open
+       (chatSkinSetMode) and read by each new, restored or resumed one. The font and size below only mean something in Chat, so
+       they step aside in Terminal. A select, like every other choice on this screen. */
+    const claudeViewSel = document.createElement('select');
+    claudeViewSel.className = 'tinput';
+    for (const [l, v] of [[t('settings.claudeView.chat'), 'chat'], [t('settings.claudeView.terminal'), 'terminal']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; claudeViewSel.appendChild(o); }
+    claudeViewSel.dataset.setting = 'claudeView';   // a stable handle for the screenshot harness
+    claudeViewSel.value = chatMode;   // the live mode (read at boot, moved by every change), so the page never disagrees with the open tabs
+    row(wrap, t('settings.claudeView'), claudeViewSel, t('settings.claudeViewHint'));
+
+    /* The chat's reading font and size. They are set HERE and nowhere in the chat view itself: reading settings are
+       chosen once and are in the way afterwards, so the conversation keeps no menu for them. A change applies at once
+       to every chat view that is open (chatApplyPrefs) and is saved under the same two keys the chat has always read
+       (chatFontFamily / chatFontSize), so nothing the operator already chose is lost. Seeded from the config this page
+       was just built from, because chatPrefs only learns of a saved value when a chat view is entered. */
+    chatReadPrefs(cfg);
+    /* A font stack or a size written into the config by hand stays selectable as an extra entry instead of being silently replaced. */
+    const chatPrefSelect = (options, current) => {
+      const sel = document.createElement('select');
+      sel.className = 'tinput';
+      const all = options.some(([, v]) => v === current) ? options : [...options, [current, current]];
+      for (const [l, v] of all) { const o = document.createElement('option'); o.textContent = l; o.value = v; sel.appendChild(o); }
+      sel.value = current;
+      return sel;
+    };
+    const chatFontSel = chatPrefSelect(CHAT_FONTS.map((f) => [t(f.label), f.stack]), chatPrefs.family);
+    const chatSizeSel = chatPrefSelect(CHAT_SIZES.map((n) => [String(n), String(n)]), String(chatPrefs.size));
+    chatSizeSel.style.width = '90px';
+    /* What the two choices look like, drawn with the same two custom properties the chat view reads. */
+    const chatSample = el('div', 'chat-pref-sample', t('chat.settings.sample'));
+    const paintChatSample = () => {
+      chatSample.style.setProperty('--chat-font', chatPrefs.family || 'inherit');
+      chatSample.style.setProperty('--chat-size', String(chatPrefs.size));
+    };
+    paintChatSample();
+    chatFontSel.addEventListener('change', async () => {
+      chatPrefs.family = chatFontSel.value;
+      chatApplyPrefs();
+      paintChatSample();
+      await window.glassShell.setSetting('chatFontFamily', chatPrefs.family);
+      toast(t('settings.saved'));
+    });
+    chatSizeSel.addEventListener('change', async () => {
+      const v = Number(chatSizeSel.value);
+      if (!Number.isFinite(v)) return;
+      chatPrefs.size = v;
+      chatApplyPrefs();
+      paintChatSample();
+      await window.glassShell.setSetting('chatFontSize', v);
+      toast(t('settings.saved'));
+    });
+    const chatFontRow = row(wrap, t('settings.chatFont'), chatFontSel, t('settings.chatFontHint'));
+    const chatSizeRow = row(wrap, t('settings.chatSize'), chatSizeSel, t('settings.chatSizeHint'));
+    wrap.appendChild(chatSample);
+    const paintClaudeView = () => {
+      if (!claudeViewSel.isConnected && claudeViewSel.dataset.painted) { chatModeSubs.delete(paintClaudeView); return; }   // the page was closed
+      claudeViewSel.dataset.painted = '1';
+      claudeViewSel.value = chatMode;
+      for (const n of [chatFontRow, chatSizeRow, chatSample]) n.hidden = chatMode !== 'chat';
+    };
+    chatModeSubs.add(paintClaudeView);
+    paintClaudeView();
+    claudeViewSel.addEventListener('change', async () => {
+      await chatSkinSetMode(claudeViewSel.value);
+      toast(t('settings.saved'));
+    });
 
     // interface scale — the UI's counterpart to terminal font size, applied live
     const appFontIn = document.createElement('input');
@@ -9958,3 +14109,19 @@ void initLocale().then(async () => {
 });
 
 window.__workbenchOk = true; // smoke gate 4
+
+/* Esc stops the reply in front of you from anywhere in the window (0.14.0 round): the chat's own listener only hears it while
+   the focus is inside the chat, and a click on a tab, a chip or the panel moved it out. Runs last, and only when nothing
+   else took the key: not in a text field or a terminal, no menu, dialog or popover open, and the active session is in chat. */
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.repeat) return;
+  const tg = e.target instanceof Element ? e.target : null;
+  if (tg && (tg.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.closest('.xterm'))) return;
+  if (document.querySelector('.modal-wrap, .tgedit, .xctx:not([hidden]), [role="menu"]:not([hidden]), [role="dialog"]:not([hidden])')) return;
+  const id = active.term;
+  const p = panes.get(id);
+  if (!p || p.view !== 'chat' || !p.chatSkin || !p.chatSkin.root.isConnected || p.chatSkin.promptKind) return;
+  if (p.chatSkin.root.contains(document.activeElement)) return;   // the chat's own listener has it
+  e.preventDefault();
+  chatSkinInterrupt(id, p);
+});

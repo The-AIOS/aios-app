@@ -39,6 +39,9 @@ function harness(panesIn: Array<[number, Pane]>, lookup: (ids: number[]) => Reco
     'let restoreQuitting = false; let restoreTimer = 0; let restorePending = null;',
     "const RESTORE_KEY = 'shellSessions';",
     "const CLAUDE = 'claude';",
+    // Tab groups ride in the snapshot; no group here, so the real lookup over an empty set.
+    'const tabGroups = new Map();',
+    grab(/const tgOf = [^\n]*\n/, 'tgOf'),
     grab(/function paneIsClaude\(cmd\) \{[\s\S]*?\n\}/, 'paneIsClaude'),
     grab(/function sessionsSnapshot\(\) \{[\s\S]*?\n\}/, 'sessionsSnapshot'),
     grab(/function persistSessions\(\) \{[\s\S]*?\n\}/, 'persistSessions'),

@@ -4,6 +4,7 @@ import * as os from 'os';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as aios from './aios';
+import { resolveBash } from './resolveBash';
 import { parseRequest, buildSpawnCmd, buildResumeCmd, needsTaskFile, taskFileInstruction, fallbackSpawnRequest, type BusRequest } from '../core/commandBus';
 import { recordTyped } from './busSent';
 import { settingsToFile } from './advisorFile';
@@ -11,6 +12,7 @@ import { contract4LaunchArgs, cleanFrom, advisorModelFor } from '../core/contrac
 import { needsConsultBlock, ADVISOR_CONSULT_BLOCK } from '../core/advisor';
 import { normalizeVerb } from '../core/busVerbs';
 import { ResumeIndex } from './resumeIndex';
+import { staleResumeName } from '../core/resumeTarget';
 import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '../core/supersede';
 import { resolveSessionName, resolveFormerName, sessionKey } from '../core/nameMatch';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
@@ -26,10 +28,9 @@ import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs }
 import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presence';
 import { MY_SURFACE } from './surface';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
-import { pickBash } from '../core/bashResolve';
 import { TranscriptSince, readTranscript } from './transcriptSince';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
-import { resolveBusCwd, grantBusCwd } from './busCwd';
+import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -419,6 +420,22 @@ const resumeIndex = new ResumeIndex(
 function resumeIdFor(name: string, excludeSessionId?: string): Promise<string | undefined> {
   return resumeIndex.lookup(name, excludeSessionId).catch(() => undefined);
 }
+/* AI-228: the session's current name as its own transcript says it NOW (the last 2 MB hold the newest records), or '' when
+   it matches `want` or cannot be read. A read failure never blocks a resume: the index already matched the name. */
+function currentNameIfStale(sessionId: string, want: string): string {
+  const f = resumeIndex.fileOf(sessionId);
+  if (!f) return '';
+  try {
+    const st = fs.statSync(f);
+    const len = Math.min(st.size, 2 * 1024 * 1024);
+    const fd = fs.openSync(f, 'r');
+    try {
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, st.size - len);
+      return staleResumeName(buf.toString('utf8'), want);
+    } finally { fs.closeSync(fd); }
+  } catch { return ''; }
+}
 
 /** AI-205 — every send currently held by any surface (both surfaces' `.holding` files). */
 function heldSends(): QueuedSend[] {
@@ -494,45 +511,6 @@ function resolveTier(tier: string): { model?: string } | { error: string } {
   }
 }
 
-/**
- * Where is a `bash` this process can actually run? (AI-146 · canonical issue #116)
- *
- * MEASURED ON WINDOWS: a bus request carrying `"tier":"judgment"` was claimed and retired as
- * `spawnSync bash ENOENT`, while the identical request WITHOUT the field was fulfilled 90s later.
- * So the field was the defect, not the bus — and `hooks/resolve-tier` itself is fine: from Git
- * Bash on that same machine it returns Haiku for `fast` and empty+exit-0 for `judgment`, exactly
- * as documented.
- *
- * THE GAP IS NOT A MISSING `.ps1`, and that distinction is the whole fix. Six extensionless bash
- * hooks ship with no PowerShell sibling — `aios-commit`, `aios-snapshot`, `aios-note-append`,
- * `pre-commit`, `pre-push`, `resolve-tier` — and a Windows operator runs `aios-commit` daily.
- * They work because a SESSION has bash. `resolve-tier` is simply the only one whose caller is a
- * Node process, and Node inherits no shell. So locating a bash HONOURS a prerequisite that
- * already exists rather than adding one; shipping a third hand-maintained copy of the rung→model
- * table would be the change that adds something, and it is the drift AI-129 ended.
- *
- * Ordered, and each step says what it proves. Returns null when nothing is found, which is a
- * REFUSAL — never a licence to default a model.
- */
-function resolveBash(): string | null {
-  /* THE LOOKING lives here; the CHOOSING lives in src/core/bashResolve.ts, so the ordering can be
-     exercised from any platform. `where bash` is Windows' own PATH lookup and prints one hit per
-     line; everything else is read from the environment. */
-  let pathHit: string | undefined;
-  if (process.platform === 'win32') {
-    try {
-      pathHit = execFileSync('where', ['bash'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0];
-    } catch { /* not on PATH — pickBash falls through to the Git for Windows locations */ }
-  }
-  return pickBash(process.platform, {
-    shell: process.env.SHELL,
-    pathHit,
-    programFiles: process.env.ProgramFiles,
-    localAppData: process.env.LOCALAPPDATA,
-    exists: (f) => { try { return fs.existsSync(f); } catch { return false; } },
-  });
-}
 
 function markUndelivered(fromPath: string, req: BusRequest | null, reason: string): void {
   log(`DEAD LETTER — a message to '${req?.name ?? '?'}' was never delivered: ${reason}`);
@@ -857,6 +835,8 @@ async function runSend(
 function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest): void {
     const where = launchCwd(heldPath, req);
     if (!where) return;
+    const addDirs = launchAddDirs(heldPath, req);
+    if (!addDirs) return;
     let taskFile: string | undefined;
     /* The worker's model is decided first: the consult instruction depends on it, and appending it
        can turn a short inline task into a multi-line one that must spill to a file.
@@ -893,14 +873,14 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     const c4 = contract4Args(req);
     if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
     const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
-      task: req.task || 'Start session', model, taskFile, extraArgs: c4.args,
+      task: req.task || 'Start session', model, taskFile, addDirs, extraArgs: c4.args,
     });
     // AI-172: the first prompt the worker receives is bus-typed too — record exactly that text.
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
     // background like every other bus path (#47): a fresh spawn was the one that still switched the
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
     emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where });
-    log(`spawn '${req.name}'${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+    log(`spawn '${req.name}'${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
 
 /**
@@ -927,7 +907,7 @@ async function resumeOrReveal(win: () => BrowserWindow | undefined, heldPath: st
        coordinator with exactly this request, so without the flag every finished worker pulled
        the operator's screen onto the coordinator's tab, mid-sentence. */
     emit(win(), 'focusByName', { name: req.name, background: true });
-    log(`resume '${req.name}' — already running, revealing and delivering${req.effort || req.advisor ? ' (effort/advisor NOT applied: a running session cannot change them)' : ''}`);
+    log(`resume '${req.name}' — already running, revealing and delivering${req.effort || req.advisor || req.addDirs !== undefined ? ' (effort/advisor/addDirs NOT applied: a running session cannot change them)' : ''}`);
     if (req.prompt) void runSend(win, heldPath, { ...req, action: 'send' }, Date.now());
     else try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
     return;
@@ -951,8 +931,16 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       }
       log(`resume '${req.name}' — no transcript; falling back to spawn as asked`);
     } else {
+      const now = currentNameIfStale(sid, req.name);
+      if (now) {
+        markUndelivered(heldPath, req, `resume '${req.name}': that session is now called '${now}', so resume it as '${now}'. `
+          + 'It was not reopened under the old name: its terminal and its tab would carry different names, and bus messages to either would be lost (AI-228).');
+        return;
+      }
       const where = launchCwd(heldPath, req);
       if (!where) return;
+      const addDirs = launchAddDirs(heldPath, req);
+      if (!addDirs) return;
       let taskFile: string | undefined;
       /* Same Windows quoting rule as spawn: PowerShell mangles POSIX-quoted apostrophes, so
          every prompt goes through a file there. */
@@ -965,12 +953,12 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       }
       const c4 = contract4Args(req);
       if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
-      const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, extraArgs: c4.args });
+      const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, addDirs, extraArgs: c4.args });
       if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);   // AI-172
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).
       emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where });
-      log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${taskFile ? ' (via file)' : ''}`);
+      log(`resume '${req.name}' → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${taskFile ? ' (via file)' : ''}`);
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
       return;
     }
@@ -995,6 +983,18 @@ function launchCwd(heldPath: string, req: BusRequest): { cwd?: string } | null {
   if ('error' in r) { markUndelivered(heldPath, req, r.error); return null; }
   grantBusCwd(r.cwd);
   return { cwd: r.cwd };
+}
+
+/**
+ * The extra directories a launched session is granted with `--add-dir`: `[]` when the request names
+ * none, the resolved list when every entry is valid, or null after dead-lettering the first one it
+ * cannot honour — never a launch with the rest, for the same reason as `cwd`.
+ */
+function launchAddDirs(heldPath: string, req: BusRequest): string[] | null {
+  if (req.addDirs === undefined) return [];
+  const r = resolveBusAddDirs(req.addDirs);
+  if ('error' in r) { markUndelivered(heldPath, req, r.error); return null; }
+  return r.dirs;
 }
 
 /** spawn / kill act immediately once claimed — nothing about the target can refuse them. */

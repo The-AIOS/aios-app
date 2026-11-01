@@ -9,7 +9,8 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { resolveBusCwd, grantBusCwd, isBusCwdGranted } from '../main/busCwd';
+import { resolveBusCwd, grantBusCwd, isBusCwdGranted, setBusRoots } from '../main/busCwd';
+setBusRoots(() => ({}));   // no AIOS folder unless a test names one
 import { parseRequest, fallbackSpawnRequest, buildSpawnCmd } from '../core/commandBus';
 
 function sandbox(): { home: string; outside: string; done: () => void } {
@@ -22,12 +23,18 @@ function sandbox(): { home: string; outside: string; done: () => void } {
   return { home, outside, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('cwd: an existing directory inside home is accepted, resolved to its real path', () => {
+test('issue 87 cwd: only the AIOS folder itself, resolved to its real path; anything else is refused naming addDirs (operator rule, 0.14.0)', () => {
   const s = sandbox();
   try {
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', 'guard'), s.home), { cwd: path.join(s.home, 'work', 'guard') });
-    assert.deepEqual(resolveBusCwd(s.home, s.home), { cwd: s.home }, 'home itself is inside home');
-    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work', 'guard'), s.home), { cwd: path.join(s.home, 'work', 'guard') });
+    const fw = path.join(s.home, 'work');
+    assert.deepEqual(resolveBusCwd(path.join(s.home, 'work', '..', 'work'), s.home, { framework: fw }), { cwd: fw });
+    for (const d of [path.join(fw, 'guard'), s.home]) {
+      const r = resolveBusCwd(d, s.home, { framework: fw }) as { error?: string };
+      assert.match(r.error ?? '', /always starts in the AIOS folder.*addDirs/, d);
+    }
+    if (process.platform === 'darwin' || process.platform === 'win32') {
+      assert.match((resolveBusCwd(path.join(s.home, 'WORK', 'guard'), s.home, { framework: fw }) as { error?: string }).error ?? '', /always starts/, 'case-insensitive volume');
+    }
   } finally { s.done(); }
 });
 

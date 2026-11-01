@@ -96,7 +96,8 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
 
 - \`task\` — optional first prompt. \`"model": "<id>"\` **or** \`"tier": "<rung>"\` — optional, routes the worker by cognitive load.
 - **The rung names are not listed here on purpose.** This file used to name a closed set of two, went stale when the ladder grew, and then contradicted the handler beside it — while \`CLAUDE.md\` points sessions at this file as the protocol's authority. So an agent reading the authority would have concluded the current rungs were invalid. Ask the one table instead: **\`~/aios/hooks/resolve-tier --list\`** prints every rung and what it resolves to, and \`MODEL-ROUTING.md\` says what each is *for*. An unknown rung is refused with a dead letter that lists the valid ones, so a guess is safe — it fails loudly rather than falling back.
-- \`cwd\` — optional, **App only**: the directory the session's terminal opens in, e.g. \`"cwd": "/Users/<you>/work/reviewer"\`. Absolute, an existing directory, inside your home once symlinks are resolved — anything else is dead-lettered naming the field, never quietly opened somewhere else. Absent = the framework root, as before. **Glass dead-letters a request carrying \`cwd\`** (naming the field) rather than open it in the wrong folder, so send \`"surface": "app"\` with it.
+- \`cwd\` — optional, **App only**, and only ever the AIOS folder: a bus session always starts there, so it loads the AIOS's own \`CLAUDE.md\`, context floor and limits. Any other folder is dead-lettered naming it. Leave it out (that is the AIOS folder); to work in a repo, list the repo in \`addDirs\`. **Glass dead-letters a request carrying \`cwd\`** unless the App is running, in which case Glass hands it to the App; a sender can pin \`"surface": "app"\`.
+- \`addDirs\` — optional, **App only**: more directories the session may work in, each passed to \`claude\` as its own \`--add-dir\`, e.g. \`"addDirs": ["/Users/<you>/dev/repo"]\`. Use it to start in the framework root and still reach a repo, so the worker is not stopped asking for permission to read it. Every entry must be absolute, an existing directory, inside your home once symlinks are resolved, and none of: your home folder itself, a hidden folder (a name starting with a dot), \`~/Library\` or AppData, the AIOS folder, a folder inside it or one containing it. At most 16. Because these paths are typed into the session's shell, a control character is refused everywhere, and on Windows (PowerShell) so is an apostrophe. One bad entry dead-letters the whole request naming it (\`addDirs[1] '…'\`). The session never opens with the others only. Absent or \`[]\` = none, as before. Glass does not honour it, so send \`"surface": "app"\` with it.
 - A name that is already live is *revealed*, never duplicated.
 - No \`task\` still bootstraps **when the App fulfils the request** — it sends a first prompt, so the worker runs its Session Start Ritual on turn one instead of sitting idle. Glass boots the session and leaves it at the prompt (the ritual fires on the first turn, and there is no first turn). Pass a \`task\` when you need one rather than relying on a bootstrap the other surface doesn't perform.
 
@@ -145,15 +146,20 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
   \`send\` would. Resuming a live session would give one identity two processes.
 - **Any age.** A name is found however old its session is: an index of every transcript, not a
   count of the newest ones. If a session was renamed, its latest name is the one that counts.
+  An OLD name is refused with a dead letter that names the current one; it is never reopened
+  under the old name (its terminal and tab would disagree, and messages to either would be lost).
 - **Nothing to resume?** A dead letter naming the session — never a silent spawn.
   Add \`"fallback": "spawn"\` to opt into starting a fresh one instead:
 
       { "action": "resume", "name": "designer", "prompt": "…", "fallback": "spawn" }
 
   The fresh session opens with your \`prompt\` as its first message, exactly as a spawn's \`task\`.
-- \`cwd\` (App only) works here too, with the same rules as on spawn — pass the directory the
-  session originally ran in, since Claude Code keeps transcripts per directory. It also applies to
-  the fallback spawn. Glass dead-letters it, so pin \`"surface": "app"\` alongside.
+- \`cwd\` (App only) follows the same rule as on spawn: only the AIOS folder. A session that ran in
+  another folder (one an older App started there) is best reopened from that folder by hand:
+  \`cd <folder> && claude --resume <id>\`. \`addDirs\` works here too, for the reopened session.
+- \`addDirs\` (App only) works here too, with the same rules as on spawn, and applies to the
+  fallback spawn. A session that is already running cannot gain directories: it is revealed and
+  your prompt delivered, without them.
 - No \`--name\` and no \`--model\` are passed: a resumed session keeps the identity and the model
   it already had.
 

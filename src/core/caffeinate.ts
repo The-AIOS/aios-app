@@ -53,6 +53,45 @@ export function anyBusy(statuses: readonly unknown[]): boolean {
 }
 
 /**
+ * Which sessions are still waiting on a shell they started?
+ *
+ * Claude Code reports a session `idle` the moment its turn ends, even when the turn ended on
+ * "I'll pick this up when the CI watch reports" with a background shell still running. Reading
+ * only the status, `auto` released the blocker on exactly that turn, the Mac idle-slept, the
+ * shell stalled, and every later wake-up turn died mid-reply ("Your computer went to sleep
+ * mid-response", 2026-10-31, three times in one afternoon).
+ *
+ * A Bash-tool shell is a DIRECT child of its session's `claude` process and its command sources
+ * Claude Code's shell snapshot, so `ps -axo pid=,ppid=,command=` answers this without asking the
+ * CLI anything. MCP servers are children too and must not count; they never source a snapshot.
+ */
+export const SHELL_MARKER = '/shell-snapshots/snapshot-';
+
+export function sessionsAwaitingShells(psOut: string, sessionPids: readonly number[]): Set<number> {
+  const want = new Set(sessionPids);
+  const out = new Set<number>();
+  for (const line of psOut.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const ppid = Number(m[2]);
+    if (want.has(ppid) && m[3].includes(SHELL_MARKER)) out.add(ppid);
+  }
+  return out;
+}
+
+/**
+ * How long a waiting shell keeps the Mac awake after its session went idle (review, 0.14.0). A CI watch or a test run
+ * the session will pick up again finishes well inside this; a dev server or `tail -f` left running in the background
+ * never does, and without a bound it held the machine (and, with the lid extension, a closed laptop) awake forever.
+ */
+export const SHELL_GRACE_MS = 60 * 60 * 1000;
+
+/** Does a session idle since `idleSince` (ms) still count as working because of its shell? Unknown time counts not. */
+export function shellStillCounts(idleSince: number, now: number): boolean {
+  return idleSince > 0 && now - idleSince < SHELL_GRACE_MS;
+}
+
+/**
  * Should the power blocker be held?
  *
  * `override` wins in BOTH modes, and that is a requirement rather than a convenience — the

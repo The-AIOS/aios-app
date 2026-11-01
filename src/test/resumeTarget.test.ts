@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNamesIn, latestAgentName, pickResume, isSafeSessionId, type ResumeCandidate } from '../core/resumeTarget';
+import { agentNamesIn, latestAgentName, pickResume, isSafeSessionId, staleResumeName, type ResumeCandidate } from '../core/resumeTarget';
 import { parseRequest, buildResumeCmd, buildSpawnCmd } from '../core/commandBus';
 
 const rec = (name: string, sid = 's1') =>
@@ -233,4 +233,12 @@ test('the built command quotes the id even so — one guard is a policy, two is 
   assert.match(cmd, /--resume '7526be1c-68b2-4ac6-b259-1efe4b2f9b02'/);
   // a metacharacter that somehow got through is inert rather than executed
   assert.doesNotMatch(buildResumeCmd('claude', 'a; rm -rf ~'), /--resume a; rm/);
+});
+
+test('AI-228: a resume launches only while the transcript still answers to the name asked for', () => {
+  const rec = (n: string): string => `{"type":"agent-name","agentName":"${n}","sessionId":"4b4fcc15"}\n`;
+  const tail = rec('amplifier-substack').repeat(2) + rec('amplifier-writer').repeat(3);
+  assert.equal(staleResumeName(tail, 'amplifier-substack'), 'amplifier-writer', 'the stale name is refused, naming the current one');
+  assert.equal(staleResumeName(tail, 'Amplifier-Writer'), '', 'the current name launches (case-insensitive)');
+  assert.equal(staleResumeName('no names here', 'x'), '', 'nothing to compare: the index match stands');
 });

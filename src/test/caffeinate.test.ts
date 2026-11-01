@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import {
-  isBusyStatus, anyBusy, desiredBlocker, caffeinateReason, nextOverride, BLOCKER_TYPE,
+  isBusyStatus, anyBusy, sessionsAwaitingShells, shellStillCounts, SHELL_GRACE_MS, desiredBlocker, caffeinateReason, nextOverride, BLOCKER_TYPE,
   type CaffeinateMode,
 } from '../core/caffeinate';
 
@@ -351,4 +351,39 @@ test('every chord the RENDERER handles alone is listed in the shortcuts sheet', 
     const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
     assert.ok(en[m[1]], `${m[1]} has no English label — the sheet would print the key`);
   }
+});
+
+test('an idle session still running a shell it started counts as busy; its MCP servers do not', () => {
+  /* 2026-10-31: a session ended its turn waiting on a background CI watch, reported idle, auto
+     released, the Mac slept, and its next turns died mid-reply. Rows shaped like real `ps` output. */
+  const ps = [
+    '  4508  4404 claude --resume bbc6908c',
+    '  9001  4508 /bin/zsh -c source /Users/x/.claude/shell-snapshots/snapshot-zsh-1793-ab.sh 2>/dev/null || true && sleep 45',
+    '  9002  4508 node /Users/x/aios/mcps/obsidian-mcp/index.js',
+    '  9003  7777 node /Users/x/aios/mcps/slack-mcp/index.js',
+    '  9004  9001 gh run watch 123',
+    '  9005  5555 /bin/zsh -c source /Users/x/.claude/shell-snapshots/snapshot-zsh-1793-cd.sh && make',
+  ].join('\n');
+  assert.deepEqual([...sessionsAwaitingShells(ps, [4508, 7777])], [4508],
+    'the session with a snapshot-sourcing child is waiting; one with only an MCP child is not');
+  assert.equal(sessionsAwaitingShells(ps, [5555]).size, 1, 'any registered session pid can match');
+  assert.equal(sessionsAwaitingShells(ps, []).size, 0, 'a shell whose parent is not a session never counts');
+  assert.equal(sessionsAwaitingShells('', [4508]).size, 0, 'a failed probe means nobody is waiting');
+});
+
+test('the driver folds waiting shells into busy, and never waits on ps inside a tick', () => {
+  const main = fs.readFileSync('src/main/caffeinate.ts', 'utf8');
+  assert.ok(!/anyBusy\(aios\.listRunningAgents/.test(main),
+    'every busy read goes through busyNow(); a bare status read would bring the sleep back');
+  assert.ok(/execFile\('ps'/.test(main) && !/execFileSync/.test(main), 'the probe is asynchronous');
+});
+
+test('a waiting shell keeps the Mac awake for an hour after its session went idle, not forever', () => {
+  /* Review, 0.14.0: a dev server or `tail -f` in the background would otherwise hold the machine awake indefinitely. */
+  const now = 1_800_000_000_000;
+  assert.equal(SHELL_GRACE_MS, 60 * 60 * 1000);
+  assert.equal(shellStillCounts(now - 20 * 60 * 1000, now), true, 'a CI watch 20 min in still counts');
+  assert.equal(shellStillCounts(now - 61 * 60 * 1000, now), false, 'past the hour it no longer holds');
+  assert.equal(shellStillCounts(0, now), false, 'an unknown idle time never holds');
+  assert.ok(/awaiting\.has\(a\.pid\) && shellStillCounts\(/.test(fs.readFileSync('src/main/caffeinate.ts', 'utf8')), 'the driver applies the bound');
 });

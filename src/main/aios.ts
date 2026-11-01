@@ -11,6 +11,8 @@ import {
 import type { CaffeinateMode } from '../core/caffeinate';
 import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
+import { resolveBash } from './resolveBash';
+import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '../core/accounts';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
@@ -1041,60 +1043,62 @@ export function setPrimaryName(name: string): { ok: boolean; name: string } {
 }
 
 // ── Anthropic accounts (#32 — quota rotation, Glass launchAccountSwap parity) ──
-// USER.md carries a numbered list of backticked emails under the "Anthropic accounts"
-// heading; `hooks/claude-identity/claude-identity.sh switch <email>` swaps the Keychain
-// credentials + ~/.claude.json atomically. We read the roster and shell the script —
-// never reimplement the swap.
-export interface AnthropicAccount { email: string; note: string; current: boolean; }
-export function anthropicAccounts(): AnthropicAccount[] {
-  const r = frameworkRoot();
-  if (!r) return [];
-  let md = '';
-  try { md = fs.readFileSync(path.join(r, 'USER.md'), 'utf8'); } catch { return []; }
-  const start = md.search(/^##\s+Anthropic accounts/im);
-  if (start < 0) return [];
-  const rest = md.slice(start);
-  const end = rest.search(/^##\s+(?!Anthropic)/im);
-  const block = end > 0 ? rest.slice(0, end) : rest;
-  const active = claudeConfig().account;
-  const out: AnthropicAccount[] = [];
-  for (const line of block.split('\n')) {
-    const m = /^\s*\d+\.\s*`([^`]+@[^`]+)`\s*(?:—|-)?\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const email = m[1].trim();
-    out.push({ email, note: (m[2] || '').trim().replace(/\.$/, ''), current: !!active && active === email });
-  }
-  return out;
+// Glass over the framework: `claude-identity.sh` owns the list, who can take you (read through
+// core/accounts.ts) and the swap. Never reimplement any of the three here.
+export interface AnthropicAccount {
+  email: string; label: string; note: string; state: string; current: boolean; canSwitch: boolean;
 }
-export function swapAccount(email: string): Promise<{ ok: boolean; message: string }> {
+export interface AccountsAnswer { accounts: AnthropicAccount[]; error: string; }
+
+function runIdentity(args: string[]): Promise<{ ok: boolean; out: string; message: string }> {
   const r = frameworkRoot();
-  if (!r) return Promise.resolve({ ok: false, message: 'framework path not found' });
-  if (!/^[^\s@]+@[^\s@]+$/.test(email)) return Promise.resolve({ ok: false, message: 'invalid email' });
-  const known = anthropicAccounts().some((a) => a.email === email);
-  if (!known) return Promise.resolve({ ok: false, message: 'not a USER.md account' }); // never pass arbitrary input to the shell
+  if (!r) return Promise.resolve({ ok: false, out: '', message: 'framework path not found' });
+  /* The script runs under Git Bash on Windows, and the bare word `bash` can be WSL's, with
+     another home and other credentials: a swap there would READ like it ran. Refuse by name. */
+  const bash = resolveBash();
+  if (!bash) return Promise.resolve({ ok: false, out: '', message: 'Git Bash not found. Install Git for Windows.' });
   const script = path.join(r, 'hooks', 'claude-identity', 'claude-identity.sh');
-  if (process.platform === 'win32') {
-    /* There is no bash on Windows, and shelling the .sh anyway fails in a way that READS LIKE
-       the swap ran — the worst outcome for a step whose whole job is swapping credentials.
-       So: run the PowerShell sibling if the framework ships one, otherwise say plainly that
-       this is not supported yet.
-       TODO(windows): needs hooks/claude-identity/claude-identity.ps1 in the framework (the
-       Windows analogue of the Keychain + ~/.claude.json swap, via Credential Manager). */
-    const ps = script.replace(/\.sh$/i, '.ps1');
-    if (!fs.existsSync(ps)) return Promise.resolve({ ok: false, message: 'account switch is not supported on Windows yet' });
-    return new Promise((res) => {
-      execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps, 'switch', email], { timeout: 20000 }, (err, _out, stderr) => {
-        if (err) return res({ ok: false, message: String(stderr || err.message).slice(0, 160) });
-        res({ ok: true, message: email });
-      });
-    });
-  }
   return new Promise((res) => {
-    execFile('bash', [script, 'switch', email], { timeout: 20000 }, (err, _out, stderr) => {
-      if (err) return res({ ok: false, message: String(stderr || err.message).slice(0, 160) });
-      res({ ok: true, message: email });
+    execFile(bash, [script, ...args], { timeout: 20000, windowsHide: true }, (err, out, stderr) => {
+      res(err ? { ok: false, out: '', message: String(stderr || err.message).trim().slice(0, 300) } : { ok: true, out: String(out), message: '' });
     });
   });
+}
+
+export async function anthropicAccounts(): Promise<AccountsAnswer> {
+  const r = frameworkRoot();
+  if (!r) return { accounts: [], error: '' };
+  const active = claudeConfig().account || '';
+  let rows: AccountRow[] | null;
+  let error = '';
+  /* Checked by file and never by trying: an older script reads an unknown flag as an email to
+     switch to, and captures the seat on the way. */
+  if (fs.existsSync(path.join(r, 'hooks', 'claude-identity', '_accounts.py'))) {
+    const ans = await runIdentity(['switch', '--availability']);
+    rows = ans.ok ? parseAvailability(ans.out) : null;
+    /* A malformed list must be seen. It never falls back to USER.md, which may be older. */
+    if (!rows) { error = ans.message || 'unreadable answer'; rows = []; }
+  } else {
+    try { rows = rowsFromUserMd(fs.readFileSync(path.join(r, 'USER.md'), 'utf8'), active); } catch { rows = []; }
+  }
+  return {
+    error,
+    accounts: rows.map((row) => ({
+      email: row.email, label: rowLabel(row), note: row.detail, state: row.state,
+      current: !!active && row.email === active, canSwitch: canSwitchTo(row),
+    })),
+  };
+}
+
+export async function swapAccount(email: string): Promise<{ ok: boolean; message: string }> {
+  if (!/^[^\s@]+@[^\s@]+$/.test(email)) return { ok: false, message: 'invalid email' };
+  const { accounts, error } = await anthropicAccounts();
+  if (error) return { ok: false, message: error };
+  const acct = accounts.find((a) => a.email === email);
+  if (!acct) return { ok: false, message: 'not a listed account' }; // never pass arbitrary input to the script
+  if (!acct.canSwitch && !acct.current) return { ok: false, message: acct.note || acct.state };
+  const ans = await runIdentity(['switch', email]);
+  return ans.ok ? { ok: true, message: email } : { ok: false, message: ans.message };
 }
 
 /** Per-session note counts — the Running card shows a persistent badge (Glass parity). */
@@ -1344,7 +1348,32 @@ export function dailyNotePath(iso: string): string | undefined {
 
 // ── shell settings (.glass/shell.json — synced beside state.json) ───────────
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
+/** How Claude sessions are shown: the conversation as chat, or the raw terminal. ONE choice for every session. */
+export type ClaudeView = 'chat' | 'terminal';
+
+/**
+ * The stored `claudeView`, with the old `chatViewDefault` folded in.
+ *
+ * Why the migration exists: before this setting, "open Claude sessions as chat" was a checkbox
+ * (`chatViewDefault`) next to a per-tab switch. The switch is gone and the choice is now a selector
+ * that also moves the sessions already open, so an operator who had ticked the box must still land
+ * in chat, and everyone else on the terminal they know. Rules, in order:
+ *   1. a stored 'chat' or 'terminal' wins (the operator chose it with the new control);
+ *   2. otherwise the old key decides, and only a literal `true` means chat. A hand-edit, an older
+ *      file or a missing key lands on the terminal, exactly as the checkbox did when unticked.
+ * The old key is never rewritten or deleted here: the first save of `claudeView` supersedes it,
+ * and a downgrade to an older app still finds the value it knows.
+ */
+export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault?: unknown }, fresh = false): ClaudeView {
+  if (raw.claudeView === 'chat' || raw.claudeView === 'terminal') return raw.claudeView;
+  if (raw.chatViewDefault === true) return 'chat';
+  /* A newcomer (no settings file yet) starts in chat (0.14.0, operator's call); an operator with settings keeps the terminal
+     they have been using until they switch. Claude Code's own first run (login, theme) still shows in the terminal: the
+     renderer hands a pane to the terminal while those screens are up (chatSkinFirstRun). */
+  return fresh ? 'chat' : 'terminal';
+}
+
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1354,8 +1383,11 @@ const DEFAULT_IGNORE_PATHS = ['_archive', '_workspaces'];
 export function shellSettings(): ShellSettings {
   const r = frameworkRoot();
   let raw: Partial<ShellSettings> = {};
+  /* No settings file in a REAL framework is a newcomer (normalizeClaudeView). No framework at all is not: such an App
+     never had anywhere to keep a setting, so "fresh" would pin it to chat with no way back (review, 0.14.0). */
+  let fresh = false;
   if (r) {
-    try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); } catch { /* defaults */ }
+    try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); fresh = false; } catch { fresh = !fs.existsSync(path.join(r, '.glass', 'shell.json')); }
   }
   return {
     claudeCmd: typeof raw.claudeCmd === 'string' && raw.claudeCmd.trim() ? raw.claudeCmd.trim() : 'claude',
@@ -1374,6 +1406,12 @@ export function shellSettings(): ShellSettings {
        sun button. A stored 'light'/'dark' is the operator's own pick and is kept as is. */
     theme: raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system',
     termFontSize: Number(raw.termFontSize) || 12.5,
+    // the chat view's own type: '' = inherit the app's font (so an operator who never opens Settings
+    // gets the same face as the rest of the interface); the size clamp keeps a typo from making the
+    // conversation unreadable or the composer overflow
+    chatFontFamily: typeof raw.chatFontFamily === 'string' ? raw.chatFontFamily.trim().slice(0, 200) : '',
+    chatFontSize: Math.min(28, Math.max(10, Number(raw.chatFontSize) || 14)),
+    claudeView: normalizeClaudeView(raw, fresh),
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.
     // Applied as a real zoom factor (crisp text) rather than restyling every rule.
     appFontSize: Math.min(18, Math.max(10, Number(raw.appFontSize) || 13)),
@@ -2954,6 +2992,12 @@ export function seedClaudeDefaults(): { seeded: string[]; already: boolean } {
     if (!raw.claudeDefaultsSeededDiffPanel && seedDiffPanelOnce()) late.push('diffPanel');
     return { seeded: late, already: true };
   }
+  /* The newcomer decision is written down the moment it is made (review, 0.14.0): the marker below creates
+     shell.json, after which nothing could tell a newcomer from anyone else, and the first setting saved of any
+     kind would have landed them back on the terminal. 0.13 seeded the same marker, so an upgrader has the
+     file already and keeps the terminal they know. */
+  const newcomer = !!r && !fs.existsSync(path.join(r, '.glass', 'shell.json'));
+  if (newcomer) setShellSetting('claudeView', 'chat');
   const [settings, user, project, local] = claudeStores();
   const seeded: string[] = [];
   for (const id of seedableKeys()) {

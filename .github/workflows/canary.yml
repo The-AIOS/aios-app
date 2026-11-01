@@ -19,7 +19,7 @@ permissions:
 jobs:
   canary:
     name: Signed canary (Apple Silicon)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60   # a hang fails in minutes, never GitHub's 6 h cancel (0.13.0 review)
     steps:
       - uses: actions/checkout@v6

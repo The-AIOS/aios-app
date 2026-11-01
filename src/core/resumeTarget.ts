@@ -76,6 +76,18 @@ export function isSafeSessionId(id: string | undefined): boolean {
   return typeof id === 'string' && SAFE_SESSION_ID.test(id);
 }
 
+/**
+ * AI-228 — the last check before a resume launches: does the session STILL answer to the name it was asked for? Read from
+ * the transcript itself at that moment, not from the index. A resume under a stale name runs the session under one name
+ * (registry, terminal) while its transcript and tab carry another, and every `send` to either name is then lost.
+ * Returns '' when it may launch, else the session's current name (the caller dead-letters naming it).
+ */
+export function staleResumeName(tail: string, want: string): string {
+  const now = latestAgentName(tail);
+  const w = String(want ?? '').trim().toLowerCase();
+  return now && now !== w ? now : '';
+}
+
 export function pickResume(
   name: string,
   candidates: readonly ResumeCandidate[],

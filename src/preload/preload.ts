@@ -1,4 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
+// types only: nothing from core is bundled into the preload
+import type { ChatStatus } from '../core/chatEvents';
+import type { SlashCommand } from '../core/slashCommands';
+import type { ChatItem } from '../core/transcriptChat';
+import type { TuiPromptKind, TuiOption } from '../core/tuiPrompt';
+
+/* A native tab-menu row: a pick, a separator (`value: '-'`), or a submenu (`items`). */
+type TabMenuRow = { label: string; value?: string; items?: TabMenuRow[] };
 
 /** One row of the Connectors card. Mirrors main/connectors.ts ConnectorRow. */
 type ConnRow = {
@@ -8,6 +16,28 @@ type ConnRow = {
   canConnect: boolean; hint?: string; pending: string[]; custom: boolean; tracked: boolean; docs?: string;
 };
 type ConnResult = { ok: boolean; error?: string; row?: ConnRow };
+
+/** Events on 'chatSkin:event'. `reset` empties the view (before a backfill or on a file change);
+ *  `items` upserts by uuid; `prompt` with kind null means the terminal dialog is gone. A prompt that
+ *  carries `options` (and usually `question`) was read well enough to draw as buttons: each option has the
+ *  `key` that picks it, which the card writes to the pty ONLY on the operator's click or key. `refresh`
+ *  marks the same dialog with its cursor moved (new `selected`/`key`s), not a new dialog. `stream` is the
+ *  reply being written, read off the screen (core/screenStream): a string is the preview so far, null is
+ *  "nothing is being written now" (keep the preview frozen), and `adopt` names the transcript item that IS
+ *  the previewed message (it arrives in the next `items` event and takes the preview's place). */
+type ChatSkinEvent = { paneId: number; sid?: string } & (
+  | { type: 'reset' }
+  | { type: 'span'; earlier: boolean }
+  | { type: 'earlier'; items: ChatItem[]; more: boolean }
+  | { type: 'items'; items: ChatItem[] }
+  | { type: 'turn'; open: boolean }
+  | { type: 'usage'; contextTokens?: number; model?: string }
+  | { type: 'prompt'; kind: TuiPromptKind | null; hint?: string; question?: string; options?: TuiOption[]; refresh?: boolean }
+  | { type: 'stream'; text: string; anchor: string; headCut: boolean }
+  | { type: 'stream'; text: null; adopt?: string }
+  | { type: 'missing' }
+  | { type: 'error'; code: string }
+);
 
 
 /** The renderer's window into the shell — PTY now; pickers/watchers/state next. */
@@ -33,6 +63,30 @@ contextBridge.exposeInMainWorld('glassShell', {
   },
   updaterCheck: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),
   updaterInstall: (): Promise<unknown> => ipcRenderer.invoke('updater:quitAndInstall'),
+  /* CHAT SKIN — a chat view over a terminal tab. The tab's pty stays the only session; main follows
+     its transcript file live and reports what the TUI is waiting on. `paneId` is the pty id.
+     chatStatus is the usage bar. The statusline payload is global (the last one ANY session wrote), so the tab passes its own
+     session id: model/effort/context come back only when the payload is that session's (`sessionMatch`), the account's
+     5-hour/weekly numbers always. */
+  chatSkinWatch: (paneId: number, sessionId: string | null): Promise<{ ok: true; file: string } | { ok: false; error: string }> => ipcRenderer.invoke('chatSkin:watch', paneId, sessionId),
+  chatSkinUnwatch: (paneId: number): Promise<void> => ipcRenderer.invoke('chatSkin:unwatch', paneId),
+  /** Ask for the window of transcript lines just above what the view has (answered as an `earlier` event; ok:false = nothing to answer with). */
+  chatSkinEarlier: (paneId: number): Promise<{ ok: boolean }> => ipcRenderer.invoke('chatSkin:earlier', paneId),
+  /** What the pane's terminal shows right now (plain text): the dialog detector reads screens, not the raw stream. */
+  chatSkinScreen: (paneId: number, text: string): void => { ipcRenderer.send('chatSkin:screen', paneId, text); },
+  onChatSkinEvent: (cb: (ev: ChatSkinEvent) => void): void => { ipcRenderer.on('chatSkin:event', (_e, ev) => cb(ev)); },
+  chatStatus: (sessionId: string | null): Promise<ChatStatus> => ipcRenderer.invoke('chat:status', sessionId),
+  /* Claude Code's voice setting (global, ~/.claude/settings.json): the chat view's mic reads it and never changes it. */
+  chatVoice: (): Promise<{ enabled: boolean; mode: string }> => ipcRenderer.invoke('chat:voice'),
+  /* The session's folder and its git branch + uncommitted count, for the chat bar. */
+  chatWhere: (sessionId: string | null): Promise<{ cwd: string | null; branch: string | null; changes: number }> => ipcRenderer.invoke('chat:where', sessionId),
+  /* The chat composer's slash popup: the rows for what is in the box (built-in, project, user and plugin commands, ranked), [] for no popup. */
+  slashCommands: (cwd: string | null, text: string): Promise<SlashCommand[]> => ipcRenderer.invoke('slashCommands:list', cwd, text),
+  chatBusFrom: (text: string): Promise<{ from: string } | null> => ipcRenderer.invoke('chat:busFrom', text),
+  chatMention: (sessionId: string | null, before: string): Promise<{ start: number; rows: { path: string; dir: boolean }[] } | null> => ipcRenderer.invoke('chat:mention', sessionId, before),
+  /* An image pasted or dragged from a browser has no path: main saves the bytes to a temp file it names and returns that
+     path (null when refused: not a png/jpeg/gif/webp, empty, or too big). The renderer inserts the path in the box. */
+  chatSavePastedImage: (bytes: ArrayBuffer, mime: string): Promise<string | null> => ipcRenderer.invoke('chatFiles:savePastedImage', bytes, mime),
   ptyWrite: (id: number, data: string) => ipcRenderer.send('pty:write', { id, data }),
   programStatus: (sessionId: string, data: string, at: number) => ipcRenderer.send('pty:programStatus', { sessionId, data, at }),
   paneSessions: (ids: string[]) => ipcRenderer.send('panes:sessions', ids),
@@ -60,6 +114,9 @@ contextBridge.exposeInMainWorld('glassShell', {
   resolveFile: (cand: string, base?: string): Promise<string | null> => ipcRenderer.invoke('fs:resolveFile', cand, base),
   dirtyLines: (abs: string): Promise<Array<[number, number]>> => ipcRenderer.invoke('fs:dirtyLines', abs),
   resolveFiles: (cands: string[], base?: string): Promise<{ open: Record<string, string>; reveal: Record<string, string> }> => ipcRenderer.invoke('fs:resolveFiles', cands, base),
+  /* The chat's resolver: like resolveFiles (same cleaning, one batch) but inside the allowed roots only, folders count,
+     and each hit says which it is. Kept apart so the terminal's {open, reveal} reply never changes shape. */
+  resolvePaths: (cands: string[], base?: string): Promise<Record<string, { abs: string; dir: boolean }>> => ipcRenderer.invoke('fs:resolvePaths', cands, base),
   /* One flag only, and a diagnostic one: AIOS_NO_WEBGL disables the GPU renderer so a
      rendering artifact can be attributed or ruled out. Deliberately not the whole env. */
   env: { AIOS_NO_WEBGL: process.env.AIOS_NO_WEBGL || '' },
@@ -76,7 +133,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
   onClaudeConfigChanged: (cb: (c: unknown) => void) => ipcRenderer.on('shell:claudeConfigChanged', (_e, c) => cb(c)),
   // AI-132 keep-awake: main owns the decision and the blocker; the renderer shows state + sends intent.
-  tabMenu: (items: { label: string; value: string }[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
+  tabMenu: (items: TabMenuRow[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
   caffeinateState: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:state'),
   caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
   caffeinateLid: (on: boolean, prompt: string): Promise<unknown> => ipcRenderer.invoke('caffeinate:lid', on, prompt),
@@ -169,7 +226,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   sessionUnder: (paneIds: number[]): Promise<Record<number, { name: string; id: string; pid: number }>> =>
     ipcRenderer.invoke('session:under', paneIds),
   setPrimary: (name: string): Promise<{ ok: boolean; name: string }> => ipcRenderer.invoke('shell:setPrimary', name),
-  accountsList: (): Promise<{ email: string; note: string; current: boolean }[]> => ipcRenderer.invoke('accounts:list'),
+  accountsList: (): Promise<{ accounts: { email: string; label: string; note: string; state: string; current: boolean; canSwitch: boolean }[]; error: string }> => ipcRenderer.invoke('accounts:list'),
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),
   notesAdd: (name: string, note: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:add', name, note),
   notesDel: (name: string, index: number): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:del', name, index),

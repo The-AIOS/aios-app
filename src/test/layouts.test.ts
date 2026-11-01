@@ -136,7 +136,7 @@ test('opening a pane into a crushed zone restores the balanced split', () => {
   assert.match(app, /function revealZone\(z\) \{/);
   assert.match(app, /revealZone\(z\);/, 'called from homePane, the one place every pane lands');
   // it must fire only from the extreme, never rebalance a zone the operator merely resized
-  assert.match(app, /const squeezed = z === 'term' \? th <= TH_MIN \+ 0\.01 : th >= TH_MAX - 0\.01;/);
+  assert.match(app, /let squeezed = z === 'term' \? th <= TH_MIN \+ 0\.01 : th >= TH_MAX - 0\.01;/);
   assert.match(app, /if \(!squeezed\) return;/);
   /* And it must sit BELOW the constants it reads. A function placed above the `const`s it
      depends on is only safe by call timing, which is precisely how a `const` called twenty
