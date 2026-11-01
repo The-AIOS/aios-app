@@ -1121,6 +1121,18 @@ window stitching matters more for replies taller than the pane.
 5. Is a version guard on the transcript format worth having (warn when no `user`/`assistant` line was
    recognised in a non-empty file)?
 
+### Claude Code mods (checked for 0.14.0, Claude Code 2.1.316)
+
+Mods (Claude Code 2.1.287+, on by default) run inside each pane's own `claude` and draw into the terminal the chat view
+reads. Checked with two mods written for the purpose, loaded through `CLAUDE_CODE_PLUGIN_DIRS`: a band above the prompt
+(`AbovePrompt`) and a `Spinner` suffix. Both drew on the real screen; the chat view still showed every message, the
+packaged-style smoke (chat view, `/clear`, resume) passed, and a forced permission dialog surfaced as a card with its
+real options and was declined from chat (the command never ran). Mods draw in the terminal view only; the chat view does
+not show them. An inline mod **pane** was not tested: a panel the chat does not recognise shows the live terminal
+(`chatSkinLostPrompt`), which is the expected fallback. Idea for later, from research: a bridge mod that writes
+per-session facts (streaming text, `tool.check` asks, `session.measure` context and limits, per-request effort) to a
+file, with the screen readers as fallback.
+
 ## 11. The packaged build
 
 Everything above was proven against source, where Electron is `node_modules/electron`. A shipped app differs in
