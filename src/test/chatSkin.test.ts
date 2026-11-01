@@ -3527,11 +3527,33 @@ test('a panel nothing recognised (the prompt box gone 1.5 s, not working, no dia
 
 test('a reload ends the terminals the old page owned (they ran on with no tab, and reopening doubled each session)', () => {
   const main = fs.readFileSync('src/main/main.ts', 'utf8');
-  const hook = /win\.webContents\.on\('did-navigate', \(\) => \{[\s\S]*?\n  \}\);/.exec(main)?.[0] ?? '';
+  const hook = /win\.webContents\.on\('did-navigate', \(_e, url\) => \{[\s\S]*?\n  \}\);/.exec(main)?.[0] ?? '';
+  assert.match(hook, /if \(!isAppPage\(url\)\) return;/, 'only a reload of the App\'s own page ends sessions');
   assert.match(hook, /if \(\+\+navigations === 1\) return;/, 'the launch itself is not a reload');
   assert.match(hook, /for \(const id of \[\.\.\.ptys\.keys\(\)\]\)/);
   assert.match(hook, /ptys\.get\(id\)\?\.kill\(\)/);
   assert.match(hook, /ptys\.delete\(id\)/);
+});
+
+test('the window never navigates away from the App\'s page: a dropped file or stray link cannot end every session', () => {
+  /* Review, 0.14.0: Electron navigates to a file dropped where no zone takes it. 0.13 survived that with its sessions
+     running; with the reload rule it would end them all. */
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  assert.match(main, /win\.webContents\.on\('will-navigate', \(e, url\) => \{ if \(!isAppPage\(url\)\) e\.preventDefault\(\); \}\);/);
+  assert.match(main, /const isAppPage = \(url: string\): boolean => url\.split\(\/\[\?#\]\/\)\[0\] === appPage;/);
+  assert.ok(main.indexOf("on('will-navigate'") < main.indexOf("on('did-navigate'"), 'guarded before the reload hook');
+});
+
+test('newcomers are decided once and written down; no framework is not a newcomer; new tabs follow the chosen view', () => {
+  /* Review, 0.14.0: the marker created shell.json before the renderer looked, so "fresh" was never true for a real
+     newcomer, and with no framework it was ALWAYS true, pinning chat with no way back. */
+  const aios = fs.readFileSync('src/main/aios.ts', 'utf8');
+  assert.match(aios, /const newcomer = !!r && !fs\.existsSync\(path\.join\(r, '\.glass', 'shell\.json'\)\);\n  if \(newcomer\) setShellSetting\('claudeView', 'chat'\);/);
+  assert.ok(aios.indexOf("if (newcomer) setShellSetting('claudeView', 'chat');") < aios.indexOf("setShellSetting('claudeDefaultsSeeded', true);"), 'written before the marker creates the file');
+  assert.match(aios, /let fresh = false;\n  if \(r\) \{/, 'no framework root is never fresh');
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('async function chatSkinMaybeDefault'), app.indexOf('\n}\n', app.indexOf('async function chatSkinMaybeDefault')));
+  assert.match(fn, /let want = chatMode === 'chat';/, 'a new tab follows the view the operator is in');
 });
 
 test('the mic with voice off in Claude Code: a notice saying how to turn it on, and nothing typed into the session', async () => {

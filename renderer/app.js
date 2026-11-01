@@ -8829,6 +8829,7 @@ function chatSkinSetView(id, view) {
    (chatSkinEligible) and to each one that appears later; a plain shell is never touched, it has no transcript to show.
    `chatMode` caches the stored value so the tick and the shortcut need no round trip; the stored file stays the truth. */
 let chatMode = 'terminal';
+let chatModeLoaded = false;   // has chatReadMode seen the settings at least once?
 const chatModeSubs = new Set();   // Settings pages showing the selector: the shortcut changes the mode under them
 /* The same setting, where the sessions are: a Chat | Terminal switch in the Running header. Hidden in Settings and a
    shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is. */
@@ -8859,7 +8860,7 @@ function paintZoneView() {
 }
 chatModeSubs.add(paintZoneView);
 function chatReadMode(c) {
-  if (c && (c.claudeView === 'chat' || c.claudeView === 'terminal')) chatMode = c.claudeView;
+  if (c && (c.claudeView === 'chat' || c.claudeView === 'terminal')) { chatMode = c.claudeView; chatModeLoaded = true; }
   paintZoneView();
 }
 function chatSkinApplyMode(mode) {
@@ -9638,8 +9639,11 @@ function chatSkinOnExit(id, p) {
    ever TOWARD chat: terminal is what a pane already is, and a pane the operator stepped out of the mode with is not ours to move. */
 async function chatSkinMaybeDefault(id, p) {
   if (!paneIsClaude(p.cmd)) return;
-  let want = false;
-  try { want = (await window.glassShell.shellConfig()).claudeView === 'chat'; } catch { want = false; }
+  /* The view the operator is in, not a fresh read of the file: with no framework there is no file to save a
+     choice into, and re-reading flipped every new tab back to what the file said (review, 0.14.0). The config is
+     only consulted until the startup read has set chatMode. */
+  let want = chatMode === 'chat';
+  if (!chatModeLoaded) { try { want = (await window.glassShell.shellConfig()).claudeView === 'chat'; } catch { want = false; } }
   if (want && panes.get(id) === p && !p.exited) chatSkinSetView(id, 'chat');
 }
 

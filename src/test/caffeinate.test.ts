@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import {
-  isBusyStatus, anyBusy, sessionsAwaitingShells, desiredBlocker, caffeinateReason, nextOverride, BLOCKER_TYPE,
+  isBusyStatus, anyBusy, sessionsAwaitingShells, shellStillCounts, SHELL_GRACE_MS, desiredBlocker, caffeinateReason, nextOverride, BLOCKER_TYPE,
   type CaffeinateMode,
 } from '../core/caffeinate';
 
@@ -376,4 +376,14 @@ test('the driver folds waiting shells into busy, and never waits on ps inside a 
   assert.ok(!/anyBusy\(aios\.listRunningAgents/.test(main),
     'every busy read goes through busyNow(); a bare status read would bring the sleep back');
   assert.ok(/execFile\('ps'/.test(main) && !/execFileSync/.test(main), 'the probe is asynchronous');
+});
+
+test('a waiting shell keeps the Mac awake for an hour after its session went idle, not forever', () => {
+  /* Review, 0.14.0: a dev server or `tail -f` in the background would otherwise hold the machine awake indefinitely. */
+  const now = 1_800_000_000_000;
+  assert.equal(SHELL_GRACE_MS, 60 * 60 * 1000);
+  assert.equal(shellStillCounts(now - 20 * 60 * 1000, now), true, 'a CI watch 20 min in still counts');
+  assert.equal(shellStillCounts(now - 61 * 60 * 1000, now), false, 'past the hour it no longer holds');
+  assert.equal(shellStillCounts(0, now), false, 'an unknown idle time never holds');
+  assert.ok(/awaiting\.has\(a\.pid\) && shellStillCounts\(/.test(fs.readFileSync('src/main/caffeinate.ts', 'utf8')), 'the driver applies the bound');
 });

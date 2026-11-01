@@ -19,7 +19,7 @@
 import { powerSaveBlocker } from 'electron';
 import { execFile } from 'child_process';
 import {
-  BLOCKER_TYPE, anyBusy, sessionsAwaitingShells, desiredBlocker, caffeinateReason, nextOverride,
+  BLOCKER_TYPE, anyBusy, sessionsAwaitingShells, shellStillCounts, desiredBlocker, caffeinateReason, nextOverride,
   type CaffeinateMode, type CaffeinateOverride,
 } from '../core/caffeinate';
 import * as aios from './aios';
@@ -70,12 +70,13 @@ function probeShells(pids: number[]): void {
   });
 }
 
-/** Busy = a session says so, or one is waiting on a shell it started. */
+/** Busy = a session says so, or one went idle under an hour ago and is waiting on a shell it started. */
 function busyNow(): boolean {
   const agents = aios.listRunningAgents();
   if (anyBusy(agents.map((a) => a.status))) return true;
   probeShells(agents.map((a) => a.pid));
-  return agents.some((a) => awaiting.has(a.pid));
+  const now = Date.now();
+  return agents.some((a) => awaiting.has(a.pid) && shellStillCounts(a.statusUpdatedAt || a.updatedAt || 0, now));
 }
 
 /**

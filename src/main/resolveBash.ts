@@ -30,7 +30,10 @@ export function resolveBash(): string | null {
   if (process.platform === 'win32') {
     try {
       pathHit = execFileSync('where', ['bash'], { encoding: 'utf8', timeout: 5_000, windowsHide: true })
-        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0];
+        .split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+        /* The first hit that is not WSL's launcher (review, 0.14.0): with WSL ahead on PATH, a Git Bash installed somewhere
+           pickBash does not know (scoop, a custom folder) came second and was never seen. */
+        .find((l) => !/\\system32\\bash\.exe$/i.test(l));
     } catch { /* not on PATH — pickBash falls through to the Git for Windows locations */ }
   }
   return pickBash(process.platform, {

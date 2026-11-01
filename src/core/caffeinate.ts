@@ -80,6 +80,18 @@ export function sessionsAwaitingShells(psOut: string, sessionPids: readonly numb
 }
 
 /**
+ * How long a waiting shell keeps the Mac awake after its session went idle (review, 0.14.0). A CI watch or a test run
+ * the session will pick up again finishes well inside this; a dev server or `tail -f` left running in the background
+ * never does, and without a bound it held the machine (and, with the lid extension, a closed laptop) awake forever.
+ */
+export const SHELL_GRACE_MS = 60 * 60 * 1000;
+
+/** Does a session idle since `idleSince` (ms) still count as working because of its shell? Unknown time counts not. */
+export function shellStillCounts(idleSince: number, now: number): boolean {
+  return idleSince > 0 && now - idleSince < SHELL_GRACE_MS;
+}
+
+/**
  * Should the power blocker be held?
  *
  * `override` wins in BOTH modes, and that is a requirement rather than a convenience — the

@@ -2536,8 +2536,16 @@ app.whenReady().then(() => {
      split between them; seen in the 0.14.0 round). The page's first navigation is the launch; every later one is a reload,
      and the terminals it owned end with it. Transcripts are on disk, so Reopen resumes them cleanly. Fires before the new
      page's script runs, so nothing it spawns can be caught. */
+  /* The window only ever shows the App's own page (review, 0.14.0). Electron's default navigates to a file or URL
+     dropped where no zone takes it (the title bar, a panel card), which 0.13 survived with its sessions running in
+     main, and which the reload rule below would now turn into ending every session. So any other navigation is
+     refused; a reload is not a navigation event and still works. */
+  const appPage = pathToFileURL(path.join(__dirname, '..', '..', 'renderer', 'index.html')).href;
+  const isAppPage = (url: string): boolean => url.split(/[?#]/)[0] === appPage;
+  win.webContents.on('will-navigate', (e, url) => { if (!isAppPage(url)) e.preventDefault(); });
   let navigations = 0;
-  win.webContents.on('did-navigate', () => {
+  win.webContents.on('did-navigate', (_e, url) => {
+    if (!isAppPage(url)) return;   // never the case after the guard above; and ending sessions needs certainty
     if (++navigations === 1) return;
     for (const id of [...ptys.keys()]) {
       try { ptys.get(id)?.kill(); } catch { /* already gone */ }

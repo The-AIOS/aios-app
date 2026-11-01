@@ -1383,7 +1383,9 @@ const DEFAULT_IGNORE_PATHS = ['_archive', '_workspaces'];
 export function shellSettings(): ShellSettings {
   const r = frameworkRoot();
   let raw: Partial<ShellSettings> = {};
-  let fresh = true;   // no settings file: a newcomer (normalizeClaudeView)
+  /* No settings file in a REAL framework is a newcomer (normalizeClaudeView). No framework at all is not: such an App
+     never had anywhere to keep a setting, so "fresh" would pin it to chat with no way back (review, 0.14.0). */
+  let fresh = false;
   if (r) {
     try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); fresh = false; } catch { fresh = !fs.existsSync(path.join(r, '.glass', 'shell.json')); }
   }
@@ -2990,6 +2992,12 @@ export function seedClaudeDefaults(): { seeded: string[]; already: boolean } {
     if (!raw.claudeDefaultsSeededDiffPanel && seedDiffPanelOnce()) late.push('diffPanel');
     return { seeded: late, already: true };
   }
+  /* The newcomer decision is written down the moment it is made (review, 0.14.0): the marker below creates
+     shell.json, after which nothing could tell a newcomer from anyone else, and the first setting saved of any
+     kind would have landed them back on the terminal. 0.13 seeded the same marker, so an upgrader has the
+     file already and keeps the terminal they know. */
+  const newcomer = !!r && !fs.existsSync(path.join(r, '.glass', 'shell.json'));
+  if (newcomer) setShellSetting('claudeView', 'chat');
   const [settings, user, project, local] = claudeStores();
   const seeded: string[] = [];
   for (const id of seedableKeys()) {
