@@ -1959,9 +1959,10 @@ function renderPulseRunning(m) {
         const head = el('button', 'pgroup-head');
         head.type = 'button';
         head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
-        if (g.collapsed) head.appendChild(el('span', 'pgroup-n', String(tgMembers(gid).length)));
-        head.title = `${tgLabel(gid)} — ${t(g.collapsed ? 'tg.expand' : 'tg.collapse')}`;
-        head.addEventListener('click', () => { tgToggle(gid); renderPulseRunning(); });
+        const hz = zoneOf(panes.get(hit[0]));   // the strip these sessions' tabs are in
+        if (tgFoldedIn(gid, hz)) head.appendChild(el('span', 'pgroup-n', String(tgMembersIn(gid, hz).length)));
+        head.title = `${tgLabel(gid)} — ${t(tgFoldedIn(gid, hz) ? 'tg.expand' : 'tg.collapse')}`;
+        head.addEventListener('click', () => { tgToggle(gid, hz); renderPulseRunning(); });
         groupBox.appendChild(head);
         box.appendChild(groupBox);
       }
@@ -3059,7 +3060,11 @@ const tabGroups = new Map();   // gid → { name, color, collapsed }
 let tgSeq = 0;
 const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
 const tgOf = (id) => { const p = panes.get(id); return p && p.group && tabGroups.has(p.group) ? p.group : ''; };
-const tgFolded = (gid) => !!gid && !!tabGroups.get(gid) && tabGroups.get(gid).collapsed;
+/* A group folds per STRIP (0.14.0 round 3): with terminals below/left/right its editor tabs and its running tabs each have their
+   own pill, and a click on one must not fold the other. Blended, everything is in one strip and this is just "folded". */
+const tgFold = (g) => g.fold || (g.fold = { main: false, term: false });
+const tgFoldedIn = (gid, z) => !!gid && !!tabGroups.get(gid) && !!tgFold(tabGroups.get(gid))[z];
+const tgMembersIn = (gid, z) => tgMembers(gid).filter((id) => panes.get(id) && zoneOf(panes.get(id)) === z);
 
 /* Members of each group pulled together at the position of their FIRST member, everything else in
    its existing relative order. Pure: `groupOf(id)` is the only input besides the order. */
@@ -3151,30 +3156,31 @@ function paintGroups(z) {
     const gid = tgOf(id);
     const g = gid ? tabGroups.get(gid) : null;
     p.tab.classList.toggle('grouped', !!g);
-    p.tab.classList.toggle('tgcollapsed', !!g && g.collapsed && id !== active[z] && !zones[z].visible.includes(id));
+    p.tab.classList.toggle('tgcollapsed', !!g && tgFoldedIn(gid, z) && id !== active[z] && !zones[z].visible.includes(id));
     if (g) p.tab.style.setProperty('--tg', `var(--tg-${g.color})`); else p.tab.style.removeProperty('--tg');
-    if (g && !seen.has(gid)) { seen.add(gid); strip.insertBefore(tgChip(gid), p.tab); }
+    if (g && !seen.has(gid)) { seen.add(gid); strip.insertBefore(tgChip(gid, z), p.tab); }
   }
 }
 
-function tgChip(gid) {
+function tgChip(gid, z) {
   const g = tabGroups.get(gid);
+  const folded = tgFoldedIn(gid, z);
   const c = document.createElement('button');
-  c.className = 'tgchip' + (g.collapsed ? ' collapsed' : '') + (g.name ? '' : ' unnamed');
+  c.className = 'tgchip' + (folded ? ' collapsed' : '') + (g.name ? '' : ' unnamed');
   c.dataset.group = gid;
   c.style.setProperty('--tg', `var(--tg-${g.color})`);
   /* The button is as tall as a tab, so its colour line sits on the same baseline as the members'; the pill is inside it. */
   const pill = document.createElement('span'); pill.className = 'tgpill';
   const nm = document.createElement('span'); nm.className = 'tgname'; nm.textContent = g.name;
   pill.appendChild(nm);
-  if (g.collapsed) {
-    const n = document.createElement('span'); n.className = 'tgcount'; n.textContent = String(tgMembers(gid).length);
+  if (folded) {
+    const n = document.createElement('span'); n.className = 'tgcount'; n.textContent = String(tgMembersIn(gid, z).length);   // this strip's tabs
     pill.appendChild(n);
   }
   c.appendChild(pill);
-  c.title = `${tgLabel(gid)} — ${t(g.collapsed ? 'tg.expand' : 'tg.collapse')}`;
-  c.addEventListener('click', () => tgToggle(gid));
-  c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void tgChipMenu(gid); });
+  c.title = `${tgLabel(gid)} — ${t(folded ? 'tg.expand' : 'tg.collapse')}`;
+  c.addEventListener('click', () => tgToggle(gid, z));
+  c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void tgChipMenu(gid, z); });
   return c;
 }
 
@@ -3185,17 +3191,19 @@ function tgRepaint() {
   if (document.getElementById('pRun')) { try { renderPulseRunning(); } catch { /* panel not ready */ } }
 }
 
-function tgToggle(gid) {
+function tgToggle(gid, zone) {
   const g = tabGroups.get(gid);
   if (!g) return;
-  g.collapsed = !g.collapsed;
+  const zs = zone ? [zone] : ['main', 'term'];
+  const fold = !tgFold(g)[zs[0]];
+  for (const z of zs) tgFold(g)[z] = fold;
   /* Folding the group you are IN keeps you where you are (0.14.0 round 3): the group folds around your tab, which stays
      visible (paintGroups shows the focused member of a folded group). Moving you out landed on another group's tab, and
      then on any ungrouped tab; the operator wanted neither. Focus is never moved by a fold, so one fold can never open
      another group either. */
-  if (g.collapsed) {
+  if (fold) {
     /* A split showing members of the folded group lets them go, so no pane stays on screen without its tab. */
-    for (const z of ['main', 'term']) {
+    for (const z of zs) {
       const vis = zones[z].visible;
       if (vis.length < 2 || !vis.some((v) => tgOf(v) === gid)) continue;
       const keep = vis.filter((v) => tgOf(v) !== gid || v === active[z]);   // the tab you are on stays, as its tab does
@@ -3210,7 +3218,7 @@ function tgAdd(id, gid) {
   const p = panes.get(id);
   if (!p || !tabGroups.has(gid)) return;
   p.group = gid;
-  tabGroups.get(gid).collapsed = false;
+  tgFold(tabGroups.get(gid))[zoneOf(p)] = false;
   tgRepaint();
 }
 
@@ -3295,20 +3303,20 @@ function tgRemove(id) {
   tgRepaint();
 }
 
-async function tgChipMenu(gid) {
+async function tgChipMenu(gid, z) {
   const g = tabGroups.get(gid);
   if (!g) return;
   const items = [
     { label: t('tg.edit'), value: 'rename' },
     { label: t('tg.colorMenu'), items: TG_COLORS.map((c) => ({ label: (c === g.color ? '✓ ' : '') + tgCap(t('tg.color.' + c)), value: 'color:' + c })) },
-    { label: t(g.collapsed ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
+    { label: t(tgFoldedIn(gid, z) ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
     { label: '-', value: '-' },
     { label: t('tg.ungroup'), value: 'ungroup' },
     { label: t('tg.close'), value: 'close' },
   ];
   const pick = await window.glassShell.tabMenu(items);
   if (!pick || !tabGroups.has(gid)) return;
-  if (pick === 'toggle') tgToggle(gid);
+  if (pick === 'toggle') tgToggle(gid, z);
   else if (pick.startsWith('color:')) { if (TG_COLORS.includes(pick.slice(6))) { g.color = pick.slice(6); tgRepaint(); } }
   else if (pick === 'rename') await tgEdit(gid, t('tg.rename')); else if (pick === 'ungroup') {
     for (const id of tgMembers(gid)) panes.get(id).group = '';
@@ -3353,9 +3361,11 @@ function moveTab(z, dragId, overId, after) {
   list.splice(from, 1);
   let to = list.indexOf(overId);
   if (to < 0) { list.push(dragId); } else { list.splice(after ? to + 1 : to, 0, dragId); }
-  /* Dropping INTO a group's run joins it, dragging OUT of it leaves (tgAfterMove). */
+  /* Dropped ON a tab, the dragged tab takes that tab's group (0.14.0 round 3: either half, so "between the pill and its first
+     tab" and "between tabs 3 and 4" both join; dropped on a tab in no group, it leaves). Past the last tab, the run decides
+     (tgAfterMove): inside a group's run joins it, outside leaves. */
   const dp = panes.get(dragId);
-  if (dp) dp.group = tgAfterMove(list, tgOf, dragId);
+  if (dp) dp.group = overId && panes.has(overId) && overId !== dragId ? tgOf(overId) : tgAfterMove(list, tgOf, dragId);
   tgNormalize(z);
   paintStrip(z);
   /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
@@ -3581,7 +3591,7 @@ function setActive(id) {
   /* Reaching a tab inside a folded group (the panel, a bus reveal) unfolds it, as Chrome does;
      and the fold is repainted, since it always spares the focused tab. */
   const fold = p.group && tabGroups.get(p.group);
-  if (fold && fold.collapsed) fold.collapsed = false;
+  if (fold && tgFold(fold)[z]) tgFold(fold)[z] = false;
   paintGroups(z);
   /* Choosing a tab IS looking at it. The pulse-measured 3s (#45) meant staying ~4–6s without
      leaving, and every return restarted the clock, so a tab could stay bold through several
@@ -5366,7 +5376,7 @@ function sessionsSnapshot() {
     if (a && a.sessionId) { activeSid = a.sessionId; break; }
   }
   const groups = [...new Set(sessions.map((x) => x.group).filter(Boolean))]
-    .map((g) => ({ id: g, name: tabGroups.get(g).name, color: tabGroups.get(g).color, collapsed: !!tabGroups.get(g).collapsed }));
+    .map((g) => ({ id: g, name: tabGroups.get(g).name, color: tabGroups.get(g).color, fold: { ...tgFold(tabGroups.get(g)) } }));
   return { v: 1, at: Date.now(), active: activeSid, sessions, ...(groups.length ? { groups } : {}) };
 }
 /* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
@@ -5470,7 +5480,8 @@ async function materializeRestore(id) {
 function tgAdopt(saved) {
   for (const g of Array.isArray(saved.groups) ? saved.groups : []) {
     if (!g || typeof g.id !== 'string' || !g.id || tabGroups.has(g.id)) continue;
-    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: TG_COLORS.includes(g.color) ? g.color : 'grey', collapsed: !!g.collapsed });
+    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: TG_COLORS.includes(g.color) ? g.color : 'grey',
+      fold: g.fold && typeof g.fold === 'object' ? { main: !!g.fold.main, term: !!g.fold.term } : { main: !!g.collapsed, term: !!g.collapsed } });   // a save from before the per-strip fold folds both
   }
 }
 

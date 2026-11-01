@@ -106,7 +106,7 @@ test('a fold never moves the focus: you stay on your tab, so one fold can never 
   const tog = app.slice(app.indexOf('function tgToggle'), app.indexOf('\n}\n', app.indexOf('function tgToggle')));
   assert.doesNotMatch(tog, /setActive\(/, 'a fold never changes the active tab');
   assert.match(tog, /const keep = vis\.filter\(\(v\) => tgOf\(v\) !== gid \|\| v === active\[z\]\);/, 'a folded member leaves the split, except the tab you are on');
-  assert.match(app, /p\.tab\.classList\.toggle\('tgcollapsed', !!g && g\.collapsed && id !== active\[z\] && !zones\[z\]\.visible\.includes\(id\)\);/,
+  assert.match(app, /p\.tab\.classList\.toggle\('tgcollapsed', !!g && tgFoldedIn\(gid, z\) && id !== active\[z\] && !zones\[z\]\.visible\.includes\(id\)\);/,
     'the focused member of a folded group keeps its tab');
 });
 
@@ -139,7 +139,7 @@ test('the Running card mirrors the tab groups: a heading in the group colour, it
   const fn = app.slice(app.indexOf('function renderPulseRunning'), app.indexOf('\n}\n', app.indexOf('function renderPulseRunning')));
   assert.match(fn, /const gid = hit \? tgOf\(hit\[0\]\) : null;/);
   assert.match(fn, /groupBox = el\('div', 'pgroup'\);/);
-  assert.match(fn, /head\.addEventListener\('click', \(\) => \{ tgToggle\(gid\); renderPulseRunning\(\); \}\);/);
+  assert.match(fn, /head\.addEventListener\('click', \(\) => \{ tgToggle\(gid, hz\); renderPulseRunning\(\); \}\);/);
   assert.match(fn, /\(groupBox \|\| box\)\.appendChild\(r\);/, 'an ungrouped session stays in the plain list');
   const rp = app.slice(app.indexOf('function tgRepaint'), app.indexOf('\n}\n', app.indexOf('function tgRepaint')));
   assert.match(rp, /renderPulseRunning\(\)/, 'a rename, a colour or a fold shows in the card at once');
@@ -148,4 +148,20 @@ test('the Running card mirrors the tab groups: a heading in the group colour, it
 test('a layout change settles the groups into their zones at once', () => {
   const fn = app.slice(app.indexOf('function applyLayout'), app.indexOf('\n}\n', app.indexOf('function applyLayout')));
   assert.match(fn, /setTimeout\(\(\) => \{ if \(typeof tgRepaint === 'function' && tabGroups\.size\) tgRepaint\(\); \}, 0\);/);
+});
+
+test('a group folds per strip: the editor pill and the running pill fold on their own, and each counts its own tabs', () => {
+  /* 0.14.0 round 3: a click on the running pill showed the editor tabs' count and folded both. */
+  const tog = app.slice(app.indexOf('function tgToggle'), app.indexOf('\n}\n', app.indexOf('function tgToggle')));
+  assert.match(tog, /const zs = zone \? \[zone\] : \['main', 'term'\];/);
+  assert.match(app, /c\.addEventListener\('click', \(\) => tgToggle\(gid, z\)\);/, 'a pill folds its own strip');
+  assert.match(app, /n\.textContent = String\(tgMembersIn\(gid, z\)\.length\);/, 'and counts its own tabs');
+  assert.match(app, /if \(fold && tgFold\(fold\)\[z\]\) tgFold\(fold\)\[z\] = false;/, 'reaching a tab unfolds only its strip');
+  assert.match(app, /fold: \{ \.\.\.tgFold\(tabGroups\.get\(g\)\) \}/, 'saved per strip');
+  assert.match(app, /\{ main: !!g\.collapsed, term: !!g\.collapsed \}/, 'an older save still loads');
+});
+
+test('dropping a tab onto any tab of a group joins it, either half; onto a tab in no group, it leaves', () => {
+  const mv = app.slice(app.indexOf('function moveTab'), app.indexOf('\n}\n', app.indexOf('function moveTab')));
+  assert.match(mv, /dp\.group = overId && panes\.has\(overId\) && overId !== dragId \? tgOf\(overId\) : tgAfterMove\(list, tgOf, dragId\);/);
 });
