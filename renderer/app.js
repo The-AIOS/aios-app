@@ -8546,15 +8546,21 @@ const chatSkinWorking = (p, now = Date.now()) => {
    took the idle path and did nothing. A live spinner right above the prompt box ("● Wandering… (6s · ↓ 465 tokens)",
    the timer in brackets is what a finished turn's line never has) means a turn is running. */
 const CS_SPINNER_LIVE = /^\s{0,1}[✻✽✶✳✢·∗✺●*]\s+\S+(?:\s\S+){0,3}\s?(?:…|\.\.\.)\s*\(\d+[ms]/;
-function chatSkinSpinnerOn(p) {
+function chatSkinSpinnerLine(p) {
   let xs;
-  try { xs = chatSkinScreenText(p).split('\n'); } catch { return false; }
+  try { xs = chatSkinScreenText(p).split('\n'); } catch { return ''; }
   const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
-  if (bottom < 1) return false;
+  if (bottom < 1) return '';
   let top = bottom - 1;
   while (top > 0 && !/^─{3,}/.test(xs[top]) && bottom - top < 12) top--;
-  for (let y = top - 1; y >= Math.max(0, top - 4); y--) if (CS_SPINNER_LIVE.test(xs[y])) return true;
-  return false;
+  for (let y = top - 1; y >= Math.max(0, top - 4); y--) if (CS_SPINNER_LIVE.test(xs[y])) return xs[y].trim();
+  return '';
+}
+/* A spinner frame Claude Code left frozen after the operator's Esc is not a live turn (0.14.0 round: it brought back the
+   working dots, and with them a "quiet for a while" card). chatSkinInterrupt remembers that frame; a new send forgets it. */
+function chatSkinSpinnerOn(p) {
+  const line = chatSkinSpinnerLine(p);
+  return !!line && !(p.chatSkin && p.chatSkin.staleSpinner === line);
 }
 
 /* ── building the overlay (once per pane, on first entry) ────────────────── */
@@ -8578,7 +8584,7 @@ function chatSkinBuild(id, p) {
   const idBox = el('div', 'cb-id');
   const modelSeg = el('button', 'cb-model');
   modelSeg.type = 'button';
-  modelSeg.append(csIcon('brain', 12), el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // an icon like every segment (0.14.0 round); the chevrons say "this opens a choice"
+  modelSeg.append(csIcon('sparkles', 12), el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // an icon like every segment (0.14.0 round); the chevrons say "this opens a choice"
   const effortSeg = el('button', 'cb-effort');
   effortSeg.type = 'button';
   effortSeg.setAttribute('aria-haspopup', 'menu');
@@ -10900,6 +10906,7 @@ function chatSkinHistKey(cs, e) {
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
+  cs.staleSpinner = '';   // a new turn: any spinner from here on is live
   cs.stick = true;
   const sent = text.replace(/\s+/g, ' ').trim();
   submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
@@ -11063,6 +11070,17 @@ function chatSkinInterrupt(id, p) {
        say it here, where the Esc is known. */
     chatSkinMarkInterrupt(id, p);
     chatSkinAdoptRestored(id, p);
+    /* The operator stopped this turn: say so to the view, which the transcript may never do for a reply cut mid-text. */
+    setTimeout(() => {
+      if (panes.get(id) !== p || !p.chatSkin) return;
+      const c = p.chatSkin;
+      c.staleSpinner = chatSkinSpinnerLine(p);
+      c.turnOpen = false;
+      c.stalled = false;
+      c.lastSubmitAt = 0;
+      chatSkinPaintAlert(p);
+      chatSkinControls(p);
+    }, 1500);
     return;
   }
   /* Idle: Esc twice is the terminal's "go back to an earlier message". The second Esc within 600 ms passes BOTH on, the way

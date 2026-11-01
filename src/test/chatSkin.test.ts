@@ -153,7 +153,7 @@ guarded('Esc writes a lone ESC to the pty while something runs; idle, only a dou
   (src) => {
     const s = slice(src);
     const intr = fnBody(s, 'chatSkinInterrupt');
-    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}chatSkinMarkInterrupt\(id, p\);[\s\S]{0,80}return;\n\s*\}/.test(intr)
+    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}chatSkinMarkInterrupt\(id, p\);[\s\S]{0,700}?\n    return;\n\s*\}/.test(intr)
       && /cs\.input\.value\.trim\(\)\) return;/.test(intr) && /> 600\) \{ cs\.escAt = now; return; \}/.test(intr)
       && /e\.key !== 'Escape'[\s\S]{0,120}chatSkinInterrupt\(id, p\)/.test(s);
   },
@@ -212,7 +212,7 @@ test('a live spinner on screen counts as working even when the transcript lags (
 test('every segment of the status bar wears an icon and a colour, and the words start with a capital', () => {
   /* 0.14.0 round: model and effort had no icon, effort had no colour and read "extra high" beside "Auto". */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /modelSeg\.append\(csIcon\('brain', 12\)/);
+  assert.match(app, /modelSeg\.append\(csIcon\('sparkles', 12\)/);
   assert.match(app, /effortSeg\.append\(csIcon\('bolt', 12\)/);
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   assert.match(css, /\.cb-effort \.cb-v \{ color: var\(--chat-effort-ink\);/);
@@ -226,6 +226,15 @@ test('the take-back after an Esc is decided on the screen, so an Esc right after
   assert.match(ad, /chatSkinSpinnerOn\(p\)/);
   assert.doesNotMatch(ad, /chatSkinWorking\(p\)/, 'a send counts as working for 4 s, exactly when Claude Code puts the message back');
   assert.match(ad, /\[500, 1400, 2800, 4500\]/);
+});
+
+test('after the operator stops a turn, its frozen spinner and its open turn are let go (no working dots, no quiet card)', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const on = app.slice(app.indexOf('function chatSkinSpinnerOn'), app.indexOf('\n}\n', app.indexOf('function chatSkinSpinnerOn')));
+  assert.match(on, /p\.chatSkin\.staleSpinner === line/);
+  const intr = app.slice(app.indexOf('function chatSkinInterrupt'), app.indexOf('\n}\n', app.indexOf('function chatSkinInterrupt')));
+  assert.match(intr, /c\.staleSpinner = chatSkinSpinnerLine\(p\);\n\s*c\.turnOpen = false;\n\s*c\.stalled = false;/);
+  assert.match(app.slice(app.indexOf('function chatSkinSubmit')), /cs\.staleSpinner = '';/, 'a new send makes the spinner count again');
 });
 
 // ── watch / unwatch follow the session and the pane's life ──────────────────
