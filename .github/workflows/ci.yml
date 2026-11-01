@@ -39,7 +39,7 @@ jobs:
     # not every push. The local pre-commit habit covers pushes.
     name: Six-gate smoke (macOS)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30   # a hang fails in minutes, never GitHub's 6 h cancel (0.13.0 review)
     steps:
       - uses: actions/checkout@v6
