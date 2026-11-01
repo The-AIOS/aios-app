@@ -9598,8 +9598,12 @@ async function chatSkinTasksOpen(id, p, target) {
     }
     const panel = chatSkinTasksPanel(p);
     if (!panel || !target) return;   // one task: Claude Code opens its details directly; "All": the list as it comes
-    const pool = panel.rows.map((r, i) => ({ ...r, i })).filter((r) => (target.kind === 'shell' ? /^Shells?$/i.test(r.section) : /agents?$/i.test(r.section)));
-    const want = pool[target.n] || pool[0];
+    const rows = panel.rows.map((r, i) => ({ ...r, i }));
+    const pool = rows.filter((r) => (target.kind === 'shell' ? /^Shells?$/i.test(r.section) : /agents?$/i.test(r.section)));
+    /* A background agent often finishes between the menu and the panel (0.14.0 round: the operator landed on the shell): it is
+       then under "Completed", where Enter shows its result. Look there before giving up on it. */
+    const done = rows.filter((r) => /^Completed$/i.test(r.section) && (target.kind === 'shell' ? /shell|bash|\$/i.test(r.text) : !/shell|bash/i.test(r.text)));
+    const want = pool[target.n] || pool[0] || (target.kind === 'agent' ? done[done.length - 1] : null);
     if (!want || panel.cursor < 0) return;
     let c = panel.cursor;
     for (let n = 0; n < 30 && c !== want.i; n++) {
@@ -9675,7 +9679,9 @@ function chatSkinPanelOpen(p) {
      and an Esc pressed on that belief would interrupt a working Claude and put a queued message back in its prompt. */
   try {
     const xs = chatSkinScreenText(p).split('\n').filter((l) => l.trim());
-    return /Esc\s+to\s+close\s*$/.test(xs.slice(-2).map((l) => l.trim()).join(' '));   // a narrow pane wraps the footer: "· Esc" / "to close"
+    /* "… · Esc to close", and the agent-details footer "← to go back · Esc/Enter/Space to close · f to foreground" (0.14.0 round:
+       back in chat after viewing an agent, its panel was left open and the chat showed the terminal). Still the LAST line. */
+    return /\bEsc(?:\/Enter\/Space)?\s+to\s+close(?:\s*·\s*[^·]{1,32})*\s*$/.test(xs.slice(-2).map((l) => l.trim()).join(' '));   // a narrow pane wraps the footer: "· Esc" / "to close"
   } catch { return false; }
 }
 /* Whether the footer under the prompt holds the keyboard: a highlighted item on the mode line ("1 shell", drawn in inverse

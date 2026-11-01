@@ -253,6 +253,15 @@ test('⌘⇧-click on a path in the chat reveals it, instead of extending the te
   assert.match(mk, /if \(!reveal\(e\) && sel && !sel\.isCollapsed/);
 });
 
+test('the agent-details panel counts as a panel, so returning to chat closes it', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('function chatSkinPanelOpen'), app.indexOf('\n}\n', app.indexOf('function chatSkinPanelOpen')));
+  const re = new RegExp(/return \/(.*)\/\.test\(xs/.exec(fn)![1]);
+  assert.ok(re.test('← to go back · Esc/Enter/Space to close · f to foreground'), 'the agent-details footer (Claude Code 2.1.316)');
+  assert.ok(re.test('↑/↓ to select · Enter to view · x to stop · Esc to close'), 'the task list footer');
+  assert.ok(!re.test('Press Esc to close the menu and then continue with the next step of the guide.'), 'prose that mentions it is not a panel');
+});
+
 // ── watch / unwatch follow the session and the pane's life ──────────────────
 
 guarded('closing the pane or losing the pty unwatches the transcript',
