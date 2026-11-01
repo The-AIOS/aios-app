@@ -768,7 +768,7 @@ body.light {
   --chat-high-ink: #a4490c;   /* orange as type on paper: the bright fill reads 2.4:1, this clears 4.5 */
   --chat-model-ink: var(--st-input-ink);
   --chat-effort-ink: var(--st-testing);   /* re-declared here so it resolves against the light theme's violet */
-  --chat-dir-ink: var(--st-warn-ink);
+  --chat-dir-ink: #b45309;   /* light: a clean amber-orange; the shared warn ink (#835d00) read olive here (0.14.0 round) */
   --chat-bang: #e05299;
   --chat-bang-ink: #b0246a;
   --chat-acct-ink: #0b6d7a;
@@ -2263,7 +2263,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cb-mode[hidden] { display: none; }
 .cb-mode:hover { background-color: var(--chat-row-hover); }
 .cb-mode .cs-ico { color: var(--faint); }
-.cb-mode[data-mode="auto"] .cb-v, .cb-mode[data-mode="bypass"] .cb-v { color: var(--chat-warn-ink); }   /* the TEXT token: the bright fill read 1.5:1 on light paper (0.14.0 round) */
+.cb-mode[data-mode="auto"] .cb-v, .cb-mode[data-mode="bypass"] .cb-v { color: var(--chat-dir-ink); }   /* the bar's amber, the folder's: a clean amber-orange in light (0.14.0 round); the meters keep their own warn ink */
 .cb-mode[data-mode="plan"] .cb-v { color: var(--ink); font-weight: 600; }   /* coral is the send button's alone in the chat */
 .cb-mode:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: -3px; }
 .cb-bg .cb-v { color: var(--ink); }

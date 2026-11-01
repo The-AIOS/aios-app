@@ -197,6 +197,7 @@ const ICONS = {
   id: '<rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="8" cy="10" r="2"/><path d="M6.5 16a2.5 2.5 0 0 1 5 0M14 9h4M14 13h3"/>',
   chart: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
   sparkles: '<path d="M12 3l1.6 4.9L18.5 9l-4.9 1.1L12 15l-1.6-4.9L5.5 9l4.9-1.1z"/>',
+  brain: '<path d="M12 5a3 3 0 1 0-6 .1 4 4 0 0 0-2.5 5.8 4 4 0 0 0 .6 6.6A4 4 0 1 0 12 18z"/><path d="M12 5a3 3 0 1 1 6 .1 4 4 0 0 1 2.5 5.8 4 4 0 0 1-.6 6.6A4 4 0 1 1 12 18z"/><path d="M12 5v13"/>',
   note: '<path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2z"/><path d="M15 21v-6a1 1 0 0 1 1-1h6"/>',
   guide: '<circle cx="12" cy="12" r="9.5"/><polygon points="16.2 7.8 13.4 13.4 7.8 16.2 10.6 10.6 16.2 7.8"/>',
   stack: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
@@ -8551,7 +8552,7 @@ function chatSkinBuild(id, p) {
   const idBox = el('div', 'cb-id');
   const modelSeg = el('button', 'cb-model');
   modelSeg.type = 'button';
-  modelSeg.append(csIcon('sparkles', 12), el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // an icon like every segment (0.14.0 round); the chevrons say "this opens a choice"
+  modelSeg.append(csIcon('brain', 12), el('span', 'cb-v none', '—'), csIcon('chevUpDown', 12));   // an icon like every segment (0.14.0 round); the chevrons say "this opens a choice"
   const effortSeg = el('button', 'cb-effort');
   effortSeg.type = 'button';
   effortSeg.setAttribute('aria-haspopup', 'menu');
@@ -9643,9 +9644,11 @@ function chatSkinMarkInterrupt(id, p) {
    back into its own box, the way the terminal shows it, and clears the terminal's: unless the operator already typed
    something in the chat, which is theirs and wins. Checked twice, since the TUI redraws a moment after the Esc. */
 function chatSkinAdoptRestored(id, p) {
-  for (const ms of [500, 1400]) setTimeout(() => {
+  /* Decided on the SCREEN, never on chatSkinWorking: right after a send that counts as working for a few seconds by design,
+     and an Esc within them (before Claude answered: the case where Claude Code puts the message back) found it "working". */
+  for (const ms of [500, 1400, 2800, 4500]) setTimeout(() => {
     const cs = p.chatSkin;
-    if (!cs || panes.get(id) !== p || p.exited || chatSkinWorking(p) || cs.promptKind) return;
+    if (!cs || panes.get(id) !== p || p.exited || chatSkinSpinnerOn(p) || cs.promptKind) return;
     const draft = chatSkinPromptDraft(p);
     if (!draft || cs.input.value.trim()) return;
     cs.input.value = draft;
