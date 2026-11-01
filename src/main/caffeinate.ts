@@ -17,8 +17,9 @@
  * is no per-OS command, no PowerShell `SetThreadExecutionState`, and no native addon.
  */
 import { powerSaveBlocker } from 'electron';
+import { execFile } from 'child_process';
 import {
-  BLOCKER_TYPE, anyBusy, desiredBlocker, caffeinateReason, nextOverride,
+  BLOCKER_TYPE, anyBusy, sessionsAwaitingShells, desiredBlocker, caffeinateReason, nextOverride,
   type CaffeinateMode, type CaffeinateOverride,
 } from '../core/caffeinate';
 import * as aios from './aios';
@@ -50,6 +51,33 @@ let lastWantedAt = 0;
 
 const log = (m: string): void => console.log('[caffeinate]', m);
 
+/* Sessions whose turn ended but whose background shell is still running (core explains why they
+   count as busy). Probed asynchronously and at most every SHELL_PROBE_MS, and only while no session
+   reports busy on its own: a tick never waits on a subprocess, and while something is visibly busy
+   the answer cannot change the decision. Windows has no `ps`; there the status alone decides. */
+const SHELL_PROBE_MS = 10_000;
+let awaiting = new Set<number>();
+let probing = false;
+let probedAt = 0;
+
+function probeShells(pids: number[]): void {
+  if (process.platform === 'win32' || probing || Date.now() - probedAt < SHELL_PROBE_MS) return;
+  probing = true;
+  execFile('ps', ['-axo', 'pid=,ppid=,command='], { timeout: 4000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+    probing = false;
+    probedAt = Date.now();
+    awaiting = err ? new Set() : sessionsAwaitingShells(String(out), pids);
+  });
+}
+
+/** Busy = a session says so, or one is waiting on a shell it started. */
+function busyNow(): boolean {
+  const agents = aios.listRunningAgents();
+  if (anyBusy(agents.map((a) => a.status))) return true;
+  probeShells(agents.map((a) => a.pid));
+  return agents.some((a) => awaiting.has(a.pid));
+}
+
 /**
  * Whether the blocker is REALLY held, rather than whether we asked for one.
  *
@@ -71,7 +99,7 @@ function held(): boolean {
 /** Read the live session list and decide. The busy signal is READ, never re-derived. */
 function snapshot(): CaffeinateState {
   const mode = aios.shellSettings().caffeinate;
-  const busy = anyBusy(aios.listRunningAgents().map((a) => a.status));
+  const busy = busyNow();
   const want = desiredBlocker({ mode, busy, override });
   return {
     on: held(),
@@ -89,7 +117,7 @@ function snapshot(): CaffeinateState {
 /** Apply the decision, then tell the renderer what actually happened. */
 function apply(): CaffeinateState {
   const mode = aios.shellSettings().caffeinate;
-  const busy = anyBusy(aios.listRunningAgents().map((a) => a.status));
+  const busy = busyNow();
   const want = desiredBlocker({ mode, busy, override });
 
   if (want && id === null) {
@@ -132,7 +160,7 @@ export function state(): CaffeinateState {
  */
 export function toggle(): CaffeinateState {
   const mode = aios.shellSettings().caffeinate;
-  const busy = anyBusy(aios.listRunningAgents().map((a) => a.status));
+  const busy = busyNow();
   override = nextOverride({ mode, busy, override });
   log(`toggled → override ${String(override)}`);
   return apply();
