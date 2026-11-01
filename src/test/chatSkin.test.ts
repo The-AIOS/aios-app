@@ -241,9 +241,10 @@ test('the working line keeps its own clock from the send, ticking each second, w
   /* 0.14.0 round: Claude Code streams no text and redraws its spinner every few seconds while unfocused; "0s" sat still. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const wm = app.slice(app.indexOf('function chatSkinWorkMeta'), app.indexOf('\n}\n', app.indexOf('function chatSkinWorkMeta')));
-  assert.match(wm, /if \(cs\.turnStartAt && chatSkinWorking\(p\)\)/);
+  assert.match(wm, /if \(\(cs\.workSince \|\| cs\.turnStartAt\) && chatSkinWorking\(p\)\)/);
+  assert.match(app, /if \(busyNow && !cs\.workSince\) cs\.workSince = now;/, 'the clock starts with the working stretch, whatever began it');
   assert.match(app, /cs\.turnStartAt = Date\.now\(\);/);
-  assert.match(app, /if \(chatSkinWorking\(p, now\)\) chatSkinWorkMeta\(p\);/, 'painted from the tick, not only when the terminal changes');
+  assert.match(app, /if \(busyNow\) chatSkinWorkMeta\(p\);/, 'painted from the tick, not only when the terminal changes');
 });
 
 test('⌘⇧-click on a path in the chat reveals it, instead of extending the text selection', () => {
