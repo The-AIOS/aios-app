@@ -65,7 +65,7 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
      existing --st-input hue, which is exactly what a permission card is. ── */
   --chat-user-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* the operator's message: a whisper of tone, lighter than the code and tool surfaces so it never competes with the answer */
   --chat-user-line: var(--line);
-  --chat-claude-bg: color-mix(in srgb, #d9b98c 11%, var(--surface));   /* Claude's bubble: a warm sand, friendlier than the operator's neutral grey (coral stays the action colour) */
+  --chat-claude-bg: color-mix(in srgb, #ff7a6c 8%, var(--surface));   /* Claude's bubble: a whisper of coral, friendlier than the operator's neutral grey; a tint of the bubble, never the action fill */
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
   --chat-tool-ink: var(--faint);
@@ -736,7 +736,7 @@ body.light {
      in the light theme. Re-declaring makes them resolve against this block's own --ink/--surface. */
   --chat-user-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
   --chat-user-line: var(--line);
-  --chat-claude-bg: color-mix(in srgb, #d9b98c 24%, var(--surface));   /* light: the same sand, a little stronger to read on white */
+  --chat-claude-bg: color-mix(in srgb, #ff7a6c 9%, var(--surface));   /* light: the same whisper of coral */
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 6%, var(--surface));
   --chat-tool-ink: var(--faint);
@@ -2101,8 +2101,9 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-row.who-claude, .who-user .chat-bubble { position: relative; }
 .chat-acts { position: absolute; z-index: 2; display: flex; opacity: 0; transition: opacity .12s ease; pointer-events: none; }
 .chat-acts .cm-copy { height: 20px; padding: 0 6px; pointer-events: auto; white-space: nowrap; }
-.who-user .chat-acts .cm-copy-t { display: none; }   /* beside the bubble, the icon alone (its label is the tooltip) */
-.who-user .chat-bubble > .chat-acts { right: 100%; bottom: 0; padding-right: 6px; }
+
+.chat-row.who-user { position: relative; margin-bottom: 22px; }   /* room for the copy under the bubble (the gap before a reply was 7px) */
+.chat-row.who-user > .chat-acts { right: -6px; top: 100%; }
 .chat-row.who-claude > .chat-acts { left: -6px; top: 100%; }
 .chat-row:hover .chat-acts, .chat-acts:focus-within, .chat-acts:has(.done, .fail) { opacity: 1; }
 @media (hover: none) { .chat-acts { opacity: 1; } }

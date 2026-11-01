@@ -3157,26 +3157,16 @@ function tgToggle(gid) {
   const g = tabGroups.get(gid);
   if (!g) return;
   g.collapsed = !g.collapsed;
-  /* Folding away the group you are IN moves you to the nearest tab outside it, as Chrome does —
-     unless there is none, in which case the focused tab simply stays visible (see paintGroups). */
+  /* Folding the group you are IN keeps you where you are (0.14.0 round 3): the group folds around your tab, which stays
+     visible (paintGroups shows the focused member of a folded group). Moving you out landed on another group's tab, and
+     then on any ungrouped tab; the operator wanted neither. Focus is never moved by a fold, so one fold can never open
+     another group either. */
   if (g.collapsed) {
-    for (const z of ['main', 'term']) {
-      if (tgOf(active[z]) !== gid) continue;
-      const order = tabOrder[z].filter((v) => panes.has(v));
-      const at = order.indexOf(active[z]);
-      /* Never into ANOTHER folded group: activating a tab unfolds its group, so folding B used to unfold A (0.14.0 round). */
-      /* And prefer a tab in NO group: landing on another group's tab read as being thrown into that group (0.14.0 round 2).
-         Another (open) group's tab only when no ungrouped tab is left. */
-      const near = [...order.slice(at + 1), ...order.slice(0, at).reverse()]
-        .filter((v) => tgOf(v) !== gid && !tgFolded(tgOf(v)) && panes.get(v).kind !== 'restore');
-      const out = near.find((v) => !tgOf(v)) || near[0];
-      if (out) setActive(out);
-    }
     /* A split showing members of the folded group lets them go, so no pane stays on screen without its tab. */
     for (const z of ['main', 'term']) {
       const vis = zones[z].visible;
       if (vis.length < 2 || !vis.some((v) => tgOf(v) === gid)) continue;
-      const keep = vis.filter((v) => tgOf(v) !== gid);
+      const keep = vis.filter((v) => tgOf(v) !== gid || v === active[z]);   // the tab you are on stays, as its tab does
       zones[z].visible = keep.length ? keep : [active[z]];
       zones[z].frac = evenFrac(zones[z].visible.length);
     }
@@ -10314,7 +10304,7 @@ function chatSkinMakeItem(role, cs) {
     copy.addEventListener('click', () => chatCopyTo(copy, label, rec.text || ''));
     acts.appendChild(copy);
     /* Takes no room (0.14.0 round: a row under every message doubled the gaps). Beside the operator's bubble, under a reply. */
-    (role === 'user' ? bubble : row).appendChild(acts);
+    row.appendChild(acts);   // one look for both: under the message, at its outer corner (0.14.0 round 3)
     return rec;
   }
   if (role === 'tool') return chatSkinMakeTool(cs);

@@ -3586,7 +3586,8 @@ test("0.14.0 round 2: Claude's text is a bubble with a tail, copy never wraps, a
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   assert.match(css, /\.who-claude \.chat-bubble \{ position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;/);
   assert.match(css, /background: var\(--chat-claude-bg\); border: 0;/, 'no outline: fill alone, so the tail joins seamlessly');
-  assert.match(css, /--chat-claude-bg: color-mix\(in srgb, #d9b98c/, 'a warm tint, never the coral accent');
+  assert.match(css, /--chat-claude-bg: color-mix\(in srgb, #ff7a6c [0-9]+%, var\(--surface\)\)/, 'a whisper of coral mixed into the surface, never the accent fill itself');
+  assert.doesNotMatch(css, /--chat-claude-bg:[^;]*var\(--accent/, 'never the accent token: coral as a FILL is the send button\'s');
   assert.match(css, /background: var\(--chat-claude-bg\)/);
   assert.match(css, /\.who-user \.chat-bubble::after \{ right: -6px;[^}]*clip-path: path\(/, 'the operator\'s tail, bottom right');
   assert.match(css, /\.who-claude \.chat-bubble::after \{ left: -6px;[^}]*clip-path: path\(/, 'Claude\'s tail, bottom left');

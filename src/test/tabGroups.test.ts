@@ -102,14 +102,16 @@ test('a group lives in ONE zone: the one holding most of its members, so a stray
   assert.match(app, /if \(tgHomeZones\(\)\.get\(gid\) && tgHomeZones\(\)\.get\(gid\) !== zoneOf\(p\)\) return;/, 'tgAdd refuses across zones');
 });
 
-test('folding one group never unfolds another, and a split lets the folded members go', () => {
-  /* Folding B moved the focus to the nearest tab outside B, which was inside folded A, and activating it unfolded A. */
+test('a fold never moves the focus: you stay on your tab, so one fold can never open another group', () => {
+  /* Rounds 1-3 (0.14.0): moving the focus out of the folded group first unfolded ANOTHER group (its tab was the nearest),
+     then landed on any ungrouped tab. The operator's rule: folding the group you are in leaves you on your tab. */
   const tog = app.slice(app.indexOf('function tgToggle'), app.indexOf('\n}\n', app.indexOf('function tgToggle')));
-  assert.match(tog, /\.filter\(\(v\) => tgOf\(v\) !== gid && !tgFolded\(tgOf\(v\)\) && panes\.get\(v\)\.kind !== 'restore'\);\n\s*const out = near\.find\(\(v\) => !tgOf\(v\)\) \|\| near\[0\];/);
-  assert.match(tog, /const keep = vis\.filter\(\(v\) => tgOf\(v\) !== gid\);/, 'a folded member leaves the split');
+  assert.doesNotMatch(tog, /setActive\(/, 'a fold never changes the active tab');
+  assert.match(tog, /const keep = vis\.filter\(\(v\) => tgOf\(v\) !== gid \|\| v === active\[z\]\);/, 'a folded member leaves the split, except the tab you are on');
   assert.match(app, /p\.tab\.classList\.toggle\('tgcollapsed', !!g && g\.collapsed && id !== active\[z\] && !zones\[z\]\.visible\.includes\(id\)\);/,
-    'a pane on screen always keeps its tab');
+    'the focused member of a folded group keeps its tab');
 });
+
 
 test('the chip and its members draw their group line on one baseline', () => {
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
