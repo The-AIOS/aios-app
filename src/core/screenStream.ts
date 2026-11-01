@@ -85,7 +85,9 @@ const TOOL_SUMMARY = /\(ctrl\+o to expand\)|^(?:Read|Searched for|Listed|Wrote|E
 const RESULT_ROW = /^\s*⎿/;
 
 /** Spinner: a glyph, a short phrase ending in an ellipsis, optionally `(12s · ↓ 1.2k tokens · esc to interrupt)`. */
-const SPINNER = /^\s{0,1}[✻✽✶✳✢·∗✺]\s+\S+(?:\s\S+){0,3}\s?(?:…|\.\.\.)(?:\s*\([^)]*\))?\s*$/;
+/* `●` too: Claude Code 2.1.316 animates the spinner through it ("● Wandering… (6s · ↓ 465 tokens)"), and without it a live turn
+   read as idle (0.14.0 round: Esc did nothing). Safe as a glyph here: a bullet in an answer is never followed by "word…". */
+const SPINNER = /^\s{0,1}[✻✽✶✳✢·∗✺●]\s+\S+(?:\s\S+){0,3}\s?(?:…|\.\.\.)(?:\s*\([^)]*\))?\s*$/;
 /** `*` is also a plain list bullet, so it only counts as a spinner with the parenthetical the spinner carries. */
 const SPINNER_STAR = /^\s{0,1}\*\s+\S+(?:\s\S+){0,3}\s?(?:…|\.\.\.)\s*\([^)]*(?:esc|tokens|\d+s)[^)]*\)\s*$/;
 const ESC_HINT = /^\s*\(?esc to interrupt\)?\s*$/i;

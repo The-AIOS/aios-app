@@ -4505,10 +4505,16 @@ function noteOperatorKeys(p, d) {
   }
 }
 
-function submitToPty(id, text) {
+function submitToPty(id, text, stillWaiting) {
   if (!text) return;
   window.glassShell.ptyWrite(id, text);
   setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 80);
+  /* The Enter can be lost while Claude Code redraws (right after an interrupt, the operator's HELLO sat typed in its box and
+     the chat showed it as sent: 0.14.0 round). A caller that can read the box passes `stillWaiting`; while it says the text
+     is still there unsent, the Enter is pressed again, twice at most. */
+  if (typeof stillWaiting === 'function') {
+    for (const ms of [1200, 2600]) setTimeout(() => { try { if (stillWaiting()) window.glassShell.ptyWrite(id, '\r'); } catch { /* gone */ } }, ms);
+  }
 }
 
 /* THE X ON A TAB IS THE ONE CLOSE A HAND CAN MISS — so it, and only it, asks first.
@@ -8506,8 +8512,23 @@ function chatSkinEligible(p) {
 const chatSkinWorking = (p, now = Date.now()) => {
   const cs = p.chatSkin;
   if (!cs) return false;
-  return (cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS) || now - (cs.lastSubmitAt || 0) < CS_SUBMIT_MS;
+  return (cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS) || now - (cs.lastSubmitAt || 0) < CS_SUBMIT_MS
+    || chatSkinSpinnerOn(p);   // on its own: in chat view the terminal is unfocused and Claude Code stops animating, so no output arrives
 };
+/* The screen as a second witness (0.14.0 round): the transcript's open turn lagged while Claude visibly worked, and Esc then
+   took the idle path and did nothing. A live spinner right above the prompt box ("● Wandering… (6s · ↓ 465 tokens)",
+   the timer in brackets is what a finished turn's line never has) means a turn is running. */
+const CS_SPINNER_LIVE = /^\s{0,1}[✻✽✶✳✢·∗✺●*]\s+\S+(?:\s\S+){0,3}\s?(?:…|\.\.\.)\s*\(\d+[ms]/;
+function chatSkinSpinnerOn(p) {
+  let xs;
+  try { xs = chatSkinScreenText(p).split('\n'); } catch { return false; }
+  const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
+  if (bottom < 1) return false;
+  let top = bottom - 1;
+  while (top > 0 && !/^─{3,}/.test(xs[top]) && bottom - top < 12) top--;
+  for (let y = top - 1; y >= Math.max(0, top - 4); y--) if (CS_SPINNER_LIVE.test(xs[y])) return true;
+  return false;
+}
 
 /* ── building the overlay (once per pane, on first entry) ────────────────── */
 function chatSkinBuild(id, p) {
@@ -9604,6 +9625,19 @@ function chatSkinPromptDraft(p) {
     return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
   } catch { return ''; }
 }
+/* The terminal shows "Interrupted" every time; the transcript only carries "[Request interrupted by user]" when a TOOL was
+   cut, so a reply stopped mid-text just ended in the chat (0.14.0 round: "that's a must when i interrupt"). After the
+   operator's Esc the chat adds the same marker itself, unless the transcript brought one for this turn. Local to the view:
+   the transcript is never written. */
+function chatSkinMarkInterrupt(id, p) {
+  setTimeout(() => {
+    const cs = p.chatSkin;
+    if (!cs || panes.get(id) !== p || p.exited) return;
+    const last = [...cs.log.children].filter((n) => !n.hidden && (n.classList.contains('chat-row') || n.classList.contains('chat-note') || n.classList.contains('chat-tool') || n.csGroup)).pop();
+    if (last && last.classList.contains('chat-note') && /^\[Request interrupted by user/.test(last.textContent.trim())) return;
+    chatSkinUpsert(cs, { uuid: 'local-interrupt-' + Date.now(), role: 'system', text: '[Request interrupted by user]' }, true);
+  }, 1800);
+}
 /* After the operator's Esc, Claude Code puts a message it had not answered back into ITS prompt box. Left there, the chat
    refused every send ("text typed in the terminal") and the operator could not see why (0.14.0 round). So the chat takes it
    back into its own box, the way the terminal shows it, and clears the terminal's: unless the operator already typed
@@ -10409,8 +10443,7 @@ function chatSkinUpsert(cs, item, animate, before) {
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
   } else {
-    /* Claude Code's own marker, in the operator's words (0.14.0 round: "[Request interrupted by user]" read as a log line). */
-    rec.body.textContent = /^\[Request interrupted by user[^\]]*\]$/.test(text.trim()) ? t('chat.note.interrupted') : text;
+    rec.body.textContent = text;
     rec.node.hidden = !text.trim();
   }
 }
@@ -10839,7 +10872,8 @@ function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
   cs.stick = true;
-  submitToPty(id, text);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  const sent = text.replace(/\s+/g, ' ').trim();
+  submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
   chatSkinControls(p);
@@ -10998,7 +11032,7 @@ function chatSkinInterrupt(id, p) {
     window.glassShell.ptyWrite(id, '\x1b');
     /* Claude Code writes no marker for a reply stopped mid-text, so the chat would show it simply ending (0.14.0 round):
        say it here, where the Esc is known. */
-    toast(t('chat.stopped', { name: chatSkinWho(p) }));
+    chatSkinMarkInterrupt(id, p);
     chatSkinAdoptRestored(id, p);
     return;
   }

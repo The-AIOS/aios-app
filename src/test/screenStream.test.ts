@@ -41,7 +41,7 @@ test('the reply in progress comes back clean: no bullet, spinner, input box or f
 });
 
 test('the other spinner phrasings and the star/dot glyphs are noise too', () => {
-  for (const spin of ['· Pondering… (esc to interrupt)', '✶ Cogitating… (12s · ↑ 1.2k tokens · esc to interrupt)', '✻ Thinking…', '✽ Running… (3s)', '* Hatching… (7s · esc to interrupt)']) {
+  for (const spin of ['· Pondering… (esc to interrupt)', '✶ Cogitating… (12s · ↑ 1.2k tokens · esc to interrupt)', '✻ Thinking…', '✽ Running… (3s)', '* Hatching… (7s · esc to interrupt)', '● Wandering… (6s · ↓ 465 tokens)']) {   // ● is Claude Code 2.1.316's frame (0.14.0 round)
     const r = extractStreaming(screen('⏺ Working on it now.', '', spin, '', BOX, FOOTER));
     assert.equal(r?.text, 'Working on it now.', spin);
   }

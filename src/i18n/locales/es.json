@@ -1327,8 +1327,6 @@
   "chat.code.copyFailed": "No se pudo copiar",
   "chat.code.copyLabel": "Copiar este código",
   "chat.msg.copyLabel": "Copiar este mensaje",
-  "chat.note.interrupted": "Lo detuviste",
-  "chat.stopped": "Se detuvo {name}",
   "chat.file.saved": "Guardado",
   "chat.file.open": "Abrir",
   "chat.file.reveal": "Mostrar en carpeta",

@@ -1340,8 +1340,6 @@
   "chat.code.copyFailed": "Could not copy",
   "chat.code.copyLabel": "Copy this code",
   "chat.msg.copyLabel": "Αντιγραφή αυτού του μηνύματος",
-  "chat.note.interrupted": "Το σταμάτησες",
-  "chat.stopped": "Σταμάτησε το {name}",
   "chat.file.saved": "Αποθηκεύτηκε",
   "chat.file.open": "Άνοιγμα",
   "chat.file.reveal": "Εμφάνιση στον φάκελο",

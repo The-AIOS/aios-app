@@ -111,7 +111,7 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     const clrWrites = [...clr.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     if (!(clrWrites.length === 1 && clrWrites[0] === "id, '\\x15'")) return false;
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
-    return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
+    return /submitToPty\(id, text[,)]/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
       && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
       && cycWrites.length === 1 && cycWrites[0] === "id, '\\x1b[Z'"
       && [...ag.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim()).join('|') === 'id, k'
@@ -123,12 +123,12 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && [...btm.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', 'k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))
       && /chatSkinPromptEmpty\(p\)\) return false;/.test(btm) && /if \(now !== c \+ step\) return false;/.test(btm)
   },
-  (src) => src.replace('submitToPty(id, text);   // the one chokepoint', "window.glassShell.ptyWrite(id, text + '\\r');   // the one chokepoint"));
+  (src) => src.replace('submitToPty(id, text, () =>', "window.glassShell.ptyWrite(id, text + '\\r'); (() =>"));
 
 guarded('slash commands are sent exactly like any other message (no filter, no special path)',
   (src) => {
     const send = fnBody(slice(src), 'chatSkinSendNow') + fnBody(slice(src), 'chatSkinSubmit');
-    return !/startsWith\('\/'\)\s*\)\s*return/.test(send) && !/ptyRun\(/.test(send) && /submitToPty\(id, text\)/.test(send);
+    return !/startsWith\('\/'\)\s*\)\s*return/.test(send) && !/ptyRun\(/.test(send) && /submitToPty\(id, text[,)]/.test(send);
   },
   (src) => src.replace('const text = cs.input.value.replace', "if (cs.input.value.startsWith('/')) return;\n  const text = cs.input.value.replace"));
 
@@ -153,7 +153,7 @@ guarded('Esc writes a lone ESC to the pty while something runs; idle, only a dou
   (src) => {
     const s = slice(src);
     const intr = fnBody(s, 'chatSkinInterrupt');
-    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}toast\(t\('chat\.stopped'[\s\S]{0,120}return;\n\s*\}/.test(intr)
+    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}chatSkinMarkInterrupt\(id, p\);[\s\S]{0,80}return;\n\s*\}/.test(intr)
       && /cs\.input\.value\.trim\(\)\) return;/.test(intr) && /> 600\) \{ cs\.escAt = now; return; \}/.test(intr)
       && /e\.key !== 'Escape'[\s\S]{0,120}chatSkinInterrupt\(id, p\)/.test(s);
   },
@@ -181,7 +181,32 @@ test('a message Claude Code puts back after an Esc comes back into the chat box;
   const ad = app.slice(app.indexOf('function chatSkinAdoptRestored'), app.indexOf('\n}\n', app.indexOf('function chatSkinAdoptRestored')));
   assert.match(ad, /if \(!draft \|\| cs\.input\.value\.trim\(\)\) return;/, 'the operator\'s own typing in the chat wins');
   assert.match(ad, /chatSkinClearTermPrompt\(id, p\)/);
-  assert.match(app.slice(app.indexOf('function chatSkinInterrupt')), /toast\(t\('chat\.stopped'[\s\S]{0,80}chatSkinAdoptRestored\(id, p\);/);
+  assert.match(app.slice(app.indexOf('function chatSkinInterrupt')), /chatSkinMarkInterrupt\(id, p\);\n\s*chatSkinAdoptRestored\(id, p\);/);
+});
+
+test('the interrupt shows in the chat every time, and a lost Enter is pressed again while the message sits unsent', () => {
+  /* 0.14.0 round: "[Request interrupted by user]" is a must when interrupting (the transcript only has it when a tool was cut),
+     and the operator's HELLO sat typed in Claude Code's box after an interrupt, shown as sent. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const mk = app.slice(app.indexOf('function chatSkinMarkInterrupt'), app.indexOf('\n}\n', app.indexOf('function chatSkinMarkInterrupt')));
+  assert.match(mk, /text: '\[Request interrupted by user\]'/, 'Claude Code\'s own words');
+  assert.match(mk, /\/\^\\\[Request interrupted by user\/\.test\(last\.textContent\.trim\(\)\)\) return;/, 'never twice for one turn');
+  assert.doesNotMatch(app, /t\('chat\.stopped'/, 'no toast saying so while nothing shows');
+  const sub = app.slice(app.indexOf('function submitToPty'), app.indexOf('\n}\n', app.indexOf('function submitToPty')));
+  assert.match(sub, /for \(const ms of \[1200, 2600\]\)/, 'pressed again twice at most');
+  assert.match(sub, /if \(stillWaiting\(\)\) window\.glassShell\.ptyWrite\(id, '\\r'\)/);
+  assert.match(app, /chatSkinPromptDraft\(p\) === sent\);/, 'only while the exact message is still sitting unsent');
+});
+
+test('a live spinner on screen counts as working even when the transcript lags (Esc took the idle path)', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const w = app.slice(app.indexOf('const chatSkinWorking'), app.indexOf('};', app.indexOf('const chatSkinWorking')));
+  assert.match(w, /chatSkinSpinnerOn\(p\)/);
+  const re = new RegExp(/const CS_SPINNER_LIVE = \/(.*)\/;/.exec(app)![1]);
+  assert.ok(re.test('● Wandering… (6s · ↓ 465 tokens)'), 'Claude Code 2.1.316 frame');
+  assert.ok(re.test('✻ Thinking… (4s · ↓ 312 tokens · esc to interrupt)'));
+  assert.ok(!re.test('✻ Worked for 14s · done 1:04 PM'), 'a finished turn\'s line is not a spinner');
+  assert.ok(!re.test('● Background command "Wait 20 seconds" completed (exit code 0)'));
 });
 
 // ── watch / unwatch follow the session and the pane's life ──────────────────
@@ -1347,7 +1372,7 @@ guarded('the model in the bar sends /model through the same chokepoint as a type
     // 0.14.0 round: the model opens a menu like the effort; a pick types "/model <value>" (or "/model" for More…), still only through chatSkinSubmit and only when not blocked
     return /chatSkinSubmit\(id, p, key \? '\/model ' \+ key : '\/model'\)/.test(menu) && (menu.match(/chatSkinBarBlocked\(p\)/g) || []).length >= 2 && !/ptyWrite|ptyRun/.test(menu)
       && /p\.exited/.test(blocked) && /cs\.promptKind/.test(blocked) && /chatSkinWorking\(p\)/.test(blocked)
-      && /submitToPty\(id, text\)/.test(submit) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow'))
+      && /submitToPty\(id, text[,)]/.test(submit) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow'))
       && /modelSeg\.addEventListener\('click', \(\) => chatSkinModelMenu\(id, p\)\)/.test(fnBody(s, 'chatSkinBuild'))
       && /const blocked = chatSkinBarBlocked\(p\);[\s\S]*cs\.modelSeg\.disabled = blocked/.test(fnBody(s, 'chatSkinControls'));
   },
