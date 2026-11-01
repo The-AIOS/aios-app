@@ -9398,7 +9398,14 @@ function chatSkinAgentCursor(p) {
   const rows = xs.slice(bottom + 1).filter((l) => /^\s*(?:❯\s*)?[◯⏺●◉]\s+\S/.test(l));
   const at = rows.findIndex((l) => /^\s*❯/.test(l));
   if (at >= 0) return at;
-  return /^❯/.test(xs[bottom - 1] || '') ? -1 : null;
+  /* The box's first row carries the ❯, and a draft that wraps (Claude Code puts an interrupted message back) pushes it up:
+     look from the bottom rule up to the box's top rule, not only at the row above the bottom (0.14.0 round: a two-line
+     restored message read as "no prompt box", and the chat fell back to the live terminal). */
+  for (let y = bottom - 1; y >= Math.max(0, bottom - 12); y--) {
+    if (/^─{3,}/.test(xs[y])) break;
+    if (/^❯/.test(xs[y])) return -1;
+  }
+  return null;
 }
 /* The rows of Claude Code's Background panel (/tasks) when it is on screen, with the section each sits in ("Shells (1)",
    "Local agents (2)", "Completed (1)") and which one carries the cursor; null when the panel is not there. */
@@ -9573,6 +9580,51 @@ function chatSkinPromptEmpty(p) {
     }
     return true;
   } catch { return false; }   // unreadable: treat as not empty
+}
+/* The text in Claude Code's own prompt box, as typed (the ❯ and the dim placeholder left out), or '' when it is empty or not
+   on screen. Same box as chatSkinPromptEmpty. */
+function chatSkinPromptDraft(p) {
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+    let bottom = -1;
+    for (let y = b.length - 1; y >= Math.max(0, b.length - 40); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    if (bottom < 1) return '';
+    let top = bottom - 1;
+    while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+    if (!/^❯/.test(text(top))) return '';
+    const rows = [];
+    for (let y = top; y < bottom; y++) {
+      const line = b.getLine(y);
+      let row = '';
+      for (let x = y === top ? 2 : 0; x < line.length; x++) { line.getCell(x, c); row += c.isDim() ? ' ' : (c.getChars() || ' '); }
+      rows.push(row.replace(/\s+$/, ''));
+    }
+    return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
+  } catch { return ''; }
+}
+/* After the operator's Esc, Claude Code puts a message it had not answered back into ITS prompt box. Left there, the chat
+   refused every send ("text typed in the terminal") and the operator could not see why (0.14.0 round). So the chat takes it
+   back into its own box, the way the terminal shows it, and clears the terminal's: unless the operator already typed
+   something in the chat, which is theirs and wins. Checked twice, since the TUI redraws a moment after the Esc. */
+function chatSkinAdoptRestored(id, p) {
+  for (const ms of [500, 1400]) setTimeout(() => {
+    const cs = p.chatSkin;
+    if (!cs || panes.get(id) !== p || p.exited || chatSkinWorking(p) || cs.promptKind) return;
+    const draft = chatSkinPromptDraft(p);
+    if (!draft || cs.input.value.trim()) return;
+    cs.input.value = draft;
+    chatSkinAutosize(cs);
+    chatSkinClearTermPrompt(id, p);
+  }, ms);
+}
+/* Clear Claude Code's prompt line: Ctrl+U deletes to the start of the line; a draft of several lines takes a few. Stops as
+   soon as the box reads empty, at most five times. */
+function chatSkinClearTermPrompt(id, p, n = 0) {
+  if (n >= 5 || panes.get(id) !== p || p.exited || chatSkinPromptEmpty(p)) return;
+  window.glassShell.ptyWrite(id, '\x15');
+  setTimeout(() => chatSkinClearTermPrompt(id, p, n + 1), 120);
 }
 /* The "1 agent" chip opens a menu like the model's: main and each subagent, the one on screen ticked, and the full list
    (/tasks) apart. Shells alone keep the terminal's own panel. */
@@ -10357,7 +10409,8 @@ function chatSkinUpsert(cs, item, animate, before) {
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
   } else {
-    rec.body.textContent = text;
+    /* Claude Code's own marker, in the operator's words (0.14.0 round: "[Request interrupted by user]" read as a log line). */
+    rec.body.textContent = /^\[Request interrupted by user[^\]]*\]$/.test(text.trim()) ? t('chat.note.interrupted') : text;
     rec.node.hidden = !text.trim();
   }
 }
@@ -10946,6 +10999,7 @@ function chatSkinInterrupt(id, p) {
     /* Claude Code writes no marker for a reply stopped mid-text, so the chat would show it simply ending (0.14.0 round):
        say it here, where the Esc is known. */
     toast(t('chat.stopped', { name: chatSkinWho(p) }));
+    chatSkinAdoptRestored(id, p);
     return;
   }
   /* Idle: Esc twice is the terminal's "go back to an earlier message". The second Esc within 600 ms passes BOTH on, the way

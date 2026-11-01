@@ -104,9 +104,12 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
     const cyc = fnBody(s, 'chatSkinModeCycle');   // the mode chokepoint (0.14.0 round): Shift+Tab, nothing else
     const ag = fnBody(s, 'chatSkinTasksOpen');   // the Background-panel chokepoint (0.14.0 round): arrows only, checked per key, never Enter
     const rel = fnBody(s, 'chatSkinFooterRelease');
+    const clr = fnBody(s, 'chatSkinClearTermPrompt');   // clearing a message Claude Code put back after an Esc (0.14.0 round): Ctrl+U only
     const btm = fnBody(s, 'chatSkinBackToMain');   // back to main: arrows and one Enter, checked per key   // gives the keyboard back: one Esc for an open panel, ↑ only while the footer holds it
-    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(ag, '').replace(rel, '').replace(btm, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
+    const writes = [...s.replace(fnBody(s, 'chatSkinSendKey'), '').replace(tap, '').replace(cyc, '').replace(ag, '').replace(rel, '').replace(btm, '').replace(clr, '').matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const tapWrites = [...tap.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
+    const clrWrites = [...clr.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
+    if (!(clrWrites.length === 1 && clrWrites[0] === "id, '\\x15'")) return false;
     const cycWrites = [...cyc.matchAll(/ptyWrite\(([^)]*)\)/g)].map((m) => m[1].trim());
     return /submitToPty\(id, text\)/.test(send) && /chatSkinSubmit\(id, p, text\)/.test(fnBody(s, 'chatSkinSendNow')) && writes.length >= 1 && writes.every((w) => w === "id, '\\x1b'")
       && tapWrites.length === 1 && tapWrites[0] === "id, ' '"
@@ -150,7 +153,7 @@ guarded('Esc writes a lone ESC to the pty while something runs; idle, only a dou
   (src) => {
     const s = slice(src);
     const intr = fnBody(s, 'chatSkinInterrupt');
-    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}toast\(t\('chat\.stopped'[\s\S]{0,40}return;\n\s*\}/.test(intr)
+    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}toast\(t\('chat\.stopped'[\s\S]{0,120}return;\n\s*\}/.test(intr)
       && /cs\.input\.value\.trim\(\)\) return;/.test(intr) && /> 600\) \{ cs\.escAt = now; return; \}/.test(intr)
       && /e\.key !== 'Escape'[\s\S]{0,120}chatSkinInterrupt\(id, p\)/.test(s);
   },
@@ -167,6 +170,18 @@ test('Esc stops the reply in front of you from anywhere in the window, but never
   assert.match(h, /\.modal-wrap, \.tgedit, \.xctx:not\(\[hidden\]\)/, 'never with a menu or dialog open');
   assert.match(h, /p\.view !== 'chat'/, 'only for a session in chat view');
   assert.match(h, /chatSkinInterrupt\(id, p\)/);
+});
+
+test('a message Claude Code puts back after an Esc comes back into the chat box; a wrapped draft still reads as the prompt box', () => {
+  /* 0.14.0 round: a two-line restored message made the box finder miss the box (the chat fell to the live terminal), and the
+     text left in Claude Code's box refused every send. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const cur = app.slice(app.indexOf('function chatSkinAgentCursor'), app.indexOf('\n}\n', app.indexOf('function chatSkinAgentCursor')));
+  assert.match(cur, /for \(let y = bottom - 1; y >= Math\.max\(0, bottom - 12\); y--\) \{/, 'the ❯ is looked for up to the top rule');
+  const ad = app.slice(app.indexOf('function chatSkinAdoptRestored'), app.indexOf('\n}\n', app.indexOf('function chatSkinAdoptRestored')));
+  assert.match(ad, /if \(!draft \|\| cs\.input\.value\.trim\(\)\) return;/, 'the operator\'s own typing in the chat wins');
+  assert.match(ad, /chatSkinClearTermPrompt\(id, p\)/);
+  assert.match(app.slice(app.indexOf('function chatSkinInterrupt')), /toast\(t\('chat\.stopped'[\s\S]{0,80}chatSkinAdoptRestored\(id, p\);/);
 });
 
 // ── watch / unwatch follow the session and the pane's life ──────────────────
