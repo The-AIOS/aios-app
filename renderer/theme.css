@@ -358,7 +358,7 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tabstrip > .tab { align-self: stretch; }   /* as tall as the row, like the chip, so every group line sits on one baseline (0.14.0 round) */
 .tab.grouped::after, .tgchip::after { content: ''; position: absolute; left: -3px; right: -3px; bottom: -5px;
                                       height: 2px; border-radius: 1px; background: var(--tg); pointer-events: none; }
-.tgchip::after { left: 50%; }
+.tgchip::after { left: 0; }   /* under the whole chip: from its middle (Chrome's way) read as misaligned (0.14.0 round) */
 .tab.tgcollapsed { display: none; }
 .tgchip { position: relative; flex: 0 0 auto; align-self: stretch; display: inline-flex; align-items: center; border: 0; padding: 0;
           background: none; cursor: pointer; font: 600 11.5px var(--font); }
