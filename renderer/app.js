@@ -3197,6 +3197,15 @@ function tgChip(gid, z) {
   c.appendChild(pill);
   c.title = `${tgLabel(gid)} — ${t(folded ? 'tg.expand' : 'tg.collapse')}`;
   c.addEventListener('click', () => tgToggle(gid, z));
+  /* Drag the pill to move the whole group (0.14.0 aiostest round: "CAN WE DRAG GROUPS?"). */
+  c.draggable = true;
+  c.addEventListener('dragstart', (ev) => {
+    dragTab = { id: null, group: gid, zone: z };
+    ev.dataTransfer.effectAllowed = 'move';
+    try { ev.dataTransfer.setData('application/x-aios-tab', 'group:' + gid); } catch { /* older engines */ }
+    c.classList.add('dragging');
+  });
+  c.addEventListener('dragend', () => { dragTab = null; c.classList.remove('dragging'); clearDropHint(); });
   c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void tgChipMenu(gid, z); });
   return c;
 }
@@ -3353,6 +3362,28 @@ function tgTabMenuItems(id) {
   if (others.length) items.push({ label: t('tg.addTo'), items: others.map((g) => ({ label: tgLabel(g), value: 'tgAdd:' + g })) });
   if (own) items.push({ label: t('tg.remove'), value: 'tgRemove' });
   return items;
+}
+
+/* Move a group's tabs in strip `z`, as one block, to just before/after `overId`. Dropped on a tab of ANOTHER group, the block goes
+   before or after that whole group, so no group is split. Every tab keeps its own group. */
+function tgMoveGroup(z, gid, overId, after) {
+  setTimeout(persistSessions, 0);
+  const list = tabOrder[z];
+  const block = list.filter((v) => tgOf(v) === gid);
+  if (!block.length || !list.includes(overId)) return;
+  const rest = list.filter((v) => tgOf(v) !== gid);
+  const og = tgOf(overId);
+  let at = rest.indexOf(overId);
+  if (og) {
+    const run = rest.filter((v) => tgOf(v) === og);
+    at = after ? rest.indexOf(run[run.length - 1]) : rest.indexOf(run[0]);
+  }
+  rest.splice(after ? at + 1 : at, 0, ...block);
+  list.splice(0, list.length, ...rest);
+  tgNormalize(z);
+  paintStrip(z);
+  setVisible(z);
+  if (typeof renderPulseRunning === 'function' && pulse.lastRunning) renderPulseRunning();
 }
 
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
@@ -4052,7 +4083,7 @@ function makeTab(id, name, iconName) {
   tab.addEventListener('dragover', (ev) => {
     if (!dragTab) return;
     const p = panes.get(id);
-    if (!p || zoneOf(p) !== dragTab.zone || dragTab.id === id) return;   // same strip, not itself
+    if (!p || zoneOf(p) !== dragTab.zone || dragTab.id === id || (dragTab.group && tgOf(id) === dragTab.group)) return;   // same strip, not itself (nor its own group)
     ev.preventDefault();
     ev.dataTransfer.dropEffect = 'move';
     const r = tab.getBoundingClientRect();
@@ -4068,7 +4099,8 @@ function makeTab(id, name, iconName) {
     ev.preventDefault();
     ev.stopPropagation();
     const r = tab.getBoundingClientRect();
-    moveTab(dragTab.zone, dragTab.id, id, (ev.clientX - r.left) > r.width / 2);
+    if (dragTab.group) tgMoveGroup(dragTab.zone, dragTab.group, id, (ev.clientX - r.left) > r.width / 2);   // a pill was dragged: the whole group moves
+    else moveTab(dragTab.zone, dragTab.id, id, (ev.clientX - r.left) > r.width / 2);
     clearDropHint();
     dragTab = null;
   });
@@ -11309,7 +11341,9 @@ function chatSkinTick() {
     else if (!busyNow) cs.workSince = 0;
     if (busyNow) chatSkinWorkMeta(p);   // the clock ticks even while Claude Code's own line is still
     const quiet = now - cs.lastEventAt;
-    const stalled = !cs.promptKind && cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS * 2 && quiet > CS_STALL_MS;
+    /* Not while Claude Code's spinner is live (0.14.0 aiostest round: a long think writes nothing to the transcript until it is done,
+       and "quiet for a while" sat under "working… 1m 55s · ↓ 3.2k tokens"). Quiet AND no live spinner is what stuck looks like. */
+    const stalled = !cs.promptKind && cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS * 2 && quiet > CS_STALL_MS && !chatSkinSpinnerOn(p);
     if (stalled !== cs.stalled) { cs.stalled = stalled; chatSkinPaintAlert(p); }
     // a transcript that stays silent (stalled, or never appearing) may belong to a session that was replaced
     if (stalled || (cs.state === 'waiting' && cs.watched && now - cs.watchedAt > CS_STALL_MS / 2)) chatSkinRecheckId(id, p);

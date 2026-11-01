@@ -198,3 +198,16 @@ test('a restart brings the workspace back: plain terminals (same folder) and fil
   const offer = app.slice(app.indexOf('async function offerRestore'), app.indexOf('\n}\n', app.indexOf('async function offerRestore')));
   assert.ok((offer.match(/restoreOthers\(saved\)/g) || []).length >= 4, 'unattended, on a yes, with no session, and with no session left');
 });
+
+test('dragging a pill moves the whole group as one block, never splitting another group, and nobody changes group', () => {
+  const mg = app.slice(app.indexOf('function tgMoveGroup'), app.indexOf('\n}\n', app.indexOf('function tgMoveGroup')));
+  assert.match(mg, /const block = list\.filter\(\(v\) => tgOf\(v\) === gid\);/);
+  assert.match(mg, /if \(og\) \{/, 'dropped on another group: before or after that whole group');
+  assert.doesNotMatch(mg, /\.group = /, 'no tab changes group');
+  assert.match(app, /c\.draggable = true;\n\s*c\.addEventListener\('dragstart', \(ev\) => \{\n\s*dragTab = \{ id: null, group: gid, zone: z \};/);
+  assert.match(app, /if \(dragTab\.group\) tgMoveGroup\(dragTab\.zone, dragTab\.group, id,/);
+});
+
+test('a session is not "quiet for a while" while Claude Code\'s spinner is live (a long think writes nothing to the transcript)', () => {
+  assert.match(app, /quiet > CS_STALL_MS && !chatSkinSpinnerOn\(p\);/);
+});
