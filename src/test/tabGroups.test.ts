@@ -105,7 +105,7 @@ test('a group lives in ONE zone: the one holding most of its members, so a stray
 test('folding one group never unfolds another, and a split lets the folded members go', () => {
   /* Folding B moved the focus to the nearest tab outside B, which was inside folded A, and activating it unfolded A. */
   const tog = app.slice(app.indexOf('function tgToggle'), app.indexOf('\n}\n', app.indexOf('function tgToggle')));
-  assert.match(tog, /\.find\(\(v\) => tgOf\(v\) !== gid && !tgFolded\(tgOf\(v\)\) && panes\.get\(v\)\.kind !== 'restore'\)/);
+  assert.match(tog, /\.filter\(\(v\) => tgOf\(v\) !== gid && !tgFolded\(tgOf\(v\)\) && panes\.get\(v\)\.kind !== 'restore'\);\n\s*const out = near\.find\(\(v\) => !tgOf\(v\)\) \|\| near\[0\];/);
   assert.match(tog, /const keep = vis\.filter\(\(v\) => tgOf\(v\) !== gid\);/, 'a folded member leaves the split');
   assert.match(app, /p\.tab\.classList\.toggle\('tgcollapsed', !!g && g\.collapsed && id !== active\[z\] && !zones\[z\]\.visible\.includes\(id\)\);/,
     'a pane on screen always keeps its tab');

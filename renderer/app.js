@@ -3165,8 +3165,11 @@ function tgToggle(gid) {
       const order = tabOrder[z].filter((v) => panes.has(v));
       const at = order.indexOf(active[z]);
       /* Never into ANOTHER folded group: activating a tab unfolds its group, so folding B used to unfold A (0.14.0 round). */
-      const out = [...order.slice(at + 1), ...order.slice(0, at).reverse()]
-        .find((v) => tgOf(v) !== gid && !tgFolded(tgOf(v)) && panes.get(v).kind !== 'restore');
+      /* And prefer a tab in NO group: landing on another group's tab read as being thrown into that group (0.14.0 round 2).
+         Another (open) group's tab only when no ungrouped tab is left. */
+      const near = [...order.slice(at + 1), ...order.slice(0, at).reverse()]
+        .filter((v) => tgOf(v) !== gid && !tgFolded(tgOf(v)) && panes.get(v).kind !== 'restore');
+      const out = near.find((v) => !tgOf(v)) || near[0];
       if (out) setActive(out);
     }
     /* A split showing members of the folded group lets them go, so no pane stays on screen without its tab. */

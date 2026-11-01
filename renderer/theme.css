@@ -65,8 +65,7 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
      existing --st-input hue, which is exactly what a permission card is. ── */
   --chat-user-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* the operator's message: a whisper of tone, lighter than the code and tool surfaces so it never competes with the answer */
   --chat-user-line: var(--line);
-  --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));   /* Claude's bubble: a shade lighter than the operator's */
-  --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  --chat-claude-bg: color-mix(in srgb, #d9b98c 11%, var(--surface));   /* Claude's bubble: a warm sand, friendlier than the operator's neutral grey (coral stays the action colour) */
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
   --chat-tool-ink: var(--faint);
@@ -356,9 +355,10 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
    a run reads as one bar. A folded group hides its members except the focused one. */
 .tab.grouped { position: relative; }
 .tabstrip > .tab { align-self: stretch; }   /* as tall as the row, like the chip, so every group line sits on one baseline (0.14.0 round) */
-.tab.grouped::after, .tgchip::after { content: ''; position: absolute; left: -3px; right: -3px; bottom: -5px;
+.tab.grouped::after { content: ''; position: absolute; left: -3px; right: -3px; bottom: -5px;
                                       height: 2px; border-radius: 1px; background: var(--tg); pointer-events: none; }
-.tgchip::after { left: 0; }   /* under the whole chip: from its middle (Chrome's way) read as misaligned (0.14.0 round) */
+/* No line under the chip itself (0.14.0 round 2): the pill already carries the colour, and a second line under it never
+   lined up with the tabs'. Only the members are underlined. */
 .tab.tgcollapsed { display: none; }
 .tgchip { position: relative; flex: 0 0 auto; align-self: stretch; display: inline-flex; align-items: center; border: 0; padding: 0;
           background: none; cursor: pointer; font: 600 11.5px var(--font); }
@@ -372,7 +372,6 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .tgchip .tgname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tgchip.unnamed .tgpill { padding: 0; width: 14px; min-height: 14px; height: 14px; border-radius: 50%; }
 .tgchip.unnamed.collapsed .tgpill { width: auto; padding: 0 6px; border-radius: 7px; }
-.tgchip.collapsed::after { display: none; }
 .tgchip .tgcount { font-weight: 700; font-size: 10.5px; }
 .tgchip:not(.unnamed) .tgcount::before { content: '· '; }
 /* Name + colour, one popover by the chip. */
@@ -737,8 +736,7 @@ body.light {
      in the light theme. Re-declaring makes them resolve against this block's own --ink/--surface. */
   --chat-user-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
   --chat-user-line: var(--line);
-  --chat-claude-bg: color-mix(in srgb, var(--ink) 3%, var(--surface));   /* Claude's bubble: a shade lighter than the operator's */
-  --chat-claude-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));
+  --chat-claude-bg: color-mix(in srgb, #d9b98c 24%, var(--surface));   /* light: the same sand, a little stronger to read on white */
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 6%, var(--surface));
   --chat-tool-ink: var(--faint);
@@ -2023,22 +2021,24 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
    but stay in the tree for screen readers, which have no side. */
 .chat-who { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* The operator's message: a soft box on the right. Plain text, line breaks kept. */
-.who-user .chat-bubble { max-width: min(86%, 600px); box-sizing: border-box; padding: 7px 13px 8px; border-radius: 14px 14px 4px 14px;
-                         background: var(--chat-user-bg); border: 1px solid var(--chat-user-line); color: var(--ink);
+.who-user .chat-bubble { max-width: min(86%, 600px); box-sizing: border-box; padding: 7px 13px 8px; border-radius: 16px;
+                         background: var(--chat-user-bg); border: 0; color: var(--ink);
                          font-size: .96em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }   /* a step under the answer's size, a thinner skin, no edge-light: a prompt is a line you said, not a card */
 /* Claude's reply: no box at all, just well-set text across the whole column. */
 .who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
 /* 0.14.0 round: Claude's text is a bubble too, a shade lighter than the operator's, its tail on the left. As wide as its
    text, up to the column. Tool rows, cards and notes stay as they are: only what Claude SAYS is a bubble. */
 .chat-row.who-claude { align-items: flex-start; }
-.who-claude .chat-bubble { position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 14px 14px 14px 4px;
-                           background: var(--chat-claude-bg); border: 1px solid var(--chat-user-line); }
+.who-claude .chat-bubble { position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;
+                           background: var(--chat-claude-bg); border: 0; }
 .who-claude .chat-md > :first-child { margin-top: 0; }
 .who-claude .chat-md > :last-child { margin-bottom: 0; }
 /* The tail: a small curved wedge in the bubble's own colour, drawn without knowing what is behind it. */
-.who-user .chat-bubble::after, .who-claude .chat-bubble::after { content: ''; position: absolute; bottom: -1px; width: 8px; height: 11px; }
-.who-user .chat-bubble::after { right: -7px; background: var(--chat-user-bg); clip-path: path('M0 0 C0 6 3 10 8 11 L0 11 Z'); }
-.who-claude .chat-bubble::after { left: -7px; background: var(--chat-claude-bg); clip-path: path('M8 0 C8 6 5 10 0 11 L8 11 Z'); }
+.who-user .chat-bubble::after, .who-claude .chat-bubble::after { content: ''; position: absolute; bottom: 0; width: 22px; height: 18px; }
+/* A horn out of the bottom corner (0.14.0 round 2): it fills the bubble's rounded corner completely (no notch where the two
+   meet) and curves out to a soft point on the bubble's baseline. */
+.who-user .chat-bubble::after { right: -6px; background: var(--chat-user-bg); clip-path: path('M0 0 L16 0 C16 8 18 14 22 18 L0 18 Z'); }
+.who-claude .chat-bubble::after { left: -6px; background: var(--chat-claude-bg); clip-path: path('M22 0 L6 0 C6 8 4 14 0 18 L22 18 Z'); }
 .chat-md { line-height: 1.7; letter-spacing: .005em; }
 .chat-md > :first-child { margin-top: 0; }
 .chat-md > :last-child { margin-bottom: 0; }
