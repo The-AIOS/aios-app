@@ -237,6 +237,15 @@ test('after the operator stops a turn, its frozen spinner and its open turn are 
   assert.match(app.slice(app.indexOf('function chatSkinSubmit')), /cs\.staleSpinner = '';/, 'a new send makes the spinner count again');
 });
 
+test('the working line keeps its own clock from the send, ticking each second, with Claude Code\'s tokens beside it', () => {
+  /* 0.14.0 round: Claude Code streams no text and redraws its spinner every few seconds while unfocused; "0s" sat still. */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const wm = app.slice(app.indexOf('function chatSkinWorkMeta'), app.indexOf('\n}\n', app.indexOf('function chatSkinWorkMeta')));
+  assert.match(wm, /if \(cs\.turnStartAt && chatSkinWorking\(p\)\)/);
+  assert.match(app, /cs\.turnStartAt = Date\.now\(\);/);
+  assert.match(app, /if \(chatSkinWorking\(p, now\)\) chatSkinWorkMeta\(p\);/, 'painted from the tick, not only when the terminal changes');
+});
+
 // ── watch / unwatch follow the session and the pane's life ──────────────────
 
 guarded('closing the pane or losing the pty unwatches the transcript',

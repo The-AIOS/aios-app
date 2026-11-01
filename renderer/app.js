@@ -9370,6 +9370,14 @@ function chatSkinWorkMeta(p) {
     const inner = spin ? /\(([^)]*)\)/.exec(spin)[1] : '';
     parts = inner.split('·').map((x) => x.trim()).filter((x) => /^\d+\s*[hms]\b|^(\d+[hms]\s*)+$|tokens?$/.test(x));
   } catch { parts = []; }
+  /* Claude Code redraws its spinner only every few seconds while its terminal is unfocused, which in chat view it always is:
+     the time sat at "0s" and then jumped (0.14.0 round, "blind to partial work"). The chat keeps its own clock from the send,
+     ticking each second, and takes the tokens (and "thinking") from Claude Code whenever it redraws. */
+  if (cs.turnStartAt && chatSkinWorking(p)) {
+    const sec = Math.max(0, Math.round((Date.now() - cs.turnStartAt) / 1000));
+    const clock = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    parts = [clock, ...parts.filter((x) => !/^\d+\s*[hms]\b|^(\d+[hms]\s*)+$/.test(x))];
+  }
   meta.textContent = parts.length ? parts.join(' · ') : '';
 }
 /* What runs in the background, from the lines under the prompt (verified on Claude Code 2.1.314):
@@ -10907,6 +10915,7 @@ function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
   cs.staleSpinner = '';   // a new turn: any spinner from here on is live
+  cs.turnStartAt = Date.now();   // the working line's own clock (chatSkinWorkMeta)
   cs.stick = true;
   const sent = text.replace(/\s+/g, ' ').trim();
   submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
@@ -11178,6 +11187,7 @@ function chatSkinTick() {
     const cs = p.chatSkin;
     if (p.view !== 'chat' || !cs) continue;
     chatSkinControls(p);
+    if (chatSkinWorking(p, now)) chatSkinWorkMeta(p);   // the clock ticks even while Claude Code's own line is still
     const quiet = now - cs.lastEventAt;
     const stalled = !cs.promptKind && cs.turnOpen && now - (p.lastPtyAt || 0) < CS_WORKING_MS * 2 && quiet > CS_STALL_MS;
     if (stalled !== cs.stalled) { cs.stalled = stalled; chatSkinPaintAlert(p); }
