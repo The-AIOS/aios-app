@@ -3010,6 +3010,209 @@ function unregisterTab(id) {
   }
 }
 
+/* ═══ TAB GROUPS — Chrome's model ═══
+   Asked for by contributors and the community: name a set of tabs, give it a colour, fold it away.
+   A group is a NAME + COLOUR; membership lives on the pane (`p.group`), so a pane that dies takes
+   its membership with it and a group with no members simply stops being painted (tgPrune).
+
+   ORDER STAYS IN `tabOrder`. A group is not a second list: its members are kept CONTIGUOUS inside
+   the one order the strip, the split and the panel already read (#60, AI-82), by tgContiguous
+   after every change that could break a run. A second ordering would be the drift AI-82 avoided.
+
+   PERSISTED WITH THE SESSIONS (#28's store), keyed by sessionId like everything else there —
+   never by name (AI-228: a name is a label that changes, not an identity). A plain terminal does
+   not come back after a restart, so neither does its membership; that is the restore rule, not a
+   group rule. */
+const TG_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+const tabGroups = new Map();   // gid → { name, color, collapsed }
+let tgSeq = 0;
+const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
+const tgOf = (id) => { const p = panes.get(id); return p && p.group && tabGroups.has(p.group) ? p.group : ''; };
+
+/* Members of each group pulled together at the position of their FIRST member, everything else in
+   its existing relative order. Pure: `groupOf(id)` is the only input besides the order. */
+function tgContiguous(order, groupOf) {
+  const out = [];
+  const placed = new Set();
+  for (const id of order) {
+    if (placed.has(id)) continue;
+    const g = groupOf(id);
+    if (!g) { out.push(id); placed.add(id); continue; }
+    for (const m of order) if (!placed.has(m) && groupOf(m) === g) { out.push(m); placed.add(m); }
+  }
+  return out;
+}
+
+/* Which group a tab belongs to after it was DRAGGED to where it now sits. Inside another group's
+   run (same group both sides) → joins it. Still touching its own group, or the only member of it
+   (a group of one travels with its tab) → keeps it. Anywhere else → leaves. Pure, like the above. */
+function tgAfterMove(order, groupOf, id) {
+  const i = order.indexOf(id);
+  const own = groupOf(id);
+  if (i < 0) return own;
+  const left = i > 0 ? groupOf(order[i - 1]) : '';
+  const right = i < order.length - 1 ? groupOf(order[i + 1]) : '';
+  if (left && left === right) return left;
+  if (own && (own === left || own === right || !order.some((v) => v !== id && groupOf(v) === own))) return own;
+  return '';
+}
+
+function tgNormalize(z) {
+  const next = tgContiguous(tabOrder[z], tgOf);
+  tabOrder[z].splice(0, tabOrder[z].length, ...next);
+}
+
+/* Forget groups nothing belongs to any more — closed, ungrouped, or dragged empty. */
+function tgPrune() {
+  const used = new Set();
+  for (const p of panes.values()) if (p.group) used.add(p.group);
+  for (const g of [...tabGroups.keys()]) if (!used.has(g)) tabGroups.delete(g);
+}
+
+function tgMembers(gid) {
+  const out = [];
+  for (const z of ['main', 'term']) for (const id of tabOrder[z]) if (tgOf(id) === gid) out.push(id);
+  return out;
+}
+
+const tgCap = (x) => x.charAt(0).toLocaleUpperCase() + x.slice(1);   // colour names are lower-case mid-sentence
+
+function tgLabel(gid) {
+  const g = tabGroups.get(gid);
+  return g && g.name ? g.name : t('tg.unnamed', { color: t('tg.color.' + (g ? g.color : 'grey')) });
+}
+
+/* The chip before a group's first tab, and the colour line under its members. A collapsed group
+   hides its tabs but never the FOCUSED one: hiding the pane the operator is typing into would
+   leave keystrokes going somewhere they cannot see. */
+function paintGroups(z) {
+  const strip = tabsEl(z);
+  if (!strip) return;
+  tgPrune();
+  for (const c of strip.querySelectorAll('.tgchip')) c.remove();
+  const seen = new Set();
+  for (const id of tabOrder[z]) {
+    const p = panes.get(id);
+    if (!p || !p.tab) continue;
+    const gid = tgOf(id);
+    const g = gid ? tabGroups.get(gid) : null;
+    p.tab.classList.toggle('grouped', !!g);
+    p.tab.classList.toggle('tgcollapsed', !!g && g.collapsed && id !== active[z]);
+    if (g) p.tab.style.setProperty('--tg', `var(--tg-${g.color})`); else p.tab.style.removeProperty('--tg');
+    if (g && !seen.has(gid)) { seen.add(gid); strip.insertBefore(tgChip(gid), p.tab); }
+  }
+}
+
+function tgChip(gid) {
+  const g = tabGroups.get(gid);
+  const c = document.createElement('button');
+  c.className = 'tgchip' + (g.collapsed ? ' collapsed' : '') + (g.name ? '' : ' unnamed');
+  c.dataset.group = gid;
+  c.style.setProperty('--tg', `var(--tg-${g.color})`);
+  const nm = document.createElement('span'); nm.className = 'tgname'; nm.textContent = g.name;
+  c.appendChild(nm);
+  if (g.collapsed) {
+    const n = document.createElement('span'); n.className = 'tgcount'; n.textContent = String(tgMembers(gid).length);
+    c.appendChild(n);
+  }
+  c.title = `${tgLabel(gid)} — ${t(g.collapsed ? 'tg.expand' : 'tg.collapse')}`;
+  c.addEventListener('click', () => tgToggle(gid));
+  c.addEventListener('contextmenu', (ev) => { ev.preventDefault(); void tgChipMenu(gid); });
+  return c;
+}
+
+function tgRepaint() {
+  for (const z of ['main', 'term']) { tgNormalize(z); paintStrip(z); setVisible(z); }
+  persistSessions();
+  if (document.getElementById('pRun')) { try { renderPulseRunning(); } catch { /* panel not ready */ } }
+}
+
+function tgToggle(gid) {
+  const g = tabGroups.get(gid);
+  if (!g) return;
+  g.collapsed = !g.collapsed;
+  /* Folding away the group you are IN moves you to the nearest tab outside it, as Chrome does —
+     unless there is none, in which case the focused tab simply stays visible (see paintGroups). */
+  if (g.collapsed) {
+    for (const z of ['main', 'term']) {
+      if (tgOf(active[z]) !== gid) continue;
+      const order = tabOrder[z].filter((v) => panes.has(v));
+      const at = order.indexOf(active[z]);
+      const out = [...order.slice(at + 1), ...order.slice(0, at).reverse()].find((v) => tgOf(v) !== gid && panes.get(v).kind !== 'restore');
+      if (out) setActive(out);
+    }
+  }
+  tgRepaint();
+}
+
+function tgAdd(id, gid) {
+  const p = panes.get(id);
+  if (!p || !tabGroups.has(gid)) return;
+  p.group = gid;
+  tabGroups.get(gid).collapsed = false;
+  tgRepaint();
+}
+
+async function tgNew(id) {
+  const p = panes.get(id);
+  if (!p) return;
+  const used = new Set([...tabGroups.values()].map((g) => g.color));
+  const color = TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length];
+  const gid = tgNewId();
+  tabGroups.set(gid, { name: '', color, collapsed: false });
+  p.group = gid;
+  tgRepaint();
+  const name = ((await inputModal(t('tg.nameTitle'), '', [])) || '').trim();
+  if (name && tabGroups.has(gid)) { tabGroups.get(gid).name = name.slice(0, 40); tgRepaint(); }
+}
+
+function tgRemove(id) {
+  const p = panes.get(id);
+  if (!p || !p.group) return;
+  p.group = '';
+  tgRepaint();
+}
+
+async function tgChipMenu(gid) {
+  const g = tabGroups.get(gid);
+  if (!g) return;
+  const items = [
+    { label: t('tg.rename'), value: 'rename' },
+    { label: t('tg.colorMenu'), items: TG_COLORS.map((c) => ({ label: (c === g.color ? '✓ ' : '') + tgCap(t('tg.color.' + c)), value: 'color:' + c })) },
+    { label: t(g.collapsed ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
+    { label: '-', value: '-' },
+    { label: t('tg.ungroup'), value: 'ungroup' },
+    { label: t('tg.close'), value: 'close' },
+  ];
+  const pick = await window.glassShell.tabMenu(items);
+  if (!pick || !tabGroups.has(gid)) return;
+  if (pick === 'toggle') tgToggle(gid);
+  else if (pick.startsWith('color:')) { if (TG_COLORS.includes(pick.slice(6))) { g.color = pick.slice(6); tgRepaint(); } }
+  else if (pick === 'rename') {
+    const name = await inputModal(t('tg.rename'), g.name, []);
+    if (name === null || name === undefined) return;
+    g.name = String(name).trim().slice(0, 40);
+    tgRepaint();
+  } else if (pick === 'ungroup') {
+    for (const id of tgMembers(gid)) panes.get(id).group = '';
+    tgRepaint();
+  } else if (pick === 'close') {
+    /* Each member through the SAME close a tab's × uses, so a live session still gets its
+       capture-or-end picker. One at a time: those pickers are modal. */
+    for (const id of tgMembers(gid)) await requestClosePane(id);
+  }
+}
+
+/* The rows the TAB menu adds for groups. */
+function tgTabMenuItems(id) {
+  const own = tgOf(id);
+  const others = [...tabGroups.keys()].filter((g) => g !== own);
+  const items = [{ label: t('tg.newGroup'), value: 'tgNew' }];
+  if (others.length) items.push({ label: t('tg.addTo'), items: others.map((g) => ({ label: tgLabel(g), value: 'tgAdd:' + g })) });
+  if (own) items.push({ label: t('tg.remove'), value: 'tgRemove' });
+  return items;
+}
+
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
    manual order survive the layout churn that used to erase it. */
 function paintStrip(z) {
@@ -3020,6 +3223,7 @@ function paintStrip(z) {
     const p = panes.get(id);
     if (p && p.tab) strip.insertBefore(p.tab, plus);
   }
+  paintGroups(z);
 }
 
 /* Move `dragId` to just before/after `overId` inside one strip. Same-strip only by design:
@@ -3032,6 +3236,10 @@ function moveTab(z, dragId, overId, after) {
   list.splice(from, 1);
   let to = list.indexOf(overId);
   if (to < 0) { list.push(dragId); } else { list.splice(after ? to + 1 : to, 0, dragId); }
+  /* Dropping INTO a group's run joins it, dragging OUT of it leaves (tgAfterMove). */
+  const dp = panes.get(dragId);
+  if (dp) dp.group = tgAfterMove(list, tgOf, dragId);
+  tgNormalize(z);
   paintStrip(z);
   /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
      derived from `tabOrder` in setVisible rather than stored separately — had the split kept its
@@ -3253,6 +3461,11 @@ function setActive(id) {
     zones[z].visible = vis.map((v, i) => (i === at ? id : v));
   }
   active[z] = id;
+  /* Reaching a tab inside a folded group (the panel, a bus reveal) unfolds it, as Chrome does;
+     and the fold is repainted, since it always spares the focused tab. */
+  const fold = p.group && tabGroups.get(p.group);
+  if (fold && fold.collapsed) fold.collapsed = false;
+  paintGroups(z);
   /* Choosing a tab IS looking at it. The pulse-measured 3s (#45) meant staying ~4–6s without
      leaving, and every return restarted the clock, so a tab could stay bold through several
      visits (operator-tested on 0.10.1). Now staying on a tab you clicked for 1s clears it; the
@@ -3626,6 +3839,7 @@ function makeTab(id, name, iconName) {
     /* The view is ONE setting for every Claude session now (Settings, or the shortcut), so this row is not a per-tab switch. It
        appears only for a tab that has stepped out of the mode on purpose (the notice's "Show terminal"), and puts it back. */
     if (pane.kind === 'term' && chatSkinOutOfMode(pane)) items.push({ label: t(chatMode === 'chat' ? 'chat.skin.toChat' : 'chat.skin.toTerminal'), value: 'chatView' });
+    items.push({ label: '-', value: '-' }, ...tgTabMenuItems(id));
     items.push({ label: '-', value: '-' }, { label: t('tab.close'), value: 'close' });
     /* A NATIVE menu, not the app's listModal. That picker carries a filter box because it was
        built for long searchable lists (sessions, skills, commands), and on four rows the operator
@@ -3635,6 +3849,9 @@ function makeTab(id, name, iconName) {
     void window.glassShell.tabMenu(items).then(async (pick) => {
       if (pick === 'right') { if (partner !== null) splitWithPane(z, partner); }
       else if (pick === 'unsplit') unsplitZone(z);
+      else if (pick === 'tgNew') void tgNew(id);
+      else if (pick === 'tgRemove') tgRemove(id);
+      else if (typeof pick === 'string' && pick.startsWith('tgAdd:')) tgAdd(id, pick.slice(6));
       else if (pick === 'close') void requestClosePane(id);
       else if (pick === 'report') void reportThis(id);
       else if (pick === 'chatView') chatSkinFollowMode(id);
@@ -5009,7 +5226,7 @@ function sessionsSnapshot() {
       if (!p || !p.sessionId) continue;
       if (p.kind === 'term' ? p.exited : p.kind !== 'restore') continue;
       if (sessions.some((x) => x.sessionId === p.sessionId)) continue;
-      sessions.push({ sessionId: p.sessionId, name: p.name, manual: !!p.manualName, cwd: p.cwd || '' });
+      sessions.push({ sessionId: p.sessionId, name: p.name, manual: !!p.manualName, cwd: p.cwd || '', ...(tgOf(id) ? { group: tgOf(id) } : {}) });
     }
   }
   let activeSid = '';
@@ -5017,7 +5234,9 @@ function sessionsSnapshot() {
     const a = panes.get(active[z]);
     if (a && a.sessionId) { activeSid = a.sessionId; break; }
   }
-  return { v: 1, at: Date.now(), active: activeSid, sessions };
+  const groups = [...new Set(sessions.map((x) => x.group).filter(Boolean))]
+    .map((g) => ({ id: g, name: tabGroups.get(g).name, color: tabGroups.get(g).color, collapsed: !!tabGroups.get(g).collapsed }));
+  return { v: 1, at: Date.now(), active: activeSid, sessions, ...(groups.length ? { groups } : {}) };
 }
 /* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
    written is the state at the moment of the change, never the state mid-teardown. */
@@ -5057,7 +5276,7 @@ function createRestoreTab(s) {
   tab.classList.add('restoring');
   tab.title = t('restore.tabHint');
   const p = { kind: 'restore', name: s.name, el: box, tab, sessionId: s.sessionId, cwd: s.cwd || '',
-              manualName: !!s.manual, exited: false };
+              manualName: !!s.manual, exited: false, group: s.group && tabGroups.has(s.group) ? s.group : '' };
   go.addEventListener('click', () => void materializeRestore(id));
   panes.set(id, p);
   attachPaneDropTarget(p, id);   // uniform with every other pane kind (split.test's invariant)
@@ -5100,6 +5319,7 @@ async function materializeRestore(id) {
        new pane would have no sessionId, and a quit in that window would drop it from the list. */
     np.sessionId = ph.sessionId;
     np.isSession = true;
+    if (ph.group) np.group = ph.group;
     chatSkinSessionChanged(newId, np);
     if (ph.manualName) np.manualName = true;
   }
@@ -5112,6 +5332,15 @@ async function materializeRestore(id) {
   setActive(newId);
   persistSessions();
   return true;
+}
+
+/* The saved groups, before their tabs are made. Validated: a store written by a later build, or
+   edited by hand, must not put an unknown colour into a CSS variable name. */
+function tgAdopt(saved) {
+  for (const g of Array.isArray(saved.groups) ? saved.groups : []) {
+    if (!g || typeof g.id !== 'string' || !g.id || tabGroups.has(g.id)) continue;
+    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: TG_COLORS.includes(g.color) ? g.color : 'grey', collapsed: !!g.collapsed });
+  }
 }
 
 /** On launch: offer back what was open, lazily. */
@@ -5137,6 +5366,7 @@ async function offerRestore() {
     try { localStorage.removeItem(RESTORE_KEY); } catch { /* */ }
     return;
   }
+  tgAdopt(saved);
   if (UNATTENDED !== 'off') {
     /* Nobody is there to answer the offer, and a placeholder tab has no process: the bus, the
        session registry and anything addressing a session by name cannot reach it. So everything
@@ -5144,7 +5374,7 @@ async function offerRestore() {
        the offer does, then the rest. NOT awaited: What's New and the rest of launch go on. */
     const order = [...ready].sort((a, b) => (b.sessionId === saved.active) - (a.sessionId === saved.active));
     const ids = order.map(createRestoreTab);
-    persistSessions();
+    tgRepaint();
     toast([t('unattended.restoring', { n: String(order.length) }), report(0)].filter(Boolean).join(' · '));
     void materializeInSequence(ids).then(() => {
       const back = [...panes.entries()].find(([, q]) => q.kind === 'term' && !q.exited && q.sessionId === saved.active);
@@ -5172,6 +5402,7 @@ async function offerRestore() {
     return;
   }
   const ids = picked.map(createRestoreTab);
+  tgRepaint();
   const at = picked.findIndex((x) => x.sessionId === saved.active);
   void materializeRestore(ids[at >= 0 ? at : 0]);
   persistSessions();

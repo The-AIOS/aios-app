@@ -5,6 +5,9 @@ import type { SlashCommand } from '../core/slashCommands';
 import type { ChatItem } from '../core/transcriptChat';
 import type { TuiPromptKind, TuiOption } from '../core/tuiPrompt';
 
+/* A native tab-menu row: a pick, a separator (`value: '-'`), or a submenu (`items`). */
+type TabMenuRow = { label: string; value?: string; items?: TabMenuRow[] };
+
 /** One row of the Connectors card. Mirrors main/connectors.ts ConnectorRow. */
 type ConnRow = {
   id: string; service: string; value: string;
@@ -130,7 +133,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
   onClaudeConfigChanged: (cb: (c: unknown) => void) => ipcRenderer.on('shell:claudeConfigChanged', (_e, c) => cb(c)),
   // AI-132 keep-awake: main owns the decision and the blocker; the renderer shows state + sends intent.
-  tabMenu: (items: { label: string; value: string }[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
+  tabMenu: (items: TabMenuRow[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
   caffeinateState: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:state'),
   caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
   caffeinateLid: (on: boolean, prompt: string): Promise<unknown> => ipcRenderer.invoke('caffeinate:lid', on, prompt),

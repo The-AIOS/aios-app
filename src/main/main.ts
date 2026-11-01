@@ -1945,13 +1945,18 @@ ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved:
  * right-click. Labels come from the RENDERER because i18n lives there — main is told what to
  * show, never what the words mean, so there is no second copy of the strings.
  */
-ipcMain.handle('tab:menu', async (e, items: { label: string; value: string }[]) => new Promise<string | null>((resolve) => {
+/* A row is a separator, a pick, or a SUBMENU (`items`) — tab groups' "Add to group ▸" and the
+   colour list. One level is all the renderer builds; deeper nesting is accepted, not offered. */
+type TabMenuRow = { label: string; value?: string; items?: TabMenuRow[] };
+ipcMain.handle('tab:menu', async (e, items: TabMenuRow[]) => new Promise<string | null>((resolve) => {
   const win = BrowserWindow.fromWebContents(e.sender) ?? mainWin;
   let picked: string | null = null;
-  const menu = Menu.buildFromTemplate((items || []).map((it) => (
+  const build = (rows: TabMenuRow[]): Electron.MenuItemConstructorOptions[] => (rows || []).map((it) => (
     it.value === '-' ? { type: 'separator' as const }
-      : { label: String(it.label), click: () => { picked = String(it.value); } }
-  )));
+      : Array.isArray(it.items) ? { label: String(it.label), submenu: build(it.items) }
+        : { label: String(it.label), click: () => { picked = String(it.value); } }
+  ));
+  const menu = Menu.buildFromTemplate(build(items));
   /* Resolved on CLOSE, not on click: a menu dismissed with Escape or a click elsewhere must
      resolve too, or the renderer's await hangs forever and the tab silently stops responding to
      right-clicks. `picked` stays null in that case, which is the honest answer. */
