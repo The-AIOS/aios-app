@@ -150,11 +150,24 @@ guarded('Esc writes a lone ESC to the pty while something runs; idle, only a dou
   (src) => {
     const s = slice(src);
     const intr = fnBody(s, 'chatSkinInterrupt');
-    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{ window\.glassShell\.ptyWrite\(id, '\\x1b'\); return; \}/.test(intr)
+    return /ptyWrite\(id, '\\x1b'\)/.test(intr) && /if \(chatSkinWorking\(p\)\) \{\n\s*window\.glassShell\.ptyWrite\(id, '\\x1b'\);[\s\S]{0,260}toast\(t\('chat\.stopped'[\s\S]{0,40}return;\n\s*\}/.test(intr)
       && /cs\.input\.value\.trim\(\)\) return;/.test(intr) && /> 600\) \{ cs\.escAt = now; return; \}/.test(intr)
       && /e\.key !== 'Escape'[\s\S]{0,120}chatSkinInterrupt\(id, p\)/.test(s);
   },
   (src) => src.replace("window.glassShell.ptyWrite(id, '\\x1b');", "window.glassShell.ptyWrite(id, '\\x03');"));
+
+test('Esc stops the reply in front of you from anywhere in the window, but never steals Esc from a field, terminal or menu', () => {
+  /* 0.14.0 round: Esc did nothing once the focus left the chat (a click on a tab, a chip, the panel). */
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const h = app.slice(app.lastIndexOf("window.addEventListener('keydown', (e) => {\n  if (e.key !== 'Escape' || e.defaultPrevented"));
+  assert.ok(h.length > 0 && h.length < 2000, 'the window-level handler exists, at the end, after every other Esc handler');
+  assert.match(h, /e\.defaultPrevented/, 'only when nothing else took the key');
+  assert.match(h, /\/\^\(INPUT\|TEXTAREA\|SELECT\)\$\/\.test\(tg\.tagName\)/, 'never from a text field');
+  assert.match(h, /tg\.closest\('\.xterm'\)/, 'never from a terminal');
+  assert.match(h, /\.modal-wrap, \.tgedit, \.xctx:not\(\[hidden\]\)/, 'never with a menu or dialog open');
+  assert.match(h, /p\.view !== 'chat'/, 'only for a session in chat view');
+  assert.match(h, /chatSkinInterrupt\(id, p\)/);
+});
 
 // ── watch / unwatch follow the session and the pane's life ──────────────────
 

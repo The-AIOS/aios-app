@@ -10941,7 +10941,13 @@ function chatSkinEffortPick(id, p, level) {
    Esc is not harmless in Claude Code (a second one opens the rewind menu). */
 function chatSkinInterrupt(id, p) {
   if (p.exited) return;
-  if (chatSkinWorking(p)) { window.glassShell.ptyWrite(id, '\x1b'); return; }
+  if (chatSkinWorking(p)) {
+    window.glassShell.ptyWrite(id, '\x1b');
+    /* Claude Code writes no marker for a reply stopped mid-text, so the chat would show it simply ending (0.14.0 round):
+       say it here, where the Esc is known. */
+    toast(t('chat.stopped', { name: chatSkinWho(p) }));
+    return;
+  }
   /* Idle: Esc twice is the terminal's "go back to an earlier message". The second Esc within 600 ms passes BOTH on, the way
      they arrive in the terminal; a single Esc on an idle session does nothing. A draft in the box is left alone. */
   const cs = p.chatSkin;
@@ -13804,3 +13810,19 @@ void initLocale().then(async () => {
 });
 
 window.__workbenchOk = true; // smoke gate 4
+
+/* Esc stops the reply in front of you from anywhere in the window (0.14.0 round): the chat's own listener only hears it while
+   the focus is inside the chat, and a click on a tab, a chip or the panel moved it out. Runs last, and only when nothing
+   else took the key: not in a text field or a terminal, no menu, dialog or popover open, and the active session is in chat. */
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.repeat) return;
+  const tg = e.target instanceof Element ? e.target : null;
+  if (tg && (tg.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.closest('.xterm'))) return;
+  if (document.querySelector('.modal-wrap, .tgedit, .xctx:not([hidden]), [role="menu"]:not([hidden]), [role="dialog"]:not([hidden])')) return;
+  const id = active.term;
+  const p = panes.get(id);
+  if (!p || p.view !== 'chat' || !p.chatSkin || !p.chatSkin.root.isConnected || p.chatSkin.promptKind) return;
+  if (p.chatSkin.root.contains(document.activeElement)) return;   // the chat's own listener has it
+  e.preventDefault();
+  chatSkinInterrupt(id, p);
+});
