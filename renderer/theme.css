@@ -1222,6 +1222,7 @@ body.compact .plitem { padding: 4px 6px; }
    passes 4.5:1), never with opacity, and with no actions: these rows never notify. */
 .phiddentoggle { background: none; border: 0; color: var(--faint); font: inherit; font-size: 11px; padding: 5px 10px; cursor: pointer; text-align: left; }
 .phiddentoggle:hover { color: var(--muted); text-decoration: underline; }
+.phiddentip { padding: 0 10px 6px; color: var(--faint); font-size: 11px; line-height: 1.4; }
 .prow.phidden { color: var(--faint); display: flex; gap: 8px; padding: 3px 10px; font-size: 11.5px; }
 .prow.phidden .pproj, .prow.phidden .pstate { font-family: var(--mono); font-size: 10.5px; }
 
@@ -2028,6 +2029,20 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cm-copy:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; color: var(--ink); }
 .cm-copy.done { color: var(--st-ok-ink); }
 .cm-copy.fail { color: var(--st-error-ink); }
+/* A file Claude wrote: a bar under its tool row, with the two things worth doing with it. */
+.ct-file { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; padding: 6px 8px 6px 11px; border: 1px solid var(--line-strong);
+           border-radius: 9px; background: var(--chat-code-head); color: var(--subtle); font-size: 12px; box-shadow: var(--edge); }
+.ct-file-what { flex: 0 0 auto; }
+.ct-file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-family: var(--mono); font-size: 11.5px; }
+.ct-file-btn { flex: 0 0 auto; height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface);
+               color: var(--ink); font: inherit; font-size: 11.5px; cursor: pointer; }
+.ct-file-btn:hover { background: var(--chat-row-hover); }
+.ct-file-btn:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; }
+/* The per-message copy row: present for keyboard and screen readers, visible on hover or focus only. */
+.chat-acts { display: flex; height: 26px; margin-top: 2px; opacity: 0; transition: opacity .12s ease; }
+.chat-row.who-user .chat-acts { justify-content: flex-end; }
+.chat-row:hover .chat-acts, .chat-acts:focus-within, .chat-acts:has(.done, .fail) { opacity: 1; }
+@media (hover: none) { .chat-acts { opacity: 1; } }
 .chat-md pre code.hljs { padding: 0; background: none; }   /* highlight.js's own 1em padding would double the block's */
 .cs-ico { display: inline-flex; flex: 0 0 auto; }
 .chat-md .cm-code pre { margin: 0; border: 0; border-radius: 0; background: transparent; padding: 12px 15px 13px; font-size: .94em; line-height: 1.6; }

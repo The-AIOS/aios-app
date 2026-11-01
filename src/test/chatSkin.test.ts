@@ -877,9 +877,28 @@ guarded('the code header and the copy button are built AFTER the sanitiser, as D
     return render.indexOf('chatSanitize(') > 0 && render.indexOf('chatSanitize(') < render.indexOf('chatDecorate(frag)')
       && render.indexOf('chatDecorate(frag)') < render.indexOf('target.replaceChildren(frag)')
       && /el\('button', 'cm-copy'\)/.test(deco) && !/innerHTML/.test(deco) && !/BUTTON/.test(tags)
-      && /glassShell\.copyText\(text\)/.test(deco) && /chat\.code\.copied/.test(deco);
+      && /chatCopyTo\(copy, label, pre\.textContent/.test(deco)
+      && /glassShell\.copyText\(text\)/.test(fnBody(s, 'chatCopyTo')) && /chat\.code\.copied/.test(fnBody(s, 'chatCopyTo'));
   },
   (src) => src.replace('chatDecorate(frag);\n  target.replaceChildren(frag);', 'target.replaceChildren(frag);\n  chatDecorate(target);'));
+
+guarded('every message has a Copy button that copies its RAW text (markdown for a reply), through the shared copy gesture',
+  (src) => {
+    const make = fnBody(slice(src), 'chatSkinMakeItem');
+    return /el\('div', 'chat-acts'\)/.test(make) && /chatCopyTo\(copy, label, rec\.text \|\| ''\)/.test(make)
+      && /chat\.msg\.copyLabel/.test(make) && !/innerHTML/.test(make);
+  },
+  (src) => src.replace("chatCopyTo(copy, label, rec.text || '')", "chatCopyTo(copy, label, body.innerText || '')"));
+
+guarded('a file Claude wrote stands alone with Open and Show in folder, only once the write succeeded and the path resolved to a file',
+  (src) => {
+    const s = slice(src);
+    const card = fnBody(s, 'chatSkinFileCard');
+    return /rec\.info\.name === 'Write' && rec\.info\.status === 'ok'/.test(fnBody(s, 'chatSkinUpsert'))
+      && /hit\.dir/.test(card) && /openViewer\(hit\.abs\)/.test(card) && /revealPath\(hit\.abs\)/.test(card)
+      && /!n\.classList\.contains\('created'\)/.test(fnBody(s, 'chatSkinRegroup')) && !/innerHTML/.test(card);
+  },
+  (src) => src.replace("&& !n.classList.contains('created')", ''));
 
 guarded('a tool\'s output is untrusted text: it only ever enters through textContent, and an open row stays open when its status moves',
   (src) => {

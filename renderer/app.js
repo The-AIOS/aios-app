@@ -1946,8 +1946,14 @@ function renderPulseRunning(m) {
       const tg = el('button', 'phiddentoggle', t(pulse.showHidden ? 'pulse.hiddenHide' : 'pulse.hiddenShow', { n: String(hidden.length) }));
       tg.type = 'button';
       tg.title = t('pulse.hiddenTip');
-      tg.addEventListener('click', () => { pulse.showHidden = !pulse.showHidden; renderPulseRunning(); });
+      /* The card is rebuilt every 2 s, which threw away the tooltip a second after it appeared and could swallow a
+         click whose press and release straddled a rebuild. So the toggle acts on the PRESS (the keyboard still
+         clicks), and the explanation is printed under it while the list is open instead of living only in a tooltip. */
+      const flip = () => { pulse.showHidden = !pulse.showHidden; renderPulseRunning(); };
+      tg.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); tg.csPressed = true; flip(); });
+      tg.addEventListener('click', () => { if (tg.csPressed) { tg.csPressed = false; return; } flip(); });
       box.appendChild(tg);
+      if (pulse.showHidden) box.appendChild(el('div', 'phiddentip', t('pulse.hiddenTip')));
       if (pulse.showHidden) for (const h of hidden) {
         const r = el('div', 'prow phidden');
         r.appendChild(el('span', 'pname', h.name || '—'));
@@ -7692,6 +7698,17 @@ function chatRender(target, text) {
   chatDecorate(frag);
   target.replaceChildren(frag);
 }
+/* One copy gesture for the chat: the text goes to the clipboard and the button says whether it got there.
+   Shared by the code-block header and the per-message button so both read the same. */
+function chatCopyTo(btn, label, text) {
+  clearTimeout(btn._t);
+  Promise.resolve(window.glassShell.copyText(text)).then((ok) => ok !== false, () => false).then((ok) => {
+    btn.classList.toggle('done', ok);
+    btn.classList.toggle('fail', !ok);
+    label.textContent = t(ok ? 'chat.code.copied' : 'chat.code.copyFailed');
+    btn._t = setTimeout(() => { btn.classList.remove('done', 'fail'); label.textContent = t('chat.code.copy'); }, 1700);
+  });
+}
 /* Chrome around the sanitised markdown, built here as DOM and never taken from the model: a header
    on every code block (language + copy button) and a scroll wrapper around every table. It runs AFTER
    chatSanitize on purpose — the allowlist stays exactly as strict as before, and no <button> can ever
@@ -7708,16 +7725,7 @@ function chatDecorate(frag) {
     copy.append(csIcon('copy', 13), label);
     copy.title = t('chat.code.copyLabel');
     copy.setAttribute('aria-label', t('chat.code.copyLabel'));
-    copy.addEventListener('click', () => {
-      const text = pre.textContent || '';
-      clearTimeout(copy._t);
-      Promise.resolve(window.glassShell.copyText(text)).then((ok) => ok !== false, () => false).then((ok) => {
-        copy.classList.toggle('done', ok);
-        copy.classList.toggle('fail', !ok);
-        label.textContent = t(ok ? 'chat.code.copied' : 'chat.code.copyFailed');
-        copy._t = setTimeout(() => { copy.classList.remove('done', 'fail'); label.textContent = t('chat.code.copy'); }, 1700);
-      });
-    });
+    copy.addEventListener('click', () => chatCopyTo(copy, label, pre.textContent || ''));
     head.append(el('span', 'cm-lang', m ? m[1] : t('chat.code.plain')), copy);
     pre.replaceWith(wrap);
     wrap.append(head, pre);
@@ -9730,6 +9738,33 @@ function chatSkinPaintTool(rec, item) {
   x.note.hidden = !!text && !cut;
   x.note.textContent = cut ? t('chat.skin.tool.truncated') : text ? '' : t(status === 'running' ? 'chat.skin.tool.runningNoOutput' : 'chat.skin.tool.noOutput');
 }
+/* A file Claude wrote is the thing the operator came for, so it never folds into "7 actions": the row stands alone and
+   carries a bar to open the file or show it in the explorer. Built only once the write succeeded and the path resolves
+   on disk; a path that does not resolve keeps the plain row. Buttons sit beside the row's header, never inside it. */
+function chatSkinFileCard(rec, cs, raw) {
+  rec.fileCard = true;
+  void (async () => {
+    const found = await chatResolvePaths([raw], await chatPathBase(cs));
+    const hit = found.get(raw);
+    if (!hit || hit.dir || !rec.node.isConnected) { rec.fileCard = false; return; }
+    const bar = el('div', 'ct-file');
+    const name = hit.abs.split(/[\\/]/).pop() || hit.abs;
+    const label = el('span', 'ct-file-name', name);
+    label.title = hit.abs;
+    const open = el('button', 'ct-file-btn', t('chat.file.open'));
+    open.type = 'button';
+    open.setAttribute('aria-label', t('chat.file.openLabel', { name }));
+    open.addEventListener('click', (e) => { e.stopPropagation(); void openViewer(hit.abs); });
+    const reveal = el('button', 'ct-file-btn', t('chat.file.reveal'));
+    reveal.type = 'button';
+    reveal.setAttribute('aria-label', t('chat.file.revealLabel', { name }));
+    reveal.addEventListener('click', (e) => { e.stopPropagation(); void revealPath(hit.abs); });
+    bar.append(csIcon('design', 13), el('span', 'ct-file-what', t('chat.file.saved')), label, open, reveal);
+    rec.node.insertBefore(bar, rec.node.querySelector('.ct-body'));
+    rec.node.classList.add('created');
+    chatSkinRegroup(cs);   // it leaves the folded run it was counted in
+  })().catch(() => { rec.fileCard = false; });
+}
 /* What the column needs to know about a tool call, normalised once: the row paints from it and the folded
    summary of a run counts it. Anything that is not 'ok' or 'error' is still running. */
 function chatToolInfo(item) {
@@ -9861,7 +9896,7 @@ function chatSkinRegroup(cs) {
     if (n.csGroup) flat.push(...n.csGroup.body.children); else flat.push(n);
   }
   const isItem = (n) => n.classList.contains('chat-row') || n.classList.contains('chat-note');
-  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs stand alone
+  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !n.classList.contains('created') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs, and files written, stand alone
   const spans = new Map();
   for (const r of runs) if (r.length > 1) spans.set(r[0], r[r.length - 1]);
   const focus = typeof document !== 'undefined' ? document.activeElement : null;
@@ -9902,7 +9937,20 @@ function chatSkinMakeItem(role, cs) {
     row.append(el('div', 'chat-who', role === 'user' ? t('chat.you') : t('chat.claude', { name: chatSkinWho(cs.pane) })), bubble);
     const body = role === 'assistant' ? el('div', 'chat-md') : bubble;
     if (role === 'assistant') bubble.appendChild(body);
-    return { node: row, body, role };
+    const rec = { node: row, body, role };
+    /* Copy the whole message, as Claude does: the raw text (markdown for a reply), never the rendered
+       HTML. Under the bubble, shown on hover or keyboard focus so the column stays quiet. */
+    const acts = el('div', 'chat-acts');
+    const copy = el('button', 'cm-copy');
+    copy.type = 'button';
+    const label = el('span', 'cm-copy-t', t('chat.code.copy'));
+    copy.append(csIcon('copy', 13), label);
+    copy.title = t('chat.msg.copyLabel');
+    copy.setAttribute('aria-label', t('chat.msg.copyLabel'));
+    copy.addEventListener('click', () => chatCopyTo(copy, label, rec.text || ''));
+    acts.appendChild(copy);
+    row.appendChild(acts);
+    return rec;
   }
   if (role === 'tool') return chatSkinMakeTool(cs);
   const node = el('div', 'chat-note');
@@ -9947,6 +9995,7 @@ function chatSkinUpsert(cs, item, animate, before) {
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
     chatSkinPaintTool(rec, item);
+    if (!rec.fileCard && rec.info.name === 'Write' && rec.info.status === 'ok' && rec.info.summary) chatSkinFileCard(rec, cs, rec.info.summary);
     const x = rec.tool;
     if (x && x.argFresh) {   // the argument was rewritten, so it has no links: look again. Read and Edit rows ARE a path, whatever it contains
       x.argFresh = false;
