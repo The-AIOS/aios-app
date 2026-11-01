@@ -1263,6 +1263,13 @@ body.compact .plitem { padding: 4px 6px; }
 .psubempty { color: var(--faint); font-size: 11px; padding: 5px 10px; }
 /* Review 13 — what AI-203's scope hid: a count that opens into plain rows. Muted with --faint (which
    passes 4.5:1), never with opacity, and with no actions: these rows never notify. */
+.pgroup { margin: 2px 0 4px; padding-left: 8px; border-left: 2px solid var(--tg); }   /* a tab group's sessions, in its colour (0.14.0 round) */
+.pgroup-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 4px 2px; border: 0; background: none; cursor: pointer;
+               color: var(--subtle); font: 600 10.5px var(--font); letter-spacing: .03em; text-align: left; }
+.pgroup-head:hover .pgroup-name { color: var(--ink); }
+.pgroup-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tg); flex: 0 0 auto; }
+.pgroup-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgroup-n { color: var(--faint); font-weight: 600; }
 .phiddentoggle { background: none; border: 0; color: var(--faint); font: inherit; font-size: 11px; padding: 5px 10px; cursor: pointer; text-align: left; }
 .phiddentoggle:hover { color: var(--ink); text-decoration: underline; }
 .phiddentip { padding: 0 10px 6px; color: var(--faint); font-size: 11px; line-height: 1.4; }

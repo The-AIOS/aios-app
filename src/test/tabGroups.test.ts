@@ -135,3 +135,14 @@ test('a new group asks for its name AND its colour together; Esc puts both back'
   }
 });
 
+
+test('the Running card mirrors the tab groups: a heading in the group colour, its sessions under it, a click folds it', () => {
+  /* 0.14.0 round: "is it feasible to group sessions in running card in panel to reflect the groupings?" */
+  const fn = app.slice(app.indexOf('function renderPulseRunning'), app.indexOf('\n}\n', app.indexOf('function renderPulseRunning')));
+  assert.match(fn, /const gid = hit \? tgOf\(hit\[0\]\) : null;/);
+  assert.match(fn, /groupBox = el\('div', 'pgroup'\);/);
+  assert.match(fn, /head\.addEventListener\('click', \(\) => \{ tgToggle\(gid\); renderPulseRunning\(\); \}\);/);
+  assert.match(fn, /\(groupBox \|\| box\)\.appendChild\(r\);/, 'an ungrouped session stays in the plain list');
+  const rp = app.slice(app.indexOf('function tgRepaint'), app.indexOf('\n}\n', app.indexOf('function tgRepaint')));
+  assert.match(rp, /renderPulseRunning\(\)/, 'a rename, a colour or a fold shows in the card at once');
+});

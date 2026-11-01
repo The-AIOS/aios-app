@@ -1938,7 +1938,32 @@ function renderPulseRunning(m) {
      in the session display still keyed on a label instead of on what the session is. */
   /* #60: in TAB order, so moving a row and dragging a tab are the same act seen from two places. */
   const inTabOrder = sessions.map((a, i) => ({ a, i, k: sessionTabPos(a) })).sort((x, y) => x.k - y.k || x.i - y.i).map((x) => x.a);
-  for (const a of inTabOrder) { const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); box.appendChild(r); }
+  /* The tab groups, mirrored (0.14.0 round): a group's sessions sit under a small heading in its colour, with a line of it down
+     their side. Tab order keeps a group's tabs together, so one pass is enough. A click on the heading folds the group, as the chip does. */
+  let curGroup = null;
+  let groupBox = null;
+  for (const a of inTabOrder) {
+    const hit = byName(a.name, a.id);
+    const gid = hit ? tgOf(hit[0]) : null;
+    const g = gid ? tabGroups.get(gid) : null;
+    if (gid !== curGroup) {
+      curGroup = gid;
+      groupBox = null;
+      if (g) {
+        groupBox = el('div', 'pgroup');
+        groupBox.style.setProperty('--tg', `var(--tg-${g.color})`);
+        const head = el('button', 'pgroup-head');
+        head.type = 'button';
+        head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
+        if (g.collapsed) head.appendChild(el('span', 'pgroup-n', String(tgMembers(gid).length)));
+        head.title = `${tgLabel(gid)} — ${t(g.collapsed ? 'tg.expand' : 'tg.collapse')}`;
+        head.addEventListener('click', () => { tgToggle(gid); renderPulseRunning(); });
+        groupBox.appendChild(head);
+        box.appendChild(groupBox);
+      }
+    }
+    const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name); (groupBox || box).appendChild(r);
+  }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
     /* Review 13: AI-203's scope can be wrong, and a wrong HIDE is invisible unless it is counted.
        So the panel says how many it hid and can show them — plain rows, never notifying. */
@@ -3150,6 +3175,7 @@ function tgChip(gid) {
 
 function tgRepaint() {
   for (const z of ['main', 'term']) { tgNormalize(z); paintStrip(z); setVisible(z); }
+  if (typeof renderPulseRunning === 'function' && pulse.lastRunning) renderPulseRunning();   // the Running card mirrors the groups
   persistSessions();
   if (document.getElementById('pRun')) { try { renderPulseRunning(); } catch { /* panel not ready */ } }
 }
