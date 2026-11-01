@@ -262,6 +262,14 @@ test('the agent-details panel counts as a panel, so returning to chat closes it'
   assert.ok(!re.test('Press Esc to close the menu and then continue with the next step of the guide.'), 'prose that mentions it is not a panel');
 });
 
+test('/tasks, typed by the chat to open the Background panel, never shows as a bubble or an empty card', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /const CS_HIDDEN_CMD = \/\^\\\/tasks\$\/;/);
+  const up = app.slice(app.indexOf('function chatSkinUpsert'), app.indexOf('\n}\n', app.indexOf('function chatSkinUpsert')));
+  assert.match(up, /rec\.node\.hidden = !text\.trim\(\) \|\| CS_HIDDEN_CMD\.test\(text\.trim\(\)\);/);
+  assert.match(up, /if \(CS_HIDDEN_CMD\.test\(rec\.info\.name\)\) rec\.node\.hidden = true;/);
+});
+
 // ── watch / unwatch follow the session and the pane's life ──────────────────
 
 guarded('closing the pane or losing the pty unwatches the transcript',

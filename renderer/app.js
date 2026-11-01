@@ -10550,6 +10550,10 @@ function chatSkinBusLabel(rec, text) {
     if (who) who.textContent = r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon');
   }).catch(() => { /* no label */ });
 }
+/* Commands whose output is a terminal panel, not a message (0.14.0 round): the chat types /tasks itself to open the Background
+   panel, and Claude Code records it, so it came back as the operator's bubble and an empty "/tasks (no content)" card. The panel
+   is in the terminal; the chat shows neither. */
+const CS_HIDDEN_CMD = /^\/tasks$/;
 function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
   let rec = cs.items.get(item.uuid);
@@ -10570,10 +10574,11 @@ function chatSkinUpsert(cs, item, animate, before) {
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
     if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
-    rec.node.hidden = !text.trim();
+    rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
     chatSkinPaintTool(rec, item);
+    if (CS_HIDDEN_CMD.test(rec.info.name)) rec.node.hidden = true;
     if (!rec.fileCard && rec.info.name === 'Write' && rec.info.status === 'ok' && rec.info.summary) chatSkinFileCard(rec, cs, rec.info.summary);
     const x = rec.tool;
     if (x && x.argFresh) {   // the argument was rewritten, so it has no links: look again. Read and Edit rows ARE a path, whatever it contains
