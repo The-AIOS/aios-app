@@ -8269,10 +8269,15 @@ function chatPathMakeLink(seg, inButton) {
   a.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); hidePathTip(); chatPathMenu(target, { left: e.clientX, bottom: e.clientY, top: e.clientY }); });
   a.addEventListener('mouseenter', (e) => showPathTip(e.clientX, e.clientY, tip()));
   a.addEventListener('mouseleave', hidePathTip);
+  /* ⌘⇧-click (Ctrl+Shift on Windows/Linux) reveals in the file manager. In a page, Shift+press EXTENDS the text selection, so
+     the click selected text and then, finding a selection, did nothing (0.14.0 round: "the cmd shift click behaves oddly").
+     The press is kept from selecting when that chord is held. */
+  const reveal = (e) => e.shiftKey && (e.metaKey || e.ctrlKey);
+  a.addEventListener('mousedown', (e) => { if (reveal(e)) e.preventDefault(); });
   a.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();   // never toggles the tool row it sits in
     const sel = window.getSelection && window.getSelection();
-    if (sel && !sel.isCollapsed && String(sel).length) return;   // dragging to copy a path is not asking to open it
+    if (!reveal(e) && sel && !sel.isCollapsed && String(sel).length) return;   // dragging to copy a path is not asking to open it
     chatPathOpen(target, e);
   });
   return a;

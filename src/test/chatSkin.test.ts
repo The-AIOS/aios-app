@@ -246,6 +246,13 @@ test('the working line keeps its own clock from the send, ticking each second, w
   assert.match(app, /if \(chatSkinWorking\(p, now\)\) chatSkinWorkMeta\(p\);/, 'painted from the tick, not only when the terminal changes');
 });
 
+test('⌘⇧-click on a path in the chat reveals it, instead of extending the text selection', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const mk = app.slice(app.indexOf('function chatPathMakeLink'), app.indexOf('\n}\n', app.indexOf('function chatPathMakeLink')));
+  assert.match(mk, /a\.addEventListener\('mousedown', \(e\) => \{ if \(reveal\(e\)\) e\.preventDefault\(\); \}\);/);
+  assert.match(mk, /if \(!reveal\(e\) && sel && !sel\.isCollapsed/);
+});
+
 // ── watch / unwatch follow the session and the pane's life ──────────────────
 
 guarded('closing the pane or losing the pty unwatches the transcript',
