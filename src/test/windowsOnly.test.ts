@@ -88,3 +88,14 @@ test('B · resolveTier finds an interpreter, and refuses by NAME when it cannot 
   assert.match(bus, /execFileSync\(bash, \[hook, tier\]/, 'the resolved interpreter must be the one invoked');
   assert.doesNotMatch(codeOf(bus), /execFileSync\('bash', \[hook/, 'the bare word must be gone from the call');
 });
+
+test('a session on Windows is told the terminal draws Unicode, so the chat view can read its prompt', () => {
+  /* node-pty ignores `name` on Windows, so without this an app opened from the Start menu gives Claude
+     Code no TERM, its prompt reads `>`, and every chat-view check that looks for `❯` fails. */
+  const code = codeOf(main);
+  assert.match(code, /process\.platform === 'win32' && !env\.TERM\)/, 'gated on win32 AND on no TERM already set');
+  assert.match(code, /env\.TERM = 'xterm-256color';/);
+  assert.equal(code.split('\n').filter((l) => /env\.TERM = /.test(l)).length, 1, 'set in one place only');
+  const inTermEnv = code.slice(code.indexOf('function termEnv('), code.indexOf('function defaultShell('));
+  assert.ok(inTermEnv.includes("env.TERM = 'xterm-256color'"), 'in termEnv, the chokepoint every app terminal goes through');
+});
