@@ -9413,6 +9413,16 @@ function chatStatusRows(p) {
   }
   return null;
 }
+/* Whether the screen says tap-to-talk is listening. Read only BELOW the prompt box's bottom rule, where the status lines live,
+   so a reply that mentions REC never counts and a box high on a tall pane is still found (a look at the buffer's last rows
+   misses it). The dot is `⏺` on macOS (2.1.312) and `●` on Windows (2.1.316). Missing it was silent and looked like a refusal:
+   the first click did start recording, the chat never showed it, and the second click found the dictated words in the prompt
+   and said to empty the box. */
+function chatSkinRecording(screen) {
+  const xs = String(screen).split('\n');
+  const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
+  return bottom >= 0 && xs.slice(bottom + 1).some((l) => /[⏺●]\s*REC\b/.test(l));
+}
 function chatSkinMirrorStatus(p) {
   const cs = p.chatSkin;
   const host = cs && cs.meta && cs.meta.querySelector('.cb-sl');
@@ -9421,7 +9431,7 @@ function chatSkinMirrorStatus(p) {
   try { rows = chatStatusRows(p); } catch { rows = null; }
   /* Claude Code shows "REC" while tap-to-talk listens; the mic button follows it. */
   let rec = false;
-  try { rec = /⏺\s*REC\b/.test(chatSkinScreenText(p).split('\n').slice(-14).join('\n')); } catch { rec = false; }
+  try { rec = chatSkinRecording(chatSkinScreenText(p)); } catch { rec = false; }
   chatSkinVoicePaint(cs, rec);
   chatSkinVoiceLive(p, rec);
   if (!rows) return;

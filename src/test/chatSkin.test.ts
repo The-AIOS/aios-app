@@ -3773,6 +3773,20 @@ test('a prompt box at the top of a tall pane is still seen: the mic works, and a
   assert.equal(api.empty(none), false);
 });
 
+test('the chat view sees tap-to-talk listening: either dot, on a box high in a tall pane, and never from a reply (operator-reported on Windows)', () => {
+  const at = skin.indexOf('function chatSkinRecording');
+  const rec = new Function(skin.slice(at, skin.indexOf('\n}\n', at) + 2) + '; return chatSkinRecording;')() as (s: string) => boolean;
+  const rule = '─'.repeat(60);
+  const status = (dot: string) => '  [Opus] aios | main' + ' '.repeat(40) + dot + ' REC · tap to send';
+  /* The row order Claude Code 2.1.316 painted in a real 50-row pane on Windows: the REC line near the top, blank rows under it. */
+  const tall = (dot: string) => [rule, '❯ Hola', rule, status(dot), '  -- INSERT --'].concat(Array(41).fill('')).join('\n');
+  assert.equal(rec(tall('●')), true, 'the Windows dot, with the box high on the screen');
+  assert.equal(rec(tall('⏺')), true, 'the macOS dot');
+  assert.equal(rec([rule, '❯ ', rule, '  [Opus] aios | main', '  -- INSERT --'].join('\n')), false, 'control: not recording');
+  assert.equal(rec(['● REC is what the status line shows', rule, '❯ ', rule, '  [Opus] aios'].join('\n')), false, 'a reply above the box does not count');
+  assert.equal(rec('● REC · tap to send'), false, 'no box on screen: not recording');
+});
+
 test('review fixes: no mode press into a dialog, no agents menu over one, no send into a panel or onto a terminal draft', () => {
   const to = fnBody(skin, 'chatSkinModeTo');
   assert.match(to, /p\.chatSkin\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null/, 'checked before every Shift+Tab');
