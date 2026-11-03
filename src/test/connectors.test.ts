@@ -82,7 +82,7 @@ test('unregistered, nothing missing → available', () => {
 
 test('needs-install wins over everything, INCLUDING a live registration', () => {
   // The whole point: a registered connector whose interpreter was never built is broken, and
-  // calling it "connected" is the lie AI-122 exists to remove.
+  // calling it "connected" is the lie the connectors card exists to remove.
   const d = def({ requires: ['/nope/.venv/bin/python'] });
   assert.equal(classify(d, undefined, never).state, 'needs-install');
   const live = { command: '/nope/.venv/bin/python', args: [] };

@@ -1,5 +1,5 @@
 /**
- * Which `git` the App runs (AI-157, second defect).
+ * Which `git` the App runs (the hidden-window animation bug, second defect).
  *
  * A packaged macOS app launched from Finder inherits a MINIMAL PATH, and on macOS
  * `/usr/bin/git` is not git — it is the Xcode Command Line Tools shim, which exists, is

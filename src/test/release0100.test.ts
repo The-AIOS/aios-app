@@ -1,7 +1,7 @@
 /**
  * 0.10.0 — behaviour the operator asked for, run against the real code.
  *
- * AI-165: Claude Code's daemon keeps pre-started spare sessions that register like any other
+ * Claude Code's daemon keeps pre-started spare sessions that register like any other
  * session but with no name, so the panel listed them under their ids and they came back when
  * closed. The registry already says which is which: spares are `kind: "bg"`, terminal sessions
  * `kind: "interactive"` (measured in the 2.1.282 binary; Claude Code's own FleetView filters the
@@ -18,7 +18,7 @@ function withRegistry(entries: object[], fn: () => void) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-home-'));
   const dir = path.join(home, '.claude', 'sessions');
   fs.mkdirSync(dir, { recursive: true });
-  /* AI-203: a session is listed only when it is the operator's — here, by running inside the
+  /* A session is listed only when it is the operator's — here, by running inside the
      framework. These tests are about kind/entrypoint, so every entry gets that cwd. */
   const fw = path.join(home, 'aios');
   fs.mkdirSync(fw, { recursive: true });
@@ -32,7 +32,7 @@ function withRegistry(entries: object[], fn: () => void) {
 // Two live pids so the dedupe-by-pid step keeps both; a third for the legacy entry.
 const LIVE = [process.pid, process.ppid];
 
-test('AI-165: a daemon spare is not an operator session; the terminal session beside it still shows', () => {
+test('A daemon spare is not an operator session; the terminal session beside it still shows', () => {
   withRegistry([
     { pid: LIVE[0], sessionId: 's-1', name: 'buddai', kind: 'interactive', status: 'idle' },
     { pid: LIVE[1], sessionId: '7a6c1978-spare', kind: 'bg', status: 'idle' },   // no name, like the real spares
@@ -44,7 +44,7 @@ test('AI-165: a daemon spare is not an operator session; the terminal session be
   });
 });
 
-test('AI-165: a headless SDK run (a plugin, `claude -p`) is not an operator session either', () => {
+test('A headless SDK run (a plugin, `claude -p`) is not an operator session either', () => {
   withRegistry([
     { pid: LIVE[0], sessionId: 's-1', name: 'buddai', kind: 'interactive', entrypoint: 'cli', status: 'idle' },
     { pid: LIVE[1], sessionId: '1dc5e420', name: 'aios-app-5e', kind: 'interactive', entrypoint: 'sdk-py', status: 'busy' },
@@ -57,17 +57,17 @@ test('AI-165: a headless SDK run (a plugin, `claude -p`) is not an operator sess
     assert.equal(aios.isOperatorSession({ kind: 'interactive', entrypoint: ep }), false, `entrypoint "${ep}" is a program`);
 });
 
-test('AI-165: a registry entry with no kind (an older Claude Code) is treated as a terminal session', () => {
+test('A registry entry with no kind (an older Claude Code) is treated as a terminal session', () => {
   withRegistry([{ pid: LIVE[0], sessionId: 's-old', name: 'legacy', status: 'busy' }], () => {
     assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), ['legacy']);
   });
 });
 
-test('AI-165: the panel, notifications and the palette use the operator list; the bus keeps the full one', () => {
+test('The panel, notifications and the palette use the operator list; the bus keeps the full one', () => {
   const host = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'panelHost.ts'), 'utf8');
   const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
   const bus = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'commandBus.ts'), 'utf8');
-  /* 0.11.0 (AI-196): the operator list is now overlaid with each session's own OSC 7501 status
+  /* 0.11.0: the operator list is now overlaid with each session's own OSC 7501 status
      before it is read; what this guards is unchanged — the source is the OPERATOR list. */
   assert.match(host, /const registry = aios\.listOperatorSessions\(\);[\s\S]{0,300}const running = overlayProgramStatus\(registry, this\.programStatus\);\s*this\.attention\.tick/, 'panel rows + "needs you" notifications');
   assert.match(main, /running: aios\.listOperatorSessions\(\),/, 'the palette session list');
@@ -117,7 +117,7 @@ test('a drop anywhere clears every drop highlight (no coral ring left on the oth
   assert.match(app, /document\.addEventListener\('dragend', clearAllDropHighlights, true\);/);
 });
 
-test('AI-203: a session the operator never opened — a probe in another folder — is not listed', () => {
+test('A session the operator never opened — a probe in another folder — is not listed', () => {
   withRegistry([
     { pid: LIVE[0], sessionId: 's-1', name: 'buddai', kind: 'interactive', entrypoint: 'cli', status: 'idle' },
     { pid: LIVE[1], sessionId: 's-2', name: 'osc-live', kind: 'interactive', entrypoint: 'cli', status: 'waiting', cwd: '/Users/x/code' },

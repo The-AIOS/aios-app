@@ -120,7 +120,7 @@ Ensure -Cmd 'uv'      -Id 'astral-sh.uv'      -Label 'uv'
 # Required on every path: it is how you read the vault, and it is what the
 # bundled Obsidian MCP talks to. It is a GUI app, so presence is a file check.
 #
-# AI-110 - ASK WINGET, THE WAY THE .sh ASKS BREW.
+# ASK WINGET, THE WAY THE .sh ASKS BREW.
 # Reported 2026-08-15 on the first clean Windows machine: Obsidian "did not land" and was
 # installed by hand. The script's own logic was already right - it re-checks after installing
 # and prints the manual URL - but the check itself tested TWO hardcoded paths and nothing else,

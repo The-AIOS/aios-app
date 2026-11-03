@@ -1,5 +1,5 @@
 /**
- * AI-171 step 1 — "used: deep-research". Which skills and agents a session used IN ITS LATEST TURN, read from
+ * "used: deep-research". Which skills and agents a session used IN ITS LATEST TURN, read from
  * its transcript, so the session row can show it: the cheapest way to teach an operator that the
  * skills and agents exist is to show them working on their own request. Shared core (both surfaces).
  *

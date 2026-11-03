@@ -25,7 +25,7 @@ test('INVARIANT: termEnv sets CLAUDE_AGENT_NAME so the session ritual runs', () 
   const src = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(src, /env\.CLAUDE_AGENT_NAME\s*=/, 'must set CLAUDE_AGENT_NAME for named sessions');
   assert.match(src, /--name/, 'the command-embedded fallback must remain for callers that spell --name themselves');
-  // AI-64: the name is a PARAMETER now. Regex-over-the-command was the whole bug — a path
+  // the name is a PARAMETER now. Regex-over-the-command was the whole bug — a path
   // that never spells --name (every resume) came up unnamed with nothing reporting it.
   assert.match(src, /function termEnv\(cmd\?: string, name\?: string\)/, 'termEnv must accept the name explicitly, not only recover it from the command');
   assert.match(src, /const explicit = \(name \|\| ''\)/, 'the explicit name must take precedence over the command-derived fallback');

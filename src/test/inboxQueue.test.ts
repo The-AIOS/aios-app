@@ -1,5 +1,5 @@
 /**
- * AI-205 — the queue rules, run against one fixture both surfaces carry (and canonical can adopt
+ * The queue rules, run against one fixture both surfaces carry (and canonical can adopt
  * beside inbox-contract-4.conformance.json): a busy target is waited on until its next idle, in
  * order, a newer message from the same sender supersedes an older one, and a late one is aged.
  */

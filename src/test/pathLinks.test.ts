@@ -180,13 +180,13 @@ test('SWEEP: a spaced path breaking at any realistic column still resolves', (t)
     `every break past column 24 must resolve; these did not: ${realistic.join(', ')}`);
 });
 
-/* AI-69 — a terminal must never be hidden with `display:none`. xterm's WebGL renderer bails on
+/* A terminal must never be hidden with `display:none`. xterm's WebGL renderer bails on
    a zero-size container (`_refreshCharAtlas` → `_isAttached = false`), so a session still
    printing in the background paints into a detached renderer and the canvas you switch back to
    holds garbage. Guarded at source level because the failure is visual and non-deterministic —
    there is no assertion a headless run can make about it, but there IS one about the mechanism. */
 
-test('AI-69: terminals hide by VISIBILITY, and every check consults both mechanisms', () => {
+test('Terminals hide by VISIBILITY, and every check consults both mechanisms', () => {
   assert.match(app, /const PANE_HIDDEN = 'panehidden'/, 'the hidden class must be declared');
 
   // setVisible must route through the helper, never assign display to a pane directly again
@@ -207,7 +207,7 @@ test('AI-69: terminals hide by VISIBILITY, and every check consults both mechani
     'a raw display check reads a hidden TERMINAL as visible — go through paneShown()');
 });
 
-test('AI-69: the CSS actually hides it, and blocks its pointer events', () => {
+test('The CSS actually hides it, and blocks its pointer events', () => {
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   assert.match(css, /\.pane\.panehidden\s*\{[^}]*visibility:\s*hidden/,
     'the class must hide by visibility, not display');
@@ -218,7 +218,7 @@ test('AI-69: the CSS actually hides it, and blocks its pointer events', () => {
 /* Item 2 (2026-07-30) — `/rename` left the tab reading "(ended)" while the sessions list showed
    the new name. Not a display bug: liveness was keyed on the NAME, and a rename removes the old
    name from the registry's live list, so a healthy session was declared over. The third bug in
-   this same seam (see AI-64), and the same lesson each time — a label is not an identity. */
+   this same seam (see tab-follows-session), and the same lesson each time — a label is not an identity. */
 
 test('a rename must be followed by identity, not mistaken for a death', () => {
   const pulse = /const liveNames = new Set\(everyone[\s\S]*?renamePane\(pid, t\('tab\.endedSession'[\s\S]*?\n    \}/.exec(app);
@@ -325,7 +325,7 @@ test('zoom has exactly ONE owner — the menu', () => {
 test('zoom is clamped and persisted', () => {
   assert.match(app, /ED_ZOOM_MIN = 0\.7, ED_ZOOM_MAX = 2\.0/, 'bounds must exist');
   /* Asserts that `edZoom` is IN the persisted object, not that it is the last key in it — the
-     earlier form pinned `edZoom })` and broke the moment AI-82 persisted split fractions after
+     earlier form pinned `edZoom })` and broke the moment split view persisted split fractions after
      it. What this test cares about is that the zoom level survives a restart. */
   assert.match(app, /localStorage\.setItem\('shellLayout', JSON\.stringify\(\{[^}]*edZoom/,
     'the level must survive a restart');

@@ -1,5 +1,5 @@
 /**
- * Keep-awake policy — pure decision, no Electron, no fs (AI-132).
+ * Keep-awake policy — pure decision, no Electron, no fs.
  *
  * WHY THIS EXISTS AT ALL. The operator's workaround was a Claude session literally named
  * `caffeinate`, told "caf" / "decaf" — a live agent and its whole context standing in for one
@@ -40,7 +40,7 @@ export const BLOCKER_TYPE = 'prevent-app-suspension' as const;
  * Kept byte-comparable with the renderer's own `statusInfo()` busy branch by
  * `src/test/caffeinate.test.ts`. That duplication is unavoidable — the renderer cannot import
  * this file — so it is GUARDED rather than tolerated: if either side's notion of "busy" moves,
- * the test fails and names both. Exactly the shape that let a rung table drift in AI-129.
+ * the test fails and names both. Exactly the shape that let a rung table drift once before.
  */
 export function isBusyStatus(raw: unknown): boolean {
   const st = String(raw ?? '').trim().toLowerCase();

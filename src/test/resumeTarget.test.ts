@@ -1,5 +1,5 @@
 /**
- * AI-149 — `resume` reopens the SAME someone, or says it cannot.
+ * `resume` reopens the SAME someone, or says it cannot.
  *
  * These pin the two decisions that make that true: which session a name resolves to, and what
  * the bus does when it resolves to nothing. Both are pure, so they are tested without a
@@ -235,7 +235,7 @@ test('the built command quotes the id even so — one guard is a policy, two is 
   assert.doesNotMatch(buildResumeCmd('claude', 'a; rm -rf ~'), /--resume a; rm/);
 });
 
-test('AI-228: a resume launches only while the transcript still answers to the name asked for', () => {
+test('A resume launches only while the transcript still answers to the name asked for', () => {
   const rec = (n: string): string => `{"type":"agent-name","agentName":"${n}","sessionId":"4b4fcc15"}\n`;
   const tail = rec('amplifier-substack').repeat(2) + rec('amplifier-writer').repeat(3);
   assert.equal(staleResumeName(tail, 'amplifier-substack'), 'amplifier-writer', 'the stale name is refused, naming the current one');

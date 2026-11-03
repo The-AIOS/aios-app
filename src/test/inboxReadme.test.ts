@@ -97,7 +97,7 @@ test('main-side writer defers, is non-fatal, and cannot feed the watcher', () =>
 })
 
 test('the generated README does not enumerate rungs — it points at the one table', () => {
-  /* AI-129, second half, found by a tester reading the file the App itself writes. This README
+  /* Rung-table drift, second half, found by a tester reading the file the App itself writes. This README
      named a closed set of two rungs; the ladder grew to five and the file went stale beside the
      handler it claims to describe ("rewritten to match the handler actually running"). That is
      worse than ordinary drift because CLAUDE.md § Spawning Sessions points sessions at THIS FILE

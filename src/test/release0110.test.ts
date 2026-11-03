@@ -8,7 +8,7 @@ import * as path from 'node:path';
 
 const ROOT = path.join(__dirname, '..', '..');
 
-test('AI-193: there is one renderer, and no stale twin at the repo root for a grep to land in', () => {
+test('There is one renderer, and no stale twin at the repo root for a grep to land in', () => {
   /* An 8,071-line copy of renderer/app.js sat at the repo root, referenced by nothing and never
      packaged. A grep-driven fix could land in it and pass review while the App stayed unchanged. */
   assert.ok(!fs.existsSync(path.join(ROOT, 'app.js')), 'repo-root app.js is back — the renderer is renderer/app.js');
@@ -22,7 +22,7 @@ test('AI-193: there is one renderer, and no stale twin at the repo root for a gr
 
 import { withDefaultLocale, DEFAULT_TERM_LANG } from '../main/termLocale';
 
-test('AI-191: a terminal with no locale gets a UTF-8 one; an operator locale is never overridden', () => {
+test('A terminal with no locale gets a UTF-8 one; an operator locale is never overridden', () => {
   assert.equal(withDefaultLocale({ PATH: '/bin' }, 'darwin').LANG, DEFAULT_TERM_LANG, 'Dock-launched App: no locale at all');
   assert.equal(withDefaultLocale({ PATH: '/bin' }, 'linux').LANG, DEFAULT_TERM_LANG);
   assert.equal(withDefaultLocale({ LANG: 'es_MX.UTF-8' }, 'darwin').LANG, 'es_MX.UTF-8', 'the operator wins');
@@ -32,12 +32,12 @@ test('AI-191: a terminal with no locale gets a UTF-8 one; an operator locale is 
   assert.match(DEFAULT_TERM_LANG, /UTF-8$/);
 });
 
-test('AI-191: every App terminal goes through the locale default', () => {
+test('Every App terminal goes through the locale default', () => {
   const main = fs.readFileSync(path.join(ROOT, 'src', 'main', 'main.ts'), 'utf8');
   assert.match(main, /function termEnv\([^)]*\)[^{]*\{\s*const env: Record<string, string> = withDefaultLocale\(\{ \.\.\.\(process\.env/);
 });
 
-test('AI-191: pbcopy really needs it (macOS only) — with the default, a UTF-8 arrow round-trips', { skip: process.platform !== 'darwin' ? 'macOS pasteboard' : false }, () => {
+test('pbcopy really needs it (macOS only) — with the default, a UTF-8 arrow round-trips', { skip: process.platform !== 'darwin' ? 'macOS pasteboard' : false }, () => {
   /* The measured mechanism, kept as a live check: pbcopy decodes stdin by the process locale. */
   const cp = require('child_process') as typeof import('child_process');
   let saved = '';
@@ -114,7 +114,7 @@ test('#50: the token lane tells a refused token apart from a stored one, in ever
 
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 
-test('AI-190: with no pick the theme follows the OS; a pick is kept; garbage means "follow the OS"', () => {
+test('With no pick the theme follows the OS; a pick is kept; garbage means "follow the OS"', () => {
   assert.equal(resolvedTheme('system', false), 'light', 'light Mac, never touched → light first frame');
   assert.equal(resolvedTheme('system', true), 'dark');
   assert.equal(resolvedTheme('dark', false), 'dark', 'an explicit pick survives a light OS');
@@ -122,12 +122,12 @@ test('AI-190: with no pick the theme follows the OS; a pick is kept; garbage mea
   assert.equal(resolvedTheme('', false), 'light');
 });
 
-test('AI-190: an absent or unknown stored theme normalises to "system"; light/dark are kept (no migration)', () => {
+test('An absent or unknown stored theme normalises to "system"; light/dark are kept (no migration)', () => {
   const src = fs.readFileSync(path.join(ROOT, 'src', 'main', 'aios.ts'), 'utf8');
   assert.match(src, /theme: raw\.theme === 'light' \|\| raw\.theme === 'dark' \? raw\.theme : 'system',/);
 });
 
-test('AI-190: the window background matches the theme tokens, so the first frame never flashes dark', () => {
+test('The window background matches the theme tokens, so the first frame never flashes dark', () => {
   const css = fs.readFileSync(path.join(ROOT, 'renderer', 'theme.css'), 'utf8');
   const root = /:root\s*\{[^}]*?--bg:\s*(#[0-9a-f]{6})/i.exec(css)!;
   const light = /body\.light\s*\{[^}]*?--bg:\s*(#[0-9a-f]{6})/i.exec(css)!;
@@ -138,7 +138,7 @@ test('AI-190: the window background matches the theme tokens, so the first frame
   assert.match(main, /loadFile\([^)]*index\.html'\), \{ query: \{ theme: firstTheme \} \}\)/);
 });
 
-test('AI-190: the renderer stamps the light class from the URL before anything paints, and follows the OS live only while unpicked', () => {
+test('The renderer stamps the light class from the URL before anything paints, and follows the OS live only while unpicked', () => {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   assert.match(app, /new URLSearchParams\(location\.search\)\.get\('theme'\) === 'light'\) document\.body\.classList\.add\('light'\)/);
   assert.match(app, /OS_DARK\.addEventListener\('change', \(\) => \{\s*if \(THEME_PREF !== 'system'\) return;/);
@@ -150,7 +150,7 @@ test('AI-190: the renderer stamps the light class from the URL before anything p
   }
 });
 
-test('AI-192, revised after the operator test: no terminal copy menu, no ⇧⌘C clash; the session tab copies its last answer', () => {
+test('After the operator test: no terminal copy menu, no ⇧⌘C clash; the session tab copies its last answer', () => {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   const main = fs.readFileSync(path.join(ROOT, 'src', 'main', 'main.ts'), 'utf8');
   const menu = fs.readFileSync(path.join(ROOT, 'src', 'main', 'menu.ts'), 'utf8');
@@ -173,7 +173,7 @@ test('Copy last answer: markdown in, WhatsApp-ready text out — accents, arrows
   assert.equal(out, 'Resumen\n\nEsto funciona → bien — sin código raro.\n\n- uno\n- dos con enlace (https://x.example)\n\nnpm test\n\nVer session_insights y énfasis.');
 });
 
-test('AI-199: an unnamed session\'s topic labels its tab — never over a manual name, never from a shell title', () => {
+test('An unnamed session\'s topic labels its tab — never over a manual name, never from a shell title', () => {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   const src = /function claudeTopicLabel\(id, title\) \{[\s\S]*?\n\}\nfunction paintTabLabel\(p\) \{[\s\S]*?\n\}/.exec(app)![0];
   type P = { name: string; manualName?: boolean; claudeTitled?: boolean; topic?: string; tab: { title: string; querySelector: () => { textContent: string } } };
@@ -200,7 +200,7 @@ test('AI-199: an unnamed session\'s topic labels its tab — never over a manual
   assert.equal(label(manual), 'build', 'a name the operator set wins');
 });
 
-test('AI-172: what the App records is what canonical provenance.py recognises — across the language boundary', { skip: !fs.existsSync(path.join(os.homedir(), 'aios', 'hooks', 'bus_log.py')) ? 'no canonical hooks on this machine' : false }, async () => {
+test('What the App records is what canonical provenance.py recognises — across the language boundary', { skip: !fs.existsSync(path.join(os.homedir(), 'aios', 'hooks', 'bus_log.py')) ? 'no canonical hooks on this machine' : false }, async () => {
   const { recordTyped } = await import('../main/busSent');
   const cp = require('child_process') as typeof import('child_process');
   const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aios-buslog-')), 'bus-sent.jsonl');
@@ -222,7 +222,7 @@ test('AI-172: what the App records is what canonical provenance.py recognises �
   }
 });
 
-test('AI-172: every bus delivery records the exact text the session receives, before it is typed', () => {
+test('Every bus delivery records the exact text the session receives, before it is typed', () => {
   const bus = fs.readFileSync(path.join(ROOT, 'src', 'main', 'commandBus.ts'), 'utf8');
   assert.match(bus, /recordTyped\(deliverText, req\.name, 'send', req\.from\);[^\n]*\n\s*emit\(win\(\), 'sendByName'/);
   assert.match(bus, /recordTyped\(taskFile \? taskFileInstruction\(taskFile\) : \(req\.task \|\| 'Start session'\), req\.name, 'spawn'\);/);
@@ -270,7 +270,7 @@ test('#24 contrast: every text token clears 4.5:1 on every surface, in both them
   assert.doesNotMatch(css, /(?<![-\w])color: var\(--(accent|st-(ok|busy|input|warn|error))\)/, 'text uses the -ink variants; the bright hues stay for fills');
 });
 
-test('AI-198: contract-4 launch args go before the prompt, quoted; a bad field is dead-lettered by name', async () => {
+test('Contract-4 launch args go before the prompt, quoted; a bad field is dead-lettered by name', async () => {
   const { buildSpawnCmd, buildResumeCmd, parseRequest } = await import('../core/commandBus');
   const spawn = buildSpawnCmd('claude', 'worker', { task: 'sweep the notes', extraArgs: ['--effort', 'low', '--settings', '{"advisorModel":"claude-opus-5-5"}'] });
   assert.equal(spawn, `claude --name worker '--effort' 'low' '--settings' '{"advisorModel":"claude-opus-5-5"}' 'sweep the notes'`);
@@ -286,7 +286,7 @@ test('AI-198: contract-4 launch args go before the prompt, quoted; a bad field i
   assert.match(bus, /if \(req\.fieldError\) \{[\s\S]{0,300}markUndelivered\(heldPath, req, req\.fieldError\.reason\);/);
 });
 
-test('AI-198: the provenance record carries via "surface" and the sender', async () => {
+test('The provenance record carries via "surface" and the sender', async () => {
   const { recordTyped } = await import('../main/busSent');
   const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aios-c4-')), 'bus-sent.jsonl');
   const saved = process.env.AIOS_BUS_LOG; process.env.AIOS_BUS_LOG = log;
@@ -297,7 +297,7 @@ test('AI-198: the provenance record carries via "surface" and the sender', async
   } finally { if (saved === undefined) delete process.env.AIOS_BUS_LOG; else process.env.AIOS_BUS_LOG = saved; }
 });
 
-test('AI-194: the picker carries the current generation, ordered by the ladder; effort is a real Claude setting', async () => {
+test('The picker carries the current generation, ordered by the ladder; effort is a real Claude setting', async () => {
   const aiosMod = await import('../main/aios');
   const { CLAUDE_KEYS, coerce } = await import('../core/claudeConfig');
   const values = aiosMod.MODEL_OPTIONS.map((m) => m.value);
@@ -318,7 +318,7 @@ test('AI-194: the picker carries the current generation, ordered by the ladder; 
   }
 });
 
-test('AI-195: an advisor weaker than the main model is flagged — the rule Claude applies silently', async () => {
+test('An advisor weaker than the main model is flagged — the rule Claude applies silently', async () => {
   const { canAdvise, familyRank, ADVISOR_OPTIONS } = await import('../core/advisor');
   const { CLAUDE_KEYS, coerce } = await import('../core/claudeConfig');
   assert.deepEqual([...ADVISOR_OPTIONS], ['fable', 'opus', 'sonnet'], 'the aliases Claude 2.1.296 offers');
@@ -341,7 +341,7 @@ test('AI-195: an advisor weaker than the main model is flagged — the rule Clau
   }
 });
 
-test('AI-197: the latest model switch of THIS run shows on the session row, in a person\'s words', async () => {
+test('The latest model switch of THIS run shows on the session row, in a person\'s words', async () => {
   const { latestSwitches, switchLine, modelName } = await import('../core/modelSwitch');
   const log = [
     JSON.stringify({ at: '2026-10-11T20:00:00Z', session_id: 's1', name: 'w', from: 'claude-opus-5-5', to: 'claude-sonnet-5-5', reason: '' }),
@@ -362,7 +362,7 @@ test('AI-197: the latest model switch of THIS run shows on the session row, in a
   for (const loc of ['en', 'es', 'pt-br']) assert.match(JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'i18n', 'locales', `${loc}.json`), 'utf8'))['running.switchedTo'], /\{model\}/);
 });
 
-test('AI-201: the demo builds a whole synthetic home — no real vault, registry, account or inbox can reach the screen', () => {
+test('The demo builds a whole synthetic home — no real vault, registry, account or inbox can reach the screen', () => {
   const cp = require('child_process') as typeof import('child_process');
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'aios-demo-test-'));
   cp.execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'demo.mjs'), '--build-only', '--out', out], { encoding: 'utf8' });
@@ -380,7 +380,7 @@ test('AI-201: the demo builds a whole synthetic home — no real vault, registry
   fs.rmSync(out, { recursive: true, force: true });
 });
 
-test('AI-200: Report this and What\'s in it? open the canonical agents with a brief — nothing leaves the machine', () => {
+test('Report this and What\'s in it? open the canonical agents with a brief — nothing leaves the machine', () => {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   const main = fs.readFileSync(path.join(ROOT, 'src', 'main', 'main.ts'), 'utf8');
   assert.match(app, /if \(pane\.kind === 'term' && hasFeedback\) items\.push\(\{ label: t\('tab\.report'\), value: 'report' \}\);/, 'review 12: hidden without the aios-feedback agent');
@@ -404,7 +404,7 @@ test('AI-200: Report this and What\'s in it? open the canonical agents with a br
   }
 });
 
-test('AI-205: the App waits for the next idle, in order, superseding, aged — and verifies from the first type', () => {
+test('The App waits for the next idle, in order, superseding, aged — and verifies from the first type', () => {
   const bus = fs.readFileSync(path.join(ROOT, 'src', 'main', 'commandBus.ts'), 'utf8');
   assert.match(bus, /decideSend\(target, Date\.now\(\) - queuedAt, TIMINGS\.QUEUE_CEILING_MS\)/, 'a live busy target is held to the ceiling, from its FIRST queue time');
   assert.match(bus, /const me = \{ key: path\.basename\(heldPath\), target: sessionKey\(req\.name\), from: req\.from, queuedAt \};\s*const turn = queueTurn\(me, heldSends\(\)\);/);
@@ -456,7 +456,7 @@ test('release gate: a draft is published only when all three platform feeds are 
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release-linux.yml'), 'utf8'), /^\s*gh release create/m, 'only mac creates it (a comment may mention the command)');
 });
 
-test('AI-171 step 1: a session row says which skills and agents it used, from its transcript', () => {
+test('A session row says which skills and agents it used, from its transcript', () => {
   const host = fs.readFileSync(path.join(ROOT, 'src', 'main', 'panelHost.ts'), 'utf8');
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   assert.match(host, /private usage = new UsageReader\(fsUsageIo\);/, 'the shared async reader (review 17: incremental, bounded, byte-split)');
@@ -468,7 +468,7 @@ test('AI-171 step 1: a session row says which skills and agents it used, from it
   }
 });
 
-test('AI-169 step 1: read aloud — per session, on the session\'s own "done", any key stops it', () => {
+test('Read aloud — per session, on the session\'s own "done", any key stops it', () => {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   const main = fs.readFileSync(path.join(ROOT, 'src', 'main', 'main.ts'), 'utf8');
   assert.match(app, /if \(READ_ALOUD && p\.readAloud && \/\^state=done\\b\/\.test\(s\)\) void speakAnswer\(p, paneId\);/, 'triggered by OSC 7501 done');
@@ -647,7 +647,7 @@ test('app#59: a restored tab never starts a second process on a session that is 
   for (const loc of ['en', 'es', 'pt-br']) assert.match(JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'i18n', 'locales', `${loc}.json`), 'utf8'))['restore.alreadyRunning'], /\{name\}/);
 });
 
-test('AI-217: "What\'s in it?" works from the release notes, one verification pass, code only when the notes fall short', () => {
+test('"What\'s in it?" works from the release notes, one verification pass, code only when the notes fall short', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const fn = /function explainRelease\(version\) \{[\s\S]*?\n\}/.exec(app)![0];
   assert.match(fn, /Work from the release notes: https:\/\/github\.com\/The-AIOS\/aios-app\/releases\/tag\/v\$\{v\}/);

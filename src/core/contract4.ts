@@ -1,5 +1,5 @@
 /**
- * AI-198 — spawn-inbox contract 4: three optional request fields, decided in ONE place both
+ * Spawn-inbox contract 4: three optional request fields, decided in ONE place both
  * fulfillers run (shared core, synced into the App). Canonical's spec and its conformance fixture
  * (skills/aios/orchestration-ladder/inbox-contract-4.*) are the authority; this is the decision
  * that fixture tests, so "two implementations of one protocol" is one function and one test.

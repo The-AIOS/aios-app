@@ -1,4 +1,4 @@
-/** AI-190 — the theme a window paints: the operator's pick, else the OS's. Pure, so it is testable. */
+/** The theme a window paints: the operator's pick, else the OS's. Pure, so it is testable. */
 export type ThemePref = 'system' | 'light' | 'dark';
 export function resolvedTheme(pref: string, osDark: boolean): 'light' | 'dark' {
   return pref === 'light' || pref === 'dark' ? pref : osDark ? 'dark' : 'light';

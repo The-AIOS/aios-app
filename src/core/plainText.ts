@@ -1,5 +1,5 @@
 /**
- * AI-192 — "Copy as plain text": turn a selection of Claude Code's terminal output into text
+ * "Copy as plain text": turn a selection of Claude Code's terminal output into text
  * that reads right when pasted into WhatsApp, Slack, mail or a doc.
  *
  * What a raw copy carries, measured on real output (fixtures/claude-tui-*.json): the `⏺` bullet

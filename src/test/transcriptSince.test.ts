@@ -1,5 +1,5 @@
 /**
- * AI-223 — a send is verified from what its target's transcript gained SINCE the send began, never by
+ * A send is verified from what its target's transcript gained SINCE the send began, never by
  * reading the whole file. Measured: a 554 MB transcript made the whole-file read throw (V8's ~512 MB
  * string limit), the throw read as "zero deliveries", and an idle target got the message three times.
  */

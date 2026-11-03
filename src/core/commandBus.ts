@@ -27,7 +27,7 @@ import { isSurface, type Surface } from './sendQueue';
 
 /* 'unknown' is a PARSED verb the bus refuses, not a parse failure. Absent action still means
    'spawn' (contract-1 `{name, task}` back-compat), but a verb that was WRITTEN and not recognised
-   is a typo or a newer contract, and guessing 'spawn' for it is the substitution AI-149 exists to
+   is a typo or a newer contract, and guessing 'spawn' for it is the substitution the verb contract exists to
    prevent: `{"action":"resmue"}` would hand back a fresh something for a request that named a
    someone. Dead-letter it instead, naming the verb, so the author can see what they wrote. */
 export type BusAction = BusVerbResult;
@@ -60,7 +60,7 @@ export interface BusRequest {
      dead-lettered naming the field, never dropped — a session missing a directory it was promised
      looks fine until it stalls asking for permissions. Absent = none, as before. */
   addDirs?: unknown;
-  /* Contract 4 (AI-198) — optional, decided by core/contract4 (shared with Glass). */
+  /* Contract 4 — optional, decided by core/contract4 (shared with Glass). */
   from?: string;                // send/resume: the writer's registry name — a claim, not an identity
   effort?: string;              // spawn/resume: low · medium · high · xhigh · max
   advisor?: string;             // spawn/resume: a rung (resolved via resolve-tier) or a model id
@@ -205,7 +205,7 @@ function launchAddDirArgs(addDirs: string[] | undefined, taskFile: string | unde
  * default" — so an absent `model` must emit no flag at all. Never `--model ""`.
  */
 /**
- * Reopen an existing session by its id, and deliver a first prompt (AI-149).
+ * Reopen an existing session by its id, and deliver a first prompt.
  *
  * WHY A SEPARATE BUILDER, when this is nearly buildSpawnCmd with a different flag: the two
  * commands mean opposite things, and the row exists because that difference was being lost.

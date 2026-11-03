@@ -110,7 +110,7 @@ export class Attention {
       try { app.setBadgeCount(r.badge > 0 && level !== 'off' ? r.badge : 0); } catch { /* headless / unsupported */ }
       /* The Windows half of the same fact. Driven by the SAME change check, so the two surfaces
          cannot disagree about the count — and only on a change, because redrawing an overlay
-         every two seconds is the class of bug AI-157 was. */
+         every two seconds is the class of the hidden-window animation bug. */
       const ov = overlayText(r.badge, level);
       try { this.hooks.setOverlay(ov, ov ? t('notify.overlayDesc', { n: String(r.badge) }) : ''); }
       catch { /* not Windows, or the window went away */ }

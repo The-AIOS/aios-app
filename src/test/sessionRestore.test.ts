@@ -95,7 +95,7 @@ test('BOUNDED: nothing is asked once every pane has an id, and plain terminals a
   await h.settle();
   /* No request at all: an identified pane has nothing to learn, and a plain shell will never have
      a session — asking about it every 2s forever would be periodic work on an idle window, which
-     is the shape of cost AI-157 taught us to refuse. */
+     is the shape of cost the hidden-window animation bug taught us to refuse. */
   assert.equal(h.calls.length, 0);
 });
 

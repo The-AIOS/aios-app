@@ -1,4 +1,4 @@
-/** Review should-fix 17 — the shared AI-171 reader: async, bounded, pruned, and whole characters. */
+/** Review should-fix 17 — the shared usage reader: async, bounded, pruned, and whole characters. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { UsageReader, feedUsage, type UsageIo } from '../core/usageReader';

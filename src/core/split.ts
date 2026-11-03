@@ -1,5 +1,5 @@
 /**
- * Split view — the pure part (AI-82).
+ * Split view — the pure part.
  *
  * A zone used to show exactly one pane. `setVisible(z)` decided it with one line:
  *

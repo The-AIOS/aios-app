@@ -8,7 +8,7 @@ import {
   isStalePayload, assertDeliverable,
 } from '../core/busPayload';
 
-/* AI-66. The bug was SILENT truncation: a 2.6KB send arrived cut at 2043 with no error on any
+/* The bug was SILENT truncation: a 2.6KB send arrived cut at 2043 with no error on any
    surface. So these tests are written to a higher bar than "the happy path works" — the point
    is to prove the suite can SEE a truncation, because a test that would pass on a truncated
    message is worth nothing against a bug whose signature is silence. */
@@ -96,7 +96,7 @@ test('INVARIANT: neither surface delivers a send without the length gate', () =>
   assert.match(bus, /needsPointer|busPayload/, 'the App bus send must consult the length gate');
 });
 
-/* AI-66 pt4 — the conflation that killed a real message.
+/* The conflation that killed a real message.
    The BEHAVIOUR is tested where it lives: decideAfterVerifyMiss in protocolContract.test.ts,
    pure and exhaustive. What is asserted here is that the surface DELEGATES to it. Both
    fulfillers previously re-derived this policy by hand and both got it wrong the same way, so
@@ -152,7 +152,7 @@ test('INVARIANT: the verification baseline is captured ONCE, not per attempt', (
      because the failure is invisible in any single-attempt test. */
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(bus, /let baseline: number \| undefined;/, 'the baseline must be declared OUTSIDE the delivery loop');
-  /* AI-223: the baseline is now counted through `count()` (only what the transcript gained since the
+  /* The baseline is now counted through `count()` (only what the transcript gained since the
      send began); it is still captured exactly once. */
   assert.match(bus, /if \(baseline === undefined\) baseline = count\(sessionId\)/,
     'it must be captured only on the first pass');

@@ -1,5 +1,5 @@
 /**
- * AI-172 — the surface records what it TYPES, so the provenance label reaches every bus message.
+ * The surface records what it TYPES, so the provenance label reaches every bus message.
  *
  * Canonical's `hooks/provenance.py` labels a prompt "delivered, not typed by the operator" when
  * its fingerprint is in ~/.aios/bus-sent.jsonl. That log was written only by `hooks/bus_log.py`,

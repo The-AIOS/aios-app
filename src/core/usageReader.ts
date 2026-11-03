@@ -1,5 +1,5 @@
 /**
- * AI-171 — what each session used (Skill / Agent), read incrementally from its transcript.
+ * What each session used (Skill / Agent), read incrementally from its transcript.
  * Shared by the App (main process) and Glass (extension host); both used to carry their own copy.
  *
  * Review should-fix 17 named four faults in those copies, and each one is answered here:
