@@ -700,6 +700,7 @@ function applySplit() {
   ensureActive('main');
   if (split) ensureActive('term');
   paintExpandButtons();
+  paintZoneView();   // the dock turning on or off moves Claude panes between zones, and the main pane's switch with them
 }
 
 /* ═══ the pulse renderer — nudge · quota · sessions · calendar · learned · outputs ═══ */
@@ -4672,6 +4673,7 @@ function closePane(id) {
      closing the last editor pane has to re-run the split too or the zone stays open empty. */
   if (split) applySplit();
   paintRunning();
+  paintZoneView();   // the last Claude pane in the main pane takes its switch with it
 }
 
 // In-app browser pane (#14): open a URL in a tab (Electron <webview>) instead of
@@ -4752,7 +4754,7 @@ window.glassShell.onPtyData((m) => {
 });
 window.glassShell.onPtyExit((m) => {
   const p = panes.get(m.id);
-  if (p && p.kind === 'term') { p.exited = true; if (p.composing && p.name) { p.composing = false; window.glassShell.busComposing(p.name, false); } p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); chatSkinOnExit(m.id, p); paintRunning(); }   // #81: an ended pane holds no draft
+  if (p && p.kind === 'term') { p.exited = true; if (p.composing && p.name) { p.composing = false; window.glassShell.busComposing(p.name, false); } p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); chatSkinOnExit(m.id, p); paintRunning(); paintZoneView(); }   // #81: an ended pane holds no draft
   /* A guided connect/add session just closed — re-read rather than waiting for focus or the poll.
      Same shape as the Health card's fix panes: run the check that found the problem to prove the
      fix, never trust that the work happened. */
@@ -5121,6 +5123,28 @@ function focusedTerminal() {
   if (!ae) return null;
   for (const q of panes.values()) if (q.kind === 'term' && q.term && !q.exited && q.el && q.el.contains(ae)) return q;
   return null;
+}
+/* The pane whose CHAT view holds the focus: the composer, a bubble, anything inside the overlay. */
+function focusedChat() {
+  const ae = document.activeElement;
+  if (!ae) return null;
+  for (const q of panes.values()) if (q.view === 'chat' && q.chatSkin && q.chatSkin.root && q.chatSkin.root.contains(ae)) return q;
+  return null;
+}
+/* ⌘+/− in the chat: the same chat text size Settings sets (10-28, what main accepts), live on every chat and saved once the
+   keys stop, so the Settings page and the next session agree with what is on screen. */
+const CHAT_FONT_MIN = 10, CHAT_FONT_MAX = 28;
+let chatFontSaveTimer = 0;
+function setChatFont(v) {
+  const next = Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(v)));
+  const changed = next !== chatPrefs.size;
+  chatPrefs.size = next;
+  if (changed) {
+    chatApplyPrefs();
+    clearTimeout(chatFontSaveTimer);
+    chatFontSaveTimer = setTimeout(() => { void window.glassShell.setSetting('chatFontSize', next).catch(() => {}); }, 400);
+  }
+  toast(t('zoom.chatLevel', { size: String(next) }) + (changed ? '' : ' ·'));
 }
 let termFontSaveTimer = 0;
 function setTermFont(v) {
@@ -7489,6 +7513,12 @@ window.glassShell.onIntent(async (m) => {
          live, for every open terminal, and is saved so new ones match; anywhere else it is the
          editor zoom it always was. Before, the terminal size lived only in Settings and applied
          to NEW sessions, so the one pane you were squinting at could not be changed at all. */
+      /* The chat view lives INSIDE the terminal pane (an overlay on p.el), so it has to be asked first: with the composer
+         focused, focusedTerminal() also answers, and ⌘+/− used to resize the hidden terminal while the chat text stayed put. */
+      if (focusedChat()) {
+        setChatFont(m.reset ? CHAT_DEFAULT_SIZE : chatPrefs.size + Math.sign(Number(m.delta) || 0));
+        return;
+      }
       if (focusedTerminal()) {
         setTermFont(m.reset ? TERM_FONT_DEFAULT : TERMFONT + Math.sign(Number(m.delta) || 0));
         return;
@@ -9115,31 +9145,40 @@ let chatMode = 'terminal';
 let chatModeLoaded = false;   // has chatReadMode seen the settings at least once?
 const chatModeSubs = new Set();   // Settings pages showing the selector: the shortcut changes the mode under them
 /* The same setting, where the sessions are: a Chat | Terminal switch in the Running header. Hidden in Settings and a
-   shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is. */
+   shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is.
+   With the terminal dock off there is no Running header: Claude sessions open in the main pane beside the editor, and the
+   switch went with the header. So the main pane's header carries the same switch, shown only while a Claude session is
+   open there (an operator-reported 0.14.0 gap). Both paint from one function, so they can never disagree. */
 function paintZoneView() {
   if (typeof document === 'undefined') return;
-  const z = document.getElementById('zviewTerm');
-  if (!z) return;
-  if (!z.childElementCount) {
-    for (const [mode, ico] of [['chat', 'chat'], ['terminal', 'term']]) {
-      const b = el('button', 'zv-b');
-      b.type = 'button';
-      b.dataset.mode = mode;
-      const label = t(mode === 'chat' ? 'settings.claudeView.chat' : 'settings.claudeView.terminal');
-      b.append(csIcon(ico, 14));   // icons only, like the expand button beside it; the word is the tooltip
-      b.title = label; b.setAttribute('aria-label', label);
-      b.addEventListener('click', () => void chatSkinSetMode(mode));
-      z.appendChild(b);
+  for (const [zid, zone] of [['zviewTerm', 'term'], ['zviewMain', 'main']]) {
+    const z = document.getElementById(zid);
+    if (!z) continue;
+    if (!z.childElementCount) {
+      for (const [mode, ico] of [['chat', 'chat'], ['terminal', 'term']]) {
+        const b = el('button', 'zv-b');
+        b.type = 'button';
+        b.dataset.mode = mode;
+        const label = t(mode === 'chat' ? 'settings.claudeView.chat' : 'settings.claudeView.terminal');
+        b.append(csIcon(ico, 14));   // icons only, like the expand button beside it; the word is the tooltip
+        b.title = label; b.setAttribute('aria-label', label);
+        b.addEventListener('click', () => void chatSkinSetMode(mode));
+        z.appendChild(b);
+      }
     }
+    if (zone === 'main') {
+      z.hidden = ![...panes.values()].some((p) => zoneOf(p) === 'main' && chatSkinEligible(p));
+      if (z.hidden) continue;
+    }
+    /* The switch shows what the pane in front IS showing (0.14.0 round: "Show terminal" on a card flipped that pane only, and
+       the switch kept saying chat). With no Claude pane in front, it shows the setting. */
+    const front = zone === 'main' ? panes.get(active.main) : (panes.get(active.term) || panes.get(active.main));
+    const shown = front && front.kind === 'term' && chatSkinEligible(front) ? (front.view === 'chat' ? 'chat' : 'terminal') : chatMode;
+    z.dataset.mode = shown;   // the thumb slides to this side (.zview[data-mode])
+    z.setAttribute('role', 'radiogroup');
+    for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === shown); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === shown ? 'true' : 'false'); }
+    z.title = t('chat.zone.tip');
   }
-  /* The switch shows what the pane in front IS showing (0.14.0 round: "Show terminal" on a card flipped that pane only, and
-     the switch kept saying chat). With no Claude pane in front, it shows the setting. */
-  const front = panes.get(active.term) || panes.get(active.main);
-  const shown = front && front.kind === 'term' && chatSkinEligible(front) ? (front.view === 'chat' ? 'chat' : 'terminal') : chatMode;
-  z.dataset.mode = shown;   // the thumb slides to this side (.zview[data-mode])
-  z.setAttribute('role', 'radiogroup');
-  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === shown); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === shown ? 'true' : 'false'); }
-  z.title = t('chat.zone.tip');
 }
 chatModeSubs.add(paintZoneView);
 function chatReadMode(c) {

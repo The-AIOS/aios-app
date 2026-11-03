@@ -982,6 +982,7 @@
   "explorer.refresh": "Ανανέωση λίστας αρχείων",
   "zoom.level": "Zoom κειμένου {pct}%",
   "zoom.termLevel": "Μέγεθος terminal {size}px",
+  "zoom.chatLevel": "Μέγεθος συνομιλίας {size}px",
   "menu.appScale": "Μέγεθος interface",
   "appScale.in": "Μεγαλύτερο",
   "appScale.out": "Μικρότερο",

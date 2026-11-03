@@ -1503,7 +1503,8 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 .zview::before { content: ''; position: absolute; top: 2px; left: 2px; width: 28px; height: 20px; border-radius: 7px; background: var(--accent);
                  box-shadow: 0 1px 2px var(--line-strong); transition: transform .18s ease; }
 .zview[data-mode="terminal"]::before { transform: translateX(28px); }
-.zview + .zexp { margin-left: 0; }
+.zview[hidden] { display: none; }
+.zview:not([hidden]) + .zexp { margin-left: 0; }   /* a hidden switch leaves the expand button its own auto margin */
 .vview { margin-left: 0; margin-right: 0; }   /* in a viewer's header: placed by the header's own flow */
 .zv-b { position: relative; z-index: 1; width: 28px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
         border: 0; border-radius: 7px; background: transparent; color: var(--subtle); cursor: pointer; transition: color .18s ease; }

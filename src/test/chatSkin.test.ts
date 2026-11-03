@@ -3836,3 +3836,61 @@ test('the chat bar account chip reads the account list in PR 92\'s shape ({ acco
   assert.deepEqual([bad.list, bad.toasts.length], [[], 1], 'a rejected list is an error, said once');
   assert.match(fnBody(skin, 'chatSkinAccountMenu'), /a\.canSwitch === false/, 'an account that cannot be taken says why');
 });
+
+test('the Chat | Terminal switch is in the main pane too, while a Claude session is open there (dock off: no Running header)', () => {
+  const at = app.indexOf('function paintZoneView()');
+  const body = app.slice(at, app.indexOf('\n}\n', at) + 2);
+  /* A tiny DOM: two switch hosts, each a span that keeps its children, attributes and `hidden`. */
+  const host = () => {
+    const kids: { dataset: Record<string, string>; classList: { toggle: () => void }; setAttribute: () => void }[] = [];
+    return { hidden: true, title: '', dataset: {} as Record<string, string>, get childElementCount() { return kids.length; },
+      appendChild: (k: (typeof kids)[number]) => kids.push(k), setAttribute: () => undefined, querySelectorAll: () => kids };
+  };
+  const run = (paneList: { id: string; kind: string; zone: string; claude: boolean; view?: string }[], activeMain?: string) => {
+    const hosts: Record<string, ReturnType<typeof host>> = { zviewTerm: host(), zviewMain: host() };
+    const panes = new Map(paneList.map((p) => [p.id, p]));
+    const paint = new Function('document', 'el', 't', 'csIcon', 'chatSkinSetMode', 'panes', 'zoneOf', 'chatSkinEligible', 'active', 'chatMode',
+      body + '; paintZoneView();');
+    paint({ getElementById: (id: string) => hosts[id] }, () => ({ dataset: {}, classList: { toggle: () => undefined }, setAttribute: () => undefined, append: () => undefined, addEventListener: () => undefined }),
+      (k: string) => k, () => ({}), () => undefined, panes, (p: { zone: string }) => p.zone, (p: { claude: boolean }) => !!p && p.claude,
+      { main: activeMain, term: undefined }, 'chat');
+    return hosts;
+  };
+  const dockOff = run([{ id: 'a', kind: 'term', zone: 'main', claude: true, view: 'term' }], 'a');
+  assert.equal(dockOff.zviewMain.hidden, false, 'dock off, a Claude session in the main pane: the switch is there');
+  assert.equal(dockOff.zviewMain.dataset.mode, 'terminal', 'and it shows what the pane in front shows');
+  assert.equal(dockOff.zviewMain.childElementCount, 2, 'with both sides');
+  assert.equal(run([{ id: 'n', kind: 'note', zone: 'main', claude: false }], 'n').zviewMain.hidden, true, 'control: only a note open, no switch');
+  assert.equal(run([{ id: 's', kind: 'term', zone: 'main', claude: false }], 's').zviewMain.hidden, true, 'control: a plain shell has no chat view');
+  assert.equal(run([{ id: 'c', kind: 'term', zone: 'term', claude: true }]).zviewMain.hidden, true, 'dock on: the Running header carries it, the main pane does not');
+  assert.match(html, /id="tabs"[^\n]*<span class="zview" id="zviewMain" hidden><\/span>/, 'the host sits in the main pane header');
+  assert.match(css, /\.zview\[hidden\] \{ display: none; \}/, 'and hiding it wins over the switch\'s own display');
+});
+
+test('⌘+ / ⌘− with the chat focused change the chat text, in both directions, and are saved (the hidden terminal is left alone)', async () => {
+  const fnSrc = (name: string): string => { const at = app.indexOf('function ' + name); return app.slice(at, app.indexOf('\n}\n', at) + 2); };
+  const consts = app.slice(app.indexOf('const CHAT_FONT_MIN'), app.indexOf('\n', app.indexOf('const CHAT_FONT_MIN')) + 1);
+  const saved: unknown[] = []; const toasts: string[] = []; let applied = 0;
+  const composer = {}; const elsewhere = {};
+  const chatPane = { view: 'chat', chatSkin: { root: { contains: (x: unknown) => x === composer } } };
+  const doc = { activeElement: composer as unknown };
+  const api = new Function('document', 'panes', 'chatPrefs', 'chatApplyPrefs', 'window', 'toast', 't', 'setTimeout', 'clearTimeout',
+    consts + 'let chatFontSaveTimer = 0;\n' + fnSrc('focusedChat') + fnSrc('setChatFont') + 'return { focusedChat, setChatFont };')(
+    doc, new Map([['a', chatPane]]), { size: 14 }, () => { applied++; },
+    { glassShell: { setSetting: (k: string, v: unknown) => { saved.push([k, v]); return Promise.resolve(); } } },
+    (s: string) => toasts.push(s), (k: string, v: { size: string }) => k + ':' + v.size, (f: () => void) => { f(); return 0; }, () => undefined);
+  assert.equal(api.focusedChat(), chatPane, 'the composer has focus: the chat answers');
+  api.setChatFont(15); api.setChatFont(14); api.setChatFont(13);
+  assert.deepEqual(saved, [['chatFontSize', 15], ['chatFontSize', 14], ['chatFontSize', 13]], 'up AND down, each saved');
+  assert.equal(applied, 3, 'and applied live');
+  api.setChatFont(99); api.setChatFont(1);
+  assert.deepEqual(saved.slice(-2), [['chatFontSize', 28], ['chatFontSize', 10]], 'clamped to what main accepts');
+  assert.match(toasts[0], /zoom\.chatLevel:15/, 'the step is announced');
+  doc.activeElement = elsewhere;
+  assert.equal(api.focusedChat(), null, 'control: focus outside the chat, no chat answer');
+  /* The order is the fix: the overlay sits inside the terminal pane, so the terminal check must come second. */
+  const zat = app.indexOf("case 'zoom':");
+  const zoom = app.slice(zat, app.indexOf("case 'appScale':", zat));
+  assert.ok(zoom.indexOf('if (focusedChat())') > 0 && zoom.indexOf('if (focusedChat())') < zoom.indexOf('if (focusedTerminal())'), 'chat is asked before the terminal');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"zoom.chatLevel"'), l + ' has the toast');
+});

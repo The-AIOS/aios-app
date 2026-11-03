@@ -982,6 +982,7 @@
   "explorer.refresh": "Refresh the file tree",
   "zoom.level": "Editor zoom {pct}%",
   "zoom.termLevel": "Terminal text {size}px",
+  "zoom.chatLevel": "Chat text {size}px",
   "menu.appScale": "Interface Size",
   "appScale.in": "Bigger",
   "appScale.out": "Smaller",

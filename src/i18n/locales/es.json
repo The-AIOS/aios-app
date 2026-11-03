@@ -982,6 +982,7 @@
   "explorer.refresh": "Actualizar el árbol de archivos",
   "zoom.level": "Zoom del editor {pct}%",
   "zoom.termLevel": "Texto de la terminal {size}px",
+  "zoom.chatLevel": "Texto del chat {size}px",
   "menu.appScale": "Tamaño de la interfaz",
   "appScale.in": "Más grande",
   "appScale.out": "Más pequeño",
