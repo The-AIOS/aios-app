@@ -1464,6 +1464,7 @@ ipcMain.handle('menu:shortcuts', () => {
          formatter must know that spelling. An earlier comment here claimed roles were excluded;
          they never were, and believing it is what let `CommandOrControlQ` reach the screen. */
       if (!it.accelerator) continue;
+      if (!it.visible) continue;   // a hidden alias (⌘= beside ⌘+) is the same action; list it once
       out.push({ group: group || '—', label: [...trail, label].filter(Boolean).join(' › '), accel: it.accelerator });
     }
   };

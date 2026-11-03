@@ -3894,3 +3894,13 @@ test('⌘+ / ⌘− with the chat focused change the chat text, in both directio
   assert.ok(zoom.indexOf('if (focusedChat())') > 0 && zoom.indexOf('if (focusedChat())') < zoom.indexOf('if (focusedTerminal())'), 'chat is asked before the terminal');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"zoom.chatLevel"'), l + ' has the toast');
 });
+
+test('text size and interface size never share a keypress: "+" is Shift+= on a US keyboard', () => {
+  const accel = (label: string) => [...menu.matchAll(new RegExp(`t\\('${label.replace('.', '\\.')}'\\), accelerator: '([^']+)'`, 'g'))].map((m) => m[1]);
+  assert.deepEqual(accel('zoom.in'), ['CmdOrCtrl+Plus', 'CmdOrCtrl+='], 'text size: ⌘+, and ⌘= without Shift');
+  assert.deepEqual(accel('appScale.in'), ['CmdOrCtrl+Alt+='], 'interface size on ⌘⌥');
+  assert.deepEqual(accel('appScale.out'), ['CmdOrCtrl+Alt+-']);
+  assert.doesNotMatch(menu, /accelerator: 'CmdOrCtrl\+Shift\+(Plus|=|-)'/, 'nothing left on ⌘⇧+ / ⌘⇧- to collide with ⌘+');
+  assert.match(menu, /accelerator: 'CmdOrCtrl\+=', visible: false, acceleratorWorksWhenHidden: true/, 'the alias works while hidden');
+  assert.match(main, /if \(!it\.visible\) continue;/, 'and the shortcut list names it once');
+});

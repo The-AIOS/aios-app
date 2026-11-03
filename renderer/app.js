@@ -3069,7 +3069,10 @@ function unregisterTab(id) {
    never by name (AI-228: a name is a label that changes, not an identity). A plain terminal does
    not come back after a restart, so neither does its membership; that is the restore rule, not a
    group rule. */
-const TG_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+/* Chrome's nine first, so a colour means what it means in the browser beside us; then the house coral and the two gaps
+   Chrome leaves (indigo between blue and purple, lime between yellow and green). New ones go LAST: the auto-pick walks this
+   order, so appending never changes which colour an existing operator's next group gets. */
+const TG_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange', 'coral', 'indigo', 'lime'];
 const tabGroups = new Map();   // gid → { name, color, collapsed }
 let tgSeq = 0;
 const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
