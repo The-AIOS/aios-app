@@ -18,8 +18,9 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
 :root {
   /* Tab groups — Chrome's palette, so a colour means what it means in the browser beside us.
      Dark-theme tints here, light-theme ones in body.light; --tg-ink is the chip's text on them. */
-  --tg-grey: #dadce0; --tg-blue: #8ab4f8; --tg-red: #f28b82; --tg-yellow: #fdd663; --tg-green: #81c995;
-  --tg-pink: #ff8bcb; --tg-purple: #c58af9; --tg-cyan: #78d9ec; --tg-orange: #fcad70; --tg-ink: #202124;
+  --tg-grey: #dadce0; --tg-blue: #8ab4f8; --tg-yellow: #fdd663; --tg-green: #81c995;
+  --tg-pink: #ff8bcb; --tg-purple: #c58af9; --tg-cyan: #78d9ec; --tg-orange: #fcad70;
+  --tg-coral: #ff8a7d; --tg-indigo: #a5adf6; --tg-lime: #c5e478; --tg-brown: #c8a887; --tg-ink: #202124;
   --bg: #0b0b0d;            /* window void */
   --zone-edit: #131317;     /* editor zone — the lighter of the two work surfaces */
   --zone-term: #08080a;     /* terminal dock — deliberately the darkest thing on screen */
@@ -380,7 +381,8 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
           border: 1px solid var(--line-strong); box-shadow: var(--edge), 0 10px 30px rgba(0, 0, 0, .28); display: flex; flex-direction: column; gap: 9px; }
 .tgedit-name { font: 13px var(--font); color: var(--ink); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; outline: none; }
 .tgedit-name:focus { border-color: var(--accent); }
-.tgedit-sw { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Two rows of six, spread to the name field's width so the popover is symmetrical (0.14.1 round: one row and a stray few). */
+.tgedit-sw { display: grid; grid-template-columns: repeat(6, 18px); justify-content: space-between; row-gap: 10px; padding: 2px 4px; }
 .tgedit-c { width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0; background: var(--tg); cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
 .tgedit-c.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--tg); }
 .tgedit-c:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -692,8 +694,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 
 /* ── light theme (The-AIOS light: paper surfaces, same coral) ── */
 body.light {
-  --tg-grey: #5f6368; --tg-blue: #1a73e8; --tg-red: #d93025; --tg-yellow: #e37400; --tg-green: #1e8e3e;
-  --tg-pink: #d01884; --tg-purple: #9334e6; --tg-cyan: #007b83; --tg-orange: #c26401; --tg-ink: #fff;
+  --tg-grey: #5f6368; --tg-blue: #1a73e8; --tg-yellow: #e37400; --tg-green: #1e8e3e;
+  --tg-pink: #d01884; --tg-purple: #9334e6; --tg-cyan: #007b83; --tg-orange: #c26401;
+  --tg-coral: #d8402f; --tg-indigo: #4f5bd5; --tg-lime: #4d7c0f; --tg-brown: #8a6343; --tg-ink: #fff;
   --bg: #f4f4f2;
   /* Inverted vs dark, and a much smaller step. In LIGHT theme the terminal itself renders
      near-white (see termTheme('light') → #faf9f6), so a recessed dock framed a pale card in a
@@ -1503,7 +1506,8 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 .zview::before { content: ''; position: absolute; top: 2px; left: 2px; width: 28px; height: 20px; border-radius: 7px; background: var(--accent);
                  box-shadow: 0 1px 2px var(--line-strong); transition: transform .18s ease; }
 .zview[data-mode="terminal"]::before { transform: translateX(28px); }
-.zview + .zexp { margin-left: 0; }
+.zview[hidden] { display: none; }
+.zview:not([hidden]) + .zexp { margin-left: 0; }   /* a hidden switch leaves the expand button its own auto margin */
 .vview { margin-left: 0; margin-right: 0; }   /* in a viewer's header: placed by the header's own flow */
 .zv-b { position: relative; z-index: 1; width: 28px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
         border: 0; border-radius: 7px; background: transparent; color: var(--subtle); cursor: pointer; transition: color .18s ease; }
@@ -2035,6 +2039,16 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
                          background: var(--chat-user-bg); border: 0; color: var(--ink);
                          font-size: .96em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }   /* a step under the answer's size, a thinner skin, no edge-light: a prompt is a line you said, not a card */
 /* Claude's reply: no box at all, just well-set text across the whole column. */
+.chat-copied { align-self: flex-end; text-align: right; padding: 0 26px 16px;   /* clear of the session name riding the card's top edge */ font: 12px var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+                color: var(--tg-blue); opacity: 1; transition: opacity .35s ease; }
+.chat-copied[hidden] { display: none; }
+.chat-copied.gone { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .chat-copied { transition: none; } }
+.chat-queue { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 0 2px 6px; }
+.chat-queue[hidden] { display: none; }
+.cq-item { max-width: min(86%, 600px); box-sizing: border-box; padding: 5px 12px 6px; border-radius: 14px; border: 1px dashed var(--line-strong);
+           color: var(--subtle); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; font-size: .92em; }
+.cq-tag { display: block; font-size: .78em; letter-spacing: .02em; color: var(--faint); margin-bottom: 1px; }
 .who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
 /* 0.14.0 round: Claude's text is a bubble too, a shade lighter than the operator's, its tail on the left. As wide as its
    text, up to the column. Tool rows, cards and notes stay as they are: only what Claude SAYS is a bubble. */

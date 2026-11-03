@@ -700,6 +700,7 @@ function applySplit() {
   ensureActive('main');
   if (split) ensureActive('term');
   paintExpandButtons();
+  paintZoneView();   // the dock turning on or off moves Claude panes between zones, and the main pane's switch with them
 }
 
 /* ═══ the pulse renderer — nudge · quota · sessions · calendar · learned · outputs ═══ */
@@ -3068,7 +3069,10 @@ function unregisterTab(id) {
    never by name (AI-228: a name is a label that changes, not an identity). A plain terminal does
    not come back after a restart, so neither does its membership; that is the restore rule, not a
    group rule. */
-const TG_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+/* Twelve colours, shown as two rows of six in hue order (0.14.1 round): Chrome's palette with its red replaced by the house
+   coral, plus indigo, lime and brown to fill the gaps. A group saved as red is read as coral (tgColorOf). */
+const TG_COLORS = ['grey', 'blue', 'indigo', 'purple', 'pink', 'coral', 'orange', 'yellow', 'lime', 'green', 'cyan', 'brown'];
+const tgColorOf = (c) => (c === 'red' ? 'coral' : TG_COLORS.includes(c) ? c : 'grey');
 const tabGroups = new Map();   // gid → { name, color, collapsed }
 let tgSeq = 0;
 const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
@@ -4156,11 +4160,20 @@ function focusPane(id) {
   paintZoneView();
 }
 
+/* A path dropped on a terminal pane is a draft (#81). In chat view the terminal is hidden, so the draft goes to the
+   chat box the operator is looking at: typed into the hidden prompt it was invisible, and the next send was refused
+   because "the terminal has text typed in it" (operator-reported with a screenshot dragged onto the chat, 0.14.0). */
+function dropPathsInto(id, p, paths) {
+  if (p && p.view === 'chat' && p.chatSkin && p.chatSkin.input) { chatSkinInsertPaths(p.chatSkin, paths); return; }
+  noteOperatorKeys(p, 'drop');   // #81: a dropped path is a draft
+  window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' ');
+}
 function attachPaneDropTarget(p, id) {
   /* mousedown, not click: it fires before focus moves into xterm's textarea, so the marks update
      in the same frame the caret does rather than one behind it. Capture phase, because xterm
      stops propagation on its own container for some events and a bubbling listener can miss. */
-  p.el.addEventListener('mousedown', () => focusPane(id), true);
+  p.el.addEventListener('mousedown', () => { lastPaneTouched = id; focusPane(id); }, true);
+  p.el.addEventListener('focusin', () => { lastPaneTouched = id; });
   const el = p.el;
   const ok = (ev) => {
     if (!dragTab) return false;
@@ -4478,7 +4491,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   }
   // drop a file/folder onto THIS terminal → insert its quoted path (not the active one:
   // the pane under the pointer is the one the operator meant)
-  attachDropZone(el, (paths) => { noteOperatorKeys(p, 'drop'); window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id); });   // #81: a dropped path is a draft
+  attachDropZone(el, (paths) => { dropPathsInto(id, p, paths); setActive(id); });
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
   /* AI-64: the session tells us its own name through the tty title. */
@@ -4601,7 +4614,14 @@ function noteOperatorKeys(p, d) {
 }
 
 function submitToPty(id, text, stillWaiting) {
-  if (!text) return;
+  if (!text || (Array.isArray(text) && !text.length)) return;
+  /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
+     PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
+  if (Array.isArray(text)) {
+    for (const part of text) window.glassShell.ptyWrite(id, typeof part === 'string' ? part : '\x1b[200~' + part.paste + '\x1b[201~');
+    setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 500);   // after the paste is read: Claude Code loads the image before Enter can carry it
+    return;
+  }
   window.glassShell.ptyWrite(id, text);
   setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 80);
   /* The Enter can be lost while Claude Code redraws (right after an interrupt, the operator's HELLO sat typed in its box and
@@ -4672,6 +4692,7 @@ function closePane(id) {
      closing the last editor pane has to re-run the split too or the zone stays open empty. */
   if (split) applySplit();
   paintRunning();
+  paintZoneView();   // the last Claude pane in the main pane takes its switch with it
 }
 
 // In-app browser pane (#14): open a URL in a tab (Electron <webview>) instead of
@@ -4752,7 +4773,7 @@ window.glassShell.onPtyData((m) => {
 });
 window.glassShell.onPtyExit((m) => {
   const p = panes.get(m.id);
-  if (p && p.kind === 'term') { p.exited = true; if (p.composing && p.name) { p.composing = false; window.glassShell.busComposing(p.name, false); } p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); chatSkinOnExit(m.id, p); paintRunning(); }   // #81: an ended pane holds no draft
+  if (p && p.kind === 'term') { p.exited = true; if (p.composing && p.name) { p.composing = false; window.glassShell.busComposing(p.name, false); } p.term.write('\r\n\x1b[2m[session ended]\x1b[0m\r\n'); chatSkinOnExit(m.id, p); paintRunning(); paintZoneView(); }   // #81: an ended pane holds no draft
   /* A guided connect/add session just closed — re-read rather than waiting for focus or the poll.
      Same shape as the Health card's fix panes: run the check that found the problem to prove the
      fix, never trust that the work happened. */
@@ -5115,12 +5136,42 @@ function applyEdZoom() {
 }
 
 /* Terminal text size (#24 readability). Same range as the Settings field (10–18). */
-const TERM_FONT_DEFAULT = 12.5, TERM_FONT_MIN = 10, TERM_FONT_MAX = 18;
+const TERM_FONT_DEFAULT = 12.5, TERM_FONT_MIN = 10, TERM_FONT_MAX = 28;   // 28, as the chat goes (0.14.1 round: ⌘+ stopped at 18)
 function focusedTerminal() {
   const ae = document.activeElement;
   if (!ae) return null;
   for (const q of panes.values()) if (q.kind === 'term' && q.term && !q.exited && q.el && q.el.contains(ae)) return q;
   return null;
+}
+/* The pane ⌘+/− is about: the one holding the keyboard focus, else the one the operator last pressed or tabbed into. */
+let lastPaneTouched = null;
+function zoomTarget() {
+  const ae = typeof document !== 'undefined' ? document.activeElement : null;
+  if (ae && ae !== document.body) for (const q of panes.values()) if (q.el && q.el.contains(ae)) return q;
+  const q = lastPaneTouched == null ? null : panes.get(lastPaneTouched);
+  return q && q.el && q.el.isConnected ? q : null;
+}
+/* The pane whose CHAT view holds the focus: the composer, a bubble, anything inside the overlay. */
+function focusedChat() {
+  const ae = document.activeElement;
+  if (!ae) return null;
+  for (const q of panes.values()) if (q.view === 'chat' && q.chatSkin && q.chatSkin.root && q.chatSkin.root.contains(ae)) return q;
+  return null;
+}
+/* ⌘+/− in the chat: the same chat text size Settings sets (10-28, what main accepts), live on every chat and saved once the
+   keys stop, so the Settings page and the next session agree with what is on screen. */
+const CHAT_FONT_MIN = 10, CHAT_FONT_MAX = 28;
+let chatFontSaveTimer = 0;
+function setChatFont(v) {
+  const next = Math.min(CHAT_FONT_MAX, Math.max(CHAT_FONT_MIN, Math.round(v)));
+  const changed = next !== chatPrefs.size;
+  chatPrefs.size = next;
+  if (changed) {
+    chatApplyPrefs();
+    clearTimeout(chatFontSaveTimer);
+    chatFontSaveTimer = setTimeout(() => { void window.glassShell.setSetting('chatFontSize', next).catch(() => {}); }, 400);
+  }
+  toast(t('zoom.chatLevel', { size: String(next) }) + (changed ? '' : ' ·'));
 }
 let termFontSaveTimer = 0;
 function setTermFont(v) {
@@ -5557,7 +5608,7 @@ async function materializeRestore(id) {
 function tgAdopt(saved) {
   for (const g of Array.isArray(saved.groups) ? saved.groups : []) {
     if (!g || typeof g.id !== 'string' || !g.id || tabGroups.has(g.id)) continue;
-    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: TG_COLORS.includes(g.color) ? g.color : 'grey',
+    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: tgColorOf(g.color),
       fold: g.fold && typeof g.fold === 'object' ? { main: !!g.fold.main, term: !!g.fold.term } : { main: !!g.collapsed, term: !!g.collapsed } });   // a save from before the per-strip fold folds both
   }
 }
@@ -7252,8 +7303,7 @@ attachDropZone(document.getElementById('tpanes'), (paths, isDir) => {
   const id = active.term;
   if (id != null && panes.get(id) && !panes.get(id).exited) {
     // several files from Finder arrive as one drop — insert them all, space separated
-    noteOperatorKeys(panes.get(id), 'drop');   // #81: a dropped path is a draft
-    window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' ');
+    dropPathsInto(id, panes.get(id), paths);
     setActive(id);
     return;
   }
@@ -7489,7 +7539,17 @@ window.glassShell.onIntent(async (m) => {
          live, for every open terminal, and is saved so new ones match; anywhere else it is the
          editor zoom it always was. Before, the terminal size lived only in Settings and applied
          to NEW sessions, so the one pane you were squinting at could not be changed at all. */
-      if (focusedTerminal()) {
+      /* The chat view lives INSIDE the terminal pane (an overlay on p.el), so it has to be asked first: with the composer
+         focused, focusedTerminal() also answers, and ⌘+/− used to resize the hidden terminal while the chat text stayed put. */
+      /* Which text: the pane that holds the focus, or else the pane last pressed. A click in the chat's conversation or on
+         a rendered note focuses NOTHING, so a focus-only rule fell through to the editor zoom and the chat text could not be
+         changed at all (0.14.1 round: "trapped in the editor zoom"). Interface size is its own keys (⌘⌥), never this. */
+      const zt = zoomTarget();
+      if (zt && zt.kind === 'term' && zt.view === 'chat' && zt.chatSkin) {
+        setChatFont(m.reset ? CHAT_DEFAULT_SIZE : chatPrefs.size + Math.sign(Number(m.delta) || 0));
+        return;
+      }
+      if (zt && zt.kind === 'term' && zt.term && !zt.exited) {
         setTermFont(m.reset ? TERM_FONT_DEFAULT : TERMFONT + Math.sign(Number(m.delta) || 0));
         return;
       }
@@ -8058,7 +8118,7 @@ const CHAT_FONTS = [
   { key: 'mono', stack: "'JetBrains Mono', 'SF Mono', Menlo, monospace", label: 'chat.font.mono' },
   { key: 'inter', stack: "Inter, -apple-system, 'Segoe UI', sans-serif", label: 'chat.font.inter' },
 ];
-const CHAT_SIZES = [12, 13, 14, 15, 16, 18, 20];
+const CHAT_SIZES = [12, 13, 14, 15, 16, 18, 20, 22, 24, 28];
 const CHAT_DEFAULT_SIZE = 14;
 const CHAT_PROMPT_KINDS = ['permission', 'trust', 'select', 'question', 'model', 'other'];
 const CS_WORKING_MS = 3000;   // pty output this recent, inside an open turn, reads as "Claude is working"
@@ -8931,7 +8991,13 @@ function chatSkinBuild(id, p) {
   const nameTag = el('span', 'cc-name');
   nameTag.hidden = true;
   box.appendChild(nameTag);
+  /* Messages sent while a turn runs: Claude Code holds them until the turn ends, and the transcript (where bubbles come from)
+     only records one when it is taken in. Until then they wait here, above the card, marked as queued (0.14.0 report: a
+     message sent mid-turn did not appear, so the operator could not tell it was sent and sent it again). */
+  const queueEl = el('div', 'chat-queue');
+  queueEl.hidden = true;
   wrap.append(slashPop, box);
+  wrap.insertBefore(queueEl, slashPop);   // above the card, in the flow; the popup still floats against the card
   wrap.appendChild(effortPop);
   input.setAttribute('role', 'combobox');
   input.setAttribute('aria-autocomplete', 'list');
@@ -8954,7 +9020,7 @@ function chatSkinBuild(id, p) {
   p.el.appendChild(root);
 
   const cs = {
-    id, pane: p, who: chatSkinWho(p), root, log, stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    id, pane: p, who: chatSkinWho(p), root, log, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
     effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
     slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
     items: new Map(),            // transcript uuid -> { node, role, … }
@@ -9006,6 +9072,14 @@ function chatSkinBuild(id, p) {
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
+  /* Shift+Tab cycles the permission mode, as it does in the terminal and as the hint under Claude Code's prompt says (0.14.1
+     round: in the chat box it moved the focus instead). Same guards as the mode menu: never into a dialog, never blind. */
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+    e.preventDefault();
+    if (cs.promptKind || chatSkinModeNow(p) === null || chatSkinAgentCursor(p) === null) return;
+    chatSkinModeCycle(id, p);
+  });
   input.addEventListener('keydown', (e) => {
     // Enter sends, Shift+Enter breaks the line. During IME composition Enter confirms the
     // candidate, so it must never send (keyCode 229 covers engines that clear isComposing early).
@@ -9117,31 +9191,40 @@ let chatMode = 'terminal';
 let chatModeLoaded = false;   // has chatReadMode seen the settings at least once?
 const chatModeSubs = new Set();   // Settings pages showing the selector: the shortcut changes the mode under them
 /* The same setting, where the sessions are: a Chat | Terminal switch in the Running header. Hidden in Settings and a
-   shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is. */
+   shortcut, nobody found it (release round, 0.14.0). One switch for every session, as the setting is.
+   With the terminal dock off there is no Running header: Claude sessions open in the main pane beside the editor, and the
+   switch went with the header. So the main pane's header carries the same switch, shown only while a Claude session is
+   open there (an operator-reported 0.14.0 gap). Both paint from one function, so they can never disagree. */
 function paintZoneView() {
   if (typeof document === 'undefined') return;
-  const z = document.getElementById('zviewTerm');
-  if (!z) return;
-  if (!z.childElementCount) {
-    for (const [mode, ico] of [['chat', 'chat'], ['terminal', 'term']]) {
-      const b = el('button', 'zv-b');
-      b.type = 'button';
-      b.dataset.mode = mode;
-      const label = t(mode === 'chat' ? 'settings.claudeView.chat' : 'settings.claudeView.terminal');
-      b.append(csIcon(ico, 14));   // icons only, like the expand button beside it; the word is the tooltip
-      b.title = label; b.setAttribute('aria-label', label);
-      b.addEventListener('click', () => void chatSkinSetMode(mode));
-      z.appendChild(b);
+  for (const [zid, zone] of [['zviewTerm', 'term'], ['zviewMain', 'main']]) {
+    const z = document.getElementById(zid);
+    if (!z) continue;
+    if (!z.childElementCount) {
+      for (const [mode, ico] of [['chat', 'chat'], ['terminal', 'term']]) {
+        const b = el('button', 'zv-b');
+        b.type = 'button';
+        b.dataset.mode = mode;
+        const label = t(mode === 'chat' ? 'settings.claudeView.chat' : 'settings.claudeView.terminal');
+        b.append(csIcon(ico, 14));   // icons only, like the expand button beside it; the word is the tooltip
+        b.title = label; b.setAttribute('aria-label', label);
+        b.addEventListener('click', () => void chatSkinSetMode(mode));
+        z.appendChild(b);
+      }
     }
+    if (zone === 'main') {
+      z.hidden = ![...panes.values()].some((p) => zoneOf(p) === 'main' && chatSkinEligible(p));
+      if (z.hidden) continue;
+    }
+    /* The switch shows what the pane in front IS showing (0.14.0 round: "Show terminal" on a card flipped that pane only, and
+       the switch kept saying chat). With no Claude pane in front, it shows the setting. */
+    const front = zone === 'main' ? panes.get(active.main) : (panes.get(active.term) || panes.get(active.main));
+    const shown = front && front.kind === 'term' && chatSkinEligible(front) ? (front.view === 'chat' ? 'chat' : 'terminal') : chatMode;
+    z.dataset.mode = shown;   // the thumb slides to this side (.zview[data-mode])
+    z.setAttribute('role', 'radiogroup');
+    for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === shown); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === shown ? 'true' : 'false'); }
+    z.title = t('chat.zone.tip');
   }
-  /* The switch shows what the pane in front IS showing (0.14.0 round: "Show terminal" on a card flipped that pane only, and
-     the switch kept saying chat). With no Claude pane in front, it shows the setting. */
-  const front = panes.get(active.term) || panes.get(active.main);
-  const shown = front && front.kind === 'term' && chatSkinEligible(front) ? (front.view === 'chat' ? 'chat' : 'terminal') : chatMode;
-  z.dataset.mode = shown;   // the thumb slides to this side (.zview[data-mode])
-  z.setAttribute('role', 'radiogroup');
-  for (const b of z.querySelectorAll('.zv-b')) { b.classList.toggle('on', b.dataset.mode === shown); b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', b.dataset.mode === shown ? 'true' : 'false'); }
-  z.title = t('chat.zone.tip');
 }
 chatModeSubs.add(paintZoneView);
 function chatReadMode(c) {
@@ -9211,7 +9294,22 @@ async function chatCopyOnSelectOn() {
 function chatSkinCopySelection(cs) {
   const text = chatSkinLogSelection(cs);
   if (!text) return;
-  void chatCopyOnSelectOn().then((on) => { if (on && chatSkinLogSelection(cs) === text) void window.glassShell.copyText(text); });
+  void chatCopyOnSelectOn().then((on) => {
+    if (!on || chatSkinLogSelection(cs) !== text) return;
+    void Promise.resolve(window.glassShell.copyText(text)).then((ok) => { if (ok !== false && typeof chatSkinCopiedNote === 'function') chatSkinCopiedNote(cs, text.length); });
+  });
+}
+/* "copied 1158 chars to clipboard", as the terminal says it, right-aligned over the card under the session's name: the copy is
+   silent otherwise, and a drag that copied nothing looks the same as one that did (0.14.1 round). Fades on its own. */
+function chatSkinCopiedNote(cs, n) {
+  if (!cs.queueEl || typeof document === 'undefined') return;
+  if (!cs.copiedEl) { cs.copiedEl = el('div', 'chat-copied'); cs.copiedEl.setAttribute('role', 'status'); cs.queueEl.after(cs.copiedEl); }
+  const note = cs.copiedEl;
+  note.textContent = t('chat.copied', { n: String(n) });
+  note.classList.remove('gone');
+  note.hidden = false;
+  clearTimeout(cs.copiedTimer);
+  cs.copiedTimer = setTimeout(() => { note.classList.add('gone'); cs.copiedTimer = setTimeout(() => { note.hidden = true; }, 400); }, 2200);
 }
 function chatSkinFocus(p) {
   requestAnimationFrame(() => {
@@ -9232,6 +9330,10 @@ function chatSkinLayout(p) {
   cs.root.hidden = !on;
   if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
   cs.input.disabled = !!cs.promptKind || !!p.exited;
+  /* A dialog owns the screen: whatever the mirror drew before it opened is not a status line now. Hidden here, where the
+     dialog arrives, and not only on the mirror's own timer (which a dialog can outlast). */
+  const sl = cs.meta && cs.meta.querySelector('.cb-sl');
+  if (sl && cs.promptKind) { sl.hidden = true; sl.replaceChildren(); cs.meta.classList.remove('has-sl'); }
   if (!on || cs.promptKind) chatSkinSlashClose(cs);   // a popup left open over a hidden or blocked composer would be a ghost
   const gen = cs.wrap && cs.wrap.querySelector('.cb-pop.cb-gen');
   if (gen && !gen.hidden && (!on || cs.promptKind)) { gen.hidden = true; if (gen.off) gen.off(); }   // so is a model/mode/agents menu (review: a pick could land in the dialog)
@@ -9434,10 +9536,14 @@ function chatStatusRows(p) {
   for (let i = end - 1; i >= Math.max(0, end - 30); i--) {
     const l = b.getLine(i);
     if (!l || !/^─{20,}$/.test(l.translateToString(true).trim())) continue;
+    /* The prompt BOX: a ❯ line with a rule above it too. A ❯ on its own is the operator's message echoed in the transcript, or a
+       menu's selected option, and under either sits a dialog, not a status line (0.14.1 round: a question leaked under the box). */
     let prompt = false;
+    const txt = (j) => (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
     for (let j = i - 1; j >= Math.max(0, i - 8); j--) {
-      const s = (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
-      if (/^\s*❯/.test(s)) { prompt = true; break; }
+      if (!/^\s*❯(?!\s*\d+\.)/.test(txt(j))) continue;
+      for (let k = j - 1; k >= Math.max(0, j - 3); k--) if (/^─{3,}/.test(txt(k).trim())) { prompt = true; break; }
+      break;
     }
     if (!prompt) continue;
     const rows = [];
@@ -9458,6 +9564,7 @@ function chatSkinRecording(screen) {
 }
 function chatSkinMirrorStatus(p) {
   const cs = p.chatSkin;
+  if (cs && cs.queued && cs.queued.length) chatSkinQueueSweep(cs, p);
   const host = cs && cs.meta && cs.meta.querySelector('.cb-sl');
   if (!host) return;
   let rows = null;
@@ -9467,9 +9574,12 @@ function chatSkinMirrorStatus(p) {
   try { rec = chatSkinRecording(chatSkinScreenText(p)); } catch { rec = false; }
   chatSkinVoicePaint(cs, rec);
   chatSkinVoiceLive(p, rec);
+  if (cs.promptKind) { host.hidden = true; cs.meta.classList.remove('has-sl'); return; }   // a dialog owns the screen: nothing under it is a status line (0.14.1 round: a question's rows leaked under the box)
   if (!rows) return;
   const cell = p.term.buffer.active.getNullCell();
-  const lines = rows.map((line) => {
+  /* The mode row ("⏵⏵ auto mode on (shift+tab to cycle)") is the mode chip's job: mirrored, it repeated the chip with a hint
+     about the terminal (0.14.1 round, seen whenever no AIOS status line hides the mirror). It is still read below, for the chip. */
+  const lines = rows.filter((r) => !CS_MODE_ROW.test(r.translateToString(true))).map((line) => {
     const div = el('div', 'cb-sl-row');
     const width = line.translateToString(true).length;
     let span = null, cur = null;
@@ -9513,6 +9623,7 @@ function chatSkinMirrorStatus(p) {
   cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
   if (ctx) chatPaintUsage(cs);
 }
+const CS_MODE_ROW = /shift\+tab to cycle|^\s*(?:⏵⏵|⏸)\s/i;
 /* The modes Shift+Tab cycles through, as Claude Code names them on the line under its prompt; no line is the default. */
 const CS_MODES = [['bypass', /bypass permissions on/i], ['auto', /auto mode on/i], ['plan', /plan mode on/i], ['edits', /accept edits on/i]];
 function chatSkinModePaint(cs, text) {
@@ -10309,8 +10420,21 @@ function chatSkinDropBind(cs) {
   });
   // an image on the clipboard: a screenshot, or "Copy image" from a browser. Text pastes stay the textarea's own.
   cs.input.addEventListener('paste', (ev) => {
-    const files = [...(ev.clipboardData?.files || [])];
-    if (!files.length) return;
+    const cd = ev.clipboardData;
+    let files = [...(cd?.files || [])];
+    /* Some images arrive only as items (kind 'file'), not in `files`. */
+    if (!files.length) files = [...(cd?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) {
+      /* No file and no text: the clipboard may still hold a picture in a form the page is not handed, as a macOS
+         screenshot taken to the clipboard (⌘⌃⇧4) was not (operator-reported, 0.14.0: no path, nothing saved). Main reads
+         the system clipboard itself and saves it as a PNG. A text paste never gets here, so it stays the textarea's own. */
+      const types = [...(cd?.types || [])];
+      if (types.some((x) => /^text\//.test(x))) return;
+      /* Native paste is NOT cancelled: with no text it inserts nothing, and a paste this misreads still behaves as before. */
+      const gs = window.glassShell;
+      if (gs && typeof gs.chatSaveClipboardImage === 'function') void gs.chatSaveClipboardImage().then((saved) => { if (saved) chatSkinInsertPaths(cs, [saved]); }).catch(() => {});
+      return;
+    }
     ev.preventDefault();
     void chatSkinFilePaths(files).then(({ paths, failed }) => {
       if (paths.length) chatSkinInsertPaths(cs, paths);
@@ -10666,11 +10790,12 @@ function chatSkinUpsert(cs, item, animate, before) {
     }
   }
   const text = typeof item.text === 'string' ? item.text : '';
+  if (rec.role !== 'user' && animate) cs.lastReplyAt = Date.now();   // news from Claude (not history being loaded): the last message has its answer
   if (rec.role === 'assistant') {
     if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
-    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
     rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
@@ -10967,8 +11092,11 @@ function chatSkinCardBuild(p) {
   const foot = el('div', 'csd-foot');
   const link = el('button', 'csd-link', t('chat.skin.dlg.viewTerminal'));
   link.type = 'button';
-  link.addEventListener('click', () => {   // the real thing: the strip with the live terminal, exactly as for a dialog we could not read
-    cs.promptTerm = true;
+  link.addEventListener('click', () => {
+    /* A real switch to terminal view, for this tab (0.14.1 round): the strip kept the Chat | Terminal switch on Chat and cut
+       the dialog's top rows. The switch now says Terminal, and choosing Chat on it brings the tab back. */
+    if (typeof chatSkinSetView === 'function') { chatSkinSetView(cs.id, 'term'); return; }
+    cs.promptTerm = true;   // (no switch available: the strip with the live terminal, as for a dialog we could not read)
     chatSkinLayout(p);
     requestAnimationFrame(() => {
       if (p.view !== 'chat' || !chatSkinStrip(cs)) return;
@@ -11066,7 +11194,13 @@ function chatSkinSendNow(id, p, retried) {
      is handed back first; anything else keeps the message in the box and says why. */
   if (chatSkinPanelOpen(p) || cs.lostPrompt) { toast(t('chat.send.panel')); return; }
   if (!retried && chatSkinFooterFocus(p)) { void chatSkinFooterRelease(id, p, false).then(() => chatSkinSendNow(id, p, true)); return; }
-  if (!chatSkinPromptEmpty(p) && chatSkinAgentCursor(p) !== null) { toast(t('chat.send.draft')); return; }
+  if (!chatSkinPromptEmpty(p) && chatSkinAgentCursor(p) !== null) {
+    /* Say WHAT is in the way: the terminal is hidden, so a refusal that does not quote the draft leaves the operator guessing. */
+    let draft = '';
+    try { draft = String(chatSkinPromptDraft(p) || '').trim(); } catch { draft = ''; }
+    toast(draft ? t('chat.send.draftShown', { draft: draft.length > 60 ? draft.slice(0, 59) + '…' : draft }) : t('chat.send.draft'));
+    return;
+  }
   const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
   if (!text.trim()) return;
   cs.input.value = '';
@@ -11074,7 +11208,42 @@ function chatSkinSendNow(id, p, retried) {
   (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
   chatSkinAutosize(cs);
   chatSkinSlashClose(cs);
+  /* Queued when a turn runs OR the last message has had no answer yet: right after a send, Claude Code has not drawn its
+     spinner and the transcript has not opened the turn, so for a few seconds a running turn reads as idle (seen in the demo
+     run: the second message, 4 s after the first, went in as queued while the chat said idle). */
+  const awaiting = !!cs.lastMsgAt && cs.lastMsgAt > (cs.lastReplyAt || 0) && Date.now() - cs.lastMsgAt < 120000;
+  if (!text.startsWith('/')) { if (chatSkinWorking(p) || awaiting) chatSkinQueueAdd(cs, text); cs.lastMsgAt = Date.now(); }
   chatSkinSubmit(id, p, text);
+}
+/* ── the queue: what was sent during a turn and is not in the transcript yet ── */
+const chatQueueKey = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+function chatSkinQueueAdd(cs, text) {
+  if (!cs.queueEl) return;
+  const node = el('div', 'cq-item');
+  node.append(el('span', 'cq-tag', t('chat.queued')), el('span', 'cq-text', text));   // textContent via el(): never parsed
+  cs.queueEl.appendChild(node);
+  cs.queueEl.hidden = false;
+  cs.queued.push({ key: chatQueueKey(text), node, at: Date.now() });
+  cs.queueIdleSince = 0;
+}
+function chatSkinQueueDrop(cs, entry) {
+  entry.node.remove();
+  cs.queued = cs.queued.filter((q) => q !== entry);
+  if (cs.queueEl) cs.queueEl.hidden = !cs.queued.length;
+}
+/* A user message reached the transcript: it settles the queued entries it carries. Claude Code may join several queued
+   messages into one, so an entry whose text is INSIDE the arrived message settles too. */
+function chatSkinQueueSettle(cs, text) {
+  const got = chatQueueKey(text);
+  if (!got || !cs.queued || !cs.queued.length) return;
+  for (const q of [...cs.queued]) if (q.key && (q.key === got || got.includes(q.key))) chatSkinQueueDrop(cs, q);
+}
+/* The backstop: a queued line that never matched (a format the transcript writes differently) must not sit there forever.
+   Once the session has been idle for a few seconds, whatever is left was taken in or dropped; either way it is not waiting. */
+function chatSkinQueueSweep(cs, p) {
+  if (!cs.queued || !cs.queued.length || chatSkinWorking(p)) { if (cs) cs.queueIdleSince = 0; return; }
+  if (!cs.queueIdleSince) { cs.queueIdleSince = Date.now(); return; }
+  if (Date.now() - cs.queueIdleSince > 6000) { for (const q of [...cs.queued]) chatSkinQueueDrop(cs, q); cs.queueIdleSince = 0; }
 }
 /* ↑ and ↓ walk the prompts already sent, as in the terminal: ↑ only from the box's first line and ↓ only from its last, so
    moving inside a multi-line draft still works. The list is this session's own messages in the order they appear, plus what
@@ -11108,6 +11277,27 @@ function chatSkinHistKey(cs, e) {
   return true;
 }
 /* The one way a line of text reaches the pty from the chat view: the typed message and the model button both end here. */
+/* Split a message into what is typed and the image paths in it, which are pasted so Claude Code attaches them (a screenshot
+   dropped or pasted into the chat box arrives as a quoted path; 0.14.1 round: it was sent as text, never as [Image #1]).
+   A path counts when it is absolute, ends in an image extension and stands as its own token: quoted the way the chat box
+   quotes it, or bare. Anything else stays text. Null when there is no image, so plain messages take the usual path. */
+const CHAT_IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
+function chatSkinImageParts(text) {
+  const re = /(^|\s)("([^"]+)"|'((?:[^']|'\\'')+)'|(\/[^\s'"]+|[A-Za-z]:\\[^\s'"]+))(?=\s|$)/g;
+  const parts = []; let last = 0; let found = false; let m;
+  while ((m = re.exec(text))) {
+    const raw = m[3] !== undefined ? m[3] : m[4] !== undefined ? m[4].replace(/'\\''/g, "'") : m[5];
+    if (!/^(\/|[A-Za-z]:\\)/.test(raw) || !CHAT_IMAGE_EXT.test(raw)) continue;
+    const start = m.index + m[1].length;
+    if (start > last) parts.push(text.slice(last, start));
+    parts.push({ paste: raw });
+    last = start + m[2].length;
+    found = true;
+  }
+  if (!found) return null;
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
@@ -11116,7 +11306,9 @@ function chatSkinSubmit(id, p, text) {
   cs.workSince = cs.turnStartAt;   // a send starts a working stretch
   cs.stick = true;
   const sent = text.replace(/\s+/g, ' ').trim();
-  submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
+  if (imgParts) submitToPty(id, imgParts);
+  else submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
   chatSkinControls(p);
@@ -11826,7 +12018,7 @@ function openSettingsTab() {
     row(wrap, t('settings.unattended'), unSel, t('settings.unattendedHint'));
 
     const fontIn = document.createElement('input');
-    fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = '18'; fontIn.style.width = '70px';
+    fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = String(TERM_FONT_MAX); fontIn.style.width = '70px';
     fontIn.value = String(cfg.termFontSize || 12.5);
     // Live now, like ⌘+/− in a terminal: every open terminal changes, and new ones match.
     fontIn.addEventListener('change', () => setTermFont(Number(fontIn.value) || TERM_FONT_DEFAULT));

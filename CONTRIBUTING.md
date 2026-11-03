@@ -17,11 +17,14 @@ discipline. This file adds only what is specific to the App.
   source. `duplicate-in-flight` on an issue means it is already being built elsewhere.
 - **If something matches, comment there** instead of opening a new one. One line claiming an
   issue before you build can save you a whole PR.
-- **Titles.** An issue title reads `Area: what changes`, in under about 70 characters. The area is
+- **Titles.** An issue title reads `Area: what changes`: aim for about 70 characters, never over 90. The area is
   the surface a reader recognises (`Chat view:`, `Setup:`, `Status line:`). After the colon, a
   feature says what is true when it's done; a bug says what goes wrong as the user sees it. No
   type prefixes like `[bug]` or `feat:`, since the `type:` label carries that. Conventional
   Commits stay in commit messages and PR titles.
+- **After you open a PR**, it goes through the review passes and the label lifecycle described in the framework's
+  [What happens after you open a PR](https://github.com/The-AIOS/aios/blob/main/CONTRIBUTING.md#what-happens-after-you-open-a-pr):
+  `help wanted` means ready to build and nobody's on it, and it comes off when the issue moves to `status: in-progress`.
 - **No internal tracking keys or personal names** in commit messages, PR titles, PR bodies or
   issue comments. Refer to issues and PRs by number.
 

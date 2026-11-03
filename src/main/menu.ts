@@ -177,6 +177,9 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
           label: t('menu.zoom'),
           submenu: [
             { label: t('zoom.in'), accelerator: 'CmdOrCtrl+Plus', click: () => intent('zoom', { delta: 0.1 }) },
+            /* The same step on ⌘= without Shift: on a US keyboard "+" IS Shift+=, so most people press ⌘= and expect it to work.
+               Hidden, so the shortcut list names one key per action. */
+            { label: t('zoom.in'), accelerator: 'CmdOrCtrl+=', visible: false, acceleratorWorksWhenHidden: true, click: () => intent('zoom', { delta: 0.1 }) },
             { label: t('zoom.out'), accelerator: 'CmdOrCtrl+-', click: () => intent('zoom', { delta: -0.1 }) },
             { label: t('zoom.reset'), accelerator: 'CmdOrCtrl+Shift+0', click: () => intent('zoom', { reset: true }) },
           ],
@@ -187,12 +190,14 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
            looking at a terminal reaches for it, gets the document-only zoom, and concludes the
            menu is broken. Giving the app-wide scale a visible home fixes the dead end without
            touching the documented editor-zoom behaviour or stealing its accelerator.
-           ⌘⇧+ / ⌘⇧- / ⌘⌥0 are free; menu.test.ts asserts no accelerator is claimed twice. */
+           It lives on ⌘⌥ (= / - / 0), NOT ⌘⇧: "+" is itself Shift+= on a US keyboard, so ⌘⇧+ and the text size's ⌘+ were
+           the same keypress and the interface grew when the operator asked for bigger chat text (0.14.1 round).
+           menu.test.ts asserts no accelerator is claimed twice. */
         {
           label: t('menu.appScale'),
           submenu: [
-            { label: t('appScale.in'), accelerator: 'CmdOrCtrl+Shift+Plus', click: () => intent('appScale', { delta: 1 }) },
-            { label: t('appScale.out'), accelerator: 'CmdOrCtrl+Shift+-', click: () => intent('appScale', { delta: -1 }) },
+            { label: t('appScale.in'), accelerator: 'CmdOrCtrl+Alt+=', click: () => intent('appScale', { delta: 1 }) },
+            { label: t('appScale.out'), accelerator: 'CmdOrCtrl+Alt+-', click: () => intent('appScale', { delta: -1 }) },
             { label: t('appScale.reset'), accelerator: 'CmdOrCtrl+Alt+0', click: () => intent('appScale', { reset: true }) },
           ],
         },

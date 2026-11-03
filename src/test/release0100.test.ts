@@ -96,7 +96,7 @@ test('the release list cannot fall behind: this build\'s version must be in it',
 
 /* #24 readability — ⌘+/− follows the focus. */
 test('⌘+/− changes the terminal text when a terminal is focused, the editor zoom otherwise', () => {
-  assert.match(app, /case 'zoom':[\s\S]{0,700}if \(focusedTerminal\(\)\) \{\s*setTermFont\(/, 'terminal first');
+  assert.match(app, /case 'zoom':[\s\S]{0,1600}const zt = zoomTarget\(\);\s*if \(zt && zt\.kind === 'term' && zt\.view === 'chat' && zt\.chatSkin\) \{\s*setChatFont\([\s\S]{0,200}if \(zt && zt\.kind === 'term' && zt\.term && !zt\.exited\) \{\s*setTermFont\(/, 'chat first (its overlay sits inside the terminal pane), then the terminal, then the editor');
   assert.match(app, /q\.term\.options\.fontSize = next;/, 'applied live to open terminals');
   assert.match(app, /setSetting\('termFontSize', TERMFONT\)/, 'and saved so new terminals match');
   assert.match(app, /fontIn\.addEventListener\('change', \(\) => setTermFont\(/, 'Settings uses the same live path');

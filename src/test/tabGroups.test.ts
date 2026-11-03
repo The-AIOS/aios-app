@@ -70,7 +70,13 @@ test('groups persist with the sessions, keyed by session id, and come back valid
   assert.match(snap, /group: tgOf\(id\)/, 'each session entry carries its group');
   assert.match(snap, /groups/, 'the snapshot carries the group definitions');
   const adopt = app.slice(app.indexOf('function tgAdopt'), app.indexOf('/** On launch: offer back'));
-  assert.match(adopt, /TG_COLORS\.includes\(g\.color\)/, 'an unknown colour must never reach a CSS variable name');
+  assert.match(adopt, /color: tgColorOf\(g\.color\)/, 'an unknown colour must never reach a CSS variable name');
+  const of = new Function(app.slice(app.indexOf('const TG_COLORS'), app.indexOf('\n', app.indexOf('const tgColorOf')) + 1) + 'return tgColorOf;')() as (c: unknown) => string;
+  assert.equal(of('red'), 'coral', 'a group saved as red comes back coral');
+  assert.equal(of('blue'), 'blue');
+  assert.equal(of('x); background: url(evil)'), 'grey', 'anything else is grey');
+  assert.equal((/const TG_COLORS = \[([^\]]+)\]/.exec(app)![1].match(/'/g) || []).length / 2, 12, 'twelve colours: two rows of six');
+  assert.match(fs.readFileSync('renderer/theme.css', 'utf8'), /\.tgedit-sw \{ display: grid; grid-template-columns: repeat\(6, 18px\)/, 'laid out as rows of six');
   assert.match(app, /if \(ph\.group\) np\.group = ph\.group;/, 'resuming a restored tab keeps its group');
 });
 

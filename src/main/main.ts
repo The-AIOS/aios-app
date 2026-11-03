@@ -655,11 +655,7 @@ ipcMain.handle('slashCommands:list', async (_e, cwd: unknown, text: unknown): Pr
    are removed on the next paste. Nothing is read back and nothing outside that one folder is touched. */
 const PASTE_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 const PASTE_MAX_BYTES = 25 * 1024 * 1024;
-ipcMain.handle('chatFiles:savePastedImage', async (_e, bytes: unknown, mime: unknown): Promise<string | null> => {
-  const ext = typeof mime === 'string' ? PASTE_EXT[mime.toLowerCase()] : undefined;
-  if (!ext || !(bytes instanceof ArrayBuffer || ArrayBuffer.isView(bytes))) return null;
-  const buf = bytes instanceof ArrayBuffer ? Buffer.from(bytes) : Buffer.from((bytes as ArrayBufferView).buffer, (bytes as ArrayBufferView).byteOffset, (bytes as ArrayBufferView).byteLength);
-  if (!buf.length || buf.length > PASTE_MAX_BYTES) return null;
+async function savePastedImage(buf: Buffer, ext: string): Promise<string | null> {
   try {
     const dir = path.join(fs.realpathSync(os.tmpdir()), 'aios-chat-paste');
     await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -674,6 +670,23 @@ ipcMain.handle('chatFiles:savePastedImage', async (_e, bytes: unknown, mime: unk
     await fs.promises.writeFile(file, buf, { mode: 0o600 });
     return file;
   } catch { return null; }
+}
+ipcMain.handle('chatFiles:savePastedImage', async (_e, bytes: unknown, mime: unknown): Promise<string | null> => {
+  const ext = typeof mime === 'string' ? PASTE_EXT[mime.toLowerCase()] : undefined;
+  if (!ext || !(bytes instanceof ArrayBuffer || ArrayBuffer.isView(bytes))) return null;
+  const buf = bytes instanceof ArrayBuffer ? Buffer.from(bytes) : Buffer.from((bytes as ArrayBufferView).buffer, (bytes as ArrayBufferView).byteOffset, (bytes as ArrayBufferView).byteLength);
+  if (!buf.length || buf.length > PASTE_MAX_BYTES) return null;
+  return savePastedImage(buf, ext);
+});
+/* The same, for a picture only the SYSTEM clipboard holds: a macOS screenshot taken to the clipboard reached the page with
+   no file and no item, so the paste did nothing. Electron's clipboard reads it in any format the OS offers; it is saved as
+   PNG through the same bounded writer. Nothing on the clipboard → null, and the renderer does nothing. */
+ipcMain.handle('chatFiles:saveClipboardImage', async (): Promise<string | null> => {
+  const img = clipboard.readImage();
+  if (img.isEmpty()) return null;
+  const buf = img.toPNG();
+  if (!buf.length || buf.length > PASTE_MAX_BYTES) return null;
+  return savePastedImage(buf, 'png');
 });
 
 /* ── SMOKE: the chat view's ASSETS, wherever the app was loaded from ────────────────────────────
@@ -1464,6 +1477,7 @@ ipcMain.handle('menu:shortcuts', () => {
          formatter must know that spelling. An earlier comment here claimed roles were excluded;
          they never were, and believing it is what let `CommandOrControlQ` reach the screen. */
       if (!it.accelerator) continue;
+      if (!it.visible) continue;   // a hidden alias (⌘= beside ⌘+) is the same action; list it once
       out.push({ group: group || '—', label: [...trail, label].filter(Boolean).join(' › '), accel: it.accelerator });
     }
   };

@@ -2176,7 +2176,8 @@ guarded('a path is only ever quoted with double quotes unless it holds one itsel
 
 test('drop and paste: the picture-saving IPC is bounded, names its own file, sweeps only its own files, and the card has a neutral drop veil', () => {
   assert.match(preload, /chatSavePastedImage: \(bytes: ArrayBuffer, mime: string\): Promise<string \| null> => ipcRenderer\.invoke\('chatFiles:savePastedImage', bytes, mime\)/);
-  const h = /ipcMain\.handle\('chatFiles:savePastedImage'[\s\S]*?\n\}\);/.exec(main)?.[0] ?? '';
+  /* The handler checks what it was given, then hands the bytes to the one bounded writer (shared with the clipboard path). */
+  const h = (/ipcMain\.handle\('chatFiles:savePastedImage'[\s\S]*?\n\}\);/.exec(main)?.[0] ?? '') + (/async function savePastedImage\([\s\S]*?\n\}\n/.exec(main)?.[0] ?? '');
   assert.ok(h.length > 400, 'handler found');
   assert.match(h, /PASTE_EXT\[mime\.toLowerCase\(\)\]/, 'only the image types on the allow-list');
   assert.match(main, /const PASTE_MAX_BYTES = 25 \* 1024 \* 1024/);
@@ -3835,4 +3836,221 @@ test('the chat bar account chip reads the account list in PR 92\'s shape ({ acco
   const bad = await run({ accounts: [], error: 'list rejected' });
   assert.deepEqual([bad.list, bad.toasts.length], [[], 1], 'a rejected list is an error, said once');
   assert.match(fnBody(skin, 'chatSkinAccountMenu'), /a\.canSwitch === false/, 'an account that cannot be taken says why');
+});
+
+test('the Chat | Terminal switch is in the main pane too, while a Claude session is open there (dock off: no Running header)', () => {
+  const at = app.indexOf('function paintZoneView()');
+  const body = app.slice(at, app.indexOf('\n}\n', at) + 2);
+  /* A tiny DOM: two switch hosts, each a span that keeps its children, attributes and `hidden`. */
+  const host = () => {
+    const kids: { dataset: Record<string, string>; classList: { toggle: () => void }; setAttribute: () => void }[] = [];
+    return { hidden: true, title: '', dataset: {} as Record<string, string>, get childElementCount() { return kids.length; },
+      appendChild: (k: (typeof kids)[number]) => kids.push(k), setAttribute: () => undefined, querySelectorAll: () => kids };
+  };
+  const run = (paneList: { id: string; kind: string; zone: string; claude: boolean; view?: string }[], activeMain?: string) => {
+    const hosts: Record<string, ReturnType<typeof host>> = { zviewTerm: host(), zviewMain: host() };
+    const panes = new Map(paneList.map((p) => [p.id, p]));
+    const paint = new Function('document', 'el', 't', 'csIcon', 'chatSkinSetMode', 'panes', 'zoneOf', 'chatSkinEligible', 'active', 'chatMode',
+      body + '; paintZoneView();');
+    paint({ getElementById: (id: string) => hosts[id] }, () => ({ dataset: {}, classList: { toggle: () => undefined }, setAttribute: () => undefined, append: () => undefined, addEventListener: () => undefined }),
+      (k: string) => k, () => ({}), () => undefined, panes, (p: { zone: string }) => p.zone, (p: { claude: boolean }) => !!p && p.claude,
+      { main: activeMain, term: undefined }, 'chat');
+    return hosts;
+  };
+  const dockOff = run([{ id: 'a', kind: 'term', zone: 'main', claude: true, view: 'term' }], 'a');
+  assert.equal(dockOff.zviewMain.hidden, false, 'dock off, a Claude session in the main pane: the switch is there');
+  assert.equal(dockOff.zviewMain.dataset.mode, 'terminal', 'and it shows what the pane in front shows');
+  assert.equal(dockOff.zviewMain.childElementCount, 2, 'with both sides');
+  assert.equal(run([{ id: 'n', kind: 'note', zone: 'main', claude: false }], 'n').zviewMain.hidden, true, 'control: only a note open, no switch');
+  assert.equal(run([{ id: 's', kind: 'term', zone: 'main', claude: false }], 's').zviewMain.hidden, true, 'control: a plain shell has no chat view');
+  assert.equal(run([{ id: 'c', kind: 'term', zone: 'term', claude: true }]).zviewMain.hidden, true, 'dock on: the Running header carries it, the main pane does not');
+  assert.match(html, /id="tabs"[^\n]*<span class="zview" id="zviewMain" hidden><\/span>/, 'the host sits in the main pane header');
+  assert.match(css, /\.zview\[hidden\] \{ display: none; \}/, 'and hiding it wins over the switch\'s own display');
+});
+
+test('⌘+ / ⌘− with the chat focused change the chat text, in both directions, and are saved (the hidden terminal is left alone)', async () => {
+  const fnSrc = (name: string): string => { const at = app.indexOf('function ' + name); return app.slice(at, app.indexOf('\n}\n', at) + 2); };
+  const consts = app.slice(app.indexOf('const CHAT_FONT_MIN'), app.indexOf('\n', app.indexOf('const CHAT_FONT_MIN')) + 1);
+  const saved: unknown[] = []; const toasts: string[] = []; let applied = 0;
+  const composer = {}; const elsewhere = {};
+  const chatPane = { view: 'chat', chatSkin: { root: { contains: (x: unknown) => x === composer } } };
+  const doc = { activeElement: composer as unknown };
+  const api = new Function('document', 'panes', 'chatPrefs', 'chatApplyPrefs', 'window', 'toast', 't', 'setTimeout', 'clearTimeout',
+    consts + 'let chatFontSaveTimer = 0;\n' + fnSrc('focusedChat') + fnSrc('setChatFont') + 'return { focusedChat, setChatFont };')(
+    doc, new Map([['a', chatPane]]), { size: 14 }, () => { applied++; },
+    { glassShell: { setSetting: (k: string, v: unknown) => { saved.push([k, v]); return Promise.resolve(); } } },
+    (s: string) => toasts.push(s), (k: string, v: { size: string }) => k + ':' + v.size, (f: () => void) => { f(); return 0; }, () => undefined);
+  assert.equal(api.focusedChat(), chatPane, 'the composer has focus: the chat answers');
+  api.setChatFont(15); api.setChatFont(14); api.setChatFont(13);
+  assert.deepEqual(saved, [['chatFontSize', 15], ['chatFontSize', 14], ['chatFontSize', 13]], 'up AND down, each saved');
+  assert.equal(applied, 3, 'and applied live');
+  api.setChatFont(99); api.setChatFont(1);
+  assert.deepEqual(saved.slice(-2), [['chatFontSize', 28], ['chatFontSize', 10]], 'clamped to what main accepts');
+  assert.match(toasts[0], /zoom\.chatLevel:15/, 'the step is announced');
+  doc.activeElement = elsewhere;
+  assert.equal(api.focusedChat(), null, 'control: focus outside the chat, no chat answer');
+  /* The order is the fix: the overlay sits inside the terminal pane, so the terminal check must come second. */
+  const zat = app.indexOf("case 'zoom':");
+  const zoom = app.slice(zat, app.indexOf("case 'appScale':", zat));
+  assert.ok(zoom.indexOf("zt.view === 'chat'") > 0 && zoom.indexOf("zt.view === 'chat'") < zoom.indexOf('zt.term && !zt.exited'), 'chat is asked before the terminal');
+  /* The target: focus inside a pane wins; with focus nowhere (a click in the conversation focuses nothing), the pane last pressed. */
+  const zsrc = app.slice(app.indexOf('let lastPaneTouched'), app.indexOf('\n}\n', app.indexOf('function zoomTarget')) + 2);
+  const body = { tag: 'body' }; const inChat = { tag: 'textarea' };
+  const zChat = { el: { contains: (x: unknown) => x === inChat, isConnected: true } };
+  const zNote = { el: { contains: () => false, isConnected: true } };
+  const zdoc = { activeElement: body as unknown, body };
+  const zt = new Function('document', 'panes', zsrc + 'return { zoomTarget, touch: (id) => { lastPaneTouched = id; } };')(zdoc, new Map<number, unknown>([[1, zChat], [2, zNote]]));
+  zdoc.activeElement = inChat;
+  assert.equal(zt.zoomTarget(), zChat, 'focus inside a pane: that pane');
+  zdoc.activeElement = body; zt.touch(1);
+  assert.equal(zt.zoomTarget(), zChat, 'focus nowhere: the pane last pressed (the chat), not the editor');
+  zt.touch(2);
+  assert.equal(zt.zoomTarget(), zNote, 'control: a note last pressed gets the editor zoom');
+  assert.match(app, /p\.el\.addEventListener\('mousedown', \(\) => \{ lastPaneTouched = id; focusPane\(id\); \}, true\);/, 'every press on a pane records it');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"zoom.chatLevel"'), l + ' has the toast');
+});
+
+test('text size and interface size never share a keypress: "+" is Shift+= on a US keyboard', () => {
+  const accel = (label: string) => [...menu.matchAll(new RegExp(`t\\('${label.replace('.', '\\.')}'\\), accelerator: '([^']+)'`, 'g'))].map((m) => m[1]);
+  assert.deepEqual(accel('zoom.in'), ['CmdOrCtrl+Plus', 'CmdOrCtrl+='], 'text size: ⌘+, and ⌘= without Shift');
+  assert.deepEqual(accel('appScale.in'), ['CmdOrCtrl+Alt+='], 'interface size on ⌘⌥');
+  assert.deepEqual(accel('appScale.out'), ['CmdOrCtrl+Alt+-']);
+  assert.doesNotMatch(menu, /accelerator: 'CmdOrCtrl\+Shift\+(Plus|=|-)'/, 'nothing left on ⌘⇧+ / ⌘⇧- to collide with ⌘+');
+  assert.match(menu, /accelerator: 'CmdOrCtrl\+=', visible: false, acceleratorWorksWhenHidden: true/, 'the alias works while hidden');
+  assert.match(main, /if \(!it\.visible\) continue;/, 'and the shortcut list names it once');
+});
+
+test('a file dropped on a pane in chat view lands in the chat box, never in the hidden prompt (operator-reported screenshot drag)', () => {
+  const at = app.indexOf('function dropPathsInto(');
+  const fn = app.slice(at, app.indexOf('\n}\n', at) + 2);
+  const inserted: string[][] = []; const typed: string[] = []; const drafts: string[] = [];
+  const drop = new Function('chatSkinInsertPaths', 'noteOperatorKeys', 'window', 'xQuote', fn + '; return dropPathsInto;')(
+    (_cs: unknown, paths: string[]) => inserted.push(paths), (_p: unknown, k: string) => drafts.push(k),
+    { glassShell: { ptyWrite: (_id: string, s: string) => typed.push(s) } }, (x: string) => `'${x}'`) as (id: string, p: unknown, paths: string[]) => void;
+  drop('a', { view: 'chat', chatSkin: { input: {} } }, ['/tmp/shot.png']);
+  assert.deepEqual(inserted, [['/tmp/shot.png']], 'chat view: into the composer');
+  assert.deepEqual(typed, [], 'and nothing typed into the hidden terminal');
+  drop('a', { view: 'term', chatSkin: { input: {} } }, ['/tmp/shot.png']);
+  assert.deepEqual(typed, ["'/tmp/shot.png' "], 'control: terminal view still types the quoted path');
+  assert.deepEqual(drafts, ['drop'], 'and marks it as a draft (#81)');
+  assert.equal((app.match(/dropPathsInto\(/g) || []).length, 3, 'both terminal drop zones go through it (plus its definition)');
+  assert.doesNotMatch(app, /attachDropZone\([^\n]*ptyWrite/, 'no drop zone writes to a pty directly any more');
+});
+
+test('a pasted picture is found in files, in items, or on the system clipboard; a text paste is left alone', () => {
+  const at = app.indexOf("cs.input.addEventListener('paste'");
+  const paste = app.slice(at, app.indexOf('\n  });\n', at));
+  assert.match(paste, /kind === 'file'[\s\S]*getAsFile\(\)/, 'items with a file are read');
+  assert.match(paste, /types\.some\(\(x\) => \/\^text\\\/\/\.test\(x\)\)\) return;/, 'a text paste stays the textarea\'s own');
+  assert.match(paste, /gs\.chatSaveClipboardImage\(\)/, 'otherwise main reads the system clipboard');
+  assert.match(main, /ipcMain\.handle\('chatFiles:saveClipboardImage'[\s\S]{0,400}clipboard\.readImage\(\)[\s\S]{0,200}isEmpty\(\)\) return null;[\s\S]{0,200}savePastedImage\(buf, 'png'\)/, 'saved through the same bounded writer');
+  assert.match(read('src/preload/preload.ts'), /chatSaveClipboardImage: \(\): Promise<string \| null> => ipcRenderer\.invoke\('chatFiles:saveClipboardImage'\)/);
+  const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinSendNow(') + 2000);
+  assert.match(send, /chatSkinPromptDraft\(p\)[\s\S]{0,300}t\('chat\.send\.draftShown'/, 'a refusal quotes what is in the hidden prompt');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.send.draftShown"'), l);
+});
+
+test('a message sent during a turn shows at once as queued, and leaves when the transcript takes it in (operator-reported)', () => {
+  const fnSrc = (name: string): string => { const at = app.indexOf('function ' + name + '('); return app.slice(at, app.indexOf('\n}\n', at) + 2); };
+  const keyLine = app.slice(app.indexOf('const chatQueueKey'), app.indexOf('\n', app.indexOf('const chatQueueKey')) + 1);
+  type N = { kids: N[]; text?: string; removed?: boolean; remove: () => void; append: (...k: N[]) => void; appendChild: (k: N) => void; hidden?: boolean };
+  const node = (text?: string): N => { const n: N = { kids: [], text, remove() { n.removed = true; }, append(...k) { n.kids.push(...k); }, appendChild(k) { n.kids.push(k); } }; return n; };
+  let working = true;
+  const api = new Function('el', 't', 'chatSkinWorking', keyLine + fnSrc('chatSkinQueueAdd') + fnSrc('chatSkinQueueDrop') + fnSrc('chatSkinQueueSettle') + fnSrc('chatSkinQueueSweep')
+    + 'return { add: chatSkinQueueAdd, settle: chatSkinQueueSettle, sweep: chatSkinQueueSweep };')(
+    (_tag: string, _cls: string, text?: string) => node(text), (k: string) => k, () => working);
+  const cs = { queueEl: node(), queued: [] as { node: N }[], queueIdleSince: 0 };
+  cs.queueEl.hidden = true;
+  api.add(cs, 'also check the tests');
+  assert.equal(cs.queueEl.hidden, false, 'shown at once');
+  assert.equal(cs.queueEl.kids[0].kids[0].text, 'chat.queued', 'marked as queued');
+  assert.equal(cs.queueEl.kids[0].kids[1].text, 'also check the tests', 'with the text as sent');
+  api.settle(cs, 'something else');
+  assert.equal(cs.queued.length, 1, 'control: another message settles nothing');
+  api.settle(cs, '  also  check the tests\n');
+  assert.equal(cs.queued.length, 0, 'the transcript took it in: it leaves');
+  assert.equal(cs.queueEl.hidden, true, 'and the strip hides');
+  api.add(cs, 'one'); api.add(cs, 'two');
+  api.settle(cs, 'one\ntwo');
+  assert.equal(cs.queued.length, 0, 'two queued messages joined into one transcript message settle both');
+  api.add(cs, 'never recorded');
+  api.sweep(cs, {}); assert.equal(cs.queued.length, 1, 'still working: it waits');
+  working = false;
+  api.sweep(cs, {}); cs.queueIdleSince -= 7000; api.sweep(cs, {});
+  assert.equal(cs.queued.length, 0, 'idle for a few seconds with no match: the backstop clears it');
+  const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinHistList('));
+  assert.match(send, /if \(!text\.startsWith\('\/'\)\) \{ if \(chatSkinWorking\(p\) \|\| awaiting\) chatSkinQueueAdd\(cs, text\); cs\.lastMsgAt = Date\.now\(\); \}\s*chatSkinSubmit\(/, 'queued while a turn runs or the last message is unanswered, before it is typed; never a slash command');
+  assert.match(send, /const awaiting = !!cs\.lastMsgAt && cs\.lastMsgAt > \(cs\.lastReplyAt \|\| 0\) && Date\.now\(\) - cs\.lastMsgAt < 120000;/, 'unanswered: sent after the last reply, within two minutes');
+  assert.match(app, /if \(rec\.role !== 'user' && animate\) cs\.lastReplyAt = Date\.now\(\);/, 'news from Claude answers it; loading history does not');
+  assert.match(app, /chatSkinBusLabel\(rec, text\); if \(cs\.queued && cs\.queued\.length\) chatSkinQueueSettle\(cs, text\);/, 'every user row from the transcript settles the queue');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.queued"'), l);
+});
+
+test('an image path in a chat message is PASTED, so Claude Code attaches it as [Image #N]; the rest is typed (0.14.1 round)', () => {
+  const a = app.indexOf('const CHAT_IMAGE_EXT');
+  const parts = new Function(app.slice(a, app.indexOf('\n}\n', app.indexOf('function chatSkinImageParts')) + 2) + 'return chatSkinImageParts;')() as (t: string) => unknown;
+  assert.deepEqual(parts('what is wrong here? "/tmp/aios-chat-paste/paste-1-abc.png" '), ['what is wrong here? ', { paste: '/tmp/aios-chat-paste/paste-1-abc.png' }, ' '], 'the quoted path the chat box inserts');
+  assert.deepEqual(parts('two: "/a b/x.PNG" and /c/y.jpg done'), ['two: ', { paste: '/a b/x.PNG' }, ' and ', { paste: '/c/y.jpg' }, ' done'], 'several, quoted or bare, any case');
+  assert.equal(parts('no image /tmp/notes.md here'), null, 'control: a path to something else stays text');
+  assert.equal(parts('see x.png'), null, 'control: a relative name stays text');
+  /* submitToPty with parts: strings typed, paths inside bracketed paste, then ONE Enter as its own write. */
+  const at = app.indexOf('function submitToPty(');
+  const writes: string[] = []; const timers: Array<() => void> = [];
+  const submit = new Function('window', 'setTimeout', app.slice(at, app.indexOf('\n}\n', at) + 2) + 'return submitToPty;')(
+    { glassShell: { ptyWrite: (_id: string, s: string) => writes.push(s) } }, (f: () => void) => { timers.push(f); return 0; }) as (id: string, t: unknown) => void;
+  submit('a', ['look ', { paste: '/tmp/s.png' }, ' thanks']);
+  assert.deepEqual(writes, ['look ', '\x1b[200~/tmp/s.png\x1b[201~', ' thanks'], 'typed, pasted, typed');
+  timers.forEach((f) => f());
+  assert.deepEqual(writes.slice(-1), ['\r'], 'then Enter, alone');
+  const sub = app.slice(app.indexOf('function chatSkinSubmit('), app.indexOf('function chatSkinSubmit(') + 1200);
+  assert.match(sub, /const imgParts = text\.startsWith\('\/'\) \? null : chatSkinImageParts\(text\);\s*if \(imgParts\) submitToPty\(id, imgParts\);/, 'the chat send uses it; a slash command never does');
+});
+
+test('the mode row is not mirrored under the chat (the chip says it), and Shift+Tab in the chat box cycles the mode (0.14.1 round)', () => {
+  const re = new Function(app.slice(app.indexOf('const CS_MODE_ROW'), app.indexOf('\n', app.indexOf('const CS_MODE_ROW')) + 1) + 'return CS_MODE_ROW;')() as RegExp;
+  assert.ok(re.test('⏵⏵ auto mode on (shift+tab to cycle)'), 'the auto mode row');
+  assert.ok(re.test('  ⏸ plan mode on (shift+tab to cycle) · esc to interrupt'), 'plan mode');
+  assert.ok(!re.test('  [Opus 5.5] 📁 aios | 🌿 main (3) | 🟢 10%'), 'control: a status line stays');
+  assert.ok(!re.test('  1 shell · ↓ to view'), 'control: the background row stays');
+  const mirror = app.slice(app.indexOf('function chatSkinMirrorStatus('), app.indexOf('function chatSkinMirrorStatus(') + 5000);
+  assert.match(mirror, /const lines = rows\.filter\(\(r\) => !CS_MODE_ROW\.test\(r\.translateToString\(true\)\)\)\.map/, 'filtered from what is drawn');
+  assert.match(mirror, /chatSkinModePaint\(cs, text\)/, 'still read for the chip');
+  const build = app.slice(app.indexOf('function chatSkinBuild('), app.indexOf('function chatSkinBuild(') + 40000);
+  assert.match(build, /if \(e\.key !== 'Tab' \|\| !e\.shiftKey[^\n]*\n\s*e\.preventDefault\(\);\n\s*if \(cs\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null\) return;\n\s*chatSkinModeCycle\(id, p\);/, 'Shift+Tab cycles, guarded like the mode menu');
+});
+
+test('a selection copied from the chat says so, as the terminal does: "copied N chars to clipboard" over the card, then fades', () => {
+  const at = app.indexOf('function chatSkinCopiedNote(');
+  const fn = app.slice(at, app.indexOf('\n}\n', at) + 2);
+  type N = { textContent: string; hidden: boolean; cls: Set<string>; classList: { add: (c: string) => void; remove: (c: string) => void }; setAttribute: () => void };
+  const mk = (): N => { const cls = new Set<string>(); return { textContent: '', hidden: true, cls, classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c) }, setAttribute: () => undefined }; };
+  const timers: Array<() => void> = []; let placed: N | null = null;
+  const note = new Function('el', 't', 'setTimeout', 'clearTimeout', 'document', fn + 'return chatSkinCopiedNote;')(
+    () => mk(), (k: string, v: { n: string }) => `${k}:${v.n}`, (f: () => void) => { timers.push(f); return timers.length; }, () => undefined, {}) as (cs: unknown, n: number) => void;
+  const cs = { queueEl: { after: (n: N) => { placed = n; } } } as { queueEl: unknown; copiedEl?: N };
+  note(cs, 1158);
+  assert.ok(placed, 'placed beside the queue strip, over the card');
+  assert.equal(cs.copiedEl!.textContent, 'chat.copied:1158');
+  assert.equal(cs.copiedEl!.hidden, false);
+  timers.shift()!(); assert.ok(cs.copiedEl!.cls.has('gone'), 'fades');
+  timers.shift()!(); assert.equal(cs.copiedEl!.hidden, true, 'then leaves');
+  assert.match(app, /window\.glassShell\.copyText\(text\)\)\.then\(\(ok\) => \{ if \(ok !== false && typeof chatSkinCopiedNote === 'function'\) chatSkinCopiedNote\(cs, text\.length\); \}\)/, 'only after the copy succeeded');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.copied"'), l);
+});
+
+test('a question on screen never leaks under the chat box, and "View in the terminal" is a real switch (0.14.1 round)', () => {
+  const rows = app.slice(app.indexOf('function chatStatusRows('), app.indexOf('\n}\n', app.indexOf('function chatStatusRows(')) + 2);
+  const fake = (lines: string[]) => ({ term: { buffer: { active: { length: lines.length, getLine: (i: number) => (lines[i] === undefined ? undefined : { translateToString: () => lines[i] }) } } } });
+  const run = new Function(rows + 'return chatStatusRows;')() as (p: unknown) => unknown[] | null;
+  const rule = '─'.repeat(40);
+  assert.equal(run(fake(['Which material would you like?', '❯ 1. Wood', '  2. Metal', rule, '  ← ☒ Colour ☐ Material', 'Which material would you like?'])), null, 'a menu\'s selected option is not the prompt');
+  assert.equal((run(fake([rule, '❯ ', rule, '  [Opus 5.5] 📁 aios'])) || []).length, 1, 'control: the real prompt box still gives its status row');
+  assert.equal(run(fake(['answer text', '❯ Use the AskUserQuestion tool to ask me four questions', '', rule, '  ← ☐ Colour ☐ Size', 'What is your favourite colour?', '❯ 1. Blue'])), null,
+    'the operator\'s echoed message is not the prompt box: no rule above it (the leak as seen)');
+  const layout = app.slice(app.indexOf('function chatSkinLayout('), app.indexOf('\n}\n', app.indexOf('function chatSkinLayout(')) + 2);
+  assert.match(layout, /if \(sl && cs\.promptKind\) \{ sl\.hidden = true; sl\.replaceChildren\(\);/, 'hidden the moment a dialog arrives');
+  const mirror = app.slice(app.indexOf('function chatSkinMirrorStatus('), app.indexOf('function chatSkinMirrorStatus(') + 1600);
+  assert.match(mirror, /if \(cs\.promptKind\) \{ host\.hidden = true;/, 'and while a dialog is up the mirror is hidden outright');
+  const card = app.slice(app.indexOf("const link = el('button', 'csd-link'"), app.indexOf("const link = el('button', 'csd-link'") + 900);
+  assert.match(card, /if \(typeof chatSkinSetView === 'function'\) \{ chatSkinSetView\(cs\.id, 'term'\); return; \}/, 'View in the terminal switches the tab, so the switch says Terminal');
 });
