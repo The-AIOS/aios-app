@@ -83,15 +83,21 @@ test('request paths: only static assets, no dot-segments, no dot-files, no backs
   }
 });
 
-test('navigation: a board frame may only reload its own page; nothing else may enter a board', () => {
+test('navigation: a board frame may only reload its own page; only the App\'s page may put a board in a frame', () => {
   const a = boardUrl('a', 1), a2 = boardUrl('a', 2), b = boardUrl('b', 1);
-  assert.equal(boardNavigationAllowed('about:blank', a), true, 'the card mounting its frame');
+  const card = { frameIsChildOfTop: true, initiatorIsTop: true };
+  assert.equal(boardNavigationAllowed('about:blank', a, card), true, 'the card mounting its frame');
+  assert.equal(boardNavigationAllowed('about:blank', a, { frameIsChildOfTop: false, initiatorIsTop: false }), false,
+    'a page in the HTML viewer creating its own frame and pointing it at a board');
+  assert.equal(boardNavigationAllowed('about:blank', a, { frameIsChildOfTop: true, initiatorIsTop: false }), false,
+    'a direct child of the App\'s page navigating ITSELF into a board (the HTML viewer\'s own frame)');
+  assert.equal(boardNavigationAllowed('about:blank', a), false, 'no context, no entry');
   assert.equal(boardNavigationAllowed(a, a2), true, 'the card reloading a changed board');
   assert.equal(boardNavigationAllowed(a, 'https://example.com/'), false);
   assert.equal(boardNavigationAllowed(a, 'file:///etc/hosts'), false);
   assert.equal(boardNavigationAllowed(a, b), false, 'one board into another');
   assert.equal(boardNavigationAllowed(a, `${boardOrigin('a')}/other.html`), false);
-  assert.equal(boardNavigationAllowed('https://example.com/', a), false, 'a web page into a board');
+  assert.equal(boardNavigationAllowed('https://example.com/', a, card), false, 'a web page into a board');
   assert.equal(boardNavigationAllowed('https://example.com/', 'https://example.org/'), true, 'not a board: not this rule');
 });
 
@@ -111,6 +117,8 @@ function fixture(): { root: string; outside: string; cleanup(): void } {
   const outside = path.join(base, 'secret.css');
   fs.writeFileSync(outside, 'secret');
   try { fs.symlinkSync(outside, path.join(root, 'status', 'link.css')); } catch { /* covered by the e2e where symlinks exist */ }
+  fs.writeFileSync(path.join(root, 'status', '.secret.json'), '{"k":"v"}');
+  try { fs.symlinkSync('.secret.json', path.join(root, 'status', 'pic.png')); } catch { /* as above */ }
   return { root, outside, cleanup: () => fs.rmSync(base, { recursive: true, force: true }) };
 }
 
@@ -136,6 +144,9 @@ test('the handler serves a board\'s own files with its CSP, and refuses everythi
     const link = await get(`${o}/link.css`);
     assert.ok(link.status === 403 || link.status === 404, `a symlink out of the folder is refused (${link.status})`);
     assert.deepEqual(link.served, [], 'and nothing was read');
+    const inner = await get(`${o}/pic.png`);
+    assert.equal(inner.status, 403, 'a symlink to a dot-file INSIDE the folder is still a dot-file, and not an asset type');
+    assert.deepEqual(inner.served, []);
     assert.equal((await get(`${o}/index.html`, 'POST')).status, 405);
     assert.equal((await get(`${boardOrigin('no-index')}/index.html`)).status, 404);
     assert.equal((await get('aios-board://0123456789abcdef0123456789abcdef/index.html')).status, 404, 'an unknown board');

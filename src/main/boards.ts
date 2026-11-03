@@ -72,18 +72,32 @@ export async function serveBoardRequest(req: Request, onServe?: (file: string) =
   const rel = boardRelPath(url.pathname);
   if (!rel) return refuse(403);
   /* The realpath half of the confinement: a symlink inside the folder that points out of it is
-     refused, as is anything that is not a plain file. */
+     refused, as is anything that is not a plain file. The resolved path must pass the same rules as
+     the requested one (a `pic.png` linking to `.secret.json` inside the folder is still a dot-file
+     and not an asset type), and the type is the resolved file's. */
   let real: string;
   try { real = fs.realpathSync(path.join(folder, rel)); } catch { return refuse(404); }
   if (!real.startsWith(folder + path.sep)) return refuse(403);
-  let st: fs.Stats;
-  try { st = fs.statSync(real); } catch { return refuse(404); }
-  if (!st.isFile() || st.size > BOARD_MAX_BYTES) return refuse(403);
+  if (boardRelPath('/' + path.relative(folder, real).split(path.sep).join('/')) === null) return refuse(403);
+  const mime = BOARD_MIME[path.extname(real).toLowerCase()];
+  if (!mime) return refuse(403);
+  /* Read through a descriptor and check it is the file that was vetted: between the realpath above
+     and the read, a writer could swap a folder for a symlink and the path would re-resolve elsewhere.
+     Only someone who can already write the board could try that, but the check costs one fstat. */
   let body: Buffer;
-  try { body = fs.readFileSync(real); } catch { return refuse(404); }
+  let fd: number | undefined;
+  try {
+    // non-blocking: a FIFO named like a png would otherwise hang the main process on open()
+    fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+    const st = fs.fstatSync(fd);
+    const again = fs.statSync(fs.realpathSync(real));
+    if (!st.isFile() || st.size > BOARD_MAX_BYTES || st.ino !== again.ino || st.dev !== again.dev
+      || !fs.realpathSync(real).startsWith(folder + path.sep)) return refuse(403);
+    body = fs.readFileSync(fd);
+  } catch { return refuse(404); }
+  finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* closed */ } } }
   onServe?.(real);
-  const ext = path.extname(real).toLowerCase();
-  return new Response(new Uint8Array(body), { status: 200, headers: boardResponseHeaders(name, BOARD_MIME[ext]) });
+  return new Response(new Uint8Array(body), { status: 200, headers: boardResponseHeaders(name, mime) });
 }
 
 /**
@@ -107,8 +121,14 @@ export function installBoardProtocol(protocol: Protocol, onServe?: (file: string
  */
 export function guardBoardNavigation(wc: WebContents, onBlock?: (from: string, to: string) => void): void {
   wc.on('will-frame-navigate', (e) => {
-    const from = e.frame?.url ?? '';
-    if (boardNavigationAllowed(from, e.url)) return;
+    const frame = e.frame;
+    const from = frame?.url ?? '';
+    const top = wc.mainFrame;
+    const ctx = {
+      frameIsChildOfTop: !!frame && !!frame.parent && frame.parent.frameTreeNodeId === top.frameTreeNodeId,
+      initiatorIsTop: !!e.initiator && e.initiator.frameTreeNodeId === top.frameTreeNodeId,
+    };
+    if (boardNavigationAllowed(from, e.url, ctx)) return;
     e.preventDefault();
     onBlock?.(from, e.url);
   });

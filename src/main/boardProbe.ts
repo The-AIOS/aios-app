@@ -56,7 +56,11 @@ export function writeHostileBoard(port: number): HostileFixture {
   fs.mkdirSync(path.join(root, otherName), { recursive: true });
   const secret = path.join(base, 'secret.png');
   fs.writeFileSync(secret, PIXEL);
-  fs.writeFileSync(path.join(root, otherName, 'index.html'), '<!doctype html><p>neighbour</p>');
+  /* The neighbour has files but NO index.html: the handler would still serve them if asked (it maps any
+     folder), which is what the cross-board probes need, but it is not a board, so the App draws no
+     card for it. With an index.html the App's own card for it loaded it, and the smoke gate counted
+     that legitimate load as the hostile board's doing. */
+  fs.writeFileSync(path.join(root, otherName, 'other.css'), 'p { color: red; }');
   fs.writeFileSync(path.join(root, otherName, 'pixel.png'), PIXEL);
   fs.writeFileSync(path.join(dir, 'pixel.png'), PIXEL);
   fs.writeFileSync(path.join(dir, 'style.css'), 'body { font: 12px sans-serif; }');
@@ -68,12 +72,15 @@ export function writeHostileBoard(port: number): HostileFixture {
   fs.writeFileSync(path.join(dir, 'index.html'), `<!doctype html>
 <html><head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="1;url=${net}/meta-refresh">
+<meta http-equiv="refresh" content="4;url=${net}/meta-refresh">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="${net}/stylesheet">
 <link rel="prefetch" href="${net}/prefetch">
 <link rel="preload" as="image" href="${net}/preload">
 <link rel="icon" href="${net}/favicon">
+<link rel="preconnect" href="${net}/preconnect">
+<link rel="dns-prefetch" href="${net}/dns-prefetch">
+<link rel="modulepreload" href="${net}/modulepreload">
 <script src="probe.js"></script>
 <script src="${net}/script-src"></script>
 <script>new Image().src = '${net}/inline-script'; fetch('${net}/fetch');</script>
@@ -89,17 +96,26 @@ export function writeHostileBoard(port: number): HostileFixture {
 <picture><source srcset="${net}/picture"><img alt=""></picture>
 <iframe src="${net}/iframe"></iframe>
 <iframe src="${other}/index.html"></iframe>
+<link rel="stylesheet" href="${other}/other.css">
 <object data="${net}/object"></object>
 <embed src="${net}/embed">
 <audio src="${net}/audio" autoplay></audio>
 <video src="${net}/video" poster="${net}/poster" autoplay></video>
 <svg width="1" height="1"><image href="${net}/svg-image" width="1" height="1"/></svg>
-<form action="${net}/form" method="get"><input name="q" value="x" autofocus></form>
-<a href="${net}/link" ping="${net}/ping">link</a>
+<iframe srcdoc="<meta http-equiv='refresh' content='0;url=${net}/srcdoc-refresh'>"></iframe>
+<!-- the two vectors that need a click: the e2e harness clicks them (CLICK_POINTS), the smoke does not.
+     The form lives in its own frame so that, in the unprotected control, submitting it does not take
+     the link away before it is clicked; the meta refresh waits 4 s for the same reason. -->
+<a href="${net}/link" ping="${net}/ping" style="position:fixed;left:0;top:0;width:300px;height:80px;display:block;background:#eee;z-index:9">link</a>
+<iframe style="position:fixed;left:0;top:100px;width:320px;height:100px;border:0;z-index:9" srcdoc="<body style='margin:0'><form action='${net}/form' method='get'><input type='hidden' name='q' value='x'><button style='width:300px;height:80px'>submit</button></form>"></iframe>
 </body></html>
 `);
   return { root, name, dir, otherName, secret, ownFiles: ['index.html', 'style.css', 'pixel.png'], net };
 }
+
+/** Where the harness clicks, in the board frame's coordinates (the frame sits at 0,0): the form's button
+ *  first (its own frame), then the link (which navigates the board frame itself). */
+export const CLICK_POINTS: ReadonlyArray<[number, number]> = [[150, 140], [150, 40]];
 
 export interface ProbeResult {
   hits: string[];             // requests that reached the network

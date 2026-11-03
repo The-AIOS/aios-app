@@ -64,10 +64,14 @@ test('a hostile board reaches no network, no file outside its folder, no other b
   assert.deepEqual(verdict.why, [], verdict.why.join('\n'));
   assert.ok(result.blocked.some((u) => u.endsWith('/parent-set')),
     `the navigation guard did not refuse the frame being pointed at the network: blocked=${JSON.stringify(result.blocked)}`);
+  assert.ok(result.blocked.some((u) => u.includes('v=intruder')),
+    `a page with scripts put the board in a frame of its own and the guard let it: blocked=${JSON.stringify(result.blocked)}`);
 });
 
 test('control: the same page opened the way the HTML viewer opens files DOES reach the network (the probe can fail)', { skip }, async () => {
   assert.ok(bin, `strict mode, but ${why}`);
   const { hits } = await runHarness(bin!, 'control');
   assert.ok(hits.length > 0, 'the unprotected control reached nothing, so the guarded run above proves nothing');
+  /* the clicks must land, or the guarded run's silence on /link and /form means nothing */
+  for (const p of ['/link', '/form?q=x']) assert.ok(hits.includes(p), `the control's click on ${p} never arrived: hits=${JSON.stringify(hits)}`);
 });

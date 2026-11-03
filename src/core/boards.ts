@@ -21,7 +21,8 @@
  *    whose handler only serves files inside that board's folder, AND a CSP that allows images,
  *    styles and fonts from that board's own origin only;
  *  · navigation stopped — the sandbox grants no navigation, popups or forms, AND main refuses every
- *    navigation of a board frame except reloading its own index.html.
+ *    navigation of a board frame except reloading its own index.html, and every navigation INTO a
+ *    board except the App's own page mounting a card.
  */
 import { createHash } from 'crypto';
 
@@ -170,18 +171,27 @@ const isBoardUrl = (u: string): boolean => u.startsWith(`${BOARD_SCHEME}://`);
 const hostOf = (u: string): string | null => { try { return new URL(u).host; } catch { return null; } };
 const pathOf = (u: string): string | null => { try { return new URL(u).pathname; } catch { return null; } };
 
+/** Who is asking, for a navigation INTO a board. Main fills it from Electron's frame tree. */
+export interface BoardNavContext {
+  /** the navigating frame is a direct child of the window's top frame (where the App's cards live) */
+  frameIsChildOfTop: boolean;
+  /** the navigation was started by the top frame (the App's own page), not by the frame or a page inside it */
+  initiatorIsTop: boolean;
+}
+
 /**
  * May a frame currently showing `fromUrl` navigate to `toUrl`?
- *  · a frame that is not a board → not this rule's business (true);
- *  · a board frame → only to its own index.html (the card reloading it with a new `v`).
- * And no frame may navigate INTO a board except the card's own frame, which starts at about:blank:
- * a board URL reached from any other page is refused.
+ *  · neither side is a board → not this rule's business (true);
+ *  · a board frame → only to its own index.html (the card reloading it with a new `v`);
+ *  · into a board from anywhere else → only a fresh frame (about:blank) that is a direct child of the
+ *    App's page, navigated BY the App's page: the card mounting its frame. A page in the HTML viewer
+ *    (scripts on) creating its own frame and pointing it at a board is refused, as is any web page.
  */
-export function boardNavigationAllowed(fromUrl: string, toUrl: string): boolean {
+export function boardNavigationAllowed(fromUrl: string, toUrl: string, ctx?: BoardNavContext): boolean {
   const fromBoard = isBoardUrl(fromUrl);
   const toBoard = isBoardUrl(toUrl);
   if (!fromBoard && !toBoard) return true;
-  if (!fromBoard) return fromUrl === '' || fromUrl === 'about:blank';
+  if (!fromBoard) return (fromUrl === '' || fromUrl === 'about:blank') && !!ctx && ctx.frameIsChildOfTop && ctx.initiatorIsTop;
   if (!toBoard) return false;
   const p = pathOf(toUrl);
   return hostOf(fromUrl) === hostOf(toUrl) && (p === '/index.html' || p === '/');

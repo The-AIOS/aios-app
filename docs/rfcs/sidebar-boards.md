@@ -36,7 +36,7 @@ gets its own viewer with three rules, each enforced in more than one place:
 |---|---|
 | **No scripts** | the frame is `sandbox=""` (no tokens); the response's CSP has `default-src 'none'` and a `sandbox` directive |
 | **No network, nothing outside the board's folder** | boards are served by a dedicated `aios-board:` protocol, never `file://`. The handler serves only regular files whose real path is inside that board's folder, GET only, from an extension allowlist. The CSP allows images, styles and fonts from that board's own origin and nothing else, so `http(s):`, `file:` and other boards are refused before any request is made |
-| **Navigation stopped** | the sandbox has no `allow-top-navigation`, `allow-popups` or `allow-forms`; the main process refuses every navigation of a board frame other than reloading its own `index.html` |
+| **Navigation stopped** | the sandbox has no `allow-top-navigation`, `allow-popups` or `allow-forms`; the main process refuses every navigation of a board frame other than reloading its own `index.html`, and every navigation *into* a board other than the App's own page mounting a card (so a page in the HTML viewer cannot frame a board either) |
 
 Each board is its own origin (`aios-board://<id>/`, where the id is derived from the folder name), so
 one board cannot pull another board's files either.
@@ -46,10 +46,14 @@ one board cannot pull another board's files either.
 - `src/test/boards.test.ts`: the pure rules (listing, `board.json`, staleness, path confinement, the
   CSP string, the navigation decision).
 - `src/test/boardIsolation.e2e.test.ts`: a hostile board loaded in real Chromium, with the same
-  protocol handler and navigation guard the App installs. It tries the network, a file outside its
-  folder, another board, a script and a navigation, and must reach none of them, while its own
-  stylesheet and image must load (the positive control). The same page with the protections removed
-  must reach the network, so the test is known to be able to fail. It needs the Electron binary and
+  protocol handler and navigation guard the App installs. It tries the network (stylesheets,
+  `@import`, CSS backgrounds, images, `srcset`, prefetch/preload/preconnect/dns-prefetch/modulepreload,
+  scripts, `fetch`, frames, objects, media, SVG, a meta refresh and a `srcdoc` child that refreshes),
+  a file outside its folder (`file://` and a symlink), another board, a click on a link with `ping`
+  and on a form's button (clicked through DevTools' input domain), its parent pointing the frame at
+  the network, and a scripted page framing the board. It must reach none of them, while its own
+  stylesheet and image must load (the positive control). The same page opened the HTML viewer's way
+  must reach the network, clicks included, so the test is known to be able to fail. It needs the Electron binary and
   a display, so the ubuntu unit job (installed with `--ignore-scripts`) skips it and says why;
   `AIOS_BOARD_E2E_STRICT=1` makes that skip a failure.
 - The smoke's **boards** gate runs the same probe through the App's own wiring: the real card in the
