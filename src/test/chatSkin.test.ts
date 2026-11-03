@@ -4059,3 +4059,18 @@ test('a question on screen never leaks under the chat box, and "View in the term
   const card = app.slice(app.indexOf("const link = el('button', 'csd-link'"), app.indexOf("const link = el('button', 'csd-link'") + 900);
   assert.match(card, /if \(typeof chatSkinSetView === 'function'\) \{ chatSkinSetView\(cs\.id, 'term'\); return; \}/, 'View in the terminal switches the tab, so the switch says Terminal');
 });
+
+test('a dictation longer than one line is shown whole while it is heard, not cut to its first line (0.14.1 round)', () => {
+  const lb = app.slice(app.indexOf('const chatSkinLookBack'), app.indexOf('\n', app.indexOf('const chatSkinLookBack')) + 1);
+  const at = app.indexOf('function chatSkinPromptBoxText(');
+  const read = new Function(lb + app.slice(at, app.indexOf('\n}\n', at) + 2) + 'return chatSkinPromptBoxText;')() as (p: unknown) => string;
+  const pane = (lines: string[]) => ({ term: { rows: 30, buffer: { active: { length: lines.length, getLine: (i: number) => (lines[i] === undefined ? undefined : { translateToString: () => lines[i] }) } } } });
+  const rule = '─'.repeat(72);
+  const screen = ['⏺ earlier reply', ' '.repeat(40) + '⏺ REC · tap to send', '─'.repeat(60) + ' demo ─',
+    '❯ so the idea is that the release goes out tonight with the mic fix and', '  the chat fixes, and then we answer every issue that shipped', rule, '  ⏵⏵ auto mode on'];
+  assert.equal(read(pane(screen)), 'so the idea is that the release goes out tonight with the mic fix and the chat fixes, and then we answer every issue that shipped', 'both lines, joined');
+  assert.equal(read(pane([rule, '❯ ', rule])), '', 'control: an empty box reads empty');
+  const live = app.slice(app.indexOf('function chatSkinVoiceLive('), app.indexOf('function chatSkinVoiceLive(') + 1400);
+  assert.match(live, /heard = chatSkinPromptBoxText\(p\)/, 'the live placeholder reads the whole box');
+  assert.match(live, /el_\.value = heard; el_\.style\.height = 'auto';[\s\S]{0,140}el_\.value = '';/, 'and the box grows to fit it, without ever holding the words as a value');
+});

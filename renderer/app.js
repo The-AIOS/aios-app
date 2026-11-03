@@ -10059,18 +10059,36 @@ function chatSkinVoiceLive(p, rec) {
   if (!cs || !cs.input) return;
   if (!cs.placeholder0) cs.placeholder0 = cs.input.placeholder;
   let heard = '';
-  if (rec) {
-    try {
-      const b = p.term.buffer.active;
-      for (let i = b.length - 1; i >= Math.max(0, b.length - chatSkinLookBack(p, 30)); i--) {
-        const s = (b.getLine(i) || { translateToString: () => '' }).translateToString(true);
-        const m = /^\s*❯\s?(.*)$/.exec(s);
-        if (m) { heard = m[1].trim(); break; }
-      }
-    } catch { heard = ''; }
-  }
+  if (rec) { try { heard = chatSkinPromptBoxText(p); } catch { heard = ''; } }
   cs.input.classList.toggle('listening', !!rec);
   cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;
+  /* The box grows to the whole dictation. A placeholder does not size a textarea, so it is measured as if it were the value
+     (set and cleared in the same tick: no input event, nothing sent) and the height follows (0.14.1 round: a long dictation
+     was cut to its first line). With no dictation the box goes back to its own size. */
+  if (rec && heard && !cs.input.value) {
+    const el_ = cs.input;
+    el_.value = heard; el_.style.height = 'auto';
+    const h = Math.min(el_.scrollHeight, 220, Math.round(window.innerHeight * 0.4));
+    el_.value = '';
+    el_.style.height = h + 'px';
+  } else if (!cs.input.value) chatSkinAutosize(cs);
+}
+/* Everything in Claude Code's prompt box, every wrapped line of it, as one string: what tap-to-talk has transcribed so far.
+   The first line follows the ❯; the box ends at its bottom rule. Only the LAST line used to be read, so a dictation longer than
+   one line showed its first line only (0.14.1 round). Dim text is kept: the words still being transcribed may be drawn dim. */
+function chatSkinPromptBoxText(p) {
+  const b = p.term.buffer.active;
+  const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+  let bottom = -1;
+  for (let y = b.length - 1; y >= Math.max(0, b.length - chatSkinLookBack(p, 40)); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+  if (bottom < 1) return '';
+  let top = bottom - 1;
+  while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+  const first = /^\s*❯\s?(.*)$/.exec(text(top));
+  if (!first) return '';
+  const rows = [first[1]];
+  for (let y = top + 1; y < bottom; y++) rows.push(text(y));
+  return rows.map((r) => r.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 /* ── voice ───────────────────────────────────────────────────────────────────────────────────────────────
