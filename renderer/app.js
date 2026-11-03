@@ -3069,10 +3069,10 @@ function unregisterTab(id) {
    never by name (AI-228: a name is a label that changes, not an identity). A plain terminal does
    not come back after a restart, so neither does its membership; that is the restore rule, not a
    group rule. */
-/* Chrome's nine first, so a colour means what it means in the browser beside us; then the house coral and the two gaps
-   Chrome leaves (indigo between blue and purple, lime between yellow and green). New ones go LAST: the auto-pick walks this
-   order, so appending never changes which colour an existing operator's next group gets. */
-const TG_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange', 'coral', 'indigo', 'lime'];
+/* Twelve colours, shown as two rows of six in hue order (0.14.1 round): Chrome's palette with its red replaced by the house
+   coral, plus indigo, lime and brown to fill the gaps. A group saved as red is read as coral (tgColorOf). */
+const TG_COLORS = ['grey', 'blue', 'indigo', 'purple', 'pink', 'coral', 'orange', 'yellow', 'lime', 'green', 'cyan', 'brown'];
+const tgColorOf = (c) => (c === 'red' ? 'coral' : TG_COLORS.includes(c) ? c : 'grey');
 const tabGroups = new Map();   // gid → { name, color, collapsed }
 let tgSeq = 0;
 const tgNewId = () => 'g' + Date.now().toString(36) + (++tgSeq);
@@ -4613,7 +4613,14 @@ function noteOperatorKeys(p, d) {
 }
 
 function submitToPty(id, text, stillWaiting) {
-  if (!text) return;
+  if (!text || (Array.isArray(text) && !text.length)) return;
+  /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
+     PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
+  if (Array.isArray(text)) {
+    for (const part of text) window.glassShell.ptyWrite(id, typeof part === 'string' ? part : '\x1b[200~' + part.paste + '\x1b[201~');
+    setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 500);   // after the paste is read: Claude Code loads the image before Enter can carry it
+    return;
+  }
   window.glassShell.ptyWrite(id, text);
   setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 80);
   /* The Enter can be lost while Claude Code redraws (right after an interrupt, the operator's HELLO sat typed in its box and
@@ -5128,7 +5135,7 @@ function applyEdZoom() {
 }
 
 /* Terminal text size (#24 readability). Same range as the Settings field (10–18). */
-const TERM_FONT_DEFAULT = 12.5, TERM_FONT_MIN = 10, TERM_FONT_MAX = 18;
+const TERM_FONT_DEFAULT = 12.5, TERM_FONT_MIN = 10, TERM_FONT_MAX = 28;   // 28, as the chat goes (0.14.1 round: ⌘+ stopped at 18)
 function focusedTerminal() {
   const ae = document.activeElement;
   if (!ae) return null;
@@ -5592,7 +5599,7 @@ async function materializeRestore(id) {
 function tgAdopt(saved) {
   for (const g of Array.isArray(saved.groups) ? saved.groups : []) {
     if (!g || typeof g.id !== 'string' || !g.id || tabGroups.has(g.id)) continue;
-    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: TG_COLORS.includes(g.color) ? g.color : 'grey',
+    tabGroups.set(g.id, { name: String(g.name || '').slice(0, 40), color: tgColorOf(g.color),
       fold: g.fold && typeof g.fold === 'object' ? { main: !!g.fold.main, term: !!g.fold.term } : { main: !!g.collapsed, term: !!g.collapsed } });   // a save from before the per-strip fold folds both
   }
 }
@@ -8098,7 +8105,7 @@ const CHAT_FONTS = [
   { key: 'mono', stack: "'JetBrains Mono', 'SF Mono', Menlo, monospace", label: 'chat.font.mono' },
   { key: 'inter', stack: "Inter, -apple-system, 'Segoe UI', sans-serif", label: 'chat.font.inter' },
 ];
-const CHAT_SIZES = [12, 13, 14, 15, 16, 18, 20];
+const CHAT_SIZES = [12, 13, 14, 15, 16, 18, 20, 22, 24, 28];
 const CHAT_DEFAULT_SIZE = 14;
 const CHAT_PROMPT_KINDS = ['permission', 'trust', 'select', 'question', 'model', 'other'];
 const CS_WORKING_MS = 3000;   // pty output this recent, inside an open turn, reads as "Claude is working"
@@ -11188,6 +11195,27 @@ function chatSkinHistKey(cs, e) {
   return true;
 }
 /* The one way a line of text reaches the pty from the chat view: the typed message and the model button both end here. */
+/* Split a message into what is typed and the image paths in it, which are pasted so Claude Code attaches them (a screenshot
+   dropped or pasted into the chat box arrives as a quoted path; 0.14.1 round: it was sent as text, never as [Image #1]).
+   A path counts when it is absolute, ends in an image extension and stands as its own token: quoted the way the chat box
+   quotes it, or bare. Anything else stays text. Null when there is no image, so plain messages take the usual path. */
+const CHAT_IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
+function chatSkinImageParts(text) {
+  const re = /(^|\s)("([^"]+)"|'((?:[^']|'\\'')+)'|(\/[^\s'"]+|[A-Za-z]:\\[^\s'"]+))(?=\s|$)/g;
+  const parts = []; let last = 0; let found = false; let m;
+  while ((m = re.exec(text))) {
+    const raw = m[3] !== undefined ? m[3] : m[4] !== undefined ? m[4].replace(/'\\''/g, "'") : m[5];
+    if (!/^(\/|[A-Za-z]:\\)/.test(raw) || !CHAT_IMAGE_EXT.test(raw)) continue;
+    const start = m.index + m[1].length;
+    if (start > last) parts.push(text.slice(last, start));
+    parts.push({ paste: raw });
+    last = start + m[2].length;
+    found = true;
+  }
+  if (!found) return null;
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
@@ -11196,7 +11224,9 @@ function chatSkinSubmit(id, p, text) {
   cs.workSince = cs.turnStartAt;   // a send starts a working stretch
   cs.stick = true;
   const sent = text.replace(/\s+/g, ' ').trim();
-  submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
+  if (imgParts) submitToPty(id, imgParts);
+  else submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
   chatSkinControls(p);
@@ -11906,7 +11936,7 @@ function openSettingsTab() {
     row(wrap, t('settings.unattended'), unSel, t('settings.unattendedHint'));
 
     const fontIn = document.createElement('input');
-    fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = '18'; fontIn.style.width = '70px';
+    fontIn.className = 'tinput'; fontIn.type = 'number'; fontIn.min = '10'; fontIn.max = String(TERM_FONT_MAX); fontIn.style.width = '70px';
     fontIn.value = String(cfg.termFontSize || 12.5);
     // Live now, like ⌘+/− in a terminal: every open terminal changes, and new ones match.
     fontIn.addEventListener('change', () => setTermFont(Number(fontIn.value) || TERM_FONT_DEFAULT));

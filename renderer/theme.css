@@ -18,9 +18,9 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
 :root {
   /* Tab groups — Chrome's palette, so a colour means what it means in the browser beside us.
      Dark-theme tints here, light-theme ones in body.light; --tg-ink is the chip's text on them. */
-  --tg-grey: #dadce0; --tg-blue: #8ab4f8; --tg-red: #f28b82; --tg-yellow: #fdd663; --tg-green: #81c995;
+  --tg-grey: #dadce0; --tg-blue: #8ab4f8; --tg-yellow: #fdd663; --tg-green: #81c995;
   --tg-pink: #ff8bcb; --tg-purple: #c58af9; --tg-cyan: #78d9ec; --tg-orange: #fcad70;
-  --tg-coral: #ff8a7d; --tg-indigo: #a5adf6; --tg-lime: #c5e478; --tg-ink: #202124;
+  --tg-coral: #ff8a7d; --tg-indigo: #a5adf6; --tg-lime: #c5e478; --tg-brown: #c8a887; --tg-ink: #202124;
   --bg: #0b0b0d;            /* window void */
   --zone-edit: #131317;     /* editor zone — the lighter of the two work surfaces */
   --zone-term: #08080a;     /* terminal dock — deliberately the darkest thing on screen */
@@ -381,7 +381,8 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
           border: 1px solid var(--line-strong); box-shadow: var(--edge), 0 10px 30px rgba(0, 0, 0, .28); display: flex; flex-direction: column; gap: 9px; }
 .tgedit-name { font: 13px var(--font); color: var(--ink); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; outline: none; }
 .tgedit-name:focus { border-color: var(--accent); }
-.tgedit-sw { display: flex; gap: 6px; flex-wrap: wrap; }
+/* Two rows of six, spread to the name field's width so the popover is symmetrical (0.14.1 round: one row and a stray few). */
+.tgedit-sw { display: grid; grid-template-columns: repeat(6, 18px); justify-content: space-between; row-gap: 10px; padding: 2px 4px; }
 .tgedit-c { width: 18px; height: 18px; border-radius: 50%; border: 0; padding: 0; background: var(--tg); cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
 .tgedit-c.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--tg); }
 .tgedit-c:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -693,9 +694,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 
 /* ── light theme (The-AIOS light: paper surfaces, same coral) ── */
 body.light {
-  --tg-grey: #5f6368; --tg-blue: #1a73e8; --tg-red: #d93025; --tg-yellow: #e37400; --tg-green: #1e8e3e;
+  --tg-grey: #5f6368; --tg-blue: #1a73e8; --tg-yellow: #e37400; --tg-green: #1e8e3e;
   --tg-pink: #d01884; --tg-purple: #9334e6; --tg-cyan: #007b83; --tg-orange: #c26401;
-  --tg-coral: #d8402f; --tg-indigo: #4f5bd5; --tg-lime: #4d7c0f; --tg-ink: #fff;
+  --tg-coral: #d8402f; --tg-indigo: #4f5bd5; --tg-lime: #4d7c0f; --tg-brown: #8a6343; --tg-ink: #fff;
   --bg: #f4f4f2;
   /* Inverted vs dark, and a much smaller step. In LIGHT theme the terminal itself renders
      near-white (see termTheme('light') → #faf9f6), so a recessed dock framed a pale card in a
