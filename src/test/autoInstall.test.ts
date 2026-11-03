@@ -88,12 +88,14 @@ test('the renderer turns it on only from the unattended setting, at launch and o
   assert.ok(launch > app.indexOf('let UNATTENDED ='), 'told at launch, after the mode is read');
   assert.match(app, /localStorage\.setItem\(UNATTENDED_KEY, UNATTENDED\);[^\n]*\n\s*tellUpdaterUnattended\(\);/, 'and on every change');
   assert.equal((app.match(/updaterUnattended/g) || []).length, 1, 'no other caller');
+  assert.match(app, /showUpdatePill\(\(payload \|\| \{\}\)\.version, 'ready'\);[\s\S]{0,300}tellUpdaterUnattended\(\);/,
+    'told again on ready: the launch report may precede the updater and fail silently');
   assert.match(src('src/preload/preload.ts'), /updaterUnattended: \(on: boolean\)[^\n]*invoke\('updater:unattended', on\)/);
 });
 
 test('every locale says that unattended mode now installs updates', () => {
   for (const loc of ['en', 'es', 'pt-br', 'el']) {
     const h = JSON.parse(src(`src/i18n/locales/${loc}.json`))['settings.unattendedHint'] as string;
-    assert.match(h, /10/, `${loc}: the idle threshold is stated`);
+    assert.ok(h.includes(String(IDLE_MIN_S / 60)), `${loc}: the idle threshold (${IDLE_MIN_S / 60} min) is stated`);
   }
 });

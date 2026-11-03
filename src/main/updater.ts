@@ -37,6 +37,29 @@ const SIX_HOURS = 6 * 60 * 60 * 1000;
 /** Last check time, shared by the menu handler and the event triggers so they cannot double-poll. */
 const lastCheckRef = { at: 0 };
 
+/* ── unattended install driver ──────────────────────────────────────────────────────────────
+   Armed only while BOTH hold: unattended mode is on, and an update is downloaded. Mode off →
+   nothing here runs and the pill is the only way to install, exactly as before.
+
+   What a restart costs is the same as the pill's: sessions come back through unattended restore,
+   while a plain terminal's running command does not. The quiet rule waits out sessions; it cannot
+   see inside a plain shell, and does not pretend to.
+
+   Its own short interval, only while armed. The six-hour feed check above moved to real events
+   because a long timer drifts under sleep and App Nap; a 30-second sample that drifts by a few
+   minutes is harmless, and a sample after a long gap restarts the quiet streak (see installStep). */
+const unattended: {
+  wanted: boolean;
+  readyVersion: string;
+  install: (() => void) | null;
+  timer: ReturnType<typeof setInterval> | null;
+  quietSince: number;
+  lastSampleAt: number;
+  armedAt: number;
+  warned: boolean;
+  lastBlocker: string;
+} = { wanted: false, readyVersion: '', install: null, timer: null, quietSince: 0, lastSampleAt: 0, armedAt: 0, warned: false, lastBlocker: '' };
+
 export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   /* The single renderer sender. Kept above the isPackaged return so any future dev-side emit
      can use it without reintroducing a TDZ: a `const` referenced above its own declaration
@@ -156,29 +179,6 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
 
   app.on('before-quit', () => { clearInterval(timer); stopUnattended(); });
 }
-
-/* ── unattended install driver ──────────────────────────────────────────────────────────────
-   Armed only while BOTH hold: unattended mode is on, and an update is downloaded. Mode off →
-   nothing here runs and the pill is the only way to install, exactly as before.
-
-   What a restart costs is the same as the pill's: sessions come back through unattended restore,
-   while a plain terminal's running command does not. The quiet rule waits out sessions; it cannot
-   see inside a plain shell, and does not pretend to.
-
-   Its own short interval, only while armed. The six-hour feed check above moved to real events
-   because a long timer drifts under sleep and App Nap; a 30-second sample that drifts by a few
-   minutes is harmless, and a sample after a long gap restarts the quiet streak (see installStep). */
-const unattended: {
-  wanted: boolean;
-  readyVersion: string;
-  install: (() => void) | null;
-  timer: ReturnType<typeof setInterval> | null;
-  quietSince: number;
-  lastSampleAt: number;
-  armedAt: number;
-  warned: boolean;
-  lastBlocker: string;
-} = { wanted: false, readyVersion: '', install: null, timer: null, quietSince: 0, lastSampleAt: 0, armedAt: 0, warned: false, lastBlocker: '' };
 
 function attemptFile(): string { return path.join(app.getPath('userData'), 'unattended-install.json'); }
 function attemptedVersion(): string {

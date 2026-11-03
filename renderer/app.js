@@ -3857,7 +3857,12 @@ if (window.glassShell.onUpdater) {
     /* 'available' and 'progress' now REACH the UI. They used to be log-only, which left
        the whole download invisible. 'checking' stays silent on purpose — a poll that finds
        nothing is not news, and surfacing it would make the chrome flicker on every focus. */
-    if (channel === 'ready') showUpdatePill((payload || {}).version, 'ready');
+    if (channel === 'ready') {
+      showUpdatePill((payload || {}).version, 'ready');
+      /* Again, now that main has certainly registered its handler: the launch-time report can run
+         before the updater is initialised, and its rejection is swallowed. Idempotent in main. */
+      tellUpdaterUnattended();
+    }
     else if (channel === 'available') showUpdatePill((payload || {}).version, 'downloading');
     else if (channel === 'progress') {
       /* Progress can arrive without a version in the payload, and it must not blank the one
