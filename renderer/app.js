@@ -8988,6 +8988,8 @@ function chatSkinBuild(id, p) {
   /* The column changing size keeps the newest message in view when the operator was following it (0.14.0 round): opening a
      file from the chat un-maximized the Running zone, the log got shorter from the bottom, and the reply seemed to jump up. */
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (cs.stick) chatSkinScroll(cs); }).observe(log);
+  // select-to-copy, as in the terminal view: a drag over the conversation copies what it selected (chatSkinCopySelection)
+  log.addEventListener('mouseup', () => chatSkinCopySelection(cs));
   jumpBtn.addEventListener('click', () => { cs.stick = true; chatSkinScroll(cs, true); chatSkinPaintJump(cs); try { cs.input.focus({ preventScroll: true }); } catch { /* detached */ } });
   // links never navigate this window: they open in the system browser
   log.addEventListener('click', (e) => {
@@ -9186,6 +9188,30 @@ function chatSkinHandBack(id, p) {
     repaintTerm(p);
     if (paneShown(p) && active[zoneOf(p)] === id) p.term.focus();
   });
+}
+/* SELECT-TO-COPY IN CHAT VIEW. In terminal view a drag copies on its own (term.onSelectionChange, and Claude's own TUI
+   when `copyOnSelect` is on), so an operator who switched to the chat selected a passage, pasted, and got whatever was on
+   the clipboard before (operator-reported). The chat now does the same when Claude's `copyOnSelect` is on — the row in
+   Settings, read the way that row reads it: an unset key takes Claude's default, which is on. Only a selection inside
+   this chat's log counts: the box has its own copy, and a selection elsewhere is not this pane's to copy. */
+function chatSkinLogSelection(cs) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+  if (!cs.log.contains(sel.getRangeAt(0).commonAncestorContainer)) return '';
+  return String(sel);
+}
+async function chatCopyOnSelectOn() {
+  const [cc, keys] = await Promise.all([
+    Promise.resolve(window.glassShell.claudeConfig()).catch(() => null),
+    Promise.resolve(window.glassShell.claudeSetKeys()).catch(() => ({})),
+  ]);
+  if (!cc) return true;   // unreadable config: Claude's default
+  return (keys || {}).copyOnSelect !== false ? cc.copyOnSelect === true : true;
+}
+function chatSkinCopySelection(cs) {
+  const text = chatSkinLogSelection(cs);
+  if (!text) return;
+  void chatCopyOnSelectOn().then((on) => { if (on && chatSkinLogSelection(cs) === text) void window.glassShell.copyText(text); });
 }
 function chatSkinFocus(p) {
   requestAnimationFrame(() => {
