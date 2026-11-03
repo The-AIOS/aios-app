@@ -319,7 +319,7 @@ test('clicking INSIDE a pane moves the marks, not just the caret', () => {
      pane. It is the half of the spec's focus semantics that was missing: `active` became "focused
      rather than the only visible one", and nothing told it when focus moved by CLICK. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /p\.el\.addEventListener\('mousedown', \(\) => focusPane\(id\), true\)/,
+  assert.match(app, /p\.el\.addEventListener\('mousedown', \(\) => \{ lastPaneTouched = id; focusPane\(id\); \}, true\)/,
     'a click in a pane must focus it — mousedown, and capture, so the marks land with the caret');
   const fn = app.slice(app.indexOf('function focusPane(id) {'));
   const body = fn.slice(0, fn.indexOf('\n}'));

@@ -3892,7 +3892,21 @@ test('⌘+ / ⌘− with the chat focused change the chat text, in both directio
   /* The order is the fix: the overlay sits inside the terminal pane, so the terminal check must come second. */
   const zat = app.indexOf("case 'zoom':");
   const zoom = app.slice(zat, app.indexOf("case 'appScale':", zat));
-  assert.ok(zoom.indexOf('if (focusedChat())') > 0 && zoom.indexOf('if (focusedChat())') < zoom.indexOf('if (focusedTerminal())'), 'chat is asked before the terminal');
+  assert.ok(zoom.indexOf("zt.view === 'chat'") > 0 && zoom.indexOf("zt.view === 'chat'") < zoom.indexOf('zt.term && !zt.exited'), 'chat is asked before the terminal');
+  /* The target: focus inside a pane wins; with focus nowhere (a click in the conversation focuses nothing), the pane last pressed. */
+  const zsrc = app.slice(app.indexOf('let lastPaneTouched'), app.indexOf('\n}\n', app.indexOf('function zoomTarget')) + 2);
+  const body = { tag: 'body' }; const inChat = { tag: 'textarea' };
+  const zChat = { el: { contains: (x: unknown) => x === inChat, isConnected: true } };
+  const zNote = { el: { contains: () => false, isConnected: true } };
+  const zdoc = { activeElement: body as unknown, body };
+  const zt = new Function('document', 'panes', zsrc + 'return { zoomTarget, touch: (id) => { lastPaneTouched = id; } };')(zdoc, new Map<number, unknown>([[1, zChat], [2, zNote]]));
+  zdoc.activeElement = inChat;
+  assert.equal(zt.zoomTarget(), zChat, 'focus inside a pane: that pane');
+  zdoc.activeElement = body; zt.touch(1);
+  assert.equal(zt.zoomTarget(), zChat, 'focus nowhere: the pane last pressed (the chat), not the editor');
+  zt.touch(2);
+  assert.equal(zt.zoomTarget(), zNote, 'control: a note last pressed gets the editor zoom');
+  assert.match(app, /p\.el\.addEventListener\('mousedown', \(\) => \{ lastPaneTouched = id; focusPane\(id\); \}, true\);/, 'every press on a pane records it');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"zoom.chatLevel"'), l + ' has the toast');
 });
 

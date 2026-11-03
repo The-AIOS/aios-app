@@ -4172,7 +4172,8 @@ function attachPaneDropTarget(p, id) {
   /* mousedown, not click: it fires before focus moves into xterm's textarea, so the marks update
      in the same frame the caret does rather than one behind it. Capture phase, because xterm
      stops propagation on its own container for some events and a bubbling listener can miss. */
-  p.el.addEventListener('mousedown', () => focusPane(id), true);
+  p.el.addEventListener('mousedown', () => { lastPaneTouched = id; focusPane(id); }, true);
+  p.el.addEventListener('focusin', () => { lastPaneTouched = id; });
   const el = p.el;
   const ok = (ev) => {
     if (!dragTab) return false;
@@ -5141,6 +5142,14 @@ function focusedTerminal() {
   if (!ae) return null;
   for (const q of panes.values()) if (q.kind === 'term' && q.term && !q.exited && q.el && q.el.contains(ae)) return q;
   return null;
+}
+/* The pane ⌘+/− is about: the one holding the keyboard focus, else the one the operator last pressed or tabbed into. */
+let lastPaneTouched = null;
+function zoomTarget() {
+  const ae = typeof document !== 'undefined' ? document.activeElement : null;
+  if (ae && ae !== document.body) for (const q of panes.values()) if (q.el && q.el.contains(ae)) return q;
+  const q = lastPaneTouched == null ? null : panes.get(lastPaneTouched);
+  return q && q.el && q.el.isConnected ? q : null;
 }
 /* The pane whose CHAT view holds the focus: the composer, a bubble, anything inside the overlay. */
 function focusedChat() {
@@ -7532,11 +7541,15 @@ window.glassShell.onIntent(async (m) => {
          to NEW sessions, so the one pane you were squinting at could not be changed at all. */
       /* The chat view lives INSIDE the terminal pane (an overlay on p.el), so it has to be asked first: with the composer
          focused, focusedTerminal() also answers, and ⌘+/− used to resize the hidden terminal while the chat text stayed put. */
-      if (focusedChat()) {
+      /* Which text: the pane that holds the focus, or else the pane last pressed. A click in the chat's conversation or on
+         a rendered note focuses NOTHING, so a focus-only rule fell through to the editor zoom and the chat text could not be
+         changed at all (0.14.1 round: "trapped in the editor zoom"). Interface size is its own keys (⌘⌥), never this. */
+      const zt = zoomTarget();
+      if (zt && zt.kind === 'term' && zt.view === 'chat' && zt.chatSkin) {
         setChatFont(m.reset ? CHAT_DEFAULT_SIZE : chatPrefs.size + Math.sign(Number(m.delta) || 0));
         return;
       }
-      if (focusedTerminal()) {
+      if (zt && zt.kind === 'term' && zt.term && !zt.exited) {
         setTermFont(m.reset ? TERM_FONT_DEFAULT : TERMFONT + Math.sign(Number(m.delta) || 0));
         return;
       }
