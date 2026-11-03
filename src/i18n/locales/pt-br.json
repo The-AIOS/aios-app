@@ -351,6 +351,7 @@
   "killBehavior.capture": "Sempre capturar primeiro",
   "killBehavior.kill": "Finalizar imediatamente",
   "run.where": "Executar em…",
+  "session.heldOutside": "{name} já está em execução fora do AIOS (pid {pid}), então outra não foi iniciada.",
   "run.newTerminal": "Nova terminal",
   "run.newTerminalHint": "abre uma sessão nova com nome para esta ação",
   "run.wherePlaceholder": "Escolha uma sessão ativa, ou abra uma nova",

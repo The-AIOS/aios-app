@@ -351,6 +351,7 @@
   "killBehavior.capture": "Always capture first",
   "killBehavior.kill": "Kill immediately",
   "run.where": "Run in…",
+  "session.heldOutside": "{name} is already running outside AIOS (pid {pid}), so a second one was not started.",
   "run.newTerminal": "New terminal",
   "run.newTerminalHint": "start a fresh named session for this action",
   "run.wherePlaceholder": "Pick a live session, or start a new one",

@@ -1,14 +1,41 @@
 # Contributing
 
-**Read the organisation guide first:
-[The-AIOS/.github → CONTRIBUTING.md](https://github.com/The-AIOS/.github/blob/main/CONTRIBUTING.md).**
-It carries the rules that apply everywhere here — the `custom/` rule, commit format, CHANGELOG
-expectations, GPL-2.0-or-later inbound terms, and the no-personal-content discipline. This file
-adds only what is specific to this repo.
+**Read the framework's guide first:
+[The-AIOS/aios → CONTRIBUTING.md](https://github.com/The-AIOS/aios/blob/main/CONTRIBUTING.md).**
+It is the single source for the rules that apply everywhere: the `custom/` rule, what every AIOS
+session must keep, commit format, CHANGELOG expectations, licensing and the no-personal-content
+discipline. This file adds only what is specific to the App.
 
-**And check you're in the right one.** This is the Electron shell: window, panel, terminals,
-explorer, viewers, setup. If your change is to an agent, skill, command or template, it belongs in
-[The-AIOS/aios](https://github.com/The-AIOS/aios).
+## Before you build
+
+- **Look for it first.** Search open and recently closed
+  [issues](https://github.com/search?q=org%3AThe-AIOS+is%3Aissue&type=issues) and
+  [pull requests](https://github.com/search?q=org%3AThe-AIOS+is%3Apr&type=pullrequests) across
+  the organisation, and check the
+  [work in flight](https://github.com/search?q=org%3AThe-AIOS+is%3Aopen+label%3A%22status%3A+in-progress%22&type=issues):
+  issues labelled `status: in-progress`, and open or draft PRs. The labels are the only status
+  source. `duplicate-in-flight` on an issue means it is already being built elsewhere.
+- **If something matches, comment there** instead of opening a new one. One line claiming an
+  issue before you build can save you a whole PR.
+- **Titles.** An issue title reads `Area: what changes`, in under about 70 characters. The area is
+  the surface a reader recognises (`Chat view:`, `Setup:`, `Status line:`). After the colon, a
+  feature says what is true when it's done; a bug says what goes wrong as the user sees it. No
+  type prefixes like `[bug]` or `feat:`, since the `type:` label carries that. Conventional
+  Commits stay in commit messages and PR titles.
+- **No internal tracking keys or personal names** in commit messages, PR titles, PR bodies or
+  issue comments. Refer to issues and PRs by number.
+
+## Is this the right repo?
+
+This is the Electron shell: the window, panel, terminals, explorer, viewers and setup, the main
+process behind them, and how the App fulfils the spawn inbox. A change there belongs here, even
+when it changes how a command behaves.
+
+A change to an agent, skill, command, hook or template belongs in
+[The-AIOS/aios](https://github.com/The-AIOS/aios). A change to the IDE extension belongs in
+[The-AIOS/aios-glass](https://github.com/The-AIOS/aios-glass). The App and Glass implement the
+same spawn-inbox protocol separately, so a fix to one usually needs a matching PR in the other:
+say so in your PR and a maintainer will help line them up.
 
 ## Getting it running
 
@@ -75,6 +102,6 @@ assert success.
 
 ## Licensing
 
-GPL-2.0-or-later, matching the framework and the Glass extension — see
+GPL-2.0-or-later, matching the framework and the Glass extension. See
 [LICENSE-AUDIT.md](./LICENSE-AUDIT.md) for what that covers and what keeps its upstream license.
 By contributing you agree your work ships under those terms.

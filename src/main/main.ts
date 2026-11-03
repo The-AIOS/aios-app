@@ -46,6 +46,7 @@ import { resolveOne, resolveMany, RESOLVE_PATHS_LIMIT } from './pathResolve';
 import * as connectors from './connectors';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { nameStartedBy, heldElsewhere } from '../core/nameHolder';
 
 /**
  * Glass Shell — walking skeleton. Window + the shared Glass panel + ONE real
@@ -1678,6 +1679,15 @@ ipcMain.handle('session:isLive', (_e, sessionId: string) => {
   return !!sid && aios.listRunningAgents().some((a) => a.sessionId === sid);
 });
 ipcMain.on('panes:sessions', (_e, ids: unknown) => aios.setPaneSessionIds(ids));   // AI-203
+/* AI-241 (issue 95): the live session outside the App that already holds the name `cmd` would
+   start a session under, or null. See core/nameHolder.ts. */
+ipcMain.handle('shell:nameHolder', (_e, cmd: unknown) => {
+  const name = nameStartedBy(String(cmd ?? ''));
+  if (!name) return null;
+  const all = aios.listRunningAgents();
+  const h = heldElsewhere(name, all, aios.inAppSessionIds(all));
+  return h ? { name, pid: h.pid } : null;
+});
 ipcMain.on('pty:programStatus', (_e, m: { sessionId?: string; data?: string; at?: number }) => {
   host?.setProgramStatus(String(m?.sessionId ?? ''), String(m?.data ?? ''), Number(m?.at) || Date.now());
 });

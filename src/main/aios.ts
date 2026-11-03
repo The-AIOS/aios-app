@@ -487,6 +487,13 @@ export function listOperatorSessions(): RunningAgent[] {
   return all.filter((a) => inScope({ ...a, cwd: realOr(a.cwd || '') }, scope));
 }
 
+/** Session ids open in this App's panes: the renderer's report plus the process tree. */
+export function inAppSessionIds(all: RunningAgent[]): Set<string> {
+  const ids = new Set(paneSessionIds);
+  for (const id of paneSessionIdsFromTree(all)) ids.add(id);
+  return ids;
+}
+
 /* The App's pty pids, registered by main.ts (which owns the `ptys` map). */
 let ptyPidSource: () => number[] = () => [];
 export function setPtyPidSource(fn: () => number[]): void { ptyPidSource = fn; }
