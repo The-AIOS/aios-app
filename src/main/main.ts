@@ -549,7 +549,7 @@ ipcMain.handle('chat:where', async (_e, sessionId: unknown) => {
   if (!cwd) return { cwd: null, branch: null, changes: 0 };
   const git = (args: string[]): Promise<string | null> => new Promise((res) => {
     execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', cwd, ...args],
-      { timeout: 2000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => res(err ? null : String(out)));
+      { windowsHide: true, timeout: 2000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => res(err ? null : String(out)));
   });
   const branch = (await git(['branch', '--show-current']))?.trim() || null;
   const status = branch ? await git(['status', '--porcelain']) : null;
@@ -565,7 +565,7 @@ function mentionList(cwd: string): Promise<string[]> {
   if (hit && Date.now() - hit.at < 10_000) return hit.list;
   const list = new Promise<string[]>((res) => {
     execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', cwd, 'ls-files', '-co', '--exclude-standard'],
-      { timeout: 3000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => {
+      { windowsHide: true, timeout: 3000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => {
         if (!err) { res(String(out).split('\n').filter(Boolean).slice(0, 50_000)); return; }
         const found: string[] = [];
         const walk = (rel: string, depth: number): void => {

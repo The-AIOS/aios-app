@@ -15,6 +15,7 @@ import { resolveBash } from './resolveBash';
 import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '../core/accounts';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
+import { backgroundScan } from '../core/backgroundScan';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
 import { FINISH_SETUP_IDS, needsFinishSetup, runFinishSetup, pluginRepairArgv, missingHooks, oneLine, type FinishSetupOutcome } from '../core/finishSetup';
@@ -257,7 +258,7 @@ export function personalization(): PersonalizationEvidence & { ok: boolean; miss
   const root = frameworkRoot();
   if (root) {
     try {
-      const url = execFileSync(gitBin(), ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 4000 }).trim();
+      const url = execFileSync(gitBin(), ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true, timeout: 4000 }).trim();
       remote = !!url && !/[/:]The-AIOS\/aios(\.git)?$/i.test(url);
     } catch { remote = false; }
   }
@@ -566,18 +567,27 @@ function isAlive(pid: number): boolean {
  * bytes), printed in the same `pid ppid kb` shape, so the tree walk below is shared and only the
  * harvest differs — without it the whole call threw ENOENT and every session showed no memory.
  *
- * Memoized, and that part is not cosmetic: this is execFileSync, which BLOCKS the main thread,
- * and the panel re-reads memory on every poll. A full CIM enumeration costs hundreds of
- * milliseconds, so an unmemoized call meant the UI stuttering once per poll forever. The TTL is
- * shorter than the poll, so the reading stays live while repeat calls within one tick are free.
+ * A BACKGROUND READING, never a wait (issue #131). It used to be a 4 s TTL memo over
+ * execFileSync, so every panel poll past 4 s started a PowerShell and blocked the main thread on
+ * it. On a machine under memory pressure a CIM scan slows down: the App froze for up to the 8 s
+ * timeout each cycle, every new PowerShell added load, and without `windowsHide` each one opened
+ * a blank console. Reported from a 16 GB Windows 11 machine that had to be powered off.
+ * Now: callers get the last finished table at once, a scan never overlaps another, the gap
+ * between scans grows with how long a scan took, and the console stays hidden. The first
+ * read returns '' (no table yet), which every caller already treats as "nothing known".
  */
-const winProcTable = ttlMemo((): string => {
-  try {
-    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+const winScan = backgroundScan({
+  run: () => new Promise<string>((res, rej) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
       'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
-    { encoding: 'utf8', timeout: 8000 });
-  } catch { return ''; }
-}, 4000);
+    { encoding: 'utf8', windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
+    (err, out) => (err ? rej(err) : res(String(out))));
+  }),
+  minIntervalMs: 4_000,
+  maxIntervalMs: 60_000,
+  slowFactor: 5,
+});
+const winProcTable = (): string => winScan.read();
 
 /** Process-tree RSS (MB) for each given pid — one `ps` scan, summed over each
  *  session's descendants (the Glass "… ready 1h · 1.6 GB" token). Best-effort. */
@@ -1247,13 +1257,13 @@ export function gitBin(): string {
   let pathHit: string | undefined;
   try {
     pathHit = execFileSync(process.platform === 'win32' ? 'where' : 'which', ['git'],
-      { encoding: 'utf8', timeout: 3000 }).split('\n')[0].trim() || undefined;
+      { encoding: 'utf8', windowsHide: true, timeout: 3000 }).split('\n')[0].trim() || undefined;
   } catch { /* nothing on PATH */ }
   GIT_BIN = pickGit({
     platform: process.platform,
     pathHit,
     works: (p) => {
-      try { execFileSync(p, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); return true; }
+      try { execFileSync(p, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); return true; }
       catch { return false; }
     },
   });
@@ -1297,7 +1307,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
     /* Every branch head, not just HEAD: a vault on a release branch is AHEAD of main, and
        comparing it with HEAD alone read it as "update available" — an offer that would pull it back
        to main. `--symref` names the default branch. The decision is shared core (core/freshness). */
-    execFile(gitBin(), ['ls-remote', '--symref', url], { timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+    execFile(gitBin(), ['ls-remote', '--symref', url], { windowsHide: true, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       if (err || !stdout) return resolve('unknown');
       const f = freshness({ hash: status.hash, ref: status.ref }, parseLsRemote(stdout));
       lastTestingBranch = f.state === 'testing' ? f.branch : '';
@@ -1619,7 +1629,7 @@ async function zshOut(snippet: string, flags = '-lc'): Promise<string | null> {
 /** Run a snippet through PowerShell — the Windows counterpart of zshOnce. */
 function psOnce(snippet: string): Promise<string | null> {
   return new Promise((res) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { timeout: 8000 },
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { windowsHide: true, timeout: 8000 },
       (err, out) => res(err ? null : String(out).trim() || null));
   });
 }
@@ -1639,7 +1649,7 @@ function psProfileOnce(snippet: string): Promise<string | null> {
      terminal opened on "running scripts is disabled on this system". A probe that bypasses the
      policy the real terminal runs under measures a machine that does not exist. */
   return new Promise((res) => {
-    execFile('powershell.exe', ['-NonInteractive', '-Command', snippet], { timeout: 8000 },
+    execFile('powershell.exe', ['-NonInteractive', '-Command', snippet], { windowsHide: true, timeout: 8000 },
       (err, out) => res(err ? null : String(out).trim() || null));
   });
 }
@@ -1662,7 +1672,7 @@ export function psPolicyProbe(): Promise<PsPolicy | null> {
     '"POLICY=$e|MANAGED=$m|CLAUDE=$c"',
   ].join('; ');
   const p = new Promise<PsPolicy | null>((res) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { timeout: 8000 }, (err, out) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { windowsHide: true, timeout: 8000 }, (err, out) => {
       if (err) return res(null);
       const m = /POLICY=([^|]*)\|MANAGED=(\d*)\|CLAUDE=(.*)/.exec(String(out));
       if (!m) return res(null);
@@ -1735,7 +1745,7 @@ function runScript(script: string, cwd?: string): Promise<void> {
     const isPs = process.platform === 'win32' && /\.ps1$/i.test(script);
     const bin = isPs ? 'powershell.exe' : 'bash';
     const args = isPs ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] : [script];
-    execFile(bin, args, { timeout: 120000, cwd }, (err, stdout, stderr) =>
+    execFile(bin, args, { windowsHide: true, timeout: 120000, cwd }, (err, stdout, stderr) =>
       (err ? reject(Object.assign(err, { output: `${String(stdout || '')}\n${String(stderr || '')}` })) : resolve()));
   });
 }
@@ -2454,7 +2464,7 @@ export async function toolPlan(tool: InstallableTool): Promise<ToolPlan | undefi
     ? ['powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Tool', tool, '-Plan']]
     : ['bash', [script, tool, '--plan']];
   return new Promise((resolve) => {
-    execFile(bin, args, { timeout: 20000 }, (err, stdout) => {
+    execFile(bin, args, { windowsHide: true, timeout: 20000 }, (err, stdout) => {
       if (err && !stdout) { resolve(undefined); return; }
       const plan = parsePlan(tool, String(stdout || ''));
       resolve(plan.rungs.length ? plan : undefined);
@@ -2612,7 +2622,7 @@ export function storeGitHubPat(pat: string): boolean {
   if (!token || /\s/.test(token)) return false;
   try {
     let helper = '';
-    try { helper = execFileSync(gitBin(), ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
+    try { helper = execFileSync(gitBin(), ['config', '--get', 'credential.helper'], { encoding: 'utf8', windowsHide: true, timeout: 4000 }).trim(); } catch { helper = ''; }
     if (!helper) {
       // no helper anywhere → give git one (Keychain on macOS, plain store elsewhere)
       /* Windows has an OS credential vault too, and Git for Windows ships the helper for it, so
@@ -2620,11 +2630,11 @@ export function storeGitHubPat(pat: string): boolean {
          would write the PAT to ~/.git-credentials in PLAIN TEXT — acceptable as a last resort on
          a Linux box with no vault, never the default on a machine that has one. */
       const fallback = process.platform === 'win32' ? 'manager' : 'store';
-      execFileSync(gitBin(), ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
+      execFileSync(gitBin(), ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', windowsHide: true, timeout: 4000 });
     }
     execFileSync(gitBin(), ['credential', 'approve'], {
       input: `protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}\n\n`,
-      encoding: 'utf8', timeout: 8000,
+      encoding: 'utf8', windowsHide: true, timeout: 8000,
     });
     return true;
   } catch { return false; }
@@ -3507,7 +3517,7 @@ const winPersistedPath = ttlMemo((): string[] => {
   try {
     const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
       "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"],
-    { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] });
+    { encoding: 'utf8', windowsHide: true, timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] });
     const dirs = out.split(';').map((s) => s.trim().replace(/^"|"$/g, '')).filter(Boolean);
     if (dirs.length) return dirs;
   } catch { /* fall back to this process's copy — stale, but better than nothing */ }
@@ -3620,7 +3630,7 @@ export function claudeLocation(): { where: 'path' | 'disk' | 'none'; bin: string
       ['-ilc', `command -v ${cmd}`],
     ]) {
       try {
-        const found = execFileSync(sh, args, { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        const found = execFileSync(sh, args, { encoding: 'utf8', windowsHide: true, timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         const hit = found.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith('/')).pop();
         if (hit) return { where: 'path', bin: hit };
       } catch { /* try the next form */ }
@@ -3631,7 +3641,7 @@ export function claudeLocation(): { where: 'path' | 'disk' | 'none'; bin: string
        which silently threw away the PATH export appended at the end of that same file.
        It matters here because it decides whether the rc scan below can be trusted at all. */
     try {
-      const errOut = execFileSync(sh, ['-ilc', 'true'], { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'ignore', 'pipe'] });
+      const errOut = execFileSync(sh, ['-ilc', 'true'], { encoding: 'utf8', windowsHide: true, timeout: 6000, stdio: ['ignore', 'ignore', 'pipe'] });
       void errOut;
     } catch (e) {
       const msg = String((e as { stderr?: Buffer }).stderr ?? '');
@@ -4020,7 +4030,7 @@ export function gitRefreshInterval(lastMs: number, tooSlow: boolean): number {
 
 type GitRunner = (repo: string, cb: (err: (Error & { killed?: boolean }) | null, out: string) => void) => void;
 let runGitStatus: GitRunner = (repo, cb) => {
-  execFile(gitBin(), ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8', timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 1 << 22 },
+  execFile(gitBin(), ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8', windowsHide: true, timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 1 << 22 },
     (err, out) => cb(err as (Error & { killed?: boolean }) | null, String(out ?? '')));
 };
 /** Tests only: swap the git runner (and clear state). */
@@ -4102,7 +4112,7 @@ export function gitDirtyLines(absFile: string): Array<[number, number]> {
   if (!root) { diffCache.set(absFile, { at: now, ranges }); return ranges; }
   const rel = path.relative(root, absFile);
   const run = (args: string[]): string => {
-    try { return execFileSync(gitBin(), ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+    try { return execFileSync(gitBin(), ['-C', root, ...args], { encoding: 'utf8', windowsHide: true, timeout: 4000, maxBuffer: 1 << 22 }); }
     catch { return ''; }
   };
   // untracked → every line is new
