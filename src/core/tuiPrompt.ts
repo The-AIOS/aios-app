@@ -21,7 +21,8 @@
  * it was dismissed), plus a recogniser or a footer hint that only the TUI prints. Strings were
  * checked against the shipped CLI binary: "Do you want to proceed?", "tell Claude what to do
  * differently", "Yes, and don't ask again for", "Yes, I trust this folder", "Quick safety check",
- * "Select model", "Type something", "Chat about this", "Enter to select", "Esc to cancel", and the
+ * "Select model", "Type something", "Chat about this", "Ready to submit your answers?", "You have not
+ * answered all questions", "Enter to select", "Esc to cancel", and the
  * footer-less offers ("Make auto mode your default permission mode?", "Trust this directory?",
  * "Enter plan mode?", "Ready to code?", "Run this command?", …) which are drawn by the same Select
  * component with `hideIndexes` (no numbers) and, for some, with no footer at all.
@@ -110,8 +111,13 @@ const FOOTER =/(Enter to (?:select|confirm|submit|continue)|Esc to (?:cancel|exi
 
 const TRUST = /(Quick safety check|trust (?:this|the files in this) folder|Do you trust the files|Yes, I trust)/i;
 const MODEL = /(Select model|Switch between Claude models)/i;
-// AskUserQuestion always adds free-text / discuss options; its header chips are ☐ ☒ ✔ checkboxes
-const QUESTION = /(Type something|Chat about this|^\s*[←→]?\s*[☐☒]\s)/m;
+// AskUserQuestion always adds free-text / discuss options; its header chips are ☐ ☒ ✔ checkboxes.
+// Its LAST screen (several questions, all answered) has neither: "Review your answers", one row per
+// question and answer, then "Ready to submit your answers?" over `1. Submit answers` / `2. Cancel`,
+// with NO footer. The chips sit above the whole review, out of the context window once the answers
+// run past a few lines (measured: four questions put them 16 lines above the menu), so without its
+// own wording that screen was not a dialog at all and the chat view drew nothing to submit with.
+const QUESTION = /(Type something|Chat about this|^\s*[←→]?\s*[☐☒]\s|Ready to submit your answers\?|You have not answered all questions)/m;
 const PERMISSION = /(Do you want to |Would you like to proceed|tell Claude what to do differently|Yes, and don't ask again|Yes, allow all edits|Yes, during this session)/i;
 // 'other': a prompt that is not a menu but still waits on a keypress
 const OTHER = /(Press Enter to continue|\(y\/n\)\s*$|\[y\/N\]\s*$|\[Y\/n\]\s*$)/i;
