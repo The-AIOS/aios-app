@@ -3396,10 +3396,10 @@ function tgMoveGroup(z, gid, overId, after) {
 function paintStrip(z) {
   const strip = tabsEl(z);
   if (!strip) return;
-  const plus = strip.querySelector('.newTab');
+  // The (+) lives beside the strip with the zone's other controls, so the tabs are its last children.
   for (const id of tabOrder[z]) {
     const p = panes.get(id);
-    if (p && p.tab) strip.insertBefore(p.tab, plus);
+    if (p && p.tab) strip.appendChild(p.tab);
   }
   paintGroups(z);
 }

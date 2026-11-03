@@ -328,17 +328,15 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 #termzone .zbar, #termzone .tabstrip { background: var(--zone-term); }
 
 /* tab strips */
-/* A zone's header row is the bar: the TABS scroll inside it, and the zone's controls (Chat | Terminal,
-   expand) sit beside the scroller, outside it. They used to live inside the scrolling strip, where one
-   long session name or a narrow zone pushed them off the right edge — only expand was sticky, and it
-   sat on top of the tab name. Outside the scroller they cannot be scrolled away at any width. */
-.zbar { display: flex; align-items: center; flex: 0 0 auto; padding-right: 10px; -webkit-app-region: no-drag; }
-.zbar > .zview, .zbar > .zexp { flex: 0 0 auto; }
+/* A zone's header row is the bar: the TABS scroll inside it, and the zone's four controls ((+), Chat |
+   Terminal, expand) sit together beside the scroller, outside it. They used to live inside the scrolling
+   strip, where one long session name or a narrow zone pushed them off the right edge — only expand was
+   sticky, and it sat on top of the tab name. Outside the scroller they cannot be scrolled away at any
+   width, and they stay in one place instead of moving with the number of tabs. */
+.zbar { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; padding-right: 10px; -webkit-app-region: no-drag; }
+.zbar > .newTab, .zbar > .zview, .zbar > .zexp { flex: 0 0 auto; margin: 0; }   /* the bar's gap spaces them */
 .tabstrip { display: flex; align-items: center; gap: 5px; padding: 7px 10px; overflow-x: auto; overflow-y: hidden;
             flex: 1 1 auto; min-width: 0; -webkit-app-region: no-drag; scroll-behavior: smooth; }
-/* the (+) sits with the tabs it adds to, and when they overflow it pins to the scroller's right
-   edge over the strip's own background instead of drifting off past a wall of tabs */
-.tabstrip .newTab { flex: 0 0 auto; margin-left: 4px; position: sticky; right: 0; z-index: 2; background: inherit; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
        border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
        transition: all .14s; flex: 0 0 auto; }
