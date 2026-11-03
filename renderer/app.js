@@ -188,6 +188,7 @@ const ICONS = {
   command: '<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3z"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/>',
  branch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5.5 15A2.2 2.2 0 0 1 4 12.9V6.2A2.2 2.2 0 0 1 6.2 4h6.7A2.2 2.2 0 0 1 15 5.5"/>',
   mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -7713,7 +7714,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'chat'], [2, 'layout'], [3, 'sync'], [4, 'inbox']]) {   // one card per subject (0.14.0: chat view, terminal place, unattended, bus)
+    for (const [n, glyph] of [[1, 'mic'], [2, 'img'], [3, 'help'], [4, 'copy'], [5, 'inbox'], [6, 'sliders']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
