@@ -30,7 +30,9 @@ const ONE_CHUNK = /ptyWrite\([^)]*?(?:\+\s*['"`]\\r|\\r['"`]\s*\))/;
 let submits = 0;
 app.forEach((line, i) => {
   if (!ONE_CHUNK.test(line)) return;
-  if (/setTimeout\(\(\) => window\.glassShell\.ptyWrite\(id, '\\r'\)/.test(line)) return;  // submitToPty itself
+  /* submitToPty itself: a bare Enter (just '\r', no text) is never the one-chunk bug, whether it is the first press or the
+     retry when the press was lost to a redraw. */
+  if (/ptyWrite\(id, '\\r'\)/.test(line) && !/\+\s*['"`]\\r/.test(line)) return;
   submits++;
   console.error(`  ✗ renderer/app.js:${i + 1} — text+CR in one pty write does not submit; use submitToPty(): ${line.trim().slice(0, 90)}`);
 });
