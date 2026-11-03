@@ -3965,7 +3965,9 @@ test('a message sent during a turn shows at once as queued, and leaves when the 
   api.sweep(cs, {}); cs.queueIdleSince -= 7000; api.sweep(cs, {});
   assert.equal(cs.queued.length, 0, 'idle for a few seconds with no match: the backstop clears it');
   const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinHistList('));
-  assert.match(send, /if \(chatSkinWorking\(p\) && !text\.startsWith\('\/'\)\) chatSkinQueueAdd\(cs, text\);\s*chatSkinSubmit\(/, 'queued only while a turn runs, before it is typed');
+  assert.match(send, /if \(!text\.startsWith\('\/'\)\) \{ if \(chatSkinWorking\(p\) \|\| awaiting\) chatSkinQueueAdd\(cs, text\); cs\.lastMsgAt = Date\.now\(\); \}\s*chatSkinSubmit\(/, 'queued while a turn runs or the last message is unanswered, before it is typed; never a slash command');
+  assert.match(send, /const awaiting = !!cs\.lastMsgAt && cs\.lastMsgAt > \(cs\.lastReplyAt \|\| 0\) && Date\.now\(\) - cs\.lastMsgAt < 120000;/, 'unanswered: sent after the last reply, within two minutes');
+  assert.match(app, /if \(rec\.role !== 'user' && animate\) cs\.lastReplyAt = Date\.now\(\);/, 'news from Claude answers it; loading history does not');
   assert.match(app, /chatSkinBusLabel\(rec, text\); if \(cs\.queued && cs\.queued\.length\) chatSkinQueueSettle\(cs, text\);/, 'every user row from the transcript settles the queue');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.queued"'), l);
 });

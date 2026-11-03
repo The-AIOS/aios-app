@@ -10716,6 +10716,7 @@ function chatSkinUpsert(cs, item, animate, before) {
     }
   }
   const text = typeof item.text === 'string' ? item.text : '';
+  if (rec.role !== 'user' && animate) cs.lastReplyAt = Date.now();   // news from Claude (not history being loaded): the last message has its answer
   if (rec.role === 'assistant') {
     if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
@@ -11130,7 +11131,11 @@ function chatSkinSendNow(id, p, retried) {
   (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
   chatSkinAutosize(cs);
   chatSkinSlashClose(cs);
-  if (chatSkinWorking(p) && !text.startsWith('/')) chatSkinQueueAdd(cs, text);
+  /* Queued when a turn runs OR the last message has had no answer yet: right after a send, Claude Code has not drawn its
+     spinner and the transcript has not opened the turn, so for a few seconds a running turn reads as idle (seen in the demo
+     run: the second message, 4 s after the first, went in as queued while the chat said idle). */
+  const awaiting = !!cs.lastMsgAt && cs.lastMsgAt > (cs.lastReplyAt || 0) && Date.now() - cs.lastMsgAt < 120000;
+  if (!text.startsWith('/')) { if (chatSkinWorking(p) || awaiting) chatSkinQueueAdd(cs, text); cs.lastMsgAt = Date.now(); }
   chatSkinSubmit(id, p, text);
 }
 /* ── the queue: what was sent during a turn and is not in the transcript yet ── */
