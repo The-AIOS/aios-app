@@ -431,3 +431,69 @@ test('AskUserQuestion\'s submit screen is a question with two buttons, though it
   // control: the same menu with neither wording is not a dialog (a numbered list in an answer)
   assert.equal(detectTuiPrompt(SUBMIT_REVIEW.replace('Ready to submit your answers?', 'Two ways forward:').replace('Review your answers', 'Notes')), null);
 });
+
+/* Taken verbatim from a live AskUserQuestion: the model's question runs four rows, inside the quote
+   bar the TUI draws, with its `?` in the middle of the first row and no row ending in one. The card
+   used to show only the row right above the options ("en el servidor."). */
+const WRAPPED_QUESTION = [
+  '────────────────────────────────────────────────────────────────────────────────',
+  ' ☐ FileZilla',
+  '',
+  ' │ ¿Borro ~/.config/filezilla/ de la MacBook? Tiene 13 contraseñas de FTP/SFTP de 2015 a 2021, guardadas por',
+  ' │ FileZilla en archivos con permiso 644. Son de servidores de Prosumia (prosumia.la, lab.prosumia.la, pulso.social,',
+  ' │ hacemosporcordoba.com.ar), de turiver.com y de otros. Borrar no las revoca: si alguna sigue vigente, se cambia',
+  ' │ en el servidor.',
+  '',
+  '❯ 1. Sí, borrala',
+  '     rm -r de la carpeta sin abrir las contraseñas; la revocación en los servidores queda aparte',
+  '  2. No, dejala',
+  '     Queda como está, anotada en el mapa (sólo le bajo el permiso a 600)',
+  '  3. Primero cambio las claves',
+  '     Queda hasta que rotes las vigentes; en el mapa queda como pendiente tuyo',
+  '  4. Type something.',
+  '────────────────────────────────────────────────────────────────────────────────',
+  '  5. Chat about this',
+  '',
+  'Enter to select · ↑/↓ to navigate · Esc to cancel',
+  '──────────────────────────────────────────────────────────────── llavero-mapa ─',
+].join('\n');
+
+test('a question the terminal wrapped is read whole, not only its last row', () => {
+  const v = detectTuiPrompt(WRAPPED_QUESTION);
+  assert.equal(v?.kind, 'question');
+  assert.match(v?.question ?? '', /^¿Borro ~\/\.config\/filezilla\/ de la MacBook\? Tiene 13 contraseñas/);
+  assert.match(v?.question ?? '', /se cambia en el servidor\.$/);
+  assert.ok(!(v?.question ?? '').includes('│'), 'the quote bar is not part of the words');
+  assert.ok((v?.hint ?? '').length <= 160, 'the hint stays short: it feeds toasts');
+  assert.equal(v?.header, 'FileZilla');
+  assert.deepEqual(v?.options?.map((o) => [o.n, o.label]), [
+    [1, 'Sí, borrala'], [2, 'No, dejala'], [3, 'Primero cambio las claves'], [4, 'Type something.'], [5, 'Chat about this'],
+  ]);
+  assert.equal(v?.options?.[3].freeText, true);
+});
+
+test('each option carries the description printed under it; the last one takes nothing from below the list', () => {
+  const v = detectTuiPrompt(WRAPPED_QUESTION);
+  assert.equal(v?.options?.[0].desc, 'rm -r de la carpeta sin abrir las contraseñas; la revocación en los servidores queda aparte');
+  assert.equal(v?.options?.[1].desc, 'Queda como está, anotada en el mapa (sólo le bajo el permiso a 600)');
+  assert.equal(v?.options?.[3].desc, undefined);
+  assert.equal(v?.options?.[4].desc, undefined, 'the footer and the border label are not a description');
+  const q = detectTuiPrompt(QUESTION);
+  assert.deepEqual(q?.options?.map((o) => o.desc), ['Touch one file', 'Touch several files', undefined, undefined]);
+  assert.equal(detectTuiPrompt(PERMISSION)?.options?.some((o) => o.desc), false);
+});
+
+test('a two-row question ending in "?" keeps both rows; several chips name no header', () => {
+  const v = detectTuiPrompt(QUESTION.replace('Which approach should I take?', 'Before I touch the parser, which of the two\napproaches should I take?'));
+  assert.equal(v?.question, 'Before I touch the parser, which of the two approaches should I take?');
+  assert.equal(v?.header, undefined, '"← ☐ Approach  ☐ Scope  ✔ Submit →" cannot say which chip is current');
+});
+
+test('a question with no "?" anywhere is the paragraph above the options, only for an AskUserQuestion', () => {
+  const v = detectTuiPrompt(QUESTION.replace('Which approach should I take?', 'Pick the approach for the parser.'));
+  assert.equal(v?.question, 'Pick the approach for the parser.');
+  // an unrecognised menu without a "?" keeps what it always had: no question
+  const sel = detectTuiPrompt(SELECT);
+  assert.equal(sel?.question, undefined);
+  assert.equal(sel?.hint, 'Pick a theme');
+});

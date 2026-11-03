@@ -53,7 +53,9 @@
  * layout) is read as one row and therefore omitted. A footer-less offer is only recognised as
  * Yes/No-shaped: one row starting `Yes` and one starting `No`/`Not now`/`Cancel`/`Back`, under a
  * question line; a dialog of other shapes without numbers or a footer is not seen (the stalled-turn
- * notice is the net).
+ * notice is the net). An option's `desc` is every row between it and the next option, so a label the
+ * terminal wrapped shows its tail as a description (it used to be dropped); the last option never
+ * gets one, because the rows after a list are the footer and the input box's border.
  */
 
 export type TuiPromptKind = 'permission' | 'trust' | 'select' | 'question' | 'model' | 'other';
@@ -61,12 +63,23 @@ export type TuiPromptKind = 'permission' | 'trust' | 'select' | 'question' | 'mo
  * One selectable row of a dialog. `n` is the number the TUI prints (null for an unnumbered menu).
  * `key` is what to write to the pty to pick it (see THE KEYS above; split with `keyChunks`).
  */
-export interface TuiOption { n: number | null; label: string; selected: boolean; key: string; freeText?: boolean }
+export interface TuiOption {
+  n: number | null; label: string; selected: boolean; key: string; freeText?: boolean;
+  /** The indented line(s) the TUI prints under an option's label ("Touch one file"), when there are any. */
+  desc?: string;
+}
 export interface TuiPrompt {
   kind: TuiPromptKind;
   hint: string;
-  /** The question line ("Do you want to proceed?"), when the screen shows one. */
+  /**
+   * The question, when the screen shows one: the line ending in `?` ("Do you want to proceed?") or,
+   * when that line is part of a paragraph (a long question wrapped by the terminal), the whole
+   * paragraph. An AskUserQuestion is the model's own prose, which may put its `?` mid-row or not end
+   * in one at all, so for that kind the paragraph right above the options IS the question.
+   */
   question?: string;
+  /** AskUserQuestion's header chip ("☐ Scope"), when the screen shows exactly one. */
+  header?: string;
   /** Present only when the rows could be read with confidence; absent means "show the terminal". */
   options?: TuiOption[];
 }
@@ -133,10 +146,14 @@ const TAIL_LINES = 40;
 const OPTION_REACH = 5;
 
 const HINT_MAX = 160;
-const clip = (s: string): string => {
+/** A question is the text the operator decides on, so it gets more room than a hint (which feeds toasts). */
+export const QUESTION_MAX = 800;
+export const DESC_MAX = 300;
+const clipTo = (s: string, max: number): string => {
   const t = s.replace(/\s+/g, ' ').trim();
-  return t.length > HINT_MAX ? t.slice(0, HINT_MAX - 1) + '…' : t;
+  return t.length > max ? t.slice(0, max - 1) + '…' : t;
 };
+const clip = (s: string): string => clipTo(s, HINT_MAX);
 
 /** Every row of the screen, borders turned into spaces, trailing blank rows dropped. Blank rows in
  *  the MIDDLE are kept: they are what separates an option list from the text above it. */
@@ -158,10 +175,45 @@ const FREE_TEXT = /^Type something/i;
 const YES_ROW = /^Yes\b/;
 const NO_ROW = /^(?:No|Not now|Cancel|Back)\b/;
 
-/** The nearest question line above `from` (exclusive), or undefined. */
-function findQuestion(rows: string[], from: number): string | undefined {
+/** The index of the nearest question line above `from` (exclusive), or -1. */
+function questionRow(rows: string[], from: number): number {
   for (let i = from - 1; i >= Math.max(0, from - QUESTION_SPAN); i--) {
-    if (QUESTION_LINE.test(rows[i])) return clip(rows[i]);
+    if (QUESTION_LINE.test(rows[i])) return i;
+  }
+  return -1;
+}
+/**
+ * The paragraph right above `from` (exclusive): past at most two blank rows (the TUI leaves one
+ * between a question and its options), the non-blank rows up to the next blank one.
+ */
+function paragraphAbove(rows: string[], from: number): { first: number; text: string } | null {
+  let end = from;
+  while (end > 0 && from - end < 2 && rows[end - 1].trim() === '') end--;
+  let i = end - 1;
+  while (i >= 0 && end - i <= QUESTION_SPAN && rows[i].trim() !== '') i--;
+  // nothing there, or no blank row bounding it from above (the top of the tail may cut a paragraph)
+  if (i === end - 1 || i < 0 || rows[i].trim() !== '') return null;
+  return { first: i + 1, text: rows.slice(i + 1, end).map((l) => l.trim()).join(' ') };
+}
+/**
+ * The question above a menu starting at `rows[from]`. `rows` must keep its blank rows: they are
+ * what bounds a paragraph. The `?` line, when there is one, is widened to its whole paragraph if
+ * that paragraph sits right above the menu (a long question that the terminal wrapped: before, only
+ * its last row was kept). `prose` (AskUserQuestion) also takes that paragraph when no row ends in `?`
+ * — the model wrote the question, and nothing obliges it to end a row, or the text, with one.
+ */
+function findQuestion(rows: string[], from: number, prose = false): string | undefined {
+  const q = questionRow(rows, from);
+  const para = paragraphAbove(rows, from);
+  if (para && (q >= para.first || (q < 0 && prose))) return clipTo(para.text, QUESTION_MAX);
+  return q >= 0 ? clipTo(rows[q], QUESTION_MAX) : undefined;
+}
+/** AskUserQuestion's chips (`☐ Scope`, `← ☐ A  ☐ B  ✔ Submit →`): the header only when there is exactly one. */
+const CHIP = /[☐☒]\s+([^☐☒✔←→]+)/g;
+function findHeader(rows: string[], from: number): string | undefined {
+  for (let i = from - 1; i >= Math.max(0, from - QUESTION_SPAN); i--) {
+    const chips = [...rows[i].matchAll(CHIP)].map((m) => m[1].trim()).filter(Boolean);
+    if (chips.length) return chips.length === 1 && !/[✔←→]/.test(rows[i]) ? clip(chips[0]) : undefined;
   }
   return undefined;
 }
@@ -177,18 +229,23 @@ function arrowKey(from: number, to: number, accept: boolean): string {
 /** Options of a NUMBERED block; undefined when they cannot be trusted (see KNOWN LIMITS). */
 function numberedOptions(block: string[], firstNum: number, ctx: string): TuiOption[] | undefined {
   if (firstNum !== 1 || MULTI_SELECT.test(ctx)) return undefined;
-  const parsed: Array<{ n: number; label: string; cursor: boolean }> = [];
+  const parsed: Array<{ n: number; label: string; cursor: boolean; desc: string[] }> = [];
   for (const l of block) {
     const m = OPTION.exec(l);
-    if (m) parsed.push({ n: Number(m[2]), label: tidyLabel(m[3]), cursor: !!m[1] });
+    if (m) parsed.push({ n: Number(m[2]), label: tidyLabel(m[3]), cursor: !!m[1], desc: [] });
+    // a line between two options belongs to the one above it (the block ends at the last option, so
+    // nothing printed after the list, a footer or a border label, can be taken for a description)
+    else if (parsed.length) parsed[parsed.length - 1].desc.push(l.trim());
   }
   const cursors = parsed.filter((o) => o.cursor).length;
   if (parsed.length < 2 || cursors !== 1 || parsed.some((o) => /^\[[ x✔✓]\]\s/.test(o.label))) return undefined;
   const cur = parsed.findIndex((o) => o.cursor);
   return parsed.map((o, i) => {
     const freeText = FREE_TEXT.test(o.label);
+    const desc = clipTo(o.desc.join(' '), DESC_MAX);
     return {
       n: o.n, label: o.label, selected: o.cursor,
+      ...(desc ? { desc } : {}),
       // a digit picks it outright (one keystroke, whatever the cursor is on); only two-digit numbers
       // have no single key and fall back to the arrows
       key: o.n <= 9 ? String(o.n) : arrowKey(cur, i, !freeText),
@@ -299,14 +356,20 @@ export function detectTuiPrompt(screenText: string): TuiPrompt | null {
     const ctx = `${above}\n${withBelow}`;
 
     if (cursor && sequential) {
-      const question = findQuestion(lines, first);
+      // the same row in the tail WITH blank rows: `lines` has none, and a paragraph ends at a blank one
+      const nonBlank: number[] = [];
+      tailRows.forEach((l, i) => { if (l.trim() !== '') nonBlank.push(i); });
+      const at = nonBlank[first] ?? 0;
+      const asked = QUESTION.test(ctx);
+      const question = findQuestion(tailRows, at, asked);
+      const header = asked ? findHeader(tailRows, at) : undefined;
       const options = numberedOptions(block, nums[0], ctx);
-      const hintOf = (fallback: string): string => question ?? clip(lines[first - 1] ?? fallback);
+      const hintOf = (fallback: string): string => (question ? clip(question) : clip(lines[first - 1] ?? fallback));
       const verdict = (kind: TuiPromptKind, fallback: string): TuiPrompt =>
-        ({ kind, hint: hintOf(fallback), ...(question ? { question } : {}), ...(options ? { options } : {}) });
+        ({ kind, hint: hintOf(fallback), ...(question ? { question } : {}), ...(header ? { header } : {}), ...(options ? { options } : {}) });
       if (TRUST.test(ctx)) return verdict('trust', 'Trust this folder?');
       if (MODEL.test(ctx)) return verdict('model', 'Select model');
-      if (QUESTION.test(ctx)) return verdict('question', 'Claude has a question');
+      if (asked) return verdict('question', 'Claude has a question');
       if (PERMISSION.test(ctx)) return verdict('permission', 'Claude needs permission');
       // an unrecognised but real menu: the cursor, the numbering AND the TUI's own footer
       if (FOOTER.test(withBelow)) return verdict('select', 'Choose an option');
@@ -324,7 +387,7 @@ export function detectTuiPrompt(screenText: string): TuiPrompt | null {
     if (cur >= 0) {
       const ctx = lines.slice(Math.max(0, cur - 10)).join('\n');
       const pick = (re: RegExp, fallback: string): string => clip(lines.slice(Math.max(0, cur - 10), cur).find((l) => re.test(l)) ?? fallback);
-      const question = menu ? findQuestion(tailRows, menu.first) : findQuestion(lines, cur);
+      const question = menu ? findQuestion(tailRows, menu.first, QUESTION.test(ctx)) : findQuestion(lines, cur);
       const options = menuOptions(menu, ctx);
       const extra = { ...(question ? { question } : {}), ...(options ? { options } : {}) };
       if (TRUST.test(ctx)) return { kind: 'trust', hint: pick(TRUST, 'Trust this folder?'), ...extra };
@@ -349,7 +412,7 @@ export function detectTuiPrompt(screenText: string): TuiPrompt | null {
       const ctx = tailRows.slice(Math.max(0, menu.first - QUESTION_SPAN)).join('\n');
       const options = menuOptions(menu, ctx);
       const kind: TuiPromptKind = TRUST.test(ctx) ? 'trust' : MODEL.test(ctx) ? 'model' : PERMISSION.test(ctx) ? 'permission' : 'select';
-      return { kind, hint: question, question, ...(options ? { options } : {}) };
+      return { kind, hint: clip(question), question, ...(options ? { options } : {}) };
     }
   }
 

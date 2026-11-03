@@ -1812,6 +1812,10 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
          background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line); color: var(--subtle); font-family: var(--mono); font-size: 12px; font-weight: 600; }
 .csd-opt.def .csd-n { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
 .csd-l { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.csd-d { display: block; margin-top: 2px; color: var(--subtle); font-size: .88em; line-height: 1.4; }
+.csd-opt:disabled .csd-d { color: var(--faint); }
+.csd-opt.free .csd-l { color: var(--subtle); font-style: italic; }
+.csd-chip { margin-left: auto; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--ink); font-weight: 600; font-size: .95em; }
 .csd-def { flex: 0 0 auto; color: var(--faint); font-size: 14px; line-height: 1; }
 .csd-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 11px 2px 0; color: var(--faint); font-size: .86em; }
 .csd-link { padding: 3px 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--chat-link); cursor: pointer;

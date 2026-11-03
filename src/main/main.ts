@@ -3,7 +3,7 @@ import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
 import { createTranscriptTail, isSessionId } from './transcriptTail';
-import { createPromptMonitor, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
+import { createPromptMonitor, QUESTION_MAX, DESC_MAX, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
 import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker } from '../core/screenStream';
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
@@ -419,8 +419,13 @@ function promptWire(prompt: TuiPrompt | undefined): Record<string, unknown> {
   if (!prompt) return {};
   const options = (prompt.options ?? []).slice(0, 12).map((o) => ({
     n: o.n, label: String(o.label).slice(0, 200), selected: !!o.selected, key: o.key, ...(o.freeText ? { freeText: true } : {}),
+    ...(o.desc ? { desc: String(o.desc).slice(0, DESC_MAX) } : {}),
   }));
-  return { ...(prompt.question ? { question: prompt.question.slice(0, 300) } : {}), ...(options.length ? { options } : {}) };
+  return {
+    ...(prompt.question ? { question: prompt.question.slice(0, QUESTION_MAX) } : {}),
+    ...(prompt.header ? { header: prompt.header.slice(0, 80) } : {}),
+    ...(options.length ? { options } : {}),
+  };
 }
 
 async function endSkin(paneId: number, flush: boolean): Promise<void> {

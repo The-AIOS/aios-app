@@ -32,7 +32,7 @@ type ChatSkinEvent = { paneId: number; sid?: string } & (
   | { type: 'items'; items: ChatItem[] }
   | { type: 'turn'; open: boolean }
   | { type: 'usage'; contextTokens?: number; model?: string }
-  | { type: 'prompt'; kind: TuiPromptKind | null; hint?: string; question?: string; options?: TuiOption[]; refresh?: boolean }
+  | { type: 'prompt'; kind: TuiPromptKind | null; hint?: string; question?: string; header?: string; options?: TuiOption[]; refresh?: boolean }
   | { type: 'stream'; text: string; anchor: string; headCut: boolean }
   | { type: 'stream'; text: null; adopt?: string }
   | { type: 'missing' }
