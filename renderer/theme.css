@@ -852,7 +852,7 @@ body.light .modal-wrap { background: rgba(0,0,0,.25); }
 .xroot .xrm { margin-left: auto; color: var(--subtle); opacity: 0; padding: 0 4px; }
 .xroot:hover .xrm { opacity: 1; }
 .xroot .xrm:hover { color: var(--accent-ink); }
-/* AI-58: per-folder sort control — hover-reveal neutral glyph (no persistent tint):
+/* Per-folder sort control — hover-reveal neutral glyph (no persistent tint):
    sits at the right edge (left of × on workspace roots), like the Glass explorer */
 .xsort { margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
          color: var(--subtle); opacity: 0; padding: 0 3px; border-radius: 4px; cursor: pointer; }
@@ -936,9 +936,9 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 .prow2:hover { background: var(--surface-2); }
 .prow2 .rname { flex: 0 1 auto; min-width: 4.5em; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
 .prow2 .pst { flex: 1; min-width: 0; color: var(--subtle); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab .treads { display: inline-flex; margin-left: 4px; color: var(--faint); }   /* AI-169: this tab reads its answers aloud */
-.prow2 .pused { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 10.5px; margin-left: 6px; }   /* AI-171 */
-.prow2 .pswitch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--st-warn-ink); font-size: 10.5px; margin-left: 6px; }   /* AI-197 */
+.tab .treads { display: inline-flex; margin-left: 4px; color: var(--faint); }   /* This tab reads its answers aloud */
+.prow2 .pused { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 10.5px; margin-left: 6px; }
+.prow2 .pswitch { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--st-warn-ink); font-size: 10.5px; margin-left: 6px; }
 .prow2 .rmem { flex: 0 0 auto; color: var(--faint); font-family: var(--mono); font-size: 9.5px; margin-left: 6px; }
 .prow2 .runacts { flex: 0 0 auto; display: inline-flex; gap: 1px; opacity: 0; transition: opacity .12s; margin-left: 4px; }
 .prow2:hover .runacts, .prow2:focus .runacts { opacity: 1; }
@@ -1232,7 +1232,7 @@ body.zen #work { flex: 1; }
            border-radius: 7px; background: var(--accent); color: #0a0a0a; font-size: 8.5px; font-weight: 700;
            line-height: 13px; text-align: center; font-family: var(--mono); pointer-events: none; box-shadow: 0 0 0 2px var(--bg); }
 .ribtn.hasbadge { color: var(--accent-ink); }
-/* AI-222: the new-exports count is itself a button (opens the newest), unlike the agents count */
+/* The new-exports count is itself a button (opens the newest), unlike the agents count */
 .ribadge.go { pointer-events: auto; cursor: pointer; }
 body.light .ribadge { color: #fff; }
 
@@ -1264,7 +1264,7 @@ body.compact .plitem { padding: 4px 6px; }
 .psubbox .prow2 { padding: 5px 8px; }
 .psubbox .pdot { width: 8px; height: 8px; }
 .psubempty { color: var(--faint); font-size: 11px; padding: 5px 10px; }
-/* Review 13 — what AI-203's scope hid: a count that opens into plain rows. Muted with --faint (which
+/* Review 13 — what the operator-session scope hid: a count that opens into plain rows. Muted with --faint (which
    passes 4.5:1), never with opacity, and with no actions: these rows never notify. */
 .pgroup { margin: 2px 0 4px; padding-left: 8px; border-left: 2px solid var(--tg); }   /* a tab group's sessions, in its colour (0.14.0 round) */
 .pgroup-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 4px 2px; border: 0; background: none; cursor: pointer;
@@ -1560,7 +1560,7 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 }
 #dragacts .updpill:hover { filter: brightness(1.06); transform: translateY(-1px); background: var(--accent); color: #fff; }   /* the 0.10.1 hover, by operator decision (brand coral) */
 #dragacts .updpill[hidden] { display: none; }
-/* AI-200 — "What's in it?" beside the pill. Same specificity trap as the pill: `#dragacts button`
+/* "What's in it?" beside the pill. Same specificity trap as the pill: `#dragacts button`
    forces every title-bar control into a 26×26 box, so this needs the id + class selector and
    undoes the same forced values. Outlined, not filled: the pill is the action, this is a question.
    (It once sat INSIDE the comment above, ended it early and took the pill rule down with it —
@@ -1585,7 +1585,7 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 }
 #dragacts .updexplain:hover { border-color: var(--accent); }
 #dragacts .updexplain[hidden] { display: none; }
-/* AI-83 — the DOWNLOADING state. Same pill, visibly not-yet-actionable: muted rather than
+/* The DOWNLOADING state. Same pill, visibly not-yet-actionable: muted rather than
    coral, and no hover lift, because a control that looks pressable while it is not is worse
    than one that says nothing. It reads as progress, not as an invitation. `disabled` carries
    the behaviour (see showUpdatePill); this only carries the appearance, and the :hover
@@ -1689,7 +1689,7 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
   font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink);
   white-space: nowrap; pointer-events: none; }
 
-/* AI-132 keep-awake button. The STEAM carries the state (see the coffee icon), so colour here is
+/* Keep-awake button. The STEAM carries the state (see the coffee icon), so colour here is
    reinforcement, never the signal — a tinted glyph in a dark title bar reads as "slightly
    different" rather than "on", which defeats the one job this control has. `.caff-warn` is the
    case where we asked for a blocker and the platform refused (Linux without a session bus): the
@@ -1716,7 +1716,7 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
 .tlabicon { display: inline-flex; vertical-align: -2px; margin-right: 6px; opacity: .75; }
 #dragCaffeine.caff-warn { color: var(--st-warn-ink); }
 
-/* AI-82 split view. `.shown` is every pane on screen; `.active` is the one the keystrokes reach.
+/* Split view. `.shown` is every pane on screen; `.active` is the one the keystrokes reach.
    Two marks because the operator needs both answers, and with two panes up "which is focused" is
    a question the single `.active` class could never have been asked. */
 .tab.shown:not(.active) { border-color: var(--line); }
@@ -1733,14 +1733,14 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    OUTER ring, so it can never be confused with the drop target's inset ring below. */
 body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--edge), var(--depth); }
 
-/* AI-82 drag-to-split: the pane under the cursor says it will take the drop. A coral inset ring
+/* Drag-to-split: the pane under the cursor says it will take the drop. A coral inset ring
    rather than a border change — the border already carries focus, and two meanings on one edge is
    how an operator stops trusting either. */
 .pane.panedrop { box-shadow: inset 0 0 0 2px var(--accent), var(--edge), var(--depth); }
 
 /* #28 — a restored tab that has not been opened yet. Dimmed and italic so it reads as "waiting",
    not as a live session; opening it resumes the real one in its place. No animation of any kind:
-   a placeholder that moves would be a repaint loop waiting to happen, which is how AI-157 began. */
+   a placeholder that moves would be a repaint loop waiting to happen, which is how the hidden-window animation bug began. */
 .tab.restoring .tname { color: var(--faint); font-style: italic; }
 .pane.restorecard { display: flex; align-items: center; justify-content: center; }
 .restoremsg { color: var(--subtle); font-size: 12px; }

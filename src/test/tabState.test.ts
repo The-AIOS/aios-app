@@ -63,7 +63,7 @@ test('a tab dot is hidden until it has been painted', () => {
 });
 
 test('NOTHING animates a non-composited property — the compositor-loop guard', () => {
-  /* AI-157, measured 2026-09-15. The pulse animated `box-shadow`; the panel's "Working" verb
+  /* The hidden-window animation bug, measured 2026-09-15. The pulse animated `box-shadow`; the panel's "Working" verb
      animated `background-position` on `background-clip: text`. Neither property can be
      composited, so every frame re-ran style and paint on the main thread: 960 style
      recalculations per 8 seconds — 120 PER SECOND, forever — against 8 with animations off.

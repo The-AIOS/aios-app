@@ -1,4 +1,4 @@
-/* AI-222 — files opening by themselves.
+/* Files opening by themselves.
  *
  * The 03 - export watcher opened the newest file in a tab on ANY event in the folder, and the
  * setting defaulted to on. A `git pull` writes every file it brings with a fresh mtime, so work

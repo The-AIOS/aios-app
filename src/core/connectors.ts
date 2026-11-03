@@ -2,7 +2,7 @@
  * Connectors — the operator-facing name for what the framework calls MCPs.
  *
  * WHY THE WORD. "MCP" is a protocol name. A first-time operator cannot evaluate it, and being asked
- * about one during setup is the single worst friction AI-122 measured. The card says "Google
+ * about one during setup is the single worst friction measured in setup. The card says "Google
  * Workspace", never "google-workspace-mcp".
  *
  * WHY THIS FILE HOLDS NO CONNECTOR LIST. Registration knowledge lives in canonical, beside the thing
@@ -29,7 +29,7 @@
  * - `needs-install`: registered (or registerable) but the command points at a build artifact that
  *   does not exist yet — a `.venv/bin/python` `mcps/setup.sh` has not created. Without this state,
  *   Connect writes a registration that looks fine and fails at first use, which is the exact failure
- *   class AI-122 exists to remove.
+ *   class this card exists to remove.
  * - `drift`: the live registration and the manifest disagree. Real and unreported today — one
  *   bundled connector is registered with two permissions its own index calls "intentionally
  *   excluded", and its README predicted it: "no surface reporting the difference". This is that

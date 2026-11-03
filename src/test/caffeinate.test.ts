@@ -1,5 +1,5 @@
 /**
- * Keep-awake policy (AI-132).
+ * Keep-awake policy.
  *
  * The row this implements exists because the operator's workaround was a whole Claude session
  * standing in for a boolean — and because that workaround failed SILENTLY: session dies, machine
@@ -17,7 +17,7 @@ import {
 test('busy classification matches the renderer\'s own, and the duplication is GUARDED', () => {
   /* renderer/app.js cannot import src/core — index.html loads only node_modules UMD bundles, the
      generated i18n.js and app.js. So "what counts as busy" necessarily exists twice. That is the
-     exact shape that let a rung table drift in AI-129, so it is guarded instead of tolerated:
+     exact shape that let a rung table drift once before, so it is guarded instead of tolerated:
      this reads the renderer's busy branch out of the source and requires the same three words. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const line = app.split('\n').find((l) => l.includes("=== 'busy'")) ?? '';
@@ -116,7 +116,7 @@ test('the wiring keeps every decision in main — the renderer shows and sends, 
   /* The architectural constraint, guarded because it is invisible: renderer/app.js is a plain
      <script> and CANNOT import src/core (index.html loads UMD bundles, the generated i18n.js and
      app.js). So a renderer that decided anything here would be a second implementation of the
-     policy — the AI-129 shape. It must only paint what main reports and send intent. */
+     policy — the rung-table drift shape. It must only paint what main reports and send intent. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const code = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
   assert.doesNotMatch(code, /powerSaveBlocker/, 'the blocker is a main-process API');

@@ -38,7 +38,7 @@ const PINNED = new Set(['attention.ts', 'presence.ts', 'resumeTarget.ts', 'busVe
 mkdirSync(coreDst, { recursive: true });
 const files = [
   ...readdirSync(coreSrc).filter((f) => f.endsWith('.ts')).map((f) => [join(coreSrc, f), join(coreDst, f), f]),
-  /* AI-58: the per-folder sort module is pure + explicitly dual-front (Glass webview AND this
+  /* The per-folder sort module is pure + explicitly dual-front (Glass webview AND this
      app's explorer) — it lives in glass's src/files/ but ships to both. */
   [join(glass, 'src', 'files', 'sort.ts'), join(coreDst, 'sort.ts'), 'sort.ts'],
 ];

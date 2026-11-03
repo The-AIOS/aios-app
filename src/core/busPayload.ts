@@ -1,5 +1,5 @@
 /**
- * AI-66 — the bus delivers a POINTER, never a truncated prompt.
+ * The bus delivers a POINTER, never a truncated prompt.
  *
  * SHARED, BYTE-IDENTICAL WITH THE SIBLING REPO, and pinned by BUSPAYLOAD_SHA in both. Contract 2
  * has the two surfaces RACE for the same request, so a request must survive identically

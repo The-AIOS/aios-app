@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { pickBash, gitBashCandidates } from '../core/bashResolve';
 
 /**
- * Where is a `bash` this process can actually run? (AI-146 · canonical issue #116)
+ * Where is a `bash` this process can actually run? (canonical issue #116)
  *
  * MEASURED ON WINDOWS: a bus request carrying `"tier":"judgment"` was claimed and retired as
  * `spawnSync bash ENOENT`, while the identical request WITHOUT the field was fulfilled 90s later.
@@ -17,7 +17,7 @@ import { pickBash, gitBashCandidates } from '../core/bashResolve';
  * They work because a SESSION has bash. `resolve-tier` is simply the only one whose caller is a
  * Node process, and Node inherits no shell. So locating a bash HONOURS a prerequisite that
  * already exists rather than adding one; shipping a third hand-maintained copy of the rung→model
- * table would be the change that adds something, and it is the drift AI-129 ended.
+ * table would be the change that adds something, and it is the rung-table drift that was ended once already.
  *
  * Ordered, and each step says what it proves. Returns null when nothing is found, which is a
  * REFUSAL — never a licence to default a model.

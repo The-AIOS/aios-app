@@ -1,5 +1,5 @@
 /**
- * AI-169 step 1 — read aloud. What of a final answer is worth SPEAKING: prose only, short.
+ * Read aloud. What of a final answer is worth SPEAKING: prose only, short.
  * Code, tables, file paths and markdown scaffolding are read badly by any voice and belong on
  * screen; a conversation also needs short turns, so a long answer is cut to its first paragraph
  * and says so ("speak short, show long"). Pure.

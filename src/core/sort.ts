@@ -1,10 +1,10 @@
 /**
- * AI-58 — Explorer per-folder sort (SHARED logic).
+ * Explorer per-folder sort (SHARED logic).
  *
  * This module is intentionally PURE (no `vscode`, no `fs`): the comparator and
  * the per-folder-pref map helpers are the single source of truth for BOTH
  * fronts — the Glass extension's Explorer webview AND the AIOS App's file
- * sidebar (AI-53 topology). Each surface wires its own affordance (the header
+ * sidebar (shared topology). Each surface wires its own affordance (the header
  * sort control) and its own persistence sink, but the SORT + the pref shape are
  * written once here and reused. The `.glass/` state file (App-owned glass-UI
  * namespace) roams the same `filesFolderSort` map to both fronts.

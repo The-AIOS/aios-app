@@ -1,4 +1,4 @@
-/** AI-169 step 1 — what gets read aloud: prose, short, never code, tables or paths. */
+/** What gets read aloud: prose, short, never code, tables or paths. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { speakable, lastAnswer, SPEAK_MAX_CHARS } from '../core/speakable';

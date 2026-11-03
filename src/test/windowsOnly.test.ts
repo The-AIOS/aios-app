@@ -43,7 +43,7 @@ test('A · the alternate-screen default is Windows-only, and an operator can ove
     'do not widen this to "everything but macOS" — Linux was never measured');
 });
 
-test('B · resolveTier finds an interpreter, and refuses by NAME when it cannot (AI-146)', () => {
+test('B · resolveTier finds an interpreter, and refuses by NAME when it cannot', () => {
   /* MEASURED on Windows: a request carrying a tier retired as `spawnSync bash ENOENT`, while the
      same request without the field was fulfilled. The resolver is fine; the App's Node process
      simply has no shell. `ENOENT` reads like the hook is broken and sends the operator to the

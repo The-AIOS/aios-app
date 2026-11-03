@@ -1,5 +1,5 @@
 /**
- * Batch F tests — AI-58 sort-anywhere v2 (shared pure core + .glass/state.json
+ * Batch F tests — sort-anywhere v2 (shared pure core + .glass/state.json
  * prefs) and calendar ISO week numbers. Same fixture pattern as shell.test.ts:
  * aios.ts reads GLASS_FRAMEWORK_PATH at call time.
  */
@@ -87,7 +87,7 @@ test('getMonthData carries an ISO week number per week row', () => {
   assert.ok(d.weeks.flat().some((c) => c.date === '2026-07-20' && c.hasNote)); // fixture note still lands
 });
 
-test('shellSettings: openExports defaults to a quiet badge, never focus (AI-222)', () => {
+test('shellSettings: openExports defaults to a quiet badge, never focus', () => {
   assert.equal(aios.shellSettings().openExports, 'badge', 'the old default (open a tab) was the defect');
   aios.setShellSetting('autoOpenExports', false);
   assert.equal(aios.shellSettings().openExports, 'off', 'a saved off stays off');

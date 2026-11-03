@@ -1,5 +1,5 @@
 /**
- * Split view arithmetic (AI-82).
+ * Split view arithmetic.
  *
  * The spec's own warning is that "the interaction sweep is where this breaks, not the tiling" —
  * so these tests cover the tiling completely and cheaply, in order to leave the walk-through free
@@ -118,7 +118,7 @@ test('the renderer mirrors this arithmetic, and the duplication is GUARDED', () 
      impossible: renderer/app.js is a plain <script> and CANNOT import src/core (index.html loads
      UMD bundles, the generated i18n.js and app.js). So the mirror is forced, exactly as it is for
      the busy classifier, and the honest move is to guard it rather than forbid it.
-     If either side's constants or formula move, this fails and names both. That is the AI-129
+     If either side's constants or formula move, this fails and names both. That is the rung-table
      shape caught before it can drift, not after. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, new RegExp(`const SPLIT_GAP_PX = ${SPLIT_GAP};`), `gap must equal core's ${SPLIT_GAP}`);
@@ -179,7 +179,7 @@ test('one MECHANISM, three entry points — chord, menu, and drag onto a pane', 
 
 test('`active` means FOCUS now, and the focused pane is always visible', () => {
   /* The conflation of "active" and "the only visible one" WAS the ceiling. Keeping ONE focused id
-     is what lets every existing consumer of active[z] keep working — AI-64 tied *addressable
+     is what lets every existing consumer of active[z] keep working — tab-follows-session tied *addressable
      pane* to a single active session and that seam has produced a bug three times, so widening it
      was the change not to make. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
@@ -236,7 +236,7 @@ test('the tab menu is useful on ANY tab — including the one you are looking at
      broken, so every row that can apply to the tab under the cursor is offered. */
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const menu = app.slice(app.indexOf("tab.addEventListener('contextmenu'"), app.indexOf('/* ── drag to reorder'));
-  assert.match(menu, /value: 'rename'/, 'rename is always available (AI-70)');
+  assert.match(menu, /value: 'rename'/, 'rename is always available');
   /* A NATIVE menu, not the app's searchable picker. listModal exists for long lists and carries a
      filter box; on four rows that reads as over-powered — the operator said so. A search field
      implies a list worth searching. */
@@ -256,7 +256,7 @@ test('the tab menu is useful on ANY tab — including the one you are looking at
     'the old visibility condition is what made the menu look dead');
 });
 
-test('AI-70: renaming is TWO renames — a session renames itself, a shell gets a label', () => {
+test('Renaming is TWO renames — a session renames itself, a shell gets a label', () => {
   /* The operator caught this: renaming a live session's tab changed only the tab, leaving the tab
      saying one thing while the registry said another. That is not cosmetic — the bus addresses
      sessions BY NAME and `/rename` rewrites the registry entry, so the two disagreeing is the

@@ -23,7 +23,7 @@
 # includes what was just installed. The terminal that launched this script still
 # has the old PATH; running the follow-up here removes the "open a new terminal"
 # step. (The AIOS App itself keeps its launch-time PATH until it restarts - that
-# is how Windows propagates environment changes, see AI-111 in aios.ts.)
+# is how Windows propagates environment changes, see the PATH comments in aios.ts.)
 #
 # Testing parameters (not for operators): -Plan lists the ladder and touches
 # nothing - -Only <rung> - -Dest <dir> installs downloads under <dir> -

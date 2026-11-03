@@ -1,5 +1,5 @@
 /**
- * AI-83 — the update pill must show the DOWNLOAD, not only its end.
+ * The update pill must show the DOWNLOAD, not only its end.
  *
  * The bug: the pill appeared only on `update-downloaded`. The payload is 108–131 MB depending
  * on platform, so between "an update exists" and "the pill appears" the app KNEW and showed
@@ -38,7 +38,7 @@ function harness() {
       classList: { toggle: (c, on) => { if (on) el.classes.add(c); else el.classes.delete(c); } },
       addEventListener: (ev, fn) => { (el.handlers[ev] ||= []).push(fn); },
       appendChild: () => { /* container semantics are not what this tests */ },
-      insertBefore: () => { /* AI-200's "What's in it?" sits before the pill — order is not what this tests */ },
+      insertBefore: () => { /* The "What's in it?" button sits before the pill — order is not what this tests */ },
     };
     return el;
   };
@@ -55,7 +55,7 @@ function harness() {
   };
   /* showUpdatePill looks the pill up by id on every call, so the harness has to remember the
      element it created — that is exactly the create-once-then-reuse path being tested. */
-  /* Elements are found by the id they were GIVEN, as in a real DOM: since AI-200 showUpdatePill
+  /* Elements are found by the id they were GIVEN, as in a real DOM: since "What's in it?" shipped, showUpdatePill
      creates two buttons (the pill and "What's in it?"), "the last element created is the pill"
      stopped being true. */
   const created: FakeEl[] = [];

@@ -127,7 +127,7 @@ const PARSE_GRACE_MS = 2_000;
  * The inbox is machine-global by design — that is exactly what lets any surface serve any
  * request. It is also why this subsystem had no way to be EXERCISED: a second fulfiller pointed
  * at the real directory races the installed App for live traffic, which is how a real brief died
- * on 2026-07-27 (AI-67). So the only safe way to test the bus was not to test it, and the
+ * on 2026-07-27. So the only safe way to test the bus was not to test it, and the
  * 2026-08-12 double-delivery bug was consequently found by a session complaining rather than by
  * a check. Test infrastructure for the bus is the gap the bug exposed.
  *
@@ -342,7 +342,7 @@ const alive = (pid: number): boolean => {
   try { process.kill(pid, 0); return true; } catch { return false; }
 };
 
-/* AI-66 pt3 — the renderer's verdict on the last send it was asked to make. Fire-and-forget
+/* The renderer's verdict on the last send it was asked to make. Fire-and-forget
    emit + wait-for-the-transcript was the old shape, and it could not tell "delivered, waiting
    to see it" from "there was nothing here to deliver to". A pane that is gone, or that is no
    longer running the session, is knowable IMMEDIATELY — and knowing it early is what stops a
@@ -399,7 +399,7 @@ function writePayload(name: string, prompt: string): string {
 }
 
 /**
- * The most recent CLOSED session that answers to this name (AI-149).
+ * The most recent CLOSED session that answers to this name.
  *
  * The registry cannot answer this — it holds only live sessions, so the moment a worker exits
  * its entry is gone. Transcripts persist and carry `agent-name` records, so they are the durable
@@ -420,7 +420,7 @@ const resumeIndex = new ResumeIndex(
 function resumeIdFor(name: string, excludeSessionId?: string): Promise<string | undefined> {
   return resumeIndex.lookup(name, excludeSessionId).catch(() => undefined);
 }
-/* AI-228: the session's current name as its own transcript says it NOW (the last 2 MB hold the newest records), or '' when
+/* The session's current name as its own transcript says it NOW (the last 2 MB hold the newest records), or '' when
    it matches `want` or cannot be read. A read failure never blocks a resume: the index already matched the name. */
 function currentNameIfStale(sessionId: string, want: string): string {
   const f = resumeIndex.fileOf(sessionId);
@@ -437,7 +437,7 @@ function currentNameIfStale(sessionId: string, want: string): string {
   } catch { return ''; }
 }
 
-/** AI-205 — every send currently held by any surface (both surfaces' `.holding` files). */
+/** Every send currently held by any surface (both surfaces' `.holding` files). */
 function heldSends(): QueuedSend[] {
   const dir = inboxDir();
   const out: QueuedSend[] = [];
@@ -598,7 +598,7 @@ async function runSend(
   claimedAt: number,
 ): Promise<void> {
   if (!req.prompt) { markUndelivered(heldPath, req, "send request carried no 'prompt'"); return; }
-  /* AI-66 — spill BEFORE anything else looks at the text. A prompt over the measured
+  /* Spill BEFORE anything else looks at the text. A prompt over the measured
      inline ceiling is written to a payload file and what gets typed is a pointer to it.
      Nothing downstream may see the long form: the needle is taken from the DELIVERED text so
      verification proves the pointer arrived, and a verified pointer is a verified message —
@@ -615,16 +615,16 @@ async function runSend(
     log(`send → '${req.name}' is ${byteLength(req.prompt)} bytes; delivering a pointer to ${spilled}`);
   }
   let needle = safeNeedle(deliverText);
-  /* AI-205: the delivered text is fixed at the FIRST type — a message that queued gets its age
+  /* The delivered text is fixed at the FIRST type — a message that queued gets its age
      stamped on, so the needle and baseline are taken from that text, then. */
   const rawDeliver = deliverText;
-  /* AI-205: when this request FIRST queued (not when this surface claimed it) — the queue order,
+  /* When this request FIRST queued (not when this surface claimed it) — the queue order,
      the age stamp and the 24 h ceiling all read it, so an adopted hold keeps its place. */
   let queuedAt = claimedAt;
   try { queuedAt = queuedAtOf(JSON.parse(fs.readFileSync(heldPath, 'utf8')), claimedAt); } catch { /* keep the claim time */ }
   let firstTypedAt = 0;
   let heldForDraft = false;   // one log line per request when a draft holds it
-  /* AI-223: count deliveries in what was appended since this send began — never the whole file. */
+  /* Count deliveries in what was appended since this send began — never the whole file. */
   const since = new TranscriptSince();
   const count = (sid: string): number | null => {
     const appended = since.read(sid);
@@ -647,7 +647,7 @@ async function runSend(
   let baseline: number | undefined;
   for (;;) {
     const target = targetByName(req.name);
-    /* AI-205: a live but busy target is waited on until its next idle (QUEUE_CEILING_MS), not
+    /* A live but busy target is waited on until its next idle (QUEUE_CEILING_MS), not
        30 min; the never-type-into-busy rule is unchanged. */
     const decision = decideSend(target, Date.now() - queuedAt, TIMINGS.QUEUE_CEILING_MS);
     if (decision.do === 'undeliverable') { markUndelivered(heldPath, req, decision.reason); return; }
@@ -656,7 +656,7 @@ async function runSend(
       await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
       continue;
     }
-    /* AI-205 — one at a time, oldest first; a newer message from the same sender replaces an older
+    /* One at a time, oldest first; a newer message from the same sender replaces an older
        one still waiting. Only before the first type: once typed, a message is in flight. */
     if (!firstTypedAt) {
       /* Retired before its first type by the newer message that replaces it (below, on either
@@ -734,10 +734,10 @@ async function runSend(
     const firstTry = !firstTypedAt;
     if (!firstTypedAt) firstTypedAt = Date.now();
     const emittedAt = Date.now();
-    /* AI-223: the request must still exist at the moment of typing. A hold deleted by hand (or
+    /* The request must still exist at the moment of typing. A hold deleted by hand (or
        retired by a newer message) between attempts was typed anyway — the "re-send from memory". */
     if (!fs.existsSync(heldPath)) return;
-    recordTyped(deliverText, req.name, 'send', req.from);   // AI-172: before typing, so the label can never lose the race
+    recordTyped(deliverText, req.name, 'send', req.from);   // before typing, so the label can never lose the race
     emit(win(), 'sendByName', { name: req.name, text: deliverText, stash, staleMs: composeStaleMs(stash) });
     /* If the surface says it could not deliver, stop here. Waiting out the verification window
        on a message that was never typed is how one request consumed its entire sibling-release
@@ -796,7 +796,7 @@ async function runSend(
     const miss = decideAfterVerifyMiss({
       targetAlive: !!after,
       targetBusy: !!after && !isDeliverable(after.status),
-      heldMs: Date.now() - firstTypedAt,   // AI-205: the verification budget runs from the first type
+      heldMs: Date.now() - firstTypedAt,   // the verification budget runs from the first type
       attempts,
       maxAttempts: maxAttemptsFor(deliverText),
     });
@@ -829,7 +829,7 @@ async function runSend(
  *
  * Extracted from runImmediate so `resume` can reach it for its opt-in `"fallback":"spawn"`.
  * Deliberately a separate CALL rather than a shared flag: the two outcomes are a fresh something
- * and the same someone, and the whole point of AI-149 is that those must not be one code path
+ * and the same someone, and the whole point of the `resume` verb is that those must not be one code path
  * with a boolean deciding which you get.
  */
 function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest): void {
@@ -860,8 +860,8 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     if (needsTaskFile(req.task) || (process.platform === 'win32' && req.task)) {
       /* A PRIVATE file (privateRun: ~/.aios/run, never the shared /tmp), and a failed write is a
          dead letter. Falling back to typing the task inline brought back the Windows apostrophe
-         mangling and flooded the terminal with a long POSIX task — Glass already refused here
-         (AI-66); the App now does the same. */
+         mangling and flooded the terminal with a long POSIX task — Glass already refused here;
+         the App now does the same. */
       try { taskFile = writeHandoffFile(`aios-spawn-task-${req.name}.md`, req.task as string); }
       catch (e) {
         markUndelivered(heldPath, req, `could not write the task file safely (${(e as Error).message}) — not spawned; the task is never typed inline instead`);
@@ -875,7 +875,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
       task: req.task || 'Start session', model, taskFile, addDirs, extraArgs: c4.args,
     });
-    // AI-172: the first prompt the worker receives is bus-typed too — record exactly that text.
+    // the first prompt the worker receives is bus-typed too — record exactly that text.
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
     // background like every other bus path (#47): a fresh spawn was the one that still switched the
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
@@ -934,7 +934,7 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       const now = currentNameIfStale(sid, req.name);
       if (now) {
         markUndelivered(heldPath, req, `resume '${req.name}': that session is now called '${now}', so resume it as '${now}'. `
-          + 'It was not reopened under the old name: its terminal and its tab would carry different names, and bus messages to either would be lost (AI-228).');
+          + 'It was not reopened under the old name: its terminal and its tab would carry different names, and bus messages to either would be lost.');
         return;
       }
       const where = launchCwd(heldPath, req);
@@ -954,7 +954,7 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       const c4 = contract4Args(req);
       if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
       const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, addDirs, extraArgs: c4.args });
-      if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);   // AI-172
+      if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).
       emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where });
@@ -999,7 +999,7 @@ function launchAddDirs(heldPath: string, req: BusRequest): string[] | null {
 
 /** spawn / kill act immediately once claimed — nothing about the target can refuse them. */
 /**
- * AI-198 — the arguments contract 4 adds to a launch: `--effort` and the advisor (as
+ * The arguments contract 4 adds to a launch: `--effort` and the advisor (as
  * `--settings {"advisorModel":…}`). A rung names a fixed model from the contract's table.
  */
 function contract4Args(req: BusRequest): { args: string[] } | { error: string } {
@@ -1107,7 +1107,7 @@ function claim(fsPath: string): { heldPath: string; req: BusRequest; at: number;
   try {
     const body = JSON.parse(raw) as Record<string, unknown>;
     body._claim = { surface: MY_SURFACE, pid: process.pid, at };
-    withQueuedAt(body, at);   // AI-205: when it FIRST queued — kept through adoption and release
+    withQueuedAt(body, at);   // when it FIRST queued — kept through adoption and release
     fs.writeFileSync(fsPath, JSON.stringify(body, null, 2) + '\n');
     fs.renameSync(fsPath, heldPath);   // atomic: exactly one surface can win
   } catch { return undefined; }        // lost the race, or it vanished — either is fine
@@ -1180,7 +1180,7 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
   }
 }
 
-/* AI-66 pt4 — DEAD LETTERS NEED A READER.
+/* DEAD LETTERS NEED A READER.
    `.undelivered` was written honestly and then read by nobody. The README's promise that
    "nothing rots" is about CONTENTION — retirement stops a stuck claim blocking another
    surface — but it reads as a promise about MESSAGES, and it is not one. Retiring a request
@@ -1222,7 +1222,7 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   /* AIOS_BUS_DISABLED=1 — for a DEV build sharing a machine with the installed app.
      The inbox is machine-global, so two running surfaces both watch it and either may claim
      any request. That is not hypothetical: it is how a live brief died on 2026-07-27, bounced
-     between instances until the release budget was spent (AI-67). Running a dev build while
+     between instances until the release budget was spent. Running a dev build while
      real sessions coordinate over the bus therefore risks eating the operator's own traffic,
      and the failure is silent from the sender's side. A dev instance can simply not listen. */
   if (process.env.AIOS_BUS_DISABLED === '1') {

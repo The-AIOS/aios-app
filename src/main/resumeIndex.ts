@@ -208,7 +208,7 @@ export class ResumeIndex {
     return pickResume(name, this.candidates(name), excludeSessionId);
   }
 
-  /** The transcript file a session id came from, for the launch-time name check (AI-228). */
+  /** The transcript file a session id came from, for the launch-time name check. */
   fileOf(sessionId: string): string | undefined {
     return Object.keys(this.files).find((f) => this.files[f].sessionId === sessionId);
   }

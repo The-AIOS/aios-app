@@ -595,7 +595,7 @@ ipcMain.handle('chat:mention', async (_e, sessionId: unknown, before: unknown) =
   return { start: at.start, rows: rankMentions(await mentionList(cwd), at.query) };
 });
 /* Who delivered a user message, when the bus typed it: the App and Glass record every text they type for the bus in
-   bus-sent.jsonl (AI-172), by fingerprint, with the sender's name when the request carried one. The chat labels such a
+   bus-sent.jsonl, by fingerprint, with the sender's name when the request carried one. The chat labels such a
    message "from <name>" instead of "You". A claim, never an identity (contract 4): it is a label, nothing acts on it. */
 let busSentCache: { mtime: number; byFp: Map<string, { from?: string; at: number }> } | null = null;
 ipcMain.handle('chat:busFrom', (_e, text: unknown) => {
@@ -1322,11 +1322,11 @@ function resolveIn(relOrAbs: string): string | null {
    Cached by path+mtime: reopening the picker costs nothing, and a transcript that grows gets
    re-read because its mtime moved.
    The archive is still never READ on the app's own initiative — only when this picker is opened,
-   and nothing resumes without being ticked (AI-67's constraint). */
+   and nothing resumes without being ticked (the operator's constraint). */
 const nameCache = new Map<string, { name: string; was: string[] }>();
 const RESUMABLE_CAP = 2000;      // a backstop, not a page: far above any real archive
 
-/* AI-209 — WHAT A SESSION WAS CALLED, not only what it is called now. Measured: "boston" in the
+/* WHAT A SESSION WAS CALLED, not only what it is called now. Measured: "boston" in the
    picker found nothing, because `boston-companion` renamed itself `fortress-companion` in its last
    minutes, and the list matched current names only. A session is recognised by any name the
    operator ever knew it by, so the reader also returns the earlier ones — the name it was BORN
@@ -1516,7 +1516,7 @@ ipcMain.handle('fs:addFolderPath', (_e, p: string) => {
 });
 ipcMain.handle('fs:removeFolder', (_e, p: string) => { aios.removeWorkspaceFolder(p); if (mainWin) setupExplorerWatch(mainWin); return true; });
 const FS_ALWAYS_HIDE = new Set(['node_modules', 'out', 'dist', '.git', '.DS_Store', '.venv', '__pycache__']);
-// AI-58: entries carry mtime and arrive UNSORTED — the renderer owns the order
+// entries carry mtime and arrive UNSORTED — the renderer owns the order
 // (per-folder sort via resolveSort over the roaming .glass/state.json prefs).
 ipcMain.handle('fs:list', (_e, dirPath: string) => {
   const abs = resolveIn(dirPath || '.');
@@ -1534,7 +1534,7 @@ ipcMain.handle('fs:list', (_e, dirPath: string) => {
       });
   } catch { return []; }
 });
-// AI-58: sort prefs (shared shape with Glass — src/core/sort.ts keys in .glass/state.json)
+// sort prefs (shared shape with Glass — src/core/sort.ts keys in .glass/state.json)
 /* Resolve a path-shaped token from terminal output into a real, openable file.
    Existence inside the allowed roots is BOTH the safety property and the precision filter:
    terminal output is full of things that look like paths, and only underlining the ones that
@@ -1640,8 +1640,8 @@ ipcMain.handle('shell:zoom', (_e, factor: number) => {
   if (w && !w.isDestroyed()) w.webContents.setZoomFactor(f);
   return f;
 });
-/* AI-196 — a session's own OSC 7501 status, relayed by the renderer, merged in panelHost. */
-/* AI-169 — a session's final answer, reduced to what is worth hearing (core/speakable). */
+/* A session's own OSC 7501 status, relayed by the renderer, merged in panelHost. */
+/* A session's final answer, reduced to what is worth hearing (core/speakable). */
 ipcMain.handle('session:speakable', (_e, sessionId: string) => {
   const sid = String(sessionId || '');
   if (!/^[A-Za-z0-9-]{8,}$/.test(sid)) return { text: '', lang: '' };
@@ -1664,7 +1664,7 @@ ipcMain.handle('session:speakable', (_e, sessionId: string) => {
   } catch { /* unreadable — say nothing */ }
   return { text: '', lang: '' };
 });
-/* AI-192, revised — "Copy last answer": the session's final answer from its transcript, as plain text,
+/* "Copy last answer": the session's final answer from its transcript, as plain text,
    straight to the clipboard. Returns its length (0 = no answer yet). */
 ipcMain.handle('session:copyLastAnswer', (_e, sessionId: string) => {
   const sid = String(sessionId || '');
@@ -1692,8 +1692,8 @@ ipcMain.handle('session:isLive', (_e, sessionId: string) => {
   const sid = String(sessionId || '');
   return !!sid && aios.listRunningAgents().some((a) => a.sessionId === sid);
 });
-ipcMain.on('panes:sessions', (_e, ids: unknown) => aios.setPaneSessionIds(ids));   // AI-203
-/* AI-241 (issue 95): the live session outside the App that already holds the name `cmd` would
+ipcMain.on('panes:sessions', (_e, ids: unknown) => aios.setPaneSessionIds(ids));
+/* Issue 95: the live session outside the App that already holds the name `cmd` would
    start a session under, or null. See core/nameHolder.ts. */
 ipcMain.handle('shell:nameHolder', (_e, cmd: unknown) => {
   const name = nameStartedBy(String(cmd ?? ''));
@@ -1705,7 +1705,7 @@ ipcMain.handle('shell:nameHolder', (_e, cmd: unknown) => {
 ipcMain.on('pty:programStatus', (_e, m: { sessionId?: string; data?: string; at?: number }) => {
   host?.setProgramStatus(String(m?.sessionId ?? ''), String(m?.data ?? ''), Number(m?.at) || Date.now());
 });
-/* AI-200 — "Report this": the tab's recent lines go to a LOCAL temp file for aios-feedback to read.
+/* "Report this": the tab's recent lines go to a LOCAL temp file for aios-feedback to read.
    Never sent anywhere by the App; the agent scrubs and asks before anything leaves the machine. */
 ipcMain.handle('feedback:snapshot', (_e, name: string, text: string) => {
   sweepReportSnapshots();
@@ -1731,7 +1731,7 @@ function sweepReportSnapshots(maxAgeMs = 24 * 60 * 60 * 1000): void {
 }
 app.whenReady().then(() => { sweepReportSnapshots(); sweepHandoffDirs(); }).catch(() => undefined);   // older loose snapshots + handoff folders
 ipcMain.handle('shell:copyText', (_e, t: string) => { clipboard.writeText(String(t)); return true; });
-/* AI-192 — ⇧⌘C / right-click "Copy as plain text": the selection without Claude's TUI scaffolding
+/* ⇧⌘C / right-click "Copy as plain text": the selection without Claude's TUI scaffolding
    (bullets, quote bars, indents, the footer) and with terminal wraps rejoined into paragraphs. */
 ipcMain.handle('shell:copyPlainText', (_e, t: string, cols: number) => { clipboard.writeText(plainText(String(t), Number(cols) || 80)); return true; });
 ipcMain.handle('fs:read', (_e, relOrAbs: string) => {
@@ -1970,7 +1970,7 @@ ipcMain.handle('connectors:addCustom', (_e, input: string, service?: string) =>
   connectors.addCustom(aios.frameworkRoot(), String(input ?? ''), service ? String(service) : undefined));
 ipcMain.handle('shell:config', () => ({ ...aios.shellSettings(), localeResolved: aios.resolvedLocale(), hasIdentity: aios.hasIdentity(), operator: aios.operatorName(), identityNameGap: aios.identityNameGap(), primary: aios.primaryName() }));
 /**
- * A NATIVE context menu for a tab (AI-82).
+ * A NATIVE context menu for a tab.
  *
  * The first version used the app's `listModal`, which carries a filter box because it was built
  * for long searchable lists — sessions, skills, commands. On a four-row tab menu that reads as
@@ -2103,7 +2103,7 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
      back to the old chatViewDefault, so a bad write could silently resurrect a value the operator had moved on from. */
   if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();
   aios.setShellSetting(key, value);
-  /* AI-132: changing the RULE retires any override — otherwise you switch manual→auto and watch
+  /* Changing the RULE retires any override — otherwise you switch manual→auto and watch
      auto not follow sessions, with nothing on screen explaining why. Applies immediately rather
      than waiting for the next 2s tick, so the button reflects the new mode as the select closes. */
   if (key === 'caffeinate') caffeine.modeChanged();
@@ -2520,7 +2520,7 @@ app.whenReady().then(() => {
   // spawn/kill/send requests natively (Glass 0.4.2/0.4.3 parity). Interactive
   // window only — never during smoke/shot/eval.
   if (!SMOKE && !SHOT && !EVAL && !CHAT_SHOT) initCommandBus(() => mainWin, app.getVersion());
-  /* AI-132 keep-awake. Same guards as the bus: a smoke/shot/eval run must not hold a real
+  /* Keep-awake. Same guards as the bus: a smoke/shot/eval run must not hold a real
      machine awake. 2s matches the rendering cadence the RUNNING card already polls sessions on,
      so `auto` reacts as fast as the operator can see a session go busy and no new poll exists
      just for this. The teardown releases the blocker — the process dying releases it anyway, so
@@ -2688,7 +2688,7 @@ app.whenReady().then(() => {
       try {
         const anim = await win.webContents.executeJavaScript(`(() => {
           /* The ring lives on ::after, not on the dot — reading the element alone reports 'none'
-             and says nothing about the animation AI-157 was actually about. */
+             and says nothing about the animation the hidden-window bug was actually about. */
           const probe = (cls, pseudo) => { const el = document.createElement('span'); el.className = cls;
             document.body.appendChild(el); const cs = getComputedStyle(el, pseudo || null);
             const r = { name: cs.animationName, dur: cs.animationDuration }; el.remove(); return r; };
@@ -2820,10 +2820,10 @@ app.whenReady().then(() => {
         if (!headOk) console.error(`shell-smoke: header gate FAIL — ${JSON.stringify(head)}`);
         console.log(`shell-smoke: header — row ${head?.rowW}px, overlap ${head?.overlapPx}px, spill ${head?.spillPx}px`);
       } catch (err) { console.error('shell-smoke: header gate error', err); }
-      /* GATE: THE TWO NEW RE-CHECKS COST NOTHING WHEN NOTHING CHANGED (AI-153 + the retry label).
+      /* GATE: THE TWO NEW RE-CHECKS COST NOTHING WHEN NOTHING CHANGED (counter re-check + the retry label).
          0.9.8 adds two things that fire on a clock: the counter re-check (every 30s) and the
          "retrying…" status (every few seconds while a check fails). Either one repainting the panel
-         on each tick would be AI-157's redraw class again, arriving by a new door. Unit tests prove
+         on each tick would be the hidden-window redraw class again, arriving by a new door. Unit tests prove
          the gates in main; only a live renderer can prove the DOM stays still, so this measures
          style recalcs + layouts through the DevTools protocol over three equal windows — plain
          idle, ten counter re-checks, ten identical retrying posts — and requires the triggered

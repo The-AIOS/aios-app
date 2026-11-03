@@ -1,7 +1,7 @@
 /**
  * The interpreter ordering, exercised from a machine that is not Windows.
  *
- * The spec that decided AI-146 says the quiet part out loud: *"a green CI on Linux is not
+ * The spec that decided the bash resolution says the quiet part out loud: *"a green CI on Linux is not
  * evidence here."* That is true of the END-TO-END behaviour and always will be — but it must not
  * become an excuse for shipping the ORDERING untested, which is the part that is pure logic and
  * has four ways to be wrong. Hence a pure decision with the filesystem injected: every Windows

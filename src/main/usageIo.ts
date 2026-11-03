@@ -8,7 +8,7 @@ export function projectsDir(): string {
   return path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
 }
 
-/** The async file access the shared AI-171 reader needs. Nothing here blocks the thread. */
+/** The async file access the shared usage reader needs. Nothing here blocks the thread. */
 export const fsUsageIo: UsageIo = {
   async find(sessionId) {
     const base = projectsDir();

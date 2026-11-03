@@ -1,5 +1,5 @@
 /**
- * Reading a session's transcript without ever loading it whole (AI-223). Electron-free, so it can be
+ * Reading a session's transcript without ever loading it whole. Electron-free, so it can be
  * tested directly; the command bus uses it to verify sends and the kill guard to read idleSince.
  */
 import * as fs from 'fs';
@@ -32,7 +32,7 @@ export function readTranscript(sessionId: string): string {
 }
 
 /**
- * AI-223 — VERIFY A SEND BY READING ONLY WHAT WAS APPENDED SINCE IT STARTED.
+ * VERIFY A SEND BY READING ONLY WHAT WAS APPENDED SINCE IT STARTED.
  *
  * The measured failure: every repeat delivery went to one session whose transcript had grown to
  * 554 MB. The verifier read the WHOLE file into a string; past V8's ~512 MB string limit that read

@@ -82,7 +82,7 @@ function fileUrlToPath(u) {
 
 /* ── inline icon set (lucide-style strokes, static strings) ───────────────── */
 const ICONS = {
-  /* AI-132 keep-awake. TWO COMPLETE ICONS, not a cup plus an overlay — the first attempt drew the
+  /* Keep-awake. TWO COMPLETE ICONS, not a cup plus an overlay — the first attempt drew the
      steam as a second absolutely-positioned <svg> with `inset: 0`, which stretches to the BUTTON's
      box rather than aligning to the first svg, so the steam landed in the top-left corner instead
      of over the cup (operator-reported). One svg per state has no alignment to get wrong.
@@ -143,7 +143,7 @@ const ICONS = {
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/>',
-  speaker: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>',   /* AI-169 read aloud */
+  speaker: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>',   /* Read aloud */
   /* QUICK is a lightning bolt, not a rocket: the rocket is the DESIGNER's rail glyph (#34), so
      wearing it here made the card and its spawn row read as "designer". Worse, at 13-16px the
      rocket and the `design` pencil are the same shape — a diagonal stroke with a tail at the
@@ -263,7 +263,7 @@ function termTheme(mode) {
     brightBlue: '#92c7ff', brightMagenta: '#d9b1f0', brightCyan: '#84e6e0', brightWhite: '#ffffff',
   };
 }
-/* AI-190: follow the OS until the operator picks. THEME_PREF is what is stored ('system' when
+/* Follow the OS until the operator picks. THEME_PREF is what is stored ('system' when
    nothing is); resolveTheme() turns it into the light/dark actually painted. main passes the
    resolved theme on the URL so the very first frame is already right — no dark flash. */
 const OS_DARK = window.matchMedia('(prefers-color-scheme: dark)');
@@ -276,7 +276,7 @@ OS_DARK.addEventListener('change', () => {
   applyTheme(THEME);
   paintThemeBtn();
 });
-/* AI-196 — the Program Status Protocol (OSC 7501), measured on Claude Code 2.1.296: the session
+/* The Program Status Protocol (OSC 7501), measured on Claude Code 2.1.296: the session
    sends `OSC 7501 ; ?` and reports working / blocked (waiting on you) / done only if the terminal
    answers with an OSC 7501 starting `?`. We answer, then hand each status to main, keyed by the
    session's id, where it is merged with the registry for the badge, banners and agents pane.
@@ -289,11 +289,11 @@ function programStatusOsc(paneId, data) {
   if (!p) return true;
   p.programStatus = { data: s, at: Date.now(), sent: false };
   flushProgramStatus(p);
-  if (READ_ALOUD && p.readAloud && /^state=done\b/.test(s)) void speakAnswer(p, paneId);   // AI-169: the session says it is done
+  if (READ_ALOUD && p.readAloud && /^state=done\b/.test(s)) void speakAnswer(p, paneId);   // the session says it is done
   return true;
 }
 
-/* AI-169 step 1 — read aloud. A per-session switch (the tab's right-click menu). When that session
+/* Read aloud. A per-session switch (the tab's right-click menu). When that session
    tells the terminal it is DONE (OSC 7501), main returns its final answer reduced to what is worth
    hearing — prose, first paragraph, no code, tables or paths (core/speakable) — and the system
    voice reads it, on this machine, in the App's language. Any key in that pane stops it at once,
@@ -310,7 +310,7 @@ function setReadAloud(id, on) {
   if (!on) stopSpeaking(id);
   toast(t(on ? 'readAloud.on' : 'readAloud.off'));
 }
-const READ_ALOUD = false;   // AI-169 hidden until conversations work both ways (operator decision)
+const READ_ALOUD = false;   // hidden until conversations work both ways (operator decision)
 async function speakAnswer(p, paneId) {
   if (!p.sessionId || !window.speechSynthesis) return;
   const res = await window.glassShell.speakable(p.sessionId).catch(() => ({ text: '', lang: '' }));
@@ -427,7 +427,7 @@ function applyHiddenCards(list) {
   }
 }
 
-/* ── AI-58: explorer sort (per-folder overrides + master default) ─────────────
+/* ── Explorer sort (per-folder overrides + master default) ─────────────
    The pref map roams via .glass/state.json (shared shape with Glass — see
    src/core/sort.ts). This mirror keeps the two pure lookups the renderer needs:
    closest-ancestor override resolution + the folders-first comparator. */
@@ -569,7 +569,7 @@ let xOn = layoutState.xOn !== false;
    prefers it and does not see corruption. */
 let termRenderer = layoutState.termRenderer === 'webgl' ? 'webgl' : 'dom';
 
-/* AI-77 — OPTION AS META, EXCEPT WHERE YOUR KEYBOARD TYPES A CHARACTER WITH IT.
+/* OPTION AS META, EXCEPT WHERE YOUR KEYBOARD TYPES A CHARACTER WITH IT.
    macOptionIsMeta stays on: it is what makes ⌥↵ (newline in Claude's composer), ⌥←/→ (word
    jumps), ⌥⌫ and ⌥-letter shortcuts reach the TUI. But on Spanish, German, French, Italian and
    other layouts Option is how you TYPE @ # | \ [ ] { } ~, and Meta swallowed them: ⌥2 sent
@@ -662,7 +662,7 @@ function applyLayout() {
   dp.title = t(showP ? 'panel.hide' : 'panel.show');
   const rx = document.getElementById('railExplorer');
   rx.classList.toggle('on', showX);
-  const exportCount = rx.querySelector('.ribadge');   // AI-222: the new-exports count lives on this button
+  const exportCount = rx.querySelector('.ribadge');   // the new-exports count lives on this button
   rx.innerHTML = icon(showX ? 'folderOpen' : 'folder', 15); // open folder when the explorer is showing
   if (exportCount) rx.appendChild(exportCount);
   applySplit();
@@ -855,7 +855,7 @@ function renderPulse(msg) {
   if (msg.type === 'state') renderPulseState(msg);
   else if (msg.type === 'running') {
     renderPulseRunning(msg); paintTabStates(msg); for (const [, p] of panes) flushProgramStatus(p);
-    /* AI-203: the sessions open in this App's panes are the operator's, wherever they run. */
+    /* The sessions open in this App's panes are the operator's, wherever they run. */
     window.glassShell.paneSessions([...panes.values()].map((p) => p.sessionId).filter(Boolean));
   }   // #24.2b tab state, on the same 2s pulse
   else if (msg.type === 'month') renderPulseMonth(msg.data);
@@ -957,7 +957,7 @@ function refreshSalutes() {
 }
 setInterval(refreshSalutes, 60 * 1000);
 
-/* PAUSE EVERY ANIMATION WHEN THE WINDOW IS NOT IN FRONT (AI-157).
+/* PAUSE EVERY ANIMATION WHEN THE WINDOW IS NOT IN FRONT.
    Compositing is serialised by WindowServer, so one window repainting forever queues every other
    window's input behind it — the operator's report was typing lagging in EVERY app, with ⌘H
    dropping WindowServer from ~32% to 0.1% instantly. Electron's backgroundThrottling does not
@@ -1241,7 +1241,7 @@ function healthFixButton(c) {
 }
 
 /* ═══ CONNECTORS — the services the AIOS can reach ═══════════════════════════
-   AI-122 B2. Each bundled connector shown as a SERVICE ("Google Workspace"),
+   Each bundled connector shown as a SERVICE ("Google Workspace"),
    never as a protocol name. The rows come from canonical's own manifests
    (mcps/<id>-mcp/connector.json) — the App ships no list of its own, so this
    card cannot drift from what the framework actually bundles.
@@ -1473,7 +1473,7 @@ function connButton(c) {
   /* Anything that is not one-click hands off to a GUIDED SESSION rather than a form.
      A modal asking for GITHUB_PERSONAL_ACCESS_TOKEN assumes the operator knows what a personal
      access token is, which scopes it needs, and where GitHub hides the page — the same assumption
-     AI-122 exists to remove. It is the README button's mistake one step later: both answer with a
+     the connectors card exists to remove. It is the README button's mistake one step later: both answer with a
      document when what is needed is someone walking beside you. A session can explain, wait, retry
      when the first token has the wrong scopes, and verify. A text field can do none of that. */
   /* Bundled connectors ALWAYS go through a session, even `one-click` ones. Stitch is why: its
@@ -1981,7 +1981,7 @@ function renderPulseRunning(m) {
     runIntoGroups(hit ? hit[0] : null, r);
   }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
-    /* Review 13: AI-203's scope can be wrong, and a wrong HIDE is invisible unless it is counted.
+    /* Review 13: the operator-session scope can be wrong, and a wrong HIDE is invisible unless it is counted.
        So the panel says how many it hid and can show them — plain rows, never notifying. */
     const hidden = Array.isArray(data.hidden) ? data.hidden : [];
     if (hidden.length) {
@@ -2327,8 +2327,8 @@ function sessionRow(a) {
       r.appendChild(el('span', 'pst', '· ' + label + (a.proj ? ' · ' + a.proj : '')));
     }
   }
-  /* AI-197 — a model switch this session did not choose (canonical's model-switch log). */
-  /* AI-171 step 1 — the skills and agents this session used, shown quietly: the cheapest way to
+  /* A model switch this session did not choose (canonical's model-switch log). */
+  /* The skills and agents this session used, shown quietly: the cheapest way to
      learn they exist is to see them working on your own request. Hover names them all. */
   if (a.used && a.used.chip) {
     const u = el('span', 'pused', t('running.used', { what: a.used.chip }));
@@ -2548,11 +2548,11 @@ const UNATTENDED_KEY = 'unattendedMode';
 function unattendedModeOf(v) { return v === 'summary' || v === 'full' ? v : 'off'; }
 let UNATTENDED = (() => { try { return unattendedModeOf(localStorage.getItem(UNATTENDED_KEY)); } catch { return 'off'; } })();
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
-/* AI-82 — `active` is now FOCUS, not visibility.
+/* `active` is now FOCUS, not visibility.
    It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
    single pane whose id matched. Every existing consumer of `active[z]` still wants "the pane the
    operator is working in", so the name and the meaning both survive — what changed is that a zone
-   can show more than the focused one. Deliberate: `AI-64` tied *addressable pane* to a single
+   can show more than the focused one. Deliberate: tab-follows-session tied *addressable pane* to a single
    active session, and that seam has produced a bug three separate times, so keeping ONE focused id
    is the change that touches the fewest of those callers.
 
@@ -2955,7 +2955,7 @@ function attachPathLinks(term, startCwd, paneId) {
          both joins are offered — with and without a space — because the newline may or may not
          have replaced one. The filesystem picks. */
       joinAcrossBreak(hits, L.next, L.nextRow);
-      /* TEMPORARY (AI-64 follow-up): one path refuses to link and the screenshot contradicts
+      /* TEMPORARY (tab-title follow-up): one path refuses to link and the screenshot contradicts
          the wrap theory — a 105-char line sits unwrapped while a 57-char break appears above.
          Log what the provider actually sees rather than reason about it again. */
       if (LINK_DEBUG && /espacios|03 -/.test(text)) {
@@ -3062,11 +3062,11 @@ function unregisterTab(id) {
    its membership with it and a group with no members simply stops being painted (tgPrune).
 
    ORDER STAYS IN `tabOrder`. A group is not a second list: its members are kept CONTIGUOUS inside
-   the one order the strip, the split and the panel already read (#60, AI-82), by tgContiguous
-   after every change that could break a run. A second ordering would be the drift AI-82 avoided.
+   the one order the strip, the split and the panel already read (#60), by tgContiguous
+   after every change that could break a run. A second ordering would be the drift split view avoided.
 
    PERSISTED WITH THE SESSIONS (#28's store), keyed by sessionId like everything else there —
-   never by name (AI-228: a name is a label that changes, not an identity). A plain terminal does
+   never by name (a name is a label that changes, not an identity). A plain terminal does
    not come back after a restart, so neither does its membership; that is the restore rule, not a
    group rule. */
 /* Twelve colours, shown as two rows of six in hue order (0.14.1 round): Chrome's palette with its red replaced by the house
@@ -3420,7 +3420,7 @@ function moveTab(z, dragId, overId, after, keepGroup) {
   if (dp && !keepGroup) dp.group = overId && panes.has(overId) && overId !== dragId ? tgOf(overId) : tgAfterMove(list, tgOf, dragId);
   tgNormalize(z);
   paintStrip(z);
-  /* AI-82: reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
+  /* Reordering the STRIP reorders the SPLIT. Nearly free, and only because pane order is
      derived from `tabOrder` in setVisible rather than stored separately — had the split kept its
      own order, this would have been a second list to keep in step and a second way for the two to
      disagree. So the whole feature here is remembering to re-lay-out; the answer is already
@@ -3435,7 +3435,7 @@ function moveTab(z, dragId, overId, after, keepGroup) {
   if (document.getElementById('pRun')) { try { renderPulseRunning(); } catch { /* panel not ready */ } }
 }
 
-/* AI-69 — A TERMINAL COMING BACK INTO VIEW MUST BE REPAINTED, and fit() cannot do it.
+/* A TERMINAL COMING BACK INTO VIEW MUST BE REPAINTED, and fit() cannot do it.
    Switching panes showed garbled glyphs until you typed. `setActive()` calls `fit()`, but
    **fit() is a no-op when the size has not changed** — which is precisely the pane-to-pane
    switch — so nothing forced a redraw and the canvas kept whatever was last rasterised into
@@ -3711,7 +3711,7 @@ function ensureActive(z) {
    The text names the ACTION, not the state. "Update available" reports a fact and leaves the
    reader to work out their move; "Restart to update" IS the move, and it is honest about the
    cost — which matters here because a restart currently closes every terminal. */
-/* AI-83 — THE PILL SHOWS THE DOWNLOAD, NOT ONLY ITS END.
+/* THE PILL SHOWS THE DOWNLOAD, NOT ONLY ITS END.
    It used to appear only on `update-downloaded`. The payload is 108–131 MB depending on
    platform, so between "an update exists" and "the pill appears" there was a multi-minute
    window in which the app KNEW and showed nothing — during which a quit-and-reopen reads as
@@ -3742,7 +3742,7 @@ function showUpdatePill(version, state = 'ready', pct = null) {
   }
   pill.dataset.version = version || '';
   pill.dataset.state = state;
-  /* AI-200 — "What's in it?" sits beside the pill, so understanding a release never requires
+  /* "What's in it?" sits beside the pill, so understanding a release never requires
      installing it first. */
   let ex = document.getElementById('updExplain');
   if (!ex) {
@@ -3780,7 +3780,7 @@ function hideUpdatePill() {
   if (ex) ex.hidden = true;
 }
 
-/* AI-200 — two doors into canonical's agents, from the two moments an operator needs them.
+/* Two doors into canonical's agents, from the two moments an operator needs them.
    "Report this" (a terminal tab's menu) hands `aios-feedback` the tab's recent lines in a LOCAL
    file and lets it interview the operator; the agent scrubs private details and shows the issue
    before creating it. "What's in it?" (beside the update pill) asks `explainer` for a one-page
@@ -3835,7 +3835,7 @@ async function reportThis(id) {
 function explainRelease(version) {
   const v = String(version || '').replace(/[^0-9a-z.\-]/gi, '');
   if (!v) return;
-  /* AI-217 — A MINUTE OR TWO, NOT TWENTY-THREE. Measured: the open brief sent the explainer into the
+  /* A MINUTE OR TWO, NOT TWENTY-THREE. Measured: the open brief sent the explainer into the
      source and a page took 23 m 33 s. The release notes already say what changed and why in plain
      words, so they are the material; the code is only for a claim the notes leave unexplained, and
      one verification pass keeps that from becoming a tour. */
@@ -3847,7 +3847,7 @@ function explainRelease(version) {
 
 if (window.glassShell.onUpdater) {
   window.glassShell.onUpdater(({ channel, payload }) => {
-    /* AI-83: 'available' and 'progress' now REACH the UI. They used to be log-only, which left
+    /* 'available' and 'progress' now REACH the UI. They used to be log-only, which left
        the whole download invisible. 'checking' stays silent on purpose — a poll that finds
        nothing is not news, and surfacing it would make the chrome flicker on every focus. */
     if (channel === 'ready') showUpdatePill((payload || {}).version, 'ready');
@@ -3869,7 +3869,7 @@ if (window.glassShell.onUpdater) {
   });
 }
 
-/* AI-64 — THE TAB FOLLOWS THE SESSION, instead of freezing whatever it was called at launch.
+/* THE TAB FOLLOWS THE SESSION, instead of freezing whatever it was called at launch.
    A pane's name used to be set once by makeTab() and never revisited, which produced two
    distinct bugs from one cause: `claude --resume` opened a pane hardcoded to the literal
    "resume" while a differently-named session lived inside it, and `/rename` inside a session
@@ -3920,7 +3920,7 @@ function sessionNameFromTitle(title) {
   return cleaned;
 }
 
-/* AI-199 — an UNNAMED Claude session titles itself with its topic. Measured on 2.1.296: a
+/* An UNNAMED Claude session titles itself with its topic. Measured on 2.1.296: a
    session started with `--name x` titles "✳ x" → "x" (already handled by sessionNameFromTitle);
    one started as a bare `claude` in a terminal tab titles "✳ Claude Code" → "Claude Code" →
    "Qué es un respaldo". That tab used to keep saying "terminal". Now it shows the topic, with
@@ -3962,7 +3962,7 @@ function paintTabLabel(p) {
   p.tab.title = label === p.name ? p.name : `${p.name} — ${label}`;
 }
 
-/* TEMPORARY (AI-64 investigation): log every title a pty emits so the real format can be
+/* TEMPORARY (tab-title investigation): log every title a pty emits so the real format can be
    read off a live session instead of guessed. Remove before shipping. */
 const TITLE_DEBUG = false;  // flip on to log the tty titles panes actually emit
 
@@ -3990,7 +3990,7 @@ function makeTab(id, name, iconName) {
   /* The tab menu. Reported broken because it was only useful on a tab that happened to be in the
      right state: right-clicking the pane you were LOOKING at offered nothing but "open a second
      one", which reads as a dead menu. It now always carries actions that apply to the tab under
-     the cursor, and Rename is one of them — AI-70, open since the first external issue on the
+     the cursor, and Rename is one of them — a request open since the first external issue on the
      public repo (#1, 07-27), which asked for exactly this and could not be built then because
      there was no contextmenu on a tab at all. Splitting created one, so the affordance is a menu
      row rather than new machinery. */
@@ -4010,11 +4010,11 @@ function makeTab(id, name, iconName) {
     const partner = id === active[z] ? nextTabAfter(z, id) : id;
     if (partner !== null) items.push({ label: t('split.openRight'), value: 'right' });
     if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
-    if (pane.kind === 'term' && hasFeedback) items.push({ label: t('tab.report'), value: 'report' });   // AI-200 (hidden without the aios-feedback agent)
-    if (pane.kind === 'term' && pane.sessionId) items.push({ label: t('tab.copyAnswer'), value: 'copyAnswer' });   // AI-192, revised: from the transcript
-    /* AI-169 read-aloud is HIDDEN for now (operator decision, 0.11.0): it returns with two-way voice.
+    if (pane.kind === 'term' && hasFeedback) items.push({ label: t('tab.report'), value: 'report' });   // hidden without the aios-feedback agent
+    if (pane.kind === 'term' && pane.sessionId) items.push({ label: t('tab.copyAnswer'), value: 'copyAnswer' });   // from the transcript
+    /* Read-aloud is HIDDEN for now (operator decision, 0.11.0): it returns with two-way voice.
        The code stays; flipping READ_ALOUD brings the menu row back. */
-    if (READ_ALOUD && pane.kind === 'term' && (pane.isSession || pane.sessionId)) items.push({ label: t(pane.readAloud ? 'tab.readAloudOff' : 'tab.readAloudOn'), value: 'readAloud' });   // AI-169
+    if (READ_ALOUD && pane.kind === 'term' && (pane.isSession || pane.sessionId)) items.push({ label: t(pane.readAloud ? 'tab.readAloudOff' : 'tab.readAloudOn'), value: 'readAloud' });
     /* The view is ONE setting for every Claude session now (Settings, or the shortcut), so this row is not a per-tab switch. It
        appears only for a tab that has stepped out of the mode on purpose (the notice's "Show terminal"), and puts it back. */
     if (pane.kind === 'term' && chatSkinOutOfMode(pane)) items.push({ label: t(chatMode === 'chat' ? 'chat.skin.toChat' : 'chat.skin.toTerminal'), value: 'chatView' });
@@ -4049,7 +4049,7 @@ function makeTab(id, name, iconName) {
            when the operator types it themselves. The session stays the single source of truth and
            this adds no second path to the same fact.
            A PLAIN SHELL has nothing to announce and no registry entry, so its label is ours to
-           set and must survive — that is the half of AI-70 the two v0.7.0 fixes could not cover.
+           set and must survive — that is the half of tab renaming the two v0.7.0 fixes could not cover.
            `manualName` is therefore set ONLY here, never for a session: setting it on a session
            would block the forward dance and re-create the mismatch from the other side. */
         if (pane.isSession && !pane.exited) {
@@ -4113,7 +4113,7 @@ function makeTab(id, name, iconName) {
 
 let dragTab = null;
 
-/* ═══ AI-82 gesture 3 — DRAG A TAB ONTO A PANE ═══
+/* ═══ Split gesture 3 — DRAG A TAB ONTO A PANE ═══
    Deferred on the first pass, and the row said why and when: it is "the most discoverable
    gesture and worth revisiting once the tiling and the interaction sweep are proven, at which
    point it is additive instead of a risk multiplier". Both are now proven live, so it is additive.
@@ -4278,7 +4278,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
-  /* AI-241 (issue 95): never start a second session under a name a live process outside the App
+  /* Issue 95: never start a second session under a name a live process outside the App
      already holds. Two sessions with one name make the bus refuse both, and the copy reruns the
      startup routine. A holder inside the App is each caller's to reveal (byName). */
   if (cmd) {
@@ -4310,7 +4310,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // cwd powers "open terminal here"; main validates it against the allowed roots and
   // falls back to the framework root. It was accepted there and silently dropped here.
   // `name` travels as data, not smuggled inside the command string — see termEnv().
-  /* AI-196 — Claude Code's own status (OSC 7501). Registered BEFORE the pty exists so no early
+  /* Claude Code's own status (OSC 7501). Registered BEFORE the pty exists so no early
      escape can reach the parser unhandled; the pane id is filled in once the spawn returns. */
   let oscPane = null;
   term.parser.registerOscHandler(7501, (data) => programStatusOsc(oscPane, data));
@@ -4319,7 +4319,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd), bornAt: Date.now() };
   panes.set(id, p);
-  attachPaneDropTarget(p, id);   // AI-82: any pane is a split drop target
+  attachPaneDropTarget(p, id);   // any pane is a split drop target
   const snap = background ? snapshotFocus() : null;
   homePane(id, p, { fresh: !background });
   // raw tty fills the pane — type straight into the session; drag with the mouse
@@ -4429,10 +4429,10 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
       }
       return false;
     }
-    if (e.type === 'keydown' && speaking && speaking.paneId === id) stopSpeaking(id);   // AI-169: any key stops the voice
+    if (e.type === 'keydown' && speaking && speaking.paneId === id) stopSpeaking(id);   // any key stops the voice
     if (e.type === 'keydown' && handleChord(e)) return false; // ⌘⌥G chords win everywhere
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
-    /* AI-77 — Option types the character your keyboard makes, when it makes a plain one. */
+    /* Option types the character your keyboard makes, when it makes a plain one. */
     if (e.type === 'keydown') { const ch = optionComposedChar(e); if (ch) { e.preventDefault(); window.glassShell.ptyWrite(id, ch); return false; } }   // preventDefault: no second copy via keypress
     const clip = termClipboardKey(e, IS_MAC, term.hasSelection(), IS_LINUX);
     if (clip === 'copy') {
@@ -4455,7 +4455,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     // ⌘ conventions every macOS terminal user expects — and that a non-technical operator
     // will try first. Without these, ⌘C sent nothing and ⌘←/→ did nothing at all.
     const k = e.key;
-    /* ⇧⌘C is the App menu's "Run command…" — AI-192's copy shortcut collided with it (operator test),
+    /* ⇧⌘C is the App menu's "Run command…" — the copy-as-plain-text shortcut collided with it (operator test),
        so plain-text copy moved to the session tab's "Copy last answer". */
     if (k === 'c') { const sel = term.getSelection(); if (sel) { void window.glassShell.copyText(sel); return false; } return true; }
     /* ⌘V is deliberately NOT handled here. It used to be, and it pasted EVERYTHING TWICE:
@@ -4494,7 +4494,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   attachDropZone(el, (paths) => { dropPathsInto(id, p, paths); setActive(id); });
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
-  /* AI-64: the session tells us its own name through the tty title. */
+  /* The session tells us its own name through the tty title. */
   /* Titles CONFIRM a session; only the REGISTRY can declare one over.
      My last two attempts both got this wrong in opposite directions. Keying off the launch
      command missed a session started by hand in a plain terminal. Then treating "this title is
@@ -4516,7 +4516,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
          DELIVERABILITY — may the bus type into this pane? That needs PROOF, because getting it
            wrong routes someone's message into the wrong session. Only a live registry match
            earns it, and only that name may later be declared ended. */
-    /* AI-70: a MANUAL name wins. The two fixes that shipped in v0.7.0 both depend on the session
+    /* A MANUAL name wins. The two fixes that shipped in v0.7.0 both depend on the session
        announcing a title, so a pane the operator deliberately called `build` would be renamed
        back to whatever the session says on its next announcement — silently undoing the label
        they just set. Naming is cosmetic, so an operator's choice simply outranks the announcement;
@@ -4561,7 +4561,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // select-to-copy: mirror the selection to the clipboard as it changes, so a
   // mouse drag in the terminal copies (matches Claude Code's terminal behavior).
   term.onSelectionChange(() => { const sel = term.getSelection(); if (sel) void window.glassShell.copyText(sel); });
-  /* AI-192, revised after the operator's test: no right-click menu on the terminal. Inside a Claude
+  /* After the operator's test: no right-click menu on the terminal. Inside a Claude
      session the selection belongs to Claude's own TUI (which already copies on select), so xterm
      saw only the single word its right-click selected and "Copy as plain text" copied that word.
      Plain-text copy lives on the session TAB as "Copy last answer", read from the transcript —
@@ -4722,7 +4722,7 @@ function openBrowserPane(url, label) {
   const tab = makeTab(id, label || 'browser', 'html');
   const paneObj = { kind: 'browser', name: label || 'browser', el, tab, url };
   panes.set(id, paneObj);
-  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
+  attachPaneDropTarget(paneObj, id);   // any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
   setActive(id);
 }
@@ -5386,7 +5386,7 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
    The operator's own design, and it is the right one. Restore is dangerous here for a specific
    reason: ~600 transcripts sit in the archive, and anything that resumes "recent sessions"
    automatically can open hundreds of processes — "I don't want a mess trying to resume all
-   historic sessions" (AI-67's constraint, in his words).
+   historic sessions" (the operator's constraint, in their words).
    So this is a SELECTOR, never a restore-all: a page of the 10 most recently touched resumable
    sessions, every box UNticked, with load-more for the next page. Nothing opens until a box is
    ticked and the confirm is pressed. The default of "nothing" is the safety property — the
@@ -5404,7 +5404,7 @@ async function batchResume() {
      as you type: the opening view is "most recent", typing reaches the rest.
      Unnamed sessions are excluded on purpose — see the note in main.ts — and the hint below says
      how many, so their absence is stated rather than discovered. */
-  /* AI-209: a session is found by ANY name it had — "boston" reaches `fortress-companion`, which
+  /* A session is found by ANY name it had — "boston" reaches `fortress-companion`, which
      was born `boston-companion` — and the row says so, plus how big it is (a 600 MB transcript is
      a slow resume, worth knowing before ticking it). */
   const mb = (n) => (n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? Math.round(n / 1e6) + ' MB' : Math.max(1, Math.round((n || 0) / 1e3)) + ' KB');
@@ -5847,7 +5847,7 @@ async function materializeInSequence(ids) {
      · SESSIONS — the live registry, ordered by last activity. The registry holds ONLY live
        sessions, so this answers "jump to something I have open", not "reopen what I closed".
        Closed sessions exist only in a 593-file transcript archive, and reaching into that
-       automatically is precisely the failure AI-67's constraint forbids — so it is reached
+       automatically is precisely the failure the batch-resume constraint forbids — so it is reached
        only from the batch-resume picker, where the operator ticks what they want. */
 const RECENT_FILES_MAX = 30;
 function recentFiles() {
@@ -5910,7 +5910,7 @@ async function openRecents() {
 }
 
 async function openViewer(p) {
-  seenExport(p);   // AI-222: an opened export is no longer new
+  seenExport(p);   // an opened export is no longer new
   for (const [id, pane] of panes) {
     if (pane.kind === 'view' && pane.path === p) { setActive(id); return; }
   }
@@ -5941,7 +5941,7 @@ async function openViewer(p) {
   const tab = makeTab(id, name, fileIconName(name));
   const paneObj = { kind: 'view', name, el, tab, path: file.path };
   panes.set(id, paneObj);
-  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
+  attachPaneDropTarget(paneObj, id);   // any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
 
   const renderable = MD_EXT.test(name) || HTML_EXT.test(name) || IMG_EXT.test(name) || PDF_EXT.test(name);
@@ -6413,7 +6413,7 @@ function attachCtx(row, path, dir) {
   });
 }
 
-/* AI-58: the neutral sort glyph (⇅ arrows) — mode-independent (a clock read as "loading") */
+/* The neutral sort glyph (⇅ arrows) — mode-independent (a clock read as "loading") */
 function sortGlyph() {
   return '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M4 17l3 3 3-3"/><path d="M13.5 6h6M13.5 11h4.5M13.5 16h3"/></svg>';
 }
@@ -6768,7 +6768,7 @@ document.getElementById('dragMark').innerHTML = icon('aios', 13);
 document.getElementById('railFind').innerHTML = icon('search', 15);
 document.getElementById('railFind').addEventListener('click', () => void quickOpen());
 document.getElementById('railExplorer').innerHTML = icon('folder', 15);
-/* AI-222 — NEW EXPORTS, QUIETLY. In the default `badge` mode a new file in 03 - export is not
+/* NEW EXPORTS, QUIETLY. In the default `badge` mode a new file in 03 - export is not
    opened (that took focus mid-typing); it is counted on the explorer button instead. Clicking the
    count opens the newest; opening any of them, by any route, takes it off the count. A pulled
    file never reaches here (main asks git first). */
@@ -6946,7 +6946,7 @@ function attachTip(el, text) {
   el.addEventListener('click', hide);   // a tip left hanging over a changed UI is worse than none
 }
 
-/* ═══ AI-132 keep-awake — the button is a STATE READOUT that happens to be clickable ═══
+/* ═══ Keep-awake — the button is a STATE READOUT that happens to be clickable ═══
    Every decision lives in main (src/main/caffeinate.ts + the pure policy in src/core): this
    renderer cannot import src/core at all — index.html loads UMD bundles, the generated i18n.js
    and app.js, nothing else — so it must not classify or decide anything here, or it would be a
@@ -7078,7 +7078,7 @@ function updateRailStatus(state, fw, retrying = false, branch = '') {
   /* WRITE ONLY WHAT CHANGED. This runs on every status post — and a failing check now posts every
      few seconds while it retries. Assigning the same text still replaces the text node and forces
      a style recalc; harmless at that rate, but a status indicator should cost nothing when its
-     answer has not moved, and after AI-157 "harmless at this rate" is not a standard to keep. */
+     answer has not moved, and after the hidden-window animation bug "harmless at this rate" is not a standard to keep. */
   const setText = (v) => { if (txt && txt.textContent !== v) txt.textContent = v; };
   const setTitle = (v) => { if (railUpdate.title !== v) railUpdate.title = v; };
   const setDot = (c) => { if (dot && dot.className !== c) dot.className = c; };
@@ -7494,7 +7494,7 @@ window.glassShell.onIntent(async (m) => {
     case 'openFile':
       if (m.path) void openViewer(m.path);
       return;
-    case 'exportReady':   // AI-222: a new export in badge mode — counted, never opened, no focus taken
+    case 'exportReady':   // a new export in badge mode — counted, never opened, no focus taken
       if (m.path) noteExport(m.path, m.name);
       return;
     case 'toast':
@@ -7892,7 +7892,7 @@ const RENDERER_KEYS = [
      separately, since it will mislead the next reader too. */
   { group: 'menu.view', label: 'shortcut.exitMaximized', accel: 'Escape' },      // setZen(false)
   { group: 'menu.view', label: 'shortcut.openPath', accel: 'CmdOrCtrl+Click' },  // attachPathLinks
-  /* AI-82's chords. Operator-reported: "shortcuts page is missing the split shortcut" — and it
+  /* Split view's chords. Operator-reported: "shortcuts page is missing the split shortcut" — and it
      was missing from BOTH places a keystroke can be discovered. The sheet is built from the
      native menu's accelerators plus this list, and `⌘\` is neither: it lives only in the
      renderer's own key handler, so the one gesture the release is named for was invisible to the
@@ -10757,7 +10757,7 @@ function chatSkinMakeItem(role, cs) {
   return { node, body: node, role: 'system' };
 }
 /* A message the bus typed (another session, a routine) is labelled with its sender instead of passing as the operator's own.
-   Main matches the text against the provenance log the surfaces keep (AI-172). */
+   Main matches the text against the provenance log the surfaces keep. */
 function chatSkinBusLabel(rec, text) {
   const gs = typeof window !== 'undefined' ? window.glassShell : null;
   if (!text.trim() || !gs || typeof gs.chatBusFrom !== 'function') return;
@@ -11791,7 +11791,7 @@ function openToolTab(key, titleText, build, opts) {
     };
   }
   panes.set(id, paneObj);
-  attachPaneDropTarget(paneObj, id);   // AI-82: any pane is a split drop target
+  attachPaneDropTarget(paneObj, id);   // any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
   build(body, head);
   setActive(id);
@@ -11926,7 +11926,7 @@ function openSettingsTab() {
     busSel.value = cfg.busFocus === 'follow' ? 'follow' : 'stay';
     busSel.addEventListener('change', async () => { await window.glassShell.setSetting('busFocus', busSel.value); BUS_FOCUS = busSel.value; toast(t('settings.saved')); });
     row(wrap, t('settings.busFocus'), busSel, t('settings.busFocusHint'));
-    /* AI-132. Same shape as killBehavior above — a select whose change writes through immediately.
+    /* Same shape as killBehavior above — a select whose change writes through immediately.
        `auto` first because it is the default and the one an operator would pick if they thought
        about it; main drops any override when this changes, so switching modes never leaves the
        button frozen at an exception nobody remembers setting. */
@@ -12199,7 +12199,7 @@ function openSettingsTab() {
     row(wrap, t('settings.showHidden'), exToggle('showHidden', cfg.showHidden, () => void paintExplorer()), t('settings.showHiddenHint'));
     row(wrap, t('settings.fileIcons'), exToggle('fileIcons', cfg.fileIcons !== false, (on) => { EXPLORER.icons = on; void paintExplorer(); }), t('settings.fileIconsHint'));
     row(wrap, t('settings.autoReveal'), exToggle('autoReveal', cfg.autoReveal !== false, (on) => { EXPLORER.autoReveal = on; }), t('settings.autoRevealHint'));
-    /* AI-222 — main reads this per export event, so nothing renderer-side to update. Three rungs,
+    /* Main reads this per export event, so nothing renderer-side to update. Three rungs,
        like attention above: a tab, a quiet count, or nothing. The default never takes focus. */
     const expSel = document.createElement('select');
     expSel.className = 'tinput';
@@ -12208,7 +12208,7 @@ function openSettingsTab() {
     expSel.addEventListener('change', async () => { await window.glassShell.setSetting('openExports', expSel.value); toast(t('settings.saved')); });
     row(wrap, t('settings.openExports'), expSel, t('settings.openExportsHint'));
 
-    // AI-58: the MASTER default sort — app-only operators have no VS Code settings UI,
+    // the MASTER default sort — app-only operators have no VS Code settings UI,
     // so the global default lives here. Setting it clears every per-folder override.
     const sortSel = document.createElement('select');
     sortSel.className = 'tinput';
@@ -12277,13 +12277,13 @@ function openSettingsTab() {
     };
     const modelSel = mkSelect(MODELS, cc.model, 'model');
     row(wrap, t('settings.model'), modelSel, t('settings.modelHint'));
-    /* AI-194 — effort, Claude's second knob (`effortLevel`). "Default" deletes the key, so the
+    /* Effort, Claude's second knob (`effortLevel`). "Default" deletes the key, so the
        session keeps Claude's own default for whichever model it runs. `max` is deliberately absent:
        Claude Code's settings schema does not persist it (it exists for one session — the bus's
        contract-4 `effort` honours it on a spawn). Writing it here would be a value Claude rejects. */
     const EFFORTS = [[t('settings.effortDefault'), ''], [t('effort.low'), 'low'], [t('effort.medium'), 'medium'], [t('effort.high'), 'high'], [t('effort.xhigh'), 'xhigh']];
     row(wrap, t('settings.effort'), mkSelect(EFFORTS, cc.effort || '', 'effort'), t('settings.effortHint'));
-    /* AI-195 — the advisor. Measured: an advisor less capable than the main model is SILENTLY not
+    /* The advisor. Measured: an advisor less capable than the main model is SILENTLY not
        used (only Claude's debug log says so), so the row says it the moment the pair is chosen.
        Same rule as core/advisor (family rank fable > opus > sonnet > haiku); unknown = no claim. */
     const ADVISORS = [[t('settings.advisorOff'), ''], ['Fable', 'fable'], ['Opus', 'opus'], ['Sonnet', 'sonnet']];
@@ -12879,7 +12879,7 @@ function openSetupTab() {
          "it sets up your vault" while a red row announces "no vault/00 - notes under the framework
          root", which reads as a fault rather than a starting condition. Eight rows, seven of them
          labelled "optional", in front of the one button that resolves all of them: that is the
-         MCP-class friction AI-122 exists to remove, wearing a different hat.
+         MCP-class friction the connectors card exists to remove, wearing a different hat.
          The checks still RUN — they are what proves the step done and advances it. Only the display
          is suppressed. */
       const rows = el('div', 'step-checks');
@@ -13971,7 +13971,7 @@ async function pickContext(kind) {
     if (!kind) return;
   }
   const dir = kind === 'projects' ? roots.vault + '/00 - notes/projects' : roots.vault + '/00 - notes/context/' + kind;
-  const files = await sortedList(dir); // fs:list is unsorted now (AI-58) — sort like the explorer would
+  const files = await sortedList(dir); // fs:list is unsorted now — sort like the explorer would
   const title = { declared: t('context.declared'), observed: t('context.observed'), projects: t('context.projects') }[kind] || (kind[0].toUpperCase() + kind.slice(1));
   const f = await listModal(title, files.filter((x) => !x.dir && x.name.endsWith('.md') && x.name !== '_index.md').map((x) => ({ label: x.name.replace(/\.md$/, ''), icon: 'md', value: x.path })), t('context.openNote'));
   if (f) void openViewer(f);

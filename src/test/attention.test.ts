@@ -305,7 +305,7 @@ test('WINDOWS: the taskbar surfaces are driven, cleared on dispose, and platform
   assert.ok(calls.includes('overlay:1'), 'the count reaches the overlay');
   assert.ok(calls.includes('flash:true'), 'and an unfocused window is flashed');
 
-  /* ONLY ON A CHANGE. Redrawing an overlay every two seconds is the class of defect AI-157 was;
+  /* ONLY ON A CHANGE. Redrawing an overlay every two seconds is the class of the hidden-window animation defect;
      the flash is worse, because re-raising it restarts the attention cycle. */
   const n = calls.length;
   a.tick([{ name: 'ingest', status: 'waiting', pid: 1, sessionId: 's1' } as RunningAgent], 'badge');

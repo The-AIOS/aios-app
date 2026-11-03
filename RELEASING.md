@@ -63,7 +63,7 @@ node scripts/verify-signing.mjs   # codesign --verify · hardened runtime · spc
 ```
 
 `verify-signing.mjs` green ⇒ the `.dmg` under `dist/` is Gatekeeper-clean and
-safe to hand to a fresh user. This is the honest input to the `AI-27`
+safe to hand to a fresh user. This is the honest input to the
 virgin-account test (an *unsigned* build would fail the test on a wall that
 isn't our product's fault).
 

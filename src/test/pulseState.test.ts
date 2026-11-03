@@ -1,7 +1,7 @@
 /**
  * Every IPC handler that mutates state the pulse DISPLAYS must re-post that state.
  *
- * THE BUG THIS EXISTS FOR (AI-153, operator-reported 2026-09-13). Home's "Frequent tasks"
+ * THE BUG THIS EXISTS FOR (stale counters, operator-reported 2026-09-13). Home's "Frequent tasks"
  * count is a *pushed snapshot*: the renderer draws whatever the last `postState()` said, and
  * `postState()` fires only from a file watcher or an explicit `recheck`. Creating a frequent
  * task wrote `.glass/state.json` correctly and the counter did not move — the data was never
@@ -62,7 +62,7 @@ function handlers(main: string): { channel: string; line: number; body: string }
 
 /** The getters `postState()` actually calls — i.e. everything the pulse displays. */
 function postStateReads(host: string): string[] {
-  /* The payload lives in stateSnapshot() since AI-153's change-gated re-check: postState() and
+  /* The payload lives in stateSnapshot() since the change-gated counter re-check: postState() and
      refreshStateIfChanged() both build from it, so it is the one place the displayed set is read —
      and both must actually use it, or the gated path could display a different set unnoticed. */
   for (const fn of ['postState(): void {', 'refreshStateIfChanged(): void {']) {
@@ -125,7 +125,7 @@ const DISPLAYED = [
   'discoverCommands',
   'discoverSkills',
   'frequentTaskCount',
-  'listOperatorSessions',   // AI-165: the panel shows operator sessions only (daemon spares hidden)
+  'listOperatorSessions',   // the panel shows operator sessions only (daemon spares hidden)
   'nudgeState',
   'operatorName',
   'primaryName',
@@ -187,7 +187,7 @@ test('the known-good handlers really do push (the guard can detect a push at all
   const main = read('main.ts');
   for (const ch of ['aios:addFrequent', 'aios:removeFrequent', 'starter:apply', 'shell:setSetting']) {
     const h = handlers(main).find((x) => x.channel === ch);
-    assert.ok(h, `${ch} not found — it was the fix for AI-153, so its disappearance needs a look`);
-    assert.ok(h!.body.includes('postState'), `${ch} stopped calling postState() — AI-153 regressed`);
+    assert.ok(h, `${ch} not found — it was the fix for stale counters, so its disappearance needs a look`);
+    assert.ok(h!.body.includes('postState'), `${ch} stopped calling postState() — stale counters regressed`);
   }
 });

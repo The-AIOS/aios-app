@@ -113,7 +113,7 @@ test('"open terminal here" actually reaches the pty as a cwd', () => {
   // every "open terminal here" silently landed in the framework root instead
   assert.match(app, /async function createPane\(\{ name = 'terminal', cmd, cwd, bypassReady = false(?:, background = false)?(?:, noProfile = false)? \} = \{\}\)/);
   // Asserts the INTENT (cwd reaches the pty), not the literal argument list — the list grew
-  // a `name` for AI-64 and a shape-exact regex made an unrelated test fail.
+  // a `name` for tab-follows-session and a shape-exact regex made an unrelated test fail.
   assert.match(app, /ptySpawn\(\{[^}]*\bcwd\b[^}]*\}\)/);
   assert.match(app, /void createPane\(\{ name: xBase\(dir\) \|\| 'terminal', cwd: dir \}\)/);
 });
