@@ -3737,6 +3737,56 @@ test('the mic with voice off in Claude Code: a notice saying how to turn it on, 
   assert.deepEqual(await run({ enabled: true, mode: 'tap' }), { toasts: [], writes: [' '] }, 'control: voice on, tap mode, empty box: one space');
 });
 
+test('a prompt box at the top of a tall pane is still seen: the mic works, and a terminal draft still stops it (operator-reported on Windows)', () => {
+  /* Windows runs a session in the normal buffer, so a short conversation leaves the box high on the screen with blank rows under
+     it. These screens copy what Claude Code 2.1.316 painted in a real pty; `dim` marks a greyed suggestion. */
+  const grab = (head: string): string => skin.slice(skin.indexOf(head), skin.indexOf('\n', skin.indexOf(head)) + 1);
+  const fn = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
+  const api = new Function(grab('const chatSkinLookBack') + fn('chatSkinScreenText') + fn('chatSkinPromptEmpty') + fn('chatSkinPromptDraft')
+    + 'return { empty: chatSkinPromptEmpty, draft: chatSkinPromptDraft, screen: chatSkinScreenText };')();
+  const paneOf = (rows: number, prompt: string, dim = false) => {
+    const top = ['⏺ ok', '', '─'.repeat(60), '❯ ' + prompt, '─'.repeat(60), '  [Opus] aios | main', '  ⏵⏵ auto mode on'];
+    const screen = top.concat(Array(Math.max(0, rows - top.length)).fill(''));
+    const line = (s: string) => ({
+      length: s.length,
+      translateToString: () => s,
+      getCell: (x: number, c: { ch: string; dim: boolean }) => { c.ch = s[x] || ''; c.dim = dim; },
+    });
+    return { term: { rows, buffer: { active: {
+      length: screen.length,
+      getLine: (y: number) => (screen[y] === undefined ? undefined : line(screen[y])),
+      getNullCell: () => ({ ch: '', dim: false, getChars() { return this.ch; }, isDim() { return this.dim; } }),
+    } } } };
+  };
+  for (const rows of [24, 40, 41, 60, 61, 90]) {
+    assert.equal(api.empty(paneOf(rows, '')), true, rows + ' rows, empty box: the mic may start');
+    assert.equal(api.empty(paneOf(rows, 'Try "edit <filepath> to..."', true)), true, rows + ' rows, a greyed suggestion is not a draft');
+    assert.equal(api.empty(paneOf(rows, 'draft')), false, rows + ' rows, a real draft still stops it');
+    assert.equal(api.draft(paneOf(rows, 'draft')), 'draft', rows + ' rows, and is read back');
+    assert.match(api.screen(paneOf(rows, '')), /❯/, rows + ' rows, the screen text holds the box');
+  }
+  /* Control: with no box at all (a dialog) the answer stays "not empty", on any height. */
+  const none = paneOf(90, '');
+  const pane = none.term.buffer.active;
+  const blank = { length: 0, translateToString: () => '', getCell: () => { /* */ } };
+  none.term.buffer.active = { ...pane, getLine: () => blank };
+  assert.equal(api.empty(none), false);
+});
+
+test('the chat view sees tap-to-talk listening: either dot, on a box high in a tall pane, and never from a reply (operator-reported on Windows)', () => {
+  const at = skin.indexOf('function chatSkinRecording');
+  const rec = new Function(skin.slice(at, skin.indexOf('\n}\n', at) + 2) + '; return chatSkinRecording;')() as (s: string) => boolean;
+  const rule = '─'.repeat(60);
+  const status = (dot: string) => '  [Opus] aios | main' + ' '.repeat(40) + dot + ' REC · tap to send';
+  /* The row order Claude Code 2.1.316 painted in a real 50-row pane on Windows: the REC line near the top, blank rows under it. */
+  const tall = (dot: string) => [rule, '❯ Hola', rule, status(dot), '  -- INSERT --'].concat(Array(41).fill('')).join('\n');
+  assert.equal(rec(tall('●')), true, 'the Windows dot, with the box high on the screen');
+  assert.equal(rec(tall('⏺')), true, 'the macOS dot');
+  assert.equal(rec([rule, '❯ ', rule, '  [Opus] aios | main', '  -- INSERT --'].join('\n')), false, 'control: not recording');
+  assert.equal(rec(['● REC is what the status line shows', rule, '❯ ', rule, '  [Opus] aios'].join('\n')), false, 'a reply above the box does not count');
+  assert.equal(rec('● REC · tap to send'), false, 'no box on screen: not recording');
+});
+
 test('review fixes: no mode press into a dialog, no agents menu over one, no send into a panel or onto a terminal draft', () => {
   const to = fnBody(skin, 'chatSkinModeTo');
   assert.match(to, /p\.chatSkin\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null/, 'checked before every Shift+Tab');
