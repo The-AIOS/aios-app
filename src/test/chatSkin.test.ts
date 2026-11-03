@@ -4005,3 +4005,16 @@ test('an image path in a chat message is PASTED, so Claude Code attaches it as [
   const sub = app.slice(app.indexOf('function chatSkinSubmit('), app.indexOf('function chatSkinSubmit(') + 1200);
   assert.match(sub, /const imgParts = text\.startsWith\('\/'\) \? null : chatSkinImageParts\(text\);\s*if \(imgParts\) submitToPty\(id, imgParts\);/, 'the chat send uses it; a slash command never does');
 });
+
+test('the mode row is not mirrored under the chat (the chip says it), and Shift+Tab in the chat box cycles the mode (0.14.1 round)', () => {
+  const re = new Function(app.slice(app.indexOf('const CS_MODE_ROW'), app.indexOf('\n', app.indexOf('const CS_MODE_ROW')) + 1) + 'return CS_MODE_ROW;')() as RegExp;
+  assert.ok(re.test('⏵⏵ auto mode on (shift+tab to cycle)'), 'the auto mode row');
+  assert.ok(re.test('  ⏸ plan mode on (shift+tab to cycle) · esc to interrupt'), 'plan mode');
+  assert.ok(!re.test('  [Opus 5.5] 📁 aios | 🌿 main (3) | 🟢 10%'), 'control: a status line stays');
+  assert.ok(!re.test('  1 shell · ↓ to view'), 'control: the background row stays');
+  const mirror = app.slice(app.indexOf('function chatSkinMirrorStatus('), app.indexOf('function chatSkinMirrorStatus(') + 5000);
+  assert.match(mirror, /const lines = rows\.filter\(\(r\) => !CS_MODE_ROW\.test\(r\.translateToString\(true\)\)\)\.map/, 'filtered from what is drawn');
+  assert.match(mirror, /chatSkinModePaint\(cs, text\)/, 'still read for the chip');
+  const build = app.slice(app.indexOf('function chatSkinBuild('), app.indexOf('function chatSkinBuild(') + 40000);
+  assert.match(build, /if \(e\.key !== 'Tab' \|\| !e\.shiftKey[^\n]*\n\s*e\.preventDefault\(\);\n\s*if \(cs\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null\) return;\n\s*chatSkinModeCycle\(id, p\);/, 'Shift+Tab cycles, guarded like the mode menu');
+});

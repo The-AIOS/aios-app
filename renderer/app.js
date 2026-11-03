@@ -9070,6 +9070,14 @@ function chatSkinBuild(id, p) {
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
+  /* Shift+Tab cycles the permission mode, as it does in the terminal and as the hint under Claude Code's prompt says (0.14.1
+     round: in the chat box it moved the focus instead). Same guards as the mode menu: never into a dialog, never blind. */
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+    e.preventDefault();
+    if (cs.promptKind || chatSkinModeNow(p) === null || chatSkinAgentCursor(p) === null) return;
+    chatSkinModeCycle(id, p);
+  });
   input.addEventListener('keydown', (e) => {
     // Enter sends, Shift+Enter breaks the line. During IME composition Enter confirms the
     // candidate, so it must never send (keyCode 229 covers engines that clear isComposing early).
@@ -9519,7 +9527,9 @@ function chatSkinMirrorStatus(p) {
   chatSkinVoiceLive(p, rec);
   if (!rows) return;
   const cell = p.term.buffer.active.getNullCell();
-  const lines = rows.map((line) => {
+  /* The mode row ("⏵⏵ auto mode on (shift+tab to cycle)") is the mode chip's job: mirrored, it repeated the chip with a hint
+     about the terminal (0.14.1 round, seen whenever no AIOS status line hides the mirror). It is still read below, for the chip. */
+  const lines = rows.filter((r) => !CS_MODE_ROW.test(r.translateToString(true))).map((line) => {
     const div = el('div', 'cb-sl-row');
     const width = line.translateToString(true).length;
     let span = null, cur = null;
@@ -9563,6 +9573,7 @@ function chatSkinMirrorStatus(p) {
   cs.meta.classList.toggle('has-sl', lines.length > 0 && !aios);   // a mirrored line already says it: the meters step aside
   if (ctx) chatPaintUsage(cs);
 }
+const CS_MODE_ROW = /shift\+tab to cycle|^\s*(?:⏵⏵|⏸)\s/i;
 /* The modes Shift+Tab cycles through, as Claude Code names them on the line under its prompt; no line is the default. */
 const CS_MODES = [['bypass', /bypass permissions on/i], ['auto', /auto mode on/i], ['plan', /plan mode on/i], ['edits', /accept edits on/i]];
 function chatSkinModePaint(cs, text) {
