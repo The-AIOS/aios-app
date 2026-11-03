@@ -1261,6 +1261,8 @@
   "health.job.fail": "failed{detail} · {time}",
   "health.job.neverRan": "installed, no completed run yet (expected by {time})",
   "health.job.overdue": "no result since {time}",
+  "boards.stale": "no update since {time}",
+  "boards.tip": "Board: ~/.aios/boards/{name}/index.html — written by your own tooling; the App only shows it",
   "health.job.lastResult": "(last result: {state})",
   "health.job.unreadable": "unreadable status file ({why})",
   "health.askClaude": "Let Claude help with these",

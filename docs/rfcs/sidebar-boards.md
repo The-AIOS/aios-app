@@ -19,6 +19,13 @@ the boards, shows them, and knows nothing about what they mean.
   then.
 - **The App never writes into `~/.aios/boards/`.** `/aios:update` never touches it.
 
+## The first writer
+
+`sidebar-boards-sample/index.html` is a real board with every line of text replaced: the output of a
+script that renders an operator's consolidated state (decisions waiting on them, what shipped today,
+another machine's queue, scheduled jobs) every two minutes. Static HTML with an inline stylesheet,
+about 4 KB, no scripts, links or external resources.
+
 ## Isolation
 
 The existing HTML viewer was built for the operator's own exported deliverables, so it lets scripts
@@ -42,4 +49,8 @@ one board cannot pull another board's files either.
   protocol handler and navigation guard the App installs. It tries the network, a file outside its
   folder, another board, a script and a navigation, and must reach none of them, while its own
   stylesheet and image must load (the positive control). The same page with the protections removed
-  must reach the network, so the test is known to be able to fail.
+  must reach the network, so the test is known to be able to fail. It needs the Electron binary and
+  a display, so the ubuntu unit job (installed with `--ignore-scripts`) skips it and says why;
+  `AIOS_BOARD_E2E_STRICT=1` makes that skip a failure.
+- The smoke's **boards** gate runs the same probe through the App's own wiring: the real card in the
+  panel, main's protocol handler and main's navigation guard.

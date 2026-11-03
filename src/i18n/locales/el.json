@@ -1261,6 +1261,8 @@
   "health.job.fail": "απέτυχε{detail} · {time}",
   "health.job.neverRan": "εγκατεστημένη, καμία ολοκληρωμένη εκτέλεση (αναμενόταν έως {time})",
   "health.job.overdue": "κανένα αποτέλεσμα από {time}",
+  "boards.stale": "καμία ενημέρωση από {time}",
+  "boards.tip": "Πίνακας: ~/.aios/boards/{name}/index.html — τον γράφουν τα δικά σου εργαλεία· η εφαρμογή μόνο τον δείχνει",
   "health.job.lastResult": "(τελευταίο αποτέλεσμα: {state})",
   "health.job.unreadable": "μη αναγνώσιμο αρχείο κατάστασης ({why})",
   "health.askClaude": "Άσε τον Claude να βοηθήσει με αυτά",
