@@ -1,5 +1,5 @@
 /**
- * AI-191 — a UTF-8 locale for every terminal the App starts.
+ * A UTF-8 locale for every terminal the App starts.
  *
  * The App launched from the Dock has no LANG/LC_* at all (measured on a live install), and its
  * PTYs inherited that. Sessions were UTF-8 only by accident: the login zsh reads /etc/zprofile,

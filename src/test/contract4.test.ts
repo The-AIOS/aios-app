@@ -1,5 +1,5 @@
 /**
- * AI-198 — inbox contract 4, run against canonical's own conformance fixture (copied verbatim from
+ * Inbox contract 4, run against canonical's own conformance fixture (copied verbatim from
  * skills/aios/orchestration-ladder/inbox-contract-4.conformance.json). The same test runs in the
  * App against the same file, so the two surfaces pass or fail together.
  */

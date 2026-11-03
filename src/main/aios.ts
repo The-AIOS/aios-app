@@ -447,7 +447,7 @@ export function listRunningAgents(): RunningAgent[] {
 }
 
 /**
- * AI-165 — the sessions the OPERATOR is running, for everything that shows or alerts.
+ * The sessions the OPERATOR is running, for everything that shows or alerts.
  *
  * Claude Code's background daemon keeps a pool of pre-started spare sessions so a background
  * agent opens instantly. Each spare registers like any other session, but has no name, so the
@@ -512,7 +512,7 @@ export function paneSessionIdsFromTree(running: RunningAgent[], procTable?: stri
   return ids;
 }
 
-/* AI-203 — the sessions open in this App's panes, reported by the renderer every pulse. */
+/* The sessions open in this App's panes, reported by the renderer every pulse. */
 let paneSessionIds: ReadonlySet<string> = new Set();
 export function setPaneSessionIds(ids: unknown): void {
   paneSessionIds = new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string' && !!x) : []);
@@ -970,7 +970,7 @@ export function countAgentSuggestions(): number {
 }
 
 // ── glass state (.glass/state.json — the App-owned glass-UI namespace) ──────
-// Roams via git with the vault, shared with the Glass extension (AI-58 &c.).
+// Roams via git with the vault, shared with the Glass extension.
 
 function glassState(): Record<string, unknown> {
   const r = frameworkRoot();
@@ -993,7 +993,7 @@ function setGlassState(key: string, value: unknown): void {
   fs.renameSync(tmp, p);
 }
 
-// ── session post-its (AI-18 parity — .glass/state.json → sessionNotes, keyed by
+// ── session post-its (Glass parity — .glass/state.json → sessionNotes, keyed by
 //    session name; roams with the vault, shared with the Glass extension). The
 //    human jots "what did I want to do here next" on a live session. ──
 export interface SessionNote { t: string; ts: number; }
@@ -1135,7 +1135,7 @@ export function deleteSessionNote(name: string, index: number): SessionNote[] {
   return sessionNotes(name);
 }
 
-// ── explorer sort prefs (AI-58 v2 — shared shape with Glass via src/core/sort) ──
+// ── explorer sort prefs (shared shape with Glass via src/core/sort) ──
 
 /** The persisted per-folder sort map (`.glass/state.json` → `filesFolderSort`). */
 export function folderSorts(): FolderSortMap {
@@ -1408,7 +1408,7 @@ export function shellSettings(): ShellSettings {
     // what a command-bus spawn/send does to the screen: 'stay' (default) keeps the operator where
     // they are and marks the target tab; 'follow' is the old behaviour (switch to it)
     busFocus: raw.busFocus === 'follow' ? 'follow' : 'stay',
-    /* AI-190: absent means FOLLOW THE SYSTEM, the way `locale: 'auto'` does. An exec on a
+    /* Absent means FOLLOW THE SYSTEM, the way `locale: 'auto'` does. An exec on a
        light-everywhere Mac was greeted by a dark first frame and only relaxed on finding the
        sun button. A stored 'light'/'dark' is the operator's own pick and is kept as is. */
     theme: raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system',
@@ -1427,7 +1427,7 @@ export function shellSettings(): ShellSettings {
     showHidden: raw.showHidden === true,      // default off
     fileIcons: raw.fileIcons !== false,       // default on (enhanced)
     autoReveal: raw.autoReveal !== false,     // default on
-    // AI-222: what a NEW file in 03 - export/ does — open a tab, a quiet badge (default), or
+    // what a NEW file in 03 - export/ does — open a tab, a quiet badge (default), or
     // nothing. A saved autoOpenExports:false stays off. See exportOpen.ts.
     openExports: exportOpenMode(raw),
     showWeekNumbers: raw.showWeekNumbers !== false, // default on (Glass parity)
@@ -1437,7 +1437,7 @@ export function shellSettings(): ShellSettings {
     locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el'
     killBehavior: raw.killBehavior === 'kill' || raw.killBehavior === 'capture' ? raw.killBehavior : 'ask', // Glass parity; default confirm
     terminalMode: raw.terminalMode === 'auto' ? 'auto' : 'ask', // #6: ask where to run (only when live sessions exist); auto = primary/new
-    /* AI-132. `auto` is the default and absent-means-default costs nothing here: the blocker dies
+    /* `auto` is the default and absent-means-default costs nothing here: the blocker dies
        with the app, so a fresh machine that never opens Settings gets the behaviour an operator
        would have chosen, and no state survives to be wrong later. Only the literal 'manual' opts
        out — anything else (a typo, a hand-edit, an older file) lands on auto rather than silently
@@ -1785,7 +1785,7 @@ function runClaude(args: string[], cwd?: string): Promise<void> {
  * alias, which prints an installer notice, runs nothing and exits non-zero. Step 1 of setup
  * installs uv, and `install-settings.py` is stdlib-only, so `uv run` needs no environment.
  * Searched in the persisted PATH and in uv's own install folders as well as this process's PATH,
- * because the App's PATH predates the install (AI-111). Fallbacks: `python3` on POSIX, the `py`
+ * because the App's PATH predates the install. Fallbacks: `python3` on POSIX, the `py`
  * launcher on Windows (it lives in C:\Windows, never a Store alias). Never a bare `python` there.
  */
 export function pythonRunner(): { bin: string; args: string[]; onPath: boolean } | undefined {
@@ -1822,7 +1822,7 @@ function hooksCmdLine(py: { bin: string; args: string[]; onPath: boolean }, scri
 }
 
 /**
- * AI-111 — on Windows, "not found" and "installed, but I cannot see it yet" are the same string.
+ * On Windows, "not found" and "installed, but I cannot see it yet" are the same string.
  *
  * Measured 2026-08-15 on a clean Windows machine: the wizard installed Claude Code correctly and
  * the very next check reported it missing. The App captured its environment when it launched, so a
@@ -2552,7 +2552,7 @@ export async function wiringLeft(): Promise<{ id: string; label: string; message
     }));
 }
 
-/** AI-18 Health card (ported from aios-glass computeHealth, doctor-backed):
+/** Health card (ported from aios-glass computeHealth, doctor-backed):
  *  the ongoing "is my AIOS wired?" readout — Setup is day one, this is every
  *  day after. Order = display order on the pulse card. */
 export const HEALTH_IDS = ['framework', 'vault', 'account', 'skills', 'plugin', 'spawn', 'hooks', 'claude', 'gh'] as const;   // the four wiring rows sit together (release round: wiring lost after setup had no visible prompt)
@@ -2707,7 +2707,7 @@ const claudeJsonPath = () => process.env.GLASS_CLAUDE_JSON || claudeJsonDefault(
    actually advertises (2.1.270 carries claude-opus-5, claude-opus-5[1m], claude-sonnet-5) rather
    than from memory. It had been a generation behind — topping out at Opus 4.8 while the operator
    was running Opus 5.
-   AI-194 (0.11.0): it WENT stale again — a generation behind MODEL_LADDER, which is what the
+   0.11.0: it WENT stale again — a generation behind MODEL_LADDER, which is what the
    picker actually shows. It is now derived from the ladder, so there is one list to refresh. */
 export const MODEL_OPTIONS: { label: string; value: string }[] = [];   // filled below, from MODEL_LADDER
 export const MODE_OPTIONS = ['default', 'auto', 'acceptEdits', 'plan', 'bypassPermissions'];
@@ -2784,7 +2784,7 @@ function writeClaudeUserJson(mutate: (j: Record<string, unknown>) => void): void
    carries account extras and the operator's own pinned value, neither of which can be ranked —
    and one caller needs a ranking. */
 const MODEL_LADDER = [
-  /* AI-194 (0.11.0) — the current generation, each id VERIFIED in Claude Code 2.1.296's own model
+  /* The current generation, each id VERIFIED in Claude Code 2.1.296's own model
      catalog first, because an id the catalog does not know is refused outright rather than
      falling back: claude-fable-5-1, claude-opus-5-5[1m], claude-sonnet-5-5[1m], claude-haiku-5-5.
      Ordered as MODEL-ROUTING's ladder (frontier → judgment → scale → fast); the setup step does
@@ -2804,7 +2804,7 @@ const MODEL_LADDER = [
 ];
 MODEL_OPTIONS.push(...MODEL_LADDER, { label: 'Default (clear the override)', value: '' });
 
-/** AI-194 — Claude Code's persisted effort levels (`effortLevel` in settings; verified in the
+/** Claude Code's persisted effort levels (`effortLevel` in settings; verified in the
  *  2.1.296 schema: low · medium · high · xhigh — `max` exists for a session, never persisted). */
 export const EFFORT_OPTIONS = ['low', 'medium', 'high', 'xhigh'] as const;
 
@@ -2913,8 +2913,8 @@ export function outputStyleOptions(): string[] {
 
 export interface ClaudeConfig {
   account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean;
-  effort: string;            // AI-194: effortLevel ('' = Claude's default for the model)
-  advisor: string;           // AI-195: advisorModel ('' = no advisor)
+  effort: string;            // effortLevel ('' = Claude's default for the model)
+  advisor: string;           // advisorModel ('' = no advisor)
   // Claude-owned toggles surfaced in Settings (see src/core/claudeConfig.ts for the stores)
   outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean;
   claudeInChrome: boolean; copyOnSelect: boolean; diffPanel: boolean;

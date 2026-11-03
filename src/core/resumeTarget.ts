@@ -1,5 +1,5 @@
 /**
- * Which session does a name resume to? — the decision, with no filesystem in it (AI-149).
+ * Which session does a name resume to? — the decision, with no filesystem in it.
  *
  * THE MEASURED PROBLEM. `targetByName()` answers from the live session registry, and the registry
  * holds ONLY running sessions — measured: four entries, all alive, and a killed worker's entry is
@@ -77,7 +77,7 @@ export function isSafeSessionId(id: string | undefined): boolean {
 }
 
 /**
- * AI-228 — the last check before a resume launches: does the session STILL answer to the name it was asked for? Read from
+ * The last check before a resume launches: does the session STILL answer to the name it was asked for? Read from
  * the transcript itself at that moment, not from the index. A resume under a stale name runs the session under one name
  * (registry, terminal) while its transcript and tab carry another, and every `send` to either name is then lost.
  * Returns '' when it may launch, else the session's current name (the caller dead-letters naming it).

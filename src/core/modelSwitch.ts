@@ -1,5 +1,5 @@
 /**
- * AI-197 — "this session finished on a model nobody chose". Canonical's AI-178 hook appends one
+ * "This session finished on a model nobody chose". Canonical's model-switch hook appends one
  * line per model switch to ~/.aios/model-switch.jsonl ($AIOS_MODEL_SWITCH_LOG overrides):
  *   {"at": ISO-8601 UTC, "session_id", "name", "from", "to", "reason"}   (unknown values = "")
  * An unattended worker can be moved to another model (a fallback, a flag) with nothing reporting

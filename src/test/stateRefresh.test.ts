@@ -1,11 +1,11 @@
 /**
- * AI-153 — counters that only moved on a restart. agents / skills / commands are read from framework
+ * Counters that only moved on a restart. agents / skills / commands are read from framework
  * folders nothing watches, frequent tasks from a file Glass writes, the nudge from the clock: none of
  * them re-pushed, so the panel showed whatever was true at launch.
  *
  * The fix is a change-GATED re-check (a 30s poll while visible, plus window focus), not more
  * watchers — a watcher on a path the App itself writes can feed itself, and a redraw loop is the
- * one bug class this ship must not add (AI-157). So the property under test is two-sided:
+ * one bug class this ship must not add. So the property under test is two-sided:
  * a changed counter posts exactly once, and an unchanged window posts NOTHING.
  */
 import { test } from 'node:test';

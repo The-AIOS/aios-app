@@ -1,5 +1,5 @@
 /**
- * AI-192, revised — a Claude answer as plain text for WhatsApp, email or a doc. The transcript holds
+ * Copy last answer — a Claude answer as plain text for WhatsApp, email or a doc. The transcript holds
  * the answer as markdown, so this starts from clean text (no TUI bullets, indents or wrapped lines to
  * undo, which is what made copying from the screen unreliable). Keeps what reads well anywhere:
  * paragraphs, "- " bullets, numbered lines, accents, arrows and dashes. Drops markdown syntax. Pure.

@@ -47,7 +47,7 @@ test('window focus re-checks — the App has no view-visibility event to lean on
      window opens, so everything wired at boot — the panel's watchers, the explorer tree, the
      update tracker — was wired against a machine that no longer exists by the time setup
      finishes. Focus is the cheapest honest moment to notice, alongside the poll. */
-  /* AI-153: focus is also when counters nothing watches (agents, skills, commands, frequent)
+  /* Focus is also when counters nothing watches (agents, skills, commands, frequent)
      catch up — change-gated, so a focus with nothing new sends nothing. */
   assert.match(main, /win\.on\('focus', \(\) => \{ host\?\.refreshUpdateStatus\(\); host\?\.refreshStateIfChanged\(\); rewireForRoots\(win\); \}\)/);
   assert.match(main, /function rewireForRoots\(win: BrowserWindow\): void/);

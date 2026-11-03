@@ -33,7 +33,7 @@ export function setPanelLog(fn: (tag: string, msg: string) => void): void { appL
 /** Framework-status cadence: poll while on screen, and collapse rapid triggers. */
 const UPD_POLL_MS = 5 * 60_000;
 const UPD_MIN_GAP_MS = 60_000;
-/** How often the counters are re-checked for changes made outside the App (AI-153). */
+/** How often the counters are re-checked for changes made outside the App. */
 const STATE_POLL_MS = 30_000;
 
 /**
@@ -68,7 +68,7 @@ export class PanelHost {
       const w = BrowserWindow.fromWebContents(this.wc);
       if (w && !w.isDestroyed() && w.isVisible() && !w.isMinimized()) this.refreshUpdateStatus();
     }, UPD_POLL_MS);
-    // AI-153 — skipped while hidden, like the update poll: nobody is reading the counters then,
+    // skipped while hidden, like the update poll: nobody is reading the counters then,
     // and the focus check below catches up the moment they are.
     this.stateTimer = setInterval(() => {
       const w = BrowserWindow.fromWebContents(this.wc);
@@ -101,7 +101,7 @@ export class PanelHost {
     if (v) {
       watch(path.join(v, '01 - calendar'), { recursive: true });
       watch(path.join(v, '00 - notes', 'context', 'observed'));
-      /* A new export announces itself — a tab, a quiet badge, or nothing (AI-222, exportOpen.ts).
+      /* A new export announces itself — a tab, a quiet badge, or nothing (exportOpen.ts).
          Throttled; skips the boot scan; and never for a file a pull or checkout put there. */
       try {
         this.watchers.push(fs.watch(path.join(v, '03 - export'), { recursive: true }, () => {
@@ -179,7 +179,7 @@ export class PanelHost {
     if (!this.wc.isDestroyed()) this.wc.send('shell:intent', { ...payload, kind })   // kind LAST: the routing key can never be shadowed by a payload field;
   }
 
-  /* AI-153, THE CLASS. The panel's counters are a PUSHED snapshot: the renderer draws whatever
+  /* STALE COUNTERS, THE CLASS. The panel's counters are a PUSHED snapshot: the renderer draws whatever
      the last postState said. Watched sources re-push themselves; the App's own mutating handlers
      push (pulseState.test enforces that). What neither covers is a source that changes OUTSIDE
      the App and is not watched — agents/, skills/ and plugins/ commands (a sync, or a session
@@ -307,7 +307,7 @@ export class PanelHost {
     ]).catch(() => null);
   }
 
-  /** AI-196 — the latest OSC 7501 status per session id, as reported by the renderer. */
+  /** The latest OSC 7501 status per session id, as reported by the renderer. */
   private readonly programStatus = new Map<string, ProgramStatus>();
 
   setProgramStatus(sessionId: string, data: string, at: number): void {
@@ -319,7 +319,7 @@ export class PanelHost {
     this.postRunning();   // the point of the signal is that it is immediate — don't wait for the 2s poll
   }
 
-  /** AI-197 — the model-switch log, re-read only when it changed. */
+  /** The model-switch log, re-read only when it changed. */
   private switchCache: { mtimeMs: number; size: number; map: Map<string, ModelSwitch> } = { mtimeMs: -1, size: -1, map: new Map() };
   private modelSwitches(): Map<string, ModelSwitch> {
     const p = process.env.AIOS_MODEL_SWITCH_LOG || path.join(os.homedir(), '.aios', 'model-switch.jsonl');
@@ -332,12 +332,12 @@ export class PanelHost {
     return this.switchCache.map;
   }
 
-  /** AI-171 — what each session used. The shared reader (core/usageReader) reads ASYNC, bounded per
+  /** What each session used. The shared reader (core/usageReader) reads ASYNC, bounded per
    *  tick, prunes ended sessions and byte-splits at newlines (review should-fix 17). */
   private usage = new UsageReader(fsUsageIo);
   /** Sessions already reported as "waiting but outside scope", so each is said once. */
   private toldHiddenWaiting = new Set<string>();
-  /* A session the operator is waiting on that the scope filter (AI-203) HID never notifies — the
+  /* A session the operator is waiting on that the scope filter HID never notifies — the
      filter is the one thing between the registry and the banner. Said once per session, in the
      trail an operator already sends, so "my notifications stopped" is answerable from a log
      rather than from guesses (0.12.0, after a report from one Windows machine). */
@@ -353,7 +353,7 @@ export class PanelHost {
   private usageFor(sessionId: string): ToolUsage | undefined { return this.usage.get(sessionId); }
 
   postRunning(): void {
-    const registry = aios.listOperatorSessions();   // AI-165: never a daemon spare
+    const registry = aios.listOperatorSessions();   // never a daemon spare
     for (const id of this.programStatus.keys()) if (!registry.some((a) => a.sessionId === id)) this.programStatus.delete(id);
     const running = overlayProgramStatus(registry, this.programStatus);
     this.attention.tick(running, aios.shellSettings().attention);
@@ -373,8 +373,8 @@ export class PanelHost {
       /* Review blocker 6: liveness ("(ended)") is judged against EVERY registered session,
          never the filtered panel list — a session the panel hides is still alive in its tab. */
       alive: aios.listRunningAgents().map((a) => ({ id: a.sessionId, name: a.name })),
-      /* Review 13: what AI-203's scope HID, so a false negative is visible ("N hidden · show all")
-         instead of silently missing. Interactive sessions only — headless/daemon runs (AI-165) are
+      /* Review 13: what the operator-session scope HID, so a false negative is visible ("N hidden · show all")
+         instead of silently missing. Interactive sessions only — headless/daemon runs are
          never the operator's and never listed, even here. These rows never notify. */
       hidden: ((): Array<{ name: string; id: string; status: string; proj: string }> => {
         const h = aios.listRunningAgents().filter(aios.isOperatorSession)

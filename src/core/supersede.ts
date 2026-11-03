@@ -1,5 +1,5 @@
 /**
- * Review nit (AI-205) — a superseded message must leave something the SENDER can see. It used to be
+ * Review nit — a superseded message must leave something the SENDER can see. It used to be
  * deleted, which from outside is indistinguishable from a delivery: the file vanished either way.
  * Now it is moved to the inbox's `_archive/` as `<name>.json.superseded`, stamped with what replaced
  * it — beside the archived dead letters, out of the live inbox, so nothing re-reads it as a request.

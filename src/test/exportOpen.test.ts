@@ -1,4 +1,4 @@
-/** AI-222 — a new export never opens a tab from a pull, and by default never takes focus. */
+/** A new export never opens a tab from a pull, and by default never takes focus. */
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';

@@ -105,7 +105,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   onIntent: (cb: (m: { kind: string; [k: string]: unknown }) => void) => ipcRenderer.on('shell:intent', (_e, m) => cb(m)),
   // vault-scoped fs for explorer + viewers
   fsList: (rel: string): Promise<{ name: string; dir: boolean; path: string; mtime: number }[]> => ipcRenderer.invoke('fs:list', rel),
-  // AI-58: explorer sort prefs — per-folder overrides + master default (.glass/state.json)
+  // explorer sort prefs — per-folder overrides + master default (.glass/state.json)
   sortState: (): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:sortState'),
   setSort: (folder: string, mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setSort', folder, mode),
   setMasterSort: (mode: string): Promise<{ master: string; overrides: Record<string, string> }> => ipcRenderer.invoke('fs:setMasterSort', mode),
@@ -133,7 +133,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   claudeSetKeys: (): Promise<Record<string, boolean>> => ipcRenderer.invoke('claude:setKeys'),
   updaterCheckNow: (): Promise<{ ok: boolean; version?: string; current: string; message?: string }> => ipcRenderer.invoke('updater:checkNow'),
   onClaudeConfigChanged: (cb: (c: unknown) => void) => ipcRenderer.on('shell:claudeConfigChanged', (_e, c) => cb(c)),
-  // AI-132 keep-awake: main owns the decision and the blocker; the renderer shows state + sends intent.
+  // keep-awake: main owns the decision and the blocker; the renderer shows state + sends intent.
   tabMenu: (items: TabMenuRow[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
   caffeinateState: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:state'),
   caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
@@ -145,7 +145,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   resumableSessions: (): Promise<{ items: Array<{ id: string; name: string; proj: string; at: number }>; total: number; named: number; unnamed: number }> =>
     ipcRenderer.invoke('sessions:resumable'),
   ptyRun: (id: number, cmd: string): Promise<boolean> => ipcRenderer.invoke('pty:run', { id, cmd }),
-  /* AI-66 pt3 — the renderer tells the bus whether a send actually landed, so a request that
+  /* The renderer tells the bus whether a send actually landed, so a request that
      cannot be delivered here is retired at once instead of waiting out a verification window. */
   busSendResult: (name: string, ok: boolean, reason: string): void => { ipcRenderer.send('bus:sendResult', { name, ok, reason }); },
   /* #81 — the operator is writing in this session's pane: the bus holds its message (commandBus). */

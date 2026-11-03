@@ -1,6 +1,6 @@
 {
  "contract": 4,
- "amendment": "AI-205 \u2014 a send waits for its target's next idle, in order, newer-from-same-sender supersedes, aged",
+ "amendment": "a send waits for its target's next idle, in order, newer-from-same-sender supersedes, aged",
  "status": "proposed to canonical; run by both surfaces",
  "cases": [
   {

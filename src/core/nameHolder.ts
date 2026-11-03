@@ -1,5 +1,5 @@
 /**
- * AI-241 (issue 95) — never start a second session under a name a live process already holds.
+ * Issue 95 — never start a second session under a name a live process already holds.
  *
  * A pane that starts a NEW session (`claude … --name X`) has no session id yet, so the check that
  * keeps a restore from reopening a live session (#59) never applies to it. Measured on Windows

@@ -1,5 +1,5 @@
 /**
- * AI-77 — Option could not type @ (or # | \ [ ] { } ~) on a Spanish keyboard in the terminal
+ * Option could not type @ (or # | \ [ ] { } ~) on a Spanish keyboard in the terminal
  * (operator-reported, Spanish ISO): macOptionIsMeta turned ⌥2 into ESC-2. The rule now is "Option
  * types the character your layout makes when it makes a plain one; otherwise it is Meta". These
  * run the real optionComposedChar with the key events each layout actually produces.

@@ -31,7 +31,7 @@ test('whitelistModel: only claude-* ids pass; injection is dropped', () => {
 });
 
 test('whitelistTier validates SHAPE, never membership — the rung list is not ours to hold', () => {
-  /* AI-129. This used to be `s === 'mechanical' || s === 'judgment'` beside a local rung→model
+  /* Rung-table drift. This used to be `s === 'mechanical' || s === 'judgment'` beside a local rung→model
      table, and the pair failed two different ways once the ladder grew to four rungs: `fast`,
      `scale` and `frontier` were STRIPPED here — the field gone before anything could act on
      it, worker silently on the session default — while `mechanical` and `judgment` resolved
@@ -147,7 +147,7 @@ test('parseRequest: send falls back to task when prompt absent', () => {
 });
 
 test('parseRequest: an unknown action is REFUSED; only an absent one means spawn', () => {
-  /* CONTRACT CHANGE (AI-149). This used to degrade any unrecognised verb to 'spawn'. Adding
+  /* CONTRACT CHANGE. This used to degrade any unrecognised verb to 'spawn'. Adding
      `resume` made that degrade dangerous rather than forgiving: the two verbs hand back
      different things — a fresh something vs the same someone — so a typo'd `"resmue"` would
      silently spawn a duplicate of a session the caller asked to reopen. The back-compat case
@@ -174,7 +174,7 @@ test('parseRequest: the door whitelists model ids and rung SHAPE, not rung membe
   const bad = parseRequest('{"name":"x","model":"$(whoami)","tier":"$(id)"}');
   assert.equal(bad?.model, undefined);
   assert.equal(bad?.tier, undefined);
-  /* CHANGED with AI-129, deliberately: an unknown-but-well-formed rung used to be dropped
+  /* CHANGED with the rung-table fix, deliberately: an unknown-but-well-formed rung used to be dropped
      HERE (this line asserted `tier: "turbo"` → undefined). That silent strip is the defect —
      it is how `fast`, `scale` and `frontier` disappeared and the worker ran on the session
      default with nothing reported. The door no longer decides which rungs exist; it passes a

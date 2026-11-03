@@ -1,5 +1,5 @@
 /**
- * AI-196 — Claude Code's own "working / waiting on you / done" signal: the Program Status
+ * Claude Code's own "working / waiting on you / done" signal: the Program Status
  * Protocol, OSC 7501 (Claude Code 2.1.295+).
  *
  * MEASURED in the App's PTY on 2.1.296, not assumed:

@@ -1,5 +1,5 @@
 /**
- * AI-195 — the advisor. Facts from Claude Code 2.1.296's own source, not inferred:
+ * The advisor. Facts from Claude Code 2.1.296's own source, not inferred:
  *  - advisor choices are the aliases fable · opus · sonnet (filtered by what the account has);
  *    the setting is `advisorModel` (alias or id); absent = no advisor.
  *  - "the advisor must be at least as capable as the main model" — otherwise it is NOT USED.

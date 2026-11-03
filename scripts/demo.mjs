@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * demo — boot the App into a synthetic story (AI-201): a fictional operator, her vault, today's
+ * demo — boot the App into a synthetic story: a fictional operator, her vault, today's
  * note and three live-looking sessions. For screenshots, a live talk, and the launch film, with
  * NO real vault, session, account or inbox anywhere on screen.
  *

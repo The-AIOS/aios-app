@@ -1,5 +1,5 @@
 /**
- * Which `bash` should a NODE process use? — the decision, with no filesystem in it (AI-146).
+ * Which `bash` should a NODE process use? — the decision, with no filesystem in it.
  *
  * WHY THIS IS PURE. The bug it exists for is Windows-only, and the machine that fixes it is
  * usually not Windows: `resolve-tier` is a bash hook, the App's Node process has no shell, and a

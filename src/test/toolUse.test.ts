@@ -1,4 +1,4 @@
-/** AI-171 step 1 — skills and agents a session used, from real transcript record shapes. */
+/** Skills and agents a session used, from real transcript record shapes. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { usageIn, usageChip } from '../core/toolUse';

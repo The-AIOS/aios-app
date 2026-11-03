@@ -27,7 +27,7 @@ import { TIMINGS, decideAfterVerifyMiss, maxAttemptsFor, claimVerdict, triedBy, 
  * identical edit in the other repo, recompute, update PROTOCOL_TIMINGS_SHA in BOTH, and update
  * the inbox README's invariants section. All in the same push, or a live fleet runs split-brain.
  */
-const PROTOCOL_TIMINGS_SHA = '7f13d4b877332f7f';
+const PROTOCOL_TIMINGS_SHA = '11c0cbf93fafbc91';
 
 function timingsBlock(): string {
   const src = fs.readFileSync('src/core/sendQueue.ts', 'utf8');
@@ -44,7 +44,7 @@ test('PROTOCOL: the TIMINGS block is byte-identical across both fulfillers', () 
 
 test('PROTOCOL: the values themselves are the agreed ones', () => {
   // Belt and braces: the hash catches edits, these catch a hash updated without thought.
-  assert.equal(TIMINGS.QUEUE_CEILING_MS, 24 * 60 * 60 * 1000, 'AI-205: a busy target is waited on until its next idle');
+  assert.equal(TIMINGS.QUEUE_CEILING_MS, 24 * 60 * 60 * 1000, 'A busy target is waited on until its next idle');
   assert.equal(TIMINGS.HOLD_STALE_MS, 24 * 60 * 60 * 1000 + 45 * 60 * 1000);
   assert.ok(TIMINGS.HOLD_STALE_MS > TIMINGS.QUEUE_CEILING_MS + TIMINGS.MAX_HOLD_MS, 'stale must exceed the WORST-CASE legitimate hold: queued to the ceiling, then watched for verification (should-fix 7)');
   assert.equal(TIMINGS.MAX_HOLD_MS, 30 * 60 * 1000);
@@ -56,7 +56,7 @@ test('PROTOCOL: the values themselves are the agreed ones', () => {
   assert.ok(TIMINGS.MAX_HOLD_MS < TIMINGS.HOLD_STALE_MS, 'a fulfiller must give up before its claim goes stale');
 });
 
-/* AI-66 pt4 — the four-way decision after a delivery that did not verify.
+/* The four-way decision after a delivery that did not verify.
    Pure, so it can be exhaustively tested WITHOUT an extension host or an Electron window —
    which is the whole reason it lives in this module rather than inside each surface's async
    delivery loop, where the bug originally hid in two places at once. */
@@ -427,7 +427,7 @@ const DISPATCHER = 'src/main/commandBus.ts';
 const DISPATCH_FN = 'function runImmediate';
 const LAUNCH = 'runSpawn(win, heldPath, req)';
 
-/* ── THE VERB CONTRACT (AI-149) ──────────────────────────────────────────────
+/* ── THE VERB CONTRACT ──────────────────────────────────────────────
    Same shape as the decision table above, for the same reason: the App and Glass are two
    independent fulfillers, and the thing that must never diverge is what a request's `action`
    means. `core/busVerbs.ts` is copied byte-identical into both repos and both dispatchers
@@ -436,7 +436,7 @@ const LAUNCH = 'runSpawn(win, heldPath, req)';
    WHEN THIS FAILS: you changed the verb set or the absent/unknown rule. That is allowed — it is a
    PROTOCOL change. Make the identical edit in the sibling repo, update VERBS_SHA in BOTH, and
    update the spawn-inbox README, in one push. */
-const VERBS_SHA = '34d75cf2620c94ba';
+const VERBS_SHA = '7bebc055e1367175';
 
 test('PROTOCOL: the verb module is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/core/busVerbs.ts', 'utf8');
@@ -449,7 +449,7 @@ test('PROTOCOL: the verb module is byte-identical across both fulfillers', () =>
    is RACED for, so if the two surfaces disagreed about which session a name resolves to, the same
    `resume` would reopen different sessions depending on who won — non-determinism that would look
    like a Claude bug, not ours. core/resumeTarget.ts is therefore copied byte-identical as well. */
-const RESUME_SHA = '5444bfed034874b1';
+const RESUME_SHA = 'b84a104ab0ddda2b';
 
 test('PROTOCOL: the name→session resolution is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/core/resumeTarget.ts', 'utf8');
@@ -502,7 +502,7 @@ test('PROTOCOL: presence ownership is byte-identical across both surfaces', () =
    was simply more informative on one side), but harmless-by-luck is not a property you can keep.
    The file could not be pinned before because MY_SURFACE lived in it — the one value that MUST
    differ per surface. It now lives beside each surface's own code, and the rest is pinned whole. */
-const SENDQUEUE_SHA = '18f81689beeae4a6';
+const SENDQUEUE_SHA = 'ea38136b982c6a81';
 
 test('PROTOCOL: the bus decisions are byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/core/sendQueue.ts', 'utf8');
@@ -521,7 +521,7 @@ test('PROTOCOL: the bus decisions are byte-identical across both fulfillers', ()
 /* The request BODY, byte-identical for the same reason: contract 2 has both surfaces racing, so a
    request must survive identically whichever one wins. This file carried a comment asking for
    byte-identity and drifted from its sibling anyway — a comment is not a guard. */
-const BUSPAYLOAD_SHA = '85cda9572dca9efc';
+const BUSPAYLOAD_SHA = '874d11d61dc3b8e1';
 
 test('PROTOCOL: the request payload is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/core/busPayload.ts', 'utf8');
@@ -582,9 +582,9 @@ test('PROTOCOL: this surface refuses an unknown verb before launching anything',
   assert.ok(refusal < launch, 'the refusal must come before any launcher runs');
 });
 
-/* AI-204 — the resume index is ONE file in two repos (App main/resumeIndex.ts, Glass
+/* The resume index is ONE file in two repos (App main/resumeIndex.ts, Glass
    agents/resumeIndex.ts). Pinned whole, like sendQueue: an edit on one side alone goes red. */
-const RESUME_INDEX_SHA = '7fde43f2237783bf';
+const RESUME_INDEX_SHA = '2932f09b4970ba40';
 test('PROTOCOL: the resume index is byte-identical across both fulfillers', () => {
   const src = fs.readFileSync('src/main/resumeIndex.ts', 'utf8');
   assert.equal(crypto.createHash('sha256').update(src).digest('hex').slice(0, 16), RESUME_INDEX_SHA,

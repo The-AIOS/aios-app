@@ -12,7 +12,7 @@
  *
  * THE ABSENT/UNKNOWN SPLIT is the load-bearing part. An ABSENT action means spawn, because
  * contract-1 requests are plain `{name, task}` and there are still some in the wild. A WRITTEN
- * action must be a verb we implement: since `resume` arrived (AI-149), spawn and resume hand back
+ * action must be a verb we implement: since `resume` arrived, spawn and resume hand back
  * different things — a fresh something versus the same someone — so degrading an unrecognised
  * verb to spawn would answer `{"action":"resmue"}` with a duplicate of the very session the
  * caller asked to reopen. Absent is back-compat; unrecognised is a typo. They are not the same

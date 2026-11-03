@@ -1,4 +1,4 @@
-/** AI-203 — only the operator's sessions reach the panel and the notifications. */
+/** Only the operator's sessions reach the panel and the notifications. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { inScope, within, busNamesFrom, type SessionScope } from '../core/sessionScope';

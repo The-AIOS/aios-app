@@ -1,5 +1,5 @@
 /**
- * AI-172 — append the fingerprint of every text this surface TYPES into a session to
+ * Append the fingerprint of every text this surface TYPES into a session to
  * ~/.aios/bus-sent.jsonl ($AIOS_BUS_LOG overrides), so canonical's provenance hook can label it
  * "delivered, not typed by the operator" however the request file was written. The format and
  * the fingerprint are canonical hooks/bus_log.py's, ported in core/busLog (pinned by vectors).

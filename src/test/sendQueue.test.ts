@@ -22,8 +22,8 @@ const target = (over: Partial<SendTarget> = {}): SendTarget =>
   ({ name: 'designer', pid: 4242, status: 'idle', sessionId: 'sess-1', ...over });
 
 test('this build declares contract 4 and the app surface', () => {
-  /* 3 since AI-149 (`resume`, unknown verbs refused); 4 since 0.11.0: `from`, `effort`, `advisor`
-     and the AI-205 queue — stamped only once BOTH surfaces honour every field. Bumped in both
+  /* 3 since the verb contract (`resume`, unknown verbs refused); 4 since 0.11.0: `from`, `effort`, `advisor`
+     and the send queue — stamped only once BOTH surfaces honour every field. Bumped in both
      repos in one push: a surface claiming a contract it does not implement lies to a reading agent. */
   assert.equal(INBOX_CONTRACT, 4);
   assert.equal(MY_SURFACE, 'app');
@@ -144,7 +144,7 @@ test('the bus CLAIMS by rename and deletes only after verification', () => {
 test('delivery is verified by counting USER TURNS, not substring hits', () => {
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   // the RULE now lives in core (pure, unit-tested above); main only does the IO
-  /* AI-223: the IO moved to main/transcriptSince (read only what was appended since the send began);
+  /* The IO moved to main/transcriptSince (read only what was appended since the send began);
      the RULE is still core's. One counter call, bounded by the claim, behind `count()`. */
   const io = fs.readFileSync('src/main/transcriptSince.ts', 'utf8');
   assert.match(io, /export function readTranscript/);
@@ -153,7 +153,7 @@ test('delivery is verified by counting USER TURNS, not substring hits', () => {
      that legitimately moved (the baseline hoist on 08-12, the `sinceMs` bound on 08-14), which is
      how a guard trains people to update it without reading it. What must hold: main hands the
      transcript to the core counter, and every such call BOUNDS it by the claim. */
-  /* AI-170: the counter is countDeliveries (user turns, or a built-in slash command's local_command record). */
+  /* The counter is countDeliveries (user turns, or a built-in slash command's local_command record). */
   const counterCalls = src.match(/countDeliveries\(appended[^)]*\)/g) ?? [];
   assert.equal(counterCalls.length, 1, 'one place hands the appended transcript to the core counter');
   assert.ok((src.match(/count\(sessionId\)/g) ?? []).length >= 4, 'and every check goes through it');

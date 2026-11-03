@@ -198,7 +198,7 @@ export function countUserTurnsContaining(jsonl: string, needle: string, sinceMs?
 }
 
 /**
- * AI-170 — the slash command a delivered text IS, or null. `/remote-control`, `/rename x`,
+ * The slash command a delivered text IS, or null. `/remote-control`, `/rename x`,
  * `/aios:today` → the command word; anything else → null.
  */
 export function slashCommandOf(text: string): string | null {
@@ -263,7 +263,7 @@ export function verifyVerdict(before: number, now: number): VerifyVerdict {
    all four. It is ADDITIVE — a request with no `surface` behaves exactly as contract 1.
    ══════════════════════════════════════════════════════════════════════════════ */
 
-/* Contract 3 (AI-149) adds the `resume` verb and — the part that needs a version number — changes
+/* Contract 3 adds the `resume` verb and — the part that needs a version number — changes
    what an UNRECOGNISED action means. Contract 2 degraded any unknown verb to `spawn`; contract 3
    refuses it. That matters across versions: a contract-2 fulfiller handed `{"action":"resume"}`
    would SPAWN A DUPLICATE of the session the caller asked to reopen. Both surfaces ship this in
@@ -272,7 +272,7 @@ export function verifyVerdict(before: number, now: number): VerifyVerdict {
    follows, and `"surface"` is how it can insist on one. Still ADDITIVE for every contract-1/2
    request: absent `action` means spawn, exactly as before.
    Contract 4 (canonical inbox-contract-4.md, App 0.11.0 / Glass 0.5.11) adds three OPTIONAL fields —
-   `from` (send/resume), `effort` and `advisor` (spawn/resume) — and the AI-205 queue amendment.
+   `from` (send/resume), `effort` and `advisor` (spawn/resume) — and the queue amendment.
    Stamped 4 only now that BOTH surfaces honour every field; an older surface reading a contract-4
    README refuses to downgrade it (shouldWriteDoc). Additive: a contract-3 request is unchanged. */
 export const INBOX_CONTRACT = 4;
@@ -291,7 +291,7 @@ export const TIMINGS = {
    *  watched for verification): adopting a live hold earlier is the cross-surface double delivery.
    *  24 h 45 m — a 15-minute margin past 24 h 30 m (review should-fix 7). */
   HOLD_STALE_MS: 24 * 60 * 60 * 1000 + 45 * 60 * 1000,
-  /** AI-205 — how long a `send` waits for a LIVE but busy target to reach its next idle. Was the
+  /** How long a `send` waits for a LIVE but busy target to reach its next idle. Was the
    *  30-min MAX_HOLD_MS, which killed coordinator messages to builders that stayed busy for an
    *  hour (5 in one day). Never typed into a busy session either way; this only bounds patience. */
   QUEUE_CEILING_MS: 24 * 60 * 60 * 1000,
@@ -311,7 +311,7 @@ export const TIMINGS = {
 } as const;
 
 /**
- * AI-205 — whose turn is it? Held `send`s to one target go out OLDEST FIRST (by claim time), and
+ * Whose turn is it? Held `send`s to one target go out OLDEST FIRST (by claim time), and
  * a newer message from the same sender (`from`, contract 4) SUPERSEDES an older one still waiting:
  * a coordinator re-briefing a busy builder wants the latest brief read, not every draft in a row.
  * Pure: the caller lists the held sends it can see (both surfaces' `.holding` files).
@@ -347,7 +347,7 @@ export function supersedes(me: QueuedSend, held: readonly QueuedSend[]): QueuedS
 }
 
 /**
- * AI-205 — WHEN A REQUEST FIRST QUEUED, stamped once and never moved. `_claim.at` is re-stamped
+ * WHEN A REQUEST FIRST QUEUED, stamped once and never moved. `_claim.at` is re-stamped
  * whenever a surface adopts or re-claims a hold (an App restart, a sibling hand-back), so ordering
  * by it let a stale message overtake its own correction: A at 10:00, correction B at 10:20, the App
  * restarts at 10:30 and adopts A, A now looks newest, B is "superseded" and deleted, A is delivered.
@@ -372,7 +372,7 @@ export function isQueuedDelivery(verb: string, body: Record<string, unknown>): b
   return verb === 'resume' && typeof body.prompt === 'string' && body.prompt.trim() !== '';
 }
 
-/** AI-205 — a message that waited is typed with its age, so the receiver knows it is not fresh.
+/** A message that waited is typed with its age, so the receiver knows it is not fresh.
  *  Not for a slash command, which a prefix would turn into plain text. */
 export const AGE_STAMP_AFTER_MS = 2 * 60 * 1000;
 export function stampAge(text: string, waitedMs: number, from?: string): string {
@@ -685,7 +685,7 @@ export function decideAfterVerifyMiss(s: {
   /* THE 2026-08-12 BUG, half two — `release` used to be FIRST here, and it is now gone entirely.
      Reaching this function means we already TYPED the message successfully (a surface that could
      not type it returns !ok and releases on that path, which is the case release was built for —
-     see the AI-67 comment in commandBus.runSend). Handing an already-typed request to a sibling
+     see the comment in commandBus.runSend). Handing an already-typed request to a sibling
      asks a second surface to type it AGAIN: double delivery, the one outcome this protocol calls
      explicitly worse than latency. And with a single fulfiller running there is no sibling at all,
      so the request came straight back to the same App, which re-typed it and burned a release —

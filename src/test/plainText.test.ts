@@ -1,4 +1,4 @@
-/** AI-192 — "Copy as plain text", against output captured from a real Claude Code session. */
+/** "Copy as plain text", against output captured from a real Claude Code session. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';

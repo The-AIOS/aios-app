@@ -25,7 +25,7 @@ const skip = pty
   : `no node-pty prebuild on ${process.platform}; pty round-trips run on macOS`;
 import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '../core/busPayload';
 
-/* AI-66 end-to-end. The other suite reasons about the RULE; this one puts bytes through a real
+/* Pointer delivery, end-to-end. The other suite reasons about the RULE; this one puts bytes through a real
    pty, because the incident was not a logic error — it was a delivery that silently lost its
    tail. A rule that is right about a channel nobody exercised is the same false green that
    produced the bug.

@@ -1,5 +1,5 @@
 /**
- * Keep-awake driver — the only place that touches Electron's power blocker (AI-132).
+ * Keep-awake driver — the only place that touches Electron's power blocker.
  *
  * The policy is pure and lives in `src/core/caffeinate.ts`; this file is the part that cannot be
  * pure: it holds the blocker id, reads the live session list, and pushes state at the renderer.
@@ -9,7 +9,7 @@
  *  2. `renderer/app.js` is a plain <script> with NO access to `src/core` — index.html loads
  *     node_modules UMD bundles, the generated i18n.js, and app.js, and nothing else. A
  *     renderer-side driver could not share the policy, so it would have to reimplement it. That
- *     is the duplication that let a rung table drift in AI-129; here it is avoided by putting the
+ *     is the duplication that let a rung table drift once before; here it is avoided by putting the
  *     decision where the shared code can actually be imported.
  *
  * WHAT WE DO NOT DO: shell out to `caffeinate`. It is macOS-only, and the operator's own question

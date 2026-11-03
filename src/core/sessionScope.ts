@@ -1,5 +1,5 @@
 /**
- * AI-203 — which sessions are the OPERATOR'S. The panel, the Dock badge and the banners list
+ * Which sessions are the OPERATOR'S. The panel, the Dock badge and the banners list
  * only those; everything else (a build session's probes, a helper, a script) is hidden and never
  * notifies. Measured: `osc-live` / `title-probe` were Claude sessions a build session started in
  * ~/code while testing, and the App put "osc-live needs you" on the operator's screen.
@@ -10,7 +10,7 @@
  *  - the spawn inbox delivered to it (the provenance log names it) — agents the operator's own
  *    coordinators start or message;
  *  - it runs inside the framework or one of the operator's workspace folders.
- * Headless runs are already excluded before this (kind / entrypoint, AI-165). Pure.
+ * Headless runs are already excluded before this (kind / entrypoint). Pure.
  */
 export interface SessionScope {
   paneSessionIds: ReadonlySet<string>;
