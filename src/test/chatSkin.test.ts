@@ -4045,6 +4045,10 @@ test('a question on screen never leaks under the chat box, and "View in the term
   const rule = '─'.repeat(40);
   assert.equal(run(fake(['Which material would you like?', '❯ 1. Wood', '  2. Metal', rule, '  ← ☒ Colour ☐ Material', 'Which material would you like?'])), null, 'a menu\'s selected option is not the prompt');
   assert.equal((run(fake([rule, '❯ ', rule, '  [Opus 5.5] 📁 aios'])) || []).length, 1, 'control: the real prompt box still gives its status row');
+  assert.equal(run(fake(['answer text', '❯ Use the AskUserQuestion tool to ask me four questions', '', rule, '  ← ☐ Colour ☐ Size', 'What is your favourite colour?', '❯ 1. Blue'])), null,
+    'the operator\'s echoed message is not the prompt box: no rule above it (the leak as seen)');
+  const layout = app.slice(app.indexOf('function chatSkinLayout('), app.indexOf('\n}\n', app.indexOf('function chatSkinLayout(')) + 2);
+  assert.match(layout, /if \(sl && cs\.promptKind\) \{ sl\.hidden = true; sl\.replaceChildren\(\);/, 'hidden the moment a dialog arrives');
   const mirror = app.slice(app.indexOf('function chatSkinMirrorStatus('), app.indexOf('function chatSkinMirrorStatus(') + 1600);
   assert.match(mirror, /if \(cs\.promptKind\) \{ host\.hidden = true;/, 'and while a dialog is up the mirror is hidden outright');
   const card = app.slice(app.indexOf("const link = el('button', 'csd-link'"), app.indexOf("const link = el('button', 'csd-link'") + 900);

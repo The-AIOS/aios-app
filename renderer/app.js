@@ -9330,6 +9330,10 @@ function chatSkinLayout(p) {
   cs.root.hidden = !on;
   if (!on) chatSkinEffortMenu(cs, false);   // a menu left open would keep a document listener alive behind a hidden view
   cs.input.disabled = !!cs.promptKind || !!p.exited;
+  /* A dialog owns the screen: whatever the mirror drew before it opened is not a status line now. Hidden here, where the
+     dialog arrives, and not only on the mirror's own timer (which a dialog can outlast). */
+  const sl = cs.meta && cs.meta.querySelector('.cb-sl');
+  if (sl && cs.promptKind) { sl.hidden = true; sl.replaceChildren(); cs.meta.classList.remove('has-sl'); }
   if (!on || cs.promptKind) chatSkinSlashClose(cs);   // a popup left open over a hidden or blocked composer would be a ghost
   const gen = cs.wrap && cs.wrap.querySelector('.cb-pop.cb-gen');
   if (gen && !gen.hidden && (!on || cs.promptKind)) { gen.hidden = true; if (gen.off) gen.off(); }   // so is a model/mode/agents menu (review: a pick could land in the dialog)
@@ -9532,10 +9536,14 @@ function chatStatusRows(p) {
   for (let i = end - 1; i >= Math.max(0, end - 30); i--) {
     const l = b.getLine(i);
     if (!l || !/^─{20,}$/.test(l.translateToString(true).trim())) continue;
+    /* The prompt BOX: a ❯ line with a rule above it too. A ❯ on its own is the operator's message echoed in the transcript, or a
+       menu's selected option, and under either sits a dialog, not a status line (0.14.1 round: a question leaked under the box). */
     let prompt = false;
+    const txt = (j) => (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
     for (let j = i - 1; j >= Math.max(0, i - 8); j--) {
-      const s = (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
-      if (/^\s*❯(?!\s*\d+\.)/.test(s)) { prompt = true; break; }   // the prompt, never a menu's selected option ("❯ 1. Wood")
+      if (!/^\s*❯(?!\s*\d+\.)/.test(txt(j))) continue;
+      for (let k = j - 1; k >= Math.max(0, j - 3); k--) if (/^─{3,}/.test(txt(k).trim())) { prompt = true; break; }
+      break;
     }
     if (!prompt) continue;
     const rows = [];
