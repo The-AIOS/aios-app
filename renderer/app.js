@@ -9560,7 +9560,14 @@ function chatStatusRows(p) {
 function chatSkinRecording(screen) {
   const xs = String(screen).split('\n');
   const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
-  return bottom >= 0 && xs.slice(bottom + 1).some((l) => /[⏺●]\s*REC\b/.test(l));
+  if (bottom < 0) return false;
+  if (xs.slice(bottom + 1).some((l) => /[⏺●]\s*REC\b/.test(l))) return true;
+  /* Claude Code 2.1.317 on macOS paints it ABOVE the box instead, right-aligned over the top rule ("⏺ REC · tap to send"),
+     and reading only below missed it: the mic recorded and the chat never knew (0.14.1 round, operator-reported). Only the
+     two lines over the top rule count, and only right-aligned, so a reply that starts with ⏺ and mentions REC never does. */
+  let top = bottom - 1;
+  while (top > 0 && !/^─{3,}/.test(xs[top]) && bottom - top < 12) top--;
+  return xs.slice(Math.max(0, top - 2), top).some((l) => /^\s{8,}[⏺●]\s*REC\b/.test(l));
 }
 function chatSkinMirrorStatus(p) {
   const cs = p.chatSkin;

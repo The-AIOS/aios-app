@@ -3786,6 +3786,11 @@ test('the chat view sees tap-to-talk listening: either dot, on a box high in a t
   assert.equal(rec([rule, '❯ ', rule, '  [Opus] aios | main', '  -- INSERT --'].join('\n')), false, 'control: not recording');
   assert.equal(rec(['● REC is what the status line shows', rule, '❯ ', rule, '  [Opus] aios'].join('\n')), false, 'a reply above the box does not count');
   assert.equal(rec('● REC · tap to send'), false, 'no box on screen: not recording');
+  /* Claude Code 2.1.317 on macOS, captured in the dev window: the REC line sits right-aligned ABOVE the box's top rule. */
+  const above = ['▝▝   ▝▝   ~/obsidian', ' '.repeat(51) + '⏺ REC · tap to send', '─'.repeat(61) + ' demo-mic ─', '❯ ', '─'.repeat(72), '  ⏵⏵ auto mode on (shift+tab to cycle)'].join('\n');
+  assert.equal(rec(above), true, 'the macOS 2.1.317 placement, over the box');
+  assert.equal(rec(above.replace('⏺ REC · tap to send', '').replace(' '.repeat(51), '')), false, 'control: the same screen without REC');
+  assert.equal(rec(['⏺ REC was mentioned in my reply', '─'.repeat(61) + ' demo-mic ─', '❯ ', '─'.repeat(72)].join('\n')), false, 'a reply line over the box, not right-aligned, never counts');
 });
 
 test('review fixes: no mode press into a dialog, no agents menu over one, no send into a panel or onto a terminal draft', () => {
