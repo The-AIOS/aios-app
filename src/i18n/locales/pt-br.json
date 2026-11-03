@@ -1215,7 +1215,7 @@
   "restore.paused": "{name} ainda não está rodando",
   "restore.resumeNow": "Retomar",
   "settings.unattended": "Modo não assistido",
-  "settings.unattendedHint": "Para uma máquina que ninguém está olhando. Quando o AIOS reabre, traz todas as sessões sem perguntar e as inicia uma de cada vez; quando o Claude pergunta como retomar uma sessão longa, responde por você. Só nesta máquina.",
+  "settings.unattendedHint": "Para uma máquina que ninguém está olhando. Quando o AIOS reabre, traz todas as sessões sem perguntar e as inicia uma de cada vez; quando o Claude pergunta como retomar uma sessão longa, responde por você. Uma atualização baixada se instala sozinha quando nada está em andamento e ninguém mexeu na máquina por 10 minutos. Só nesta máquina.",
   "unattended.off": "Desligado — perguntar",
   "unattended.summary": "Ligado — retomar a partir de um resumo (recomendado)",
   "unattended.full": "Ligado — retomar a sessão completa",

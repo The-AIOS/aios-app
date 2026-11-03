@@ -2548,6 +2548,12 @@ const restoreOnLaunch = (() => {
 const UNATTENDED_KEY = 'unattendedMode';
 function unattendedModeOf(v) { return v === 'summary' || v === 'full' ? v : 'off'; }
 let UNATTENDED = (() => { try { return unattendedModeOf(localStorage.getItem(UNATTENDED_KEY)); } catch { return 'off'; } })();
+/* Main installs a downloaded update by itself only while this is on (src/core/autoInstall.ts has
+   the quiet rule). Main cannot read localStorage, so it is told at launch and on every change. */
+function tellUpdaterUnattended() {
+  try { void window.glassShell.updaterUnattended?.(UNATTENDED !== 'off').catch(() => { /* dev build: no updater */ }); } catch { /* */ }
+}
+tellUpdaterUnattended();
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
 /* `active` is now FOCUS, not visibility.
    It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
@@ -12051,6 +12057,7 @@ function openSettingsTab() {
     unSel.addEventListener('change', () => {
       UNATTENDED = unattendedModeOf(unSel.value);
       try { localStorage.setItem(UNATTENDED_KEY, UNATTENDED); } catch { /* private mode: lasts this run */ }
+      tellUpdaterUnattended();
       toast(t('settings.saved'));
     });
     row(wrap, t('settings.unattended'), unSel, t('settings.unattendedHint'));
