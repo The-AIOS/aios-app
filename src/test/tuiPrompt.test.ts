@@ -387,3 +387,47 @@ test('the Background panel is a prompt even when its footer wraps in a narrow pa
     '   ↑/↓ to select · Enter to view · f to foreground · x to stop · ctrl+x ctrl+k to stop all agents · Esc', '   to close'].join('\n');
   assert.equal(detectTuiPrompt(screen)?.kind, 'other');
 });
+
+// ── AskUserQuestion's submit screen ──────────────────────────────────────────
+
+/* Captured from Claude Code 2.1.316 after answering four questions (the shape of a real
+   AskUserQuestion that left the chat view with nothing to press). No footer, and the ☒ chips are
+   far above the menu. */
+const SUBMIT_REVIEW = [
+  '  ← ☒ Colour ☒ Size ☒ Material ☒ Delivery    ✔ Submit    →',
+  '',
+  '  Review your answers',
+  '',
+  '  │  ● Which colour should the finished product be, considering the look you want for it and how it will be seen by the',
+  '  │  people who receive it in daily use?',
+  '     → Neutral tones',
+  '  │  ● What overall size should the product be, balancing the space it has to fit into against how much it needs to hold',
+  '  │    or display comfortably for everyday use?',
+  '     → Compact',
+  '  │  ● Which material should the product be made from, weighing durability, weight, cost and environmental impact against',
+  '  │  how it will be handled and used day to day?',
+  '     → Recycled plastic',
+  '  │  ● How should the product reach you, weighing how quickly you need it against the cost and the care needed for',
+  '  │  handling during transport to your address?',
+  '     → Standard shipping',
+  '',
+  '  Ready to submit your answers?',
+  '',
+  '  ❯ 1. Submit answers',
+  '    2. Cancel',
+].join('\n');
+
+test('AskUserQuestion\'s submit screen is a question with two buttons, though it has no footer', () => {
+  const v = detectTuiPrompt(SUBMIT_REVIEW);
+  assert.equal(v?.kind, 'question');
+  assert.equal(v?.question, 'Ready to submit your answers?');
+  assert.deepEqual(v?.options?.map((o) => [o.n, o.label, o.selected, o.key]), [
+    [1, 'Submit answers', true, '1'],
+    [2, 'Cancel', false, '2'],
+  ]);
+  // the partial variant ("You have not answered all questions") is the same dialog
+  const partial = SUBMIT_REVIEW.replace('Ready to submit your answers?', 'You have not answered all questions');
+  assert.equal(detectTuiPrompt(partial)?.kind, 'question');
+  // control: the same menu with neither wording is not a dialog (a numbered list in an answer)
+  assert.equal(detectTuiPrompt(SUBMIT_REVIEW.replace('Ready to submit your answers?', 'Two ways forward:').replace('Review your answers', 'Notes')), null);
+});
