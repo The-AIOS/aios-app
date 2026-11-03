@@ -4478,7 +4478,10 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   }
   // drop a file/folder onto THIS terminal → insert its quoted path (not the active one:
   // the pane under the pointer is the one the operator meant)
-  attachDropZone(el, (paths) => { noteOperatorKeys(p, 'drop'); window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id); });   // #81: a dropped path is a draft
+  attachDropZone(el, (paths) => {
+    if (chatSkinTakeDrop(p, paths)) { setActive(id); return; }   // chat view: the composer, never the hidden terminal
+    noteOperatorKeys(p, 'drop'); window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id);   // #81: a dropped path is a draft
+  });
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
   /* AI-64: the session tells us its own name through the tty title. */
@@ -7251,6 +7254,7 @@ attachDropZone(document.getElementById('panes'), async (paths, isDir, dropOpts) 
 attachDropZone(document.getElementById('tpanes'), (paths, isDir) => {
   const id = active.term;
   if (id != null && panes.get(id) && !panes.get(id).exited) {
+    if (chatSkinTakeDrop(panes.get(id), paths)) { setActive(id); return; }   // chat view: the composer, never the hidden terminal
     // several files from Finder arrive as one drop — insert them all, space separated
     noteOperatorKeys(panes.get(id), 'drop');   // #81: a dropped path is a draft
     window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' ');
@@ -10237,6 +10241,20 @@ function chatSkinInsertPaths(cs, paths) {
   chatSkinAutosize(cs);
   chatSkinControls(cs.pane);
   try { el_.focus({ preventScroll: true }); } catch { /* detached */ }
+}
+/* A DROP ON A PANE IN CHAT VIEW BELONGS TO THE COMPOSER, wherever on the pane it lands. The card's own drop zone
+   (chatSkinDropBind) only covers the box, and an empty box is one line tall: a file dropped on the conversation above
+   it fell through to the pane's zone, which writes to the pty — so the path went into the hidden Claude Code prompt,
+   single-quoted, where the operator could not see it, while the box they were looking at stayed empty (operator-reported:
+   it only worked once something was typed — most likely because a box with text is tall enough to hit). Returns true when it took
+   the drop. A dialog that has brought the terminal forward (promptKind) keeps the old path: the terminal is what is in
+   front then. Dropped TEXT that is not a path is not typed into the hidden prompt either — it is simply not taken. */
+function chatSkinTakeDrop(p, paths) {
+  const cs = p && p.chatSkin;
+  if (!cs || p.view !== 'chat' || cs.promptKind || p.exited) return false;
+  const usable = paths.source === 'text' ? paths.filter((x) => /^(\/|[A-Za-z]:[\\/])/.test(x)) : paths.slice();
+  if (usable.length) chatSkinInsertPaths(cs, usable);
+  return true;
 }
 /* The paths of a list of File objects: the real path when the file lives on disk, else (an image only) a temp copy
    made by main. Files that are neither are skipped, and the caller says so once. Resolves to { paths, failed }. */

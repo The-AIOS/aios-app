@@ -80,7 +80,8 @@ test('the pane re-checks with no gap and the bus keeps the request without spend
 });
 
 test('a dropped path counts as a draft', () => {
-  assert.match(app, /attachDropZone\(el, \(paths\) => \{ noteOperatorKeys\(p, 'drop'\);/);
+  // the pty branch notes the draft before it writes; a chat-view drop goes to the composer instead (chatDrop.test.ts)
+  assert.match(app, /attachDropZone\(el, \(paths\) => \{\n[^\n]*chatSkinTakeDrop[^\n]*\n\s*noteOperatorKeys\(p, 'drop'\); window\.glassShell\.ptyWrite/);
 });
 
 test('a deferral is a timed hold: it never latches a draft the pane did not report', () => {
