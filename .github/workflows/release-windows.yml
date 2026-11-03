@@ -52,6 +52,10 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
       BUILD_REF: ${{ github.event.inputs.ref }}
+      # Code signing (issue #42): SSL.com eSigner, an OV certificate in SSL.com's cloud HSM, so the
+      # runner signs with no hardware token. `yes` only when the repo holds the eSigner secrets; a
+      # step's `if:` cannot read a secret directly, so the job states whether one exists.
+      ESIGNER: ${{ secrets.ES_USERNAME != '' && 'yes' || 'no' }}
     steps:
       - name: Announce what is being built, and against what
         run: |
@@ -77,10 +81,52 @@ jobs:
       # everything must pass. A directory arg, not a glob — runs identically under bash/cmd/pwsh.
       - run: node --test --test-timeout=120000 "out/test/*.test.js"
 
+      # CodeSignTool, pinned by version AND by checksum: the release path ships to non-technical
+      # users, so the signer is never "whatever SSL.com serves today". It carries its own JDK, so
+      # the runner needs nothing else. Bump both lines together, from SSL.com's GitHub releases.
+      - name: Install CodeSignTool (pinned), only when signing credentials exist
+        if: env.ESIGNER == 'yes'
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2-windows.zip'
+          $want = '4AFC32E8B7F79BBE1DE7E4E7049AAAD4E0F754357613B9BBEC0E3052F06FD36B'
+          Invoke-WebRequest -Uri $url -OutFile cst.zip
+          $got = (Get-FileHash cst.zip -Algorithm SHA256).Hash
+          if ($got -ne $want) { throw "CodeSignTool checksum mismatch: got $got, want $want" }
+          Expand-Archive cst.zip -DestinationPath "$env:RUNNER_TEMP\cst"
+          Add-Content -Path $env:GITHUB_ENV -Value "CODE_SIGN_TOOL_DIR=$env:RUNNER_TEMP\cst"
+
       # Build the nsis installer and verify the SHIPPED tree (PE .node + ConPTY helpers + a launch
       # of the packaged AIOS.exe --smoke). No xvfb — Windows runners have a desktop session.
+      # Signing happens INSIDE this step (scripts/sign-windows.cjs, electron-builder's signer hook),
+      # so AIOS.exe, the installer and its uninstaller are all signed before latest.yml records the
+      # installer's sha512. With no secrets the hook signs nothing and the build is as before.
       - name: Build nsis installer, verify the packaged tree
+        env:
+          ES_USERNAME: ${{ secrets.ES_USERNAME }}
+          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+          ES_CREDENTIAL_ID: ${{ secrets.ES_CREDENTIAL_ID }}
+          ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
         run: npm run dist:win
+
+      # Windows' own verdict on what will ship, not the signing tool's: the app inside and the
+      # installer must both carry a valid Authenticode signature from the publisher. A signed
+      # release that fails here never reaches the draft.
+      - name: Verify the Windows signatures
+        if: env.ESIGNER == 'yes'
+        shell: pwsh
+        run: |
+          $files = @('dist\win-unpacked\AIOS.exe') + (Get-ChildItem dist\*.exe | ForEach-Object { $_.FullName })
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature -LiteralPath $f
+            "{0}: {1} · {2}" -f $f, $s.Status, $s.SignerCertificate.Subject
+            if ($s.Status -ne 'Valid') { throw "$f is not validly signed ($($s.Status))" }
+            if ($s.SignerCertificate.Subject -notmatch 'Pulsar Labs') { throw "$f is signed by '$($s.SignerCertificate.Subject)', not Pulsar Labs" }
+          }
+
+      - name: Say plainly when this build is unsigned
+        if: env.ESIGNER != 'yes'
+        run: echo "::warning::No eSigner secrets in this repo, so the Windows installer is UNSIGNED (issue #42). Smart App Control will block it on a clean Windows 11 machine."
 
       - name: Is the feed this build produced usable?
         run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform win32 --local

@@ -139,6 +139,12 @@
     },
     "win": {
       "icon": "build/icon.ico",
+      "signtoolOptions": {
+        "sign": "./scripts/sign-windows.cjs",
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      },
       "target": [
         {
           "target": "nsis",
