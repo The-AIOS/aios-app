@@ -165,7 +165,7 @@ test('the card\'s frame is fully sandboxed and never the HTML viewer\'s', () => 
   const body = app.slice(start, app.indexOf('\n}\n', start));
   assert.match(body, /setAttribute\('sandbox', ''\)/, 'sandbox="" — no tokens at all');
   assert.ok(!/allow-scripts|allow-same-origin|allow-top-navigation|allow-popups|allow-forms/.test(body), 'no sandbox token is granted');
-  assert.match(body, /frame\.src = r\.url/, 'the frame loads the URL main built (aios-board:), never a file:// path');
+  assert.match(body, /b\.frame\.src = r\.url/, 'the frame loads the URL main built (aios-board:), never a file:// path');
   assert.ok(!/fileUrl\(/.test(body), 'never file://');
 });
 

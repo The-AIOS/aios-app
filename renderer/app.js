@@ -1267,6 +1267,11 @@ async function refreshBoards() {
       boardCards.set(r.name, b);
       added = true;
     }
+    if (b.url !== r.url) { b.url = r.url; b.frame.src = r.url; }   // a new mtime is a new URL
+    // nothing about the card changed → leave it alone (a rebuilt title would steal keyboard focus every pass)
+    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
+    if (b.sig === sig) continue;
+    b.sig = sig;
     const key = boardCardId(r.name);
     const stale = r.status === 'stale';
     b.card.classList.toggle('pstale', stale);
@@ -1285,7 +1290,6 @@ async function refreshBoards() {
       row.appendChild(msg);
       b.card.insertBefore(row, b.wrap);
     }
-    if (b.url !== r.url) { b.url = r.url; b.frame.src = r.url; }   // a new mtime is a new URL
   }
   if (added) applyPulseOrder();   // a board the operator already moved goes back where they put it
 }
