@@ -80,7 +80,8 @@ test('the pane re-checks with no gap and the bus keeps the request without spend
 });
 
 test('a dropped path counts as a draft', () => {
-  assert.match(app, /attachDropZone\(el, \(paths\) => \{ noteOperatorKeys\(p, 'drop'\);/);
+  assert.match(app, /attachDropZone\(el, \(paths\) => \{ dropPathsInto\(id, p, paths\);/);
+  assert.match(app, /function dropPathsInto\(id, p, paths\) \{[\s\S]{0,300}noteOperatorKeys\(p, 'drop'\);[^\n]*\n\s*window\.glassShell\.ptyWrite/, 'the terminal side still marks a draft');
 });
 
 test('a deferral is a timed hold: it never latches a draft the pane did not report', () => {

@@ -132,7 +132,8 @@ test('a dragged row carries its own is-directory flag, so no drop needs to ask a
 test('a dropped path is INSERTED, never submitted', () => {
   // it is the start of a command the operator is still writing
   const drops = app.match(/ptyWrite\(id, paths\.map\(xQuote\)\.join\(' '\) \+ ' '\)/g) || [];
-  assert.ok(drops.length >= 2, 'both the pane and zone handlers insert with a trailing space');
+  assert.equal(drops.length, 1, 'one place types a dropped path into a terminal, with a trailing space');
+  assert.ok((app.match(/dropPathsInto\(/g) || []).length >= 3, 'and both the pane and zone handlers go through it');
   assert.doesNotMatch(app, /submitToPty\([^)]*(dropped|paths)/, 'a drop must not press Enter');
 });
 

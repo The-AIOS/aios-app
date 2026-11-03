@@ -4160,6 +4160,14 @@ function focusPane(id) {
   paintZoneView();
 }
 
+/* A path dropped on a terminal pane is a draft (#81). In chat view the terminal is hidden, so the draft goes to the
+   chat box the operator is looking at: typed into the hidden prompt it was invisible, and the next send was refused
+   because "the terminal has text typed in it" (operator-reported with a screenshot dragged onto the chat, 0.14.0). */
+function dropPathsInto(id, p, paths) {
+  if (p && p.view === 'chat' && p.chatSkin && p.chatSkin.input) { chatSkinInsertPaths(p.chatSkin, paths); return; }
+  noteOperatorKeys(p, 'drop');   // #81: a dropped path is a draft
+  window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' ');
+}
 function attachPaneDropTarget(p, id) {
   /* mousedown, not click: it fires before focus moves into xterm's textarea, so the marks update
      in the same frame the caret does rather than one behind it. Capture phase, because xterm
@@ -4482,7 +4490,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   }
   // drop a file/folder onto THIS terminal → insert its quoted path (not the active one:
   // the pane under the pointer is the one the operator meant)
-  attachDropZone(el, (paths) => { noteOperatorKeys(p, 'drop'); window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' '); setActive(id); });   // #81: a dropped path is a draft
+  attachDropZone(el, (paths) => { dropPathsInto(id, p, paths); setActive(id); });
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
   /* AI-64: the session tells us its own name through the tty title. */
@@ -7279,8 +7287,7 @@ attachDropZone(document.getElementById('tpanes'), (paths, isDir) => {
   const id = active.term;
   if (id != null && panes.get(id) && !panes.get(id).exited) {
     // several files from Finder arrive as one drop — insert them all, space separated
-    noteOperatorKeys(panes.get(id), 'drop');   // #81: a dropped path is a draft
-    window.glassShell.ptyWrite(id, paths.map(xQuote).join(' ') + ' ');
+    dropPathsInto(id, panes.get(id), paths);
     setActive(id);
     return;
   }
@@ -8964,7 +8971,13 @@ function chatSkinBuild(id, p) {
   const nameTag = el('span', 'cc-name');
   nameTag.hidden = true;
   box.appendChild(nameTag);
+  /* Messages sent while a turn runs: Claude Code holds them until the turn ends, and the transcript (where bubbles come from)
+     only records one when it is taken in. Until then they wait here, above the card, marked as queued (0.14.0 report: a
+     message sent mid-turn did not appear, so the operator could not tell it was sent and sent it again). */
+  const queueEl = el('div', 'chat-queue');
+  queueEl.hidden = true;
   wrap.append(slashPop, box);
+  wrap.insertBefore(queueEl, slashPop);   // above the card, in the flow; the popup still floats against the card
   wrap.appendChild(effortPop);
   input.setAttribute('role', 'combobox');
   input.setAttribute('aria-autocomplete', 'list');
@@ -8987,7 +9000,7 @@ function chatSkinBuild(id, p) {
   p.el.appendChild(root);
 
   const cs = {
-    id, pane: p, who: chatSkinWho(p), root, log, stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    id, pane: p, who: chatSkinWho(p), root, log, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
     effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
     slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
     items: new Map(),            // transcript uuid -> { node, role, … }
@@ -9474,6 +9487,7 @@ function chatSkinRecording(screen) {
 }
 function chatSkinMirrorStatus(p) {
   const cs = p.chatSkin;
+  if (cs && cs.queued && cs.queued.length) chatSkinQueueSweep(cs, p);
   const host = cs && cs.meta && cs.meta.querySelector('.cb-sl');
   if (!host) return;
   let rows = null;
@@ -10325,8 +10339,21 @@ function chatSkinDropBind(cs) {
   });
   // an image on the clipboard: a screenshot, or "Copy image" from a browser. Text pastes stay the textarea's own.
   cs.input.addEventListener('paste', (ev) => {
-    const files = [...(ev.clipboardData?.files || [])];
-    if (!files.length) return;
+    const cd = ev.clipboardData;
+    let files = [...(cd?.files || [])];
+    /* Some images arrive only as items (kind 'file'), not in `files`. */
+    if (!files.length) files = [...(cd?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) {
+      /* No file and no text: the clipboard may still hold a picture in a form the page is not handed, as a macOS
+         screenshot taken to the clipboard (⌘⌃⇧4) was not (operator-reported, 0.14.0: no path, nothing saved). Main reads
+         the system clipboard itself and saves it as a PNG. A text paste never gets here, so it stays the textarea's own. */
+      const types = [...(cd?.types || [])];
+      if (types.some((x) => /^text\//.test(x))) return;
+      /* Native paste is NOT cancelled: with no text it inserts nothing, and a paste this misreads still behaves as before. */
+      const gs = window.glassShell;
+      if (gs && typeof gs.chatSaveClipboardImage === 'function') void gs.chatSaveClipboardImage().then((saved) => { if (saved) chatSkinInsertPaths(cs, [saved]); }).catch(() => {});
+      return;
+    }
     ev.preventDefault();
     void chatSkinFilePaths(files).then(({ paths, failed }) => {
       if (paths.length) chatSkinInsertPaths(cs, paths);
@@ -10686,7 +10713,7 @@ function chatSkinUpsert(cs, item, animate, before) {
     if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
-    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
     rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
@@ -11082,7 +11109,13 @@ function chatSkinSendNow(id, p, retried) {
      is handed back first; anything else keeps the message in the box and says why. */
   if (chatSkinPanelOpen(p) || cs.lostPrompt) { toast(t('chat.send.panel')); return; }
   if (!retried && chatSkinFooterFocus(p)) { void chatSkinFooterRelease(id, p, false).then(() => chatSkinSendNow(id, p, true)); return; }
-  if (!chatSkinPromptEmpty(p) && chatSkinAgentCursor(p) !== null) { toast(t('chat.send.draft')); return; }
+  if (!chatSkinPromptEmpty(p) && chatSkinAgentCursor(p) !== null) {
+    /* Say WHAT is in the way: the terminal is hidden, so a refusal that does not quote the draft leaves the operator guessing. */
+    let draft = '';
+    try { draft = String(chatSkinPromptDraft(p) || '').trim(); } catch { draft = ''; }
+    toast(draft ? t('chat.send.draftShown', { draft: draft.length > 60 ? draft.slice(0, 59) + '…' : draft }) : t('chat.send.draft'));
+    return;
+  }
   const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
   if (!text.trim()) return;
   cs.input.value = '';
@@ -11090,7 +11123,38 @@ function chatSkinSendNow(id, p, retried) {
   (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
   chatSkinAutosize(cs);
   chatSkinSlashClose(cs);
+  if (chatSkinWorking(p) && !text.startsWith('/')) chatSkinQueueAdd(cs, text);
   chatSkinSubmit(id, p, text);
+}
+/* ── the queue: what was sent during a turn and is not in the transcript yet ── */
+const chatQueueKey = (x) => String(x || '').replace(/\s+/g, ' ').trim();
+function chatSkinQueueAdd(cs, text) {
+  if (!cs.queueEl) return;
+  const node = el('div', 'cq-item');
+  node.append(el('span', 'cq-tag', t('chat.queued')), el('span', 'cq-text', text));   // textContent via el(): never parsed
+  cs.queueEl.appendChild(node);
+  cs.queueEl.hidden = false;
+  cs.queued.push({ key: chatQueueKey(text), node, at: Date.now() });
+  cs.queueIdleSince = 0;
+}
+function chatSkinQueueDrop(cs, entry) {
+  entry.node.remove();
+  cs.queued = cs.queued.filter((q) => q !== entry);
+  if (cs.queueEl) cs.queueEl.hidden = !cs.queued.length;
+}
+/* A user message reached the transcript: it settles the queued entries it carries. Claude Code may join several queued
+   messages into one, so an entry whose text is INSIDE the arrived message settles too. */
+function chatSkinQueueSettle(cs, text) {
+  const got = chatQueueKey(text);
+  if (!got || !cs.queued || !cs.queued.length) return;
+  for (const q of [...cs.queued]) if (q.key && (q.key === got || got.includes(q.key))) chatSkinQueueDrop(cs, q);
+}
+/* The backstop: a queued line that never matched (a format the transcript writes differently) must not sit there forever.
+   Once the session has been idle for a few seconds, whatever is left was taken in or dropped; either way it is not waiting. */
+function chatSkinQueueSweep(cs, p) {
+  if (!cs.queued || !cs.queued.length || chatSkinWorking(p)) { if (cs) cs.queueIdleSince = 0; return; }
+  if (!cs.queueIdleSince) { cs.queueIdleSince = Date.now(); return; }
+  if (Date.now() - cs.queueIdleSince > 6000) { for (const q of [...cs.queued]) chatSkinQueueDrop(cs, q); cs.queueIdleSince = 0; }
 }
 /* ↑ and ↓ walk the prompts already sent, as in the terminal: ↑ only from the box's first line and ↓ only from its last, so
    moving inside a multi-line draft still works. The list is this session's own messages in the order they appear, plus what

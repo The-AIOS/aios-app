@@ -2038,6 +2038,11 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
                          background: var(--chat-user-bg); border: 0; color: var(--ink);
                          font-size: .96em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }   /* a step under the answer's size, a thinner skin, no edge-light: a prompt is a line you said, not a card */
 /* Claude's reply: no box at all, just well-set text across the whole column. */
+.chat-queue { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 0 2px 6px; }
+.chat-queue[hidden] { display: none; }
+.cq-item { max-width: min(86%, 600px); box-sizing: border-box; padding: 5px 12px 6px; border-radius: 14px; border: 1px dashed var(--line-strong);
+           color: var(--subtle); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; font-size: .92em; }
+.cq-tag { display: block; font-size: .78em; letter-spacing: .02em; color: var(--faint); margin-bottom: 1px; }
 .who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
 /* 0.14.0 round: Claude's text is a bubble too, a shade lighter than the operator's, its tail on the left. As wide as its
    text, up to the column. Tool rows, cards and notes stay as they are: only what Claude SAYS is a bubble. */

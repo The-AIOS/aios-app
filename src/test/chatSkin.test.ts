@@ -2176,7 +2176,8 @@ guarded('a path is only ever quoted with double quotes unless it holds one itsel
 
 test('drop and paste: the picture-saving IPC is bounded, names its own file, sweeps only its own files, and the card has a neutral drop veil', () => {
   assert.match(preload, /chatSavePastedImage: \(bytes: ArrayBuffer, mime: string\): Promise<string \| null> => ipcRenderer\.invoke\('chatFiles:savePastedImage', bytes, mime\)/);
-  const h = /ipcMain\.handle\('chatFiles:savePastedImage'[\s\S]*?\n\}\);/.exec(main)?.[0] ?? '';
+  /* The handler checks what it was given, then hands the bytes to the one bounded writer (shared with the clipboard path). */
+  const h = (/ipcMain\.handle\('chatFiles:savePastedImage'[\s\S]*?\n\}\);/.exec(main)?.[0] ?? '') + (/async function savePastedImage\([\s\S]*?\n\}\n/.exec(main)?.[0] ?? '');
   assert.ok(h.length > 400, 'handler found');
   assert.match(h, /PASTE_EXT\[mime\.toLowerCase\(\)\]/, 'only the image types on the allow-list');
   assert.match(main, /const PASTE_MAX_BYTES = 25 \* 1024 \* 1024/);
@@ -3903,4 +3904,68 @@ test('text size and interface size never share a keypress: "+" is Shift+= on a U
   assert.doesNotMatch(menu, /accelerator: 'CmdOrCtrl\+Shift\+(Plus|=|-)'/, 'nothing left on ⌘⇧+ / ⌘⇧- to collide with ⌘+');
   assert.match(menu, /accelerator: 'CmdOrCtrl\+=', visible: false, acceleratorWorksWhenHidden: true/, 'the alias works while hidden');
   assert.match(main, /if \(!it\.visible\) continue;/, 'and the shortcut list names it once');
+});
+
+test('a file dropped on a pane in chat view lands in the chat box, never in the hidden prompt (operator-reported screenshot drag)', () => {
+  const at = app.indexOf('function dropPathsInto(');
+  const fn = app.slice(at, app.indexOf('\n}\n', at) + 2);
+  const inserted: string[][] = []; const typed: string[] = []; const drafts: string[] = [];
+  const drop = new Function('chatSkinInsertPaths', 'noteOperatorKeys', 'window', 'xQuote', fn + '; return dropPathsInto;')(
+    (_cs: unknown, paths: string[]) => inserted.push(paths), (_p: unknown, k: string) => drafts.push(k),
+    { glassShell: { ptyWrite: (_id: string, s: string) => typed.push(s) } }, (x: string) => `'${x}'`) as (id: string, p: unknown, paths: string[]) => void;
+  drop('a', { view: 'chat', chatSkin: { input: {} } }, ['/tmp/shot.png']);
+  assert.deepEqual(inserted, [['/tmp/shot.png']], 'chat view: into the composer');
+  assert.deepEqual(typed, [], 'and nothing typed into the hidden terminal');
+  drop('a', { view: 'term', chatSkin: { input: {} } }, ['/tmp/shot.png']);
+  assert.deepEqual(typed, ["'/tmp/shot.png' "], 'control: terminal view still types the quoted path');
+  assert.deepEqual(drafts, ['drop'], 'and marks it as a draft (#81)');
+  assert.equal((app.match(/dropPathsInto\(/g) || []).length, 3, 'both terminal drop zones go through it (plus its definition)');
+  assert.doesNotMatch(app, /attachDropZone\([^\n]*ptyWrite/, 'no drop zone writes to a pty directly any more');
+});
+
+test('a pasted picture is found in files, in items, or on the system clipboard; a text paste is left alone', () => {
+  const at = app.indexOf("cs.input.addEventListener('paste'");
+  const paste = app.slice(at, app.indexOf('\n  });\n', at));
+  assert.match(paste, /kind === 'file'[\s\S]*getAsFile\(\)/, 'items with a file are read');
+  assert.match(paste, /types\.some\(\(x\) => \/\^text\\\/\/\.test\(x\)\)\) return;/, 'a text paste stays the textarea\'s own');
+  assert.match(paste, /gs\.chatSaveClipboardImage\(\)/, 'otherwise main reads the system clipboard');
+  assert.match(main, /ipcMain\.handle\('chatFiles:saveClipboardImage'[\s\S]{0,400}clipboard\.readImage\(\)[\s\S]{0,200}isEmpty\(\)\) return null;[\s\S]{0,200}savePastedImage\(buf, 'png'\)/, 'saved through the same bounded writer');
+  assert.match(read('src/preload/preload.ts'), /chatSaveClipboardImage: \(\): Promise<string \| null> => ipcRenderer\.invoke\('chatFiles:saveClipboardImage'\)/);
+  const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinSendNow(') + 2000);
+  assert.match(send, /chatSkinPromptDraft\(p\)[\s\S]{0,300}t\('chat\.send\.draftShown'/, 'a refusal quotes what is in the hidden prompt');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.send.draftShown"'), l);
+});
+
+test('a message sent during a turn shows at once as queued, and leaves when the transcript takes it in (operator-reported)', () => {
+  const fnSrc = (name: string): string => { const at = app.indexOf('function ' + name + '('); return app.slice(at, app.indexOf('\n}\n', at) + 2); };
+  const keyLine = app.slice(app.indexOf('const chatQueueKey'), app.indexOf('\n', app.indexOf('const chatQueueKey')) + 1);
+  type N = { kids: N[]; text?: string; removed?: boolean; remove: () => void; append: (...k: N[]) => void; appendChild: (k: N) => void; hidden?: boolean };
+  const node = (text?: string): N => { const n: N = { kids: [], text, remove() { n.removed = true; }, append(...k) { n.kids.push(...k); }, appendChild(k) { n.kids.push(k); } }; return n; };
+  let working = true;
+  const api = new Function('el', 't', 'chatSkinWorking', keyLine + fnSrc('chatSkinQueueAdd') + fnSrc('chatSkinQueueDrop') + fnSrc('chatSkinQueueSettle') + fnSrc('chatSkinQueueSweep')
+    + 'return { add: chatSkinQueueAdd, settle: chatSkinQueueSettle, sweep: chatSkinQueueSweep };')(
+    (_tag: string, _cls: string, text?: string) => node(text), (k: string) => k, () => working);
+  const cs = { queueEl: node(), queued: [] as { node: N }[], queueIdleSince: 0 };
+  cs.queueEl.hidden = true;
+  api.add(cs, 'also check the tests');
+  assert.equal(cs.queueEl.hidden, false, 'shown at once');
+  assert.equal(cs.queueEl.kids[0].kids[0].text, 'chat.queued', 'marked as queued');
+  assert.equal(cs.queueEl.kids[0].kids[1].text, 'also check the tests', 'with the text as sent');
+  api.settle(cs, 'something else');
+  assert.equal(cs.queued.length, 1, 'control: another message settles nothing');
+  api.settle(cs, '  also  check the tests\n');
+  assert.equal(cs.queued.length, 0, 'the transcript took it in: it leaves');
+  assert.equal(cs.queueEl.hidden, true, 'and the strip hides');
+  api.add(cs, 'one'); api.add(cs, 'two');
+  api.settle(cs, 'one\ntwo');
+  assert.equal(cs.queued.length, 0, 'two queued messages joined into one transcript message settle both');
+  api.add(cs, 'never recorded');
+  api.sweep(cs, {}); assert.equal(cs.queued.length, 1, 'still working: it waits');
+  working = false;
+  api.sweep(cs, {}); cs.queueIdleSince -= 7000; api.sweep(cs, {});
+  assert.equal(cs.queued.length, 0, 'idle for a few seconds with no match: the backstop clears it');
+  const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinHistList('));
+  assert.match(send, /if \(chatSkinWorking\(p\) && !text\.startsWith\('\/'\)\) chatSkinQueueAdd\(cs, text\);\s*chatSkinSubmit\(/, 'queued only while a turn runs, before it is typed');
+  assert.match(app, /chatSkinBusLabel\(rec, text\); if \(cs\.queued && cs\.queued\.length\) chatSkinQueueSettle\(cs, text\);/, 'every user row from the transcript settles the queue');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.queued"'), l);
 });
