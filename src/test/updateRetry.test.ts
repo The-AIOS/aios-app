@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { frameworkCheckable, updateRetryDelay } from '../main/aios';
+import { FRAMEWORK_CHECK_TIMEOUT_MS, frameworkCheckable, updateRetryDelay } from '../main/aios';
 
 test('only a check that COULD have worked is worth retrying', () => {
   assert.equal(frameworkCheckable({ repo: 'git@github.com:The-AIOS/aios.git', hash: '585f3d3' }), true,
@@ -119,4 +119,12 @@ test('ONE rule decides "checkable" — the check and its retry cannot disagree',
   const body = aiosSrc.slice(i, aiosSrc.indexOf('\n}\n', i));
   assert.match(body, /frameworkCheckable\(status\)/, 'checkForUpdates uses the shared rule');
   assert.doesNotMatch(body, /\[0-9a-f\]\{7,40\}/, 'and no longer carries its own copy of it');
+});
+
+test('a slow but working link is an answer, not a failure (#132)', () => {
+  /* Measured: two ~5 s round trips to a slow GitHub git endpoint, 9-10 s per successful check.
+     The old 8 s limit turned every one of them into "retrying…" on an up-to-date vault. */
+  assert.ok(FRAMEWORK_CHECK_TIMEOUT_MS >= 20_000, 'covers two slow round trips with room to spare');
+  const call = aiosSrc.slice(aiosSrc.indexOf("['ls-remote', '--symref', url]"));
+  assert.match(call.slice(0, 120), /timeout: FRAMEWORK_CHECK_TIMEOUT_MS/, 'the check uses that limit, not a literal');
 });
