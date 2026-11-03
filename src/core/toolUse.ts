@@ -14,8 +14,8 @@ const GENERIC_AGENTS = new Set(['general-purpose', 'claude', 'fork']);
 
 /** A record that is the operator (or the bus) asking something new — not a tool result, not a meta
  *  or sidechain record. Starts a new turn. */
-function isNewPrompt(rec: { type?: string; isMeta?: boolean; isSidechain?: boolean; message?: { role?: string; content?: unknown } }): boolean {
-  if (rec.isMeta || rec.isSidechain) return false;
+function isNewPrompt(rec: { type?: string; isMeta?: boolean; isCompactSummary?: boolean; isSidechain?: boolean; message?: { role?: string; content?: unknown } }): boolean {
+  if (rec.isMeta || rec.isCompactSummary || rec.isSidechain) return false;
   if (rec.type !== 'user' && rec.message?.role !== 'user') return false;
   const c = rec.message?.content;
   if (typeof c === 'string') return c.trim() !== '';

@@ -19,7 +19,7 @@
  *  - a `user` line has `message.content` as a string (what the operator typed, or an injected
  *    prompt) or as blocks: `tool_result` (the answer to a tool_use, `is_error` flags a failure) or
  *    `text` (a typed prompt with attachments, or the `[Request interrupted by user]` marker).
- *  - `isMeta`, `isSidechain` and the `<system-reminder>` / `<local-command-*>` wrappers mark text
+ *  - `isMeta`, `isCompactSummary`, `isSidechain` and the `<system-reminder>` / `<local-command-*>` wrappers mark text
  *    the operator did not write and should not see as a bubble.
  *  - the end of a turn is written as `system` with subtype `turn_duration` (and usually a
  *    `stop_hook_summary` beside it); a final answer also has `stop_reason: "end_turn"`.
@@ -330,6 +330,7 @@ export function createTranscriptTracker(): TranscriptTracker {
 
   function onUser(d: Obj, u: TranscriptUpdate): void {
     if (d.isMeta === true) return;      // skill bodies, auto-continuations, caveats: injected, not typed
+    if (d.isCompactSummary === true) return;   // the summary a compaction leaves for the model: a user line nobody typed
     const msg = isObj(d.message) ? d.message : {};
     const uuid = str(d.uuid) ?? '';
     const ts = str(d.timestamp);
