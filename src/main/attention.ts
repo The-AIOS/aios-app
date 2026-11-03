@@ -58,6 +58,16 @@ export function shouldFlash(pendingCount: number, focused: boolean, level: Notif
   return level !== 'off' && pendingCount > 0 && !focused;
 }
 
+/**
+ * A smoke run never notifies. It drives a real Claude session into a permission prompt on
+ * purpose, from a hidden window, and that session is open in the run's own pane, so it counts as
+ * the operator's. Every packaged build then put "smoke-chat-… needs you" on the operator's screen
+ * (0.14.0). No badge, no banner, no flash for a run started with --smoke.
+ */
+export function levelFor(level: NotifyLevel, argv: readonly string[] = process.argv): NotifyLevel {
+  return argv.includes('--smoke') ? 'off' : level;
+}
+
 export interface AttentionHooks {
   /** Bring the App forward and focus the pane running this session. */
   reveal(target: { name: string; sessionId?: string }): void;
@@ -85,6 +95,7 @@ export class Attention {
 
   /** One observation. Called from the same 2s poll that already lists the sessions. */
   tick(running: readonly RunningAgent[], level: NotifyLevel): void {
+    level = levelFor(level);
     const sessions = running.map((a) => ({
       id: sessionKey(a), name: a.name, status: a.status, waitingFor: a.waitingFor,
     }));

@@ -224,6 +224,18 @@ function termEnv(cmd?: string, name?: string): Record<string, string> {
   if (process.platform === 'win32' && !env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN) {
     env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN = '1';
   }
+  /* WINDOWS ONLY: tell a session this terminal draws Unicode, or the chat view cannot read it.
+     node-pty sets TERM from its `name` option on macOS and Linux and ignores it on Windows, so an app
+     opened from the Start menu gives Claude Code no TERM at all. Claude Code then falls back to plain
+     glyphs, and its prompt reads `>` where every chat-view check looks for `❯`.
+     MEASURED on Windows 11 with Claude Code 2.1.316, same session and pty: no TERM paints `> `, and
+     chatSkinPromptEmpty says "not empty" with the box empty, so the mic refuses on every height;
+     TERM=xterm-256color paints `❯ ` and the check answers empty. A send still worked, because
+     chatSkinAgentCursor answers null on the same screen, which is why only voice looked broken.
+     A DEFAULT, NOT A HARDCODE: a TERM the operator or a parent shell set is kept. */
+  if (process.platform === 'win32' && !env.TERM) {
+    env.TERM = 'xterm-256color';
+  }
   // THE SESSION RITUAL. The `spawn` wrapper exports CLAUDE_AGENT_NAME, which is what
   // makes CLAUDE.md's Mandatory First Action fire in the worker: read the name →
   // identity → agent match (glob agents/**, else fuzzy via _index) → Session Start

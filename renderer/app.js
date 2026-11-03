@@ -9341,10 +9341,16 @@ function chatSkinSync(id, p) {
    a dialog differentially (moving the selection rewrites two lines and not its footer), so the tail
    of the stream stops looking like a dialog while the dialog is still open. xterm's buffer is the
    screen; send its last rows, at most one snapshot per window, after the bytes have been parsed. */
+/* How many rows back from the buffer's end a look at the screen has to reach: never fewer than the pane holds. On Windows a
+   session runs in the normal buffer, so a short conversation (a new, resumed or just-compacted session) leaves the prompt box
+   at the TOP of the screen with blank rows under it. A fixed count stops seeing the box once the pane is taller than that
+   count, and every check reads "no box": the mic said to empty a message box that was already empty (measured with
+   Claude Code 2.1.316 in a 60-row pane: box on rows 12-14, the old 40-row look began at row 20). */
+const chatSkinLookBack = (p, least) => Math.max(least, (p.term && p.term.rows) || 0);
 function chatSkinScreenText(p) {
   const b = p.term.buffer.active;
   const rows = [];
-  for (let i = Math.max(0, b.length - 60); i < b.length; i++) { const l = b.getLine(i); if (l) rows.push(l.translateToString(true)); }
+  for (let i = Math.max(0, b.length - chatSkinLookBack(p, 60)); i < b.length; i++) { const l = b.getLine(i); if (l) rows.push(l.translateToString(true)); }
   return rows.join('\n');
 }
 /* The CLI paints each screen update between "hide cursor" and "show cursor" (`ESC[?25l` … `ESC[?25h`), and a long update
@@ -9414,6 +9420,16 @@ function chatStatusRows(p) {
   }
   return null;
 }
+/* Whether the screen says tap-to-talk is listening. Read only BELOW the prompt box's bottom rule, where the status lines live,
+   so a reply that mentions REC never counts and a box high on a tall pane is still found (a look at the buffer's last rows
+   misses it). The dot is `⏺` on macOS (2.1.312) and `●` on Windows (2.1.316). Missing it was silent and looked like a refusal:
+   the first click did start recording, the chat never showed it, and the second click found the dictated words in the prompt
+   and said to empty the box. */
+function chatSkinRecording(screen) {
+  const xs = String(screen).split('\n');
+  const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
+  return bottom >= 0 && xs.slice(bottom + 1).some((l) => /[⏺●]\s*REC\b/.test(l));
+}
 function chatSkinMirrorStatus(p) {
   const cs = p.chatSkin;
   const host = cs && cs.meta && cs.meta.querySelector('.cb-sl');
@@ -9422,7 +9438,7 @@ function chatSkinMirrorStatus(p) {
   try { rows = chatStatusRows(p); } catch { rows = null; }
   /* Claude Code shows "REC" while tap-to-talk listens; the mic button follows it. */
   let rec = false;
-  try { rec = /⏺\s*REC\b/.test(chatSkinScreenText(p).split('\n').slice(-14).join('\n')); } catch { rec = false; }
+  try { rec = chatSkinRecording(chatSkinScreenText(p)); } catch { rec = false; }
   chatSkinVoicePaint(cs, rec);
   chatSkinVoiceLive(p, rec);
   if (!rows) return;
@@ -9767,7 +9783,7 @@ function chatSkinPromptEmpty(p) {
     const c = b.getNullCell();
     const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
     let bottom = -1;
-    for (let y = b.length - 1; y >= Math.max(0, b.length - 40); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    for (let y = b.length - 1; y >= Math.max(0, b.length - chatSkinLookBack(p, 40)); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
     if (bottom < 1) return false;
     let top = bottom - 1;
     while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
@@ -9787,7 +9803,7 @@ function chatSkinPromptDraft(p) {
     const c = b.getNullCell();
     const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
     let bottom = -1;
-    for (let y = b.length - 1; y >= Math.max(0, b.length - 40); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    for (let y = b.length - 1; y >= Math.max(0, b.length - chatSkinLookBack(p, 40)); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
     if (bottom < 1) return '';
     let top = bottom - 1;
     while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
@@ -9902,7 +9918,7 @@ function chatSkinVoiceLive(p, rec) {
   if (rec) {
     try {
       const b = p.term.buffer.active;
-      for (let i = b.length - 1; i >= Math.max(0, b.length - 30); i--) {
+      for (let i = b.length - 1; i >= Math.max(0, b.length - chatSkinLookBack(p, 30)); i--) {
         const s = (b.getLine(i) || { translateToString: () => '' }).translateToString(true);
         const m = /^\s*❯\s?(.*)$/.exec(s);
         if (m) { heard = m[1].trim(); break; }
