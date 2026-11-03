@@ -4037,3 +4037,16 @@ test('a selection copied from the chat says so, as the terminal does: "copied N 
   assert.match(app, /window\.glassShell\.copyText\(text\)\)\.then\(\(ok\) => \{ if \(ok !== false && typeof chatSkinCopiedNote === 'function'\) chatSkinCopiedNote\(cs, text\.length\); \}\)/, 'only after the copy succeeded');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.copied"'), l);
 });
+
+test('a question on screen never leaks under the chat box, and "View in the terminal" is a real switch (0.14.1 round)', () => {
+  const rows = app.slice(app.indexOf('function chatStatusRows('), app.indexOf('\n}\n', app.indexOf('function chatStatusRows(')) + 2);
+  const fake = (lines: string[]) => ({ term: { buffer: { active: { length: lines.length, getLine: (i: number) => (lines[i] === undefined ? undefined : { translateToString: () => lines[i] }) } } } });
+  const run = new Function(rows + 'return chatStatusRows;')() as (p: unknown) => unknown[] | null;
+  const rule = '─'.repeat(40);
+  assert.equal(run(fake(['Which material would you like?', '❯ 1. Wood', '  2. Metal', rule, '  ← ☒ Colour ☐ Material', 'Which material would you like?'])), null, 'a menu\'s selected option is not the prompt');
+  assert.equal((run(fake([rule, '❯ ', rule, '  [Opus 5.5] 📁 aios'])) || []).length, 1, 'control: the real prompt box still gives its status row');
+  const mirror = app.slice(app.indexOf('function chatSkinMirrorStatus('), app.indexOf('function chatSkinMirrorStatus(') + 1600);
+  assert.match(mirror, /if \(cs\.promptKind\) \{ host\.hidden = true;/, 'and while a dialog is up the mirror is hidden outright');
+  const card = app.slice(app.indexOf("const link = el('button', 'csd-link'"), app.indexOf("const link = el('button', 'csd-link'") + 900);
+  assert.match(card, /if \(typeof chatSkinSetView === 'function'\) \{ chatSkinSetView\(cs\.id, 'term'\); return; \}/, 'View in the terminal switches the tab, so the switch says Terminal');
+});

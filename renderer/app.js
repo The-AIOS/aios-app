@@ -9535,7 +9535,7 @@ function chatStatusRows(p) {
     let prompt = false;
     for (let j = i - 1; j >= Math.max(0, i - 8); j--) {
       const s = (b.getLine(j) || { translateToString: () => '' }).translateToString(true);
-      if (/^\s*❯/.test(s)) { prompt = true; break; }
+      if (/^\s*❯(?!\s*\d+\.)/.test(s)) { prompt = true; break; }   // the prompt, never a menu's selected option ("❯ 1. Wood")
     }
     if (!prompt) continue;
     const rows = [];
@@ -9566,6 +9566,7 @@ function chatSkinMirrorStatus(p) {
   try { rec = chatSkinRecording(chatSkinScreenText(p)); } catch { rec = false; }
   chatSkinVoicePaint(cs, rec);
   chatSkinVoiceLive(p, rec);
+  if (cs.promptKind) { host.hidden = true; cs.meta.classList.remove('has-sl'); return; }   // a dialog owns the screen: nothing under it is a status line (0.14.1 round: a question's rows leaked under the box)
   if (!rows) return;
   const cell = p.term.buffer.active.getNullCell();
   /* The mode row ("⏵⏵ auto mode on (shift+tab to cycle)") is the mode chip's job: mirrored, it repeated the chip with a hint
@@ -11083,8 +11084,11 @@ function chatSkinCardBuild(p) {
   const foot = el('div', 'csd-foot');
   const link = el('button', 'csd-link', t('chat.skin.dlg.viewTerminal'));
   link.type = 'button';
-  link.addEventListener('click', () => {   // the real thing: the strip with the live terminal, exactly as for a dialog we could not read
-    cs.promptTerm = true;
+  link.addEventListener('click', () => {
+    /* A real switch to terminal view, for this tab (0.14.1 round): the strip kept the Chat | Terminal switch on Chat and cut
+       the dialog's top rows. The switch now says Terminal, and choosing Chat on it brings the tab back. */
+    if (typeof chatSkinSetView === 'function') { chatSkinSetView(cs.id, 'term'); return; }
+    cs.promptTerm = true;   // (no switch available: the strip with the live terminal, as for a dialog we could not read)
     chatSkinLayout(p);
     requestAnimationFrame(() => {
       if (p.view !== 'chat' || !chatSkinStrip(cs)) return;
