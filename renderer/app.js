@@ -188,6 +188,7 @@ const ICONS = {
   command: '<path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0 3 3h6a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H9a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3z"/>',
   building: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/>',
  branch: '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5.5 15A2.2 2.2 0 0 1 4 12.9V6.2A2.2 2.2 0 0 1 6.2 4h6.7A2.2 2.2 0 0 1 15 5.5"/>',
   mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -7787,7 +7788,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'chat'], [2, 'layout'], [3, 'sync'], [4, 'inbox']]) {   // one card per subject (0.14.0: chat view, terminal place, unattended, bus)
+    for (const [n, glyph] of [[1, 'mic'], [2, 'img'], [3, 'help'], [4, 'copy'], [5, 'inbox'], [6, 'sliders']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -7832,7 +7833,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -9634,7 +9635,14 @@ function chatStatusRows(p) {
 function chatSkinRecording(screen) {
   const xs = String(screen).split('\n');
   const bottom = xs.findLastIndex((l) => /^─{10,}\s*$/.test(l));
-  return bottom >= 0 && xs.slice(bottom + 1).some((l) => /[⏺●]\s*REC\b/.test(l));
+  if (bottom < 0) return false;
+  if (xs.slice(bottom + 1).some((l) => /[⏺●]\s*REC\b/.test(l))) return true;
+  /* Claude Code 2.1.317 on macOS paints it ABOVE the box instead, right-aligned over the top rule ("⏺ REC · tap to send"),
+     and reading only below missed it: the mic recorded and the chat never knew (0.14.1 round, operator-reported). Only the
+     two lines over the top rule count, and only right-aligned, so a reply that starts with ⏺ and mentions REC never does. */
+  let top = bottom - 1;
+  while (top > 0 && !/^─{3,}/.test(xs[top]) && bottom - top < 12) top--;
+  return xs.slice(Math.max(0, top - 2), top).some((l) => /^\s{8,}[⏺●]\s*REC\b/.test(l));
 }
 function chatSkinMirrorStatus(p) {
   const cs = p.chatSkin;
@@ -10126,18 +10134,36 @@ function chatSkinVoiceLive(p, rec) {
   if (!cs || !cs.input) return;
   if (!cs.placeholder0) cs.placeholder0 = cs.input.placeholder;
   let heard = '';
-  if (rec) {
-    try {
-      const b = p.term.buffer.active;
-      for (let i = b.length - 1; i >= Math.max(0, b.length - chatSkinLookBack(p, 30)); i--) {
-        const s = (b.getLine(i) || { translateToString: () => '' }).translateToString(true);
-        const m = /^\s*❯\s?(.*)$/.exec(s);
-        if (m) { heard = m[1].trim(); break; }
-      }
-    } catch { heard = ''; }
-  }
+  if (rec) { try { heard = chatSkinPromptBoxText(p); } catch { heard = ''; } }
   cs.input.classList.toggle('listening', !!rec);
   cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;
+  /* The box grows to the whole dictation. A placeholder does not size a textarea, so it is measured as if it were the value
+     (set and cleared in the same tick: no input event, nothing sent) and the height follows (0.14.1 round: a long dictation
+     was cut to its first line). With no dictation the box goes back to its own size. */
+  if (rec && heard && !cs.input.value) {
+    const el_ = cs.input;
+    el_.value = heard; el_.style.height = 'auto';
+    const h = Math.min(el_.scrollHeight, 220, Math.round(window.innerHeight * 0.4));
+    el_.value = '';
+    el_.style.height = h + 'px';
+  } else if (!cs.input.value) chatSkinAutosize(cs);
+}
+/* Everything in Claude Code's prompt box, every wrapped line of it, as one string: what tap-to-talk has transcribed so far.
+   The first line follows the ❯; the box ends at its bottom rule. Only the LAST line used to be read, so a dictation longer than
+   one line showed its first line only (0.14.1 round). Dim text is kept: the words still being transcribed may be drawn dim. */
+function chatSkinPromptBoxText(p) {
+  const b = p.term.buffer.active;
+  const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+  let bottom = -1;
+  for (let y = b.length - 1; y >= Math.max(0, b.length - chatSkinLookBack(p, 40)); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+  if (bottom < 1) return '';
+  let top = bottom - 1;
+  while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+  const first = /^\s*❯\s?(.*)$/.exec(text(top));
+  if (!first) return '';
+  const rows = [first[1]];
+  for (let y = top + 1; y < bottom; y++) rows.push(text(y));
+  return rows.map((r) => r.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 /* ── voice ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -10152,6 +10178,8 @@ function chatSkinVoicePaint(cs, rec) {
   btn.classList.toggle('rec', cs.recording);
   const label = t(cs.recording ? 'chat.voice.send' : 'chat.voice.start');
   btn.title = label; btn.setAttribute('aria-label', label);
+  const keys = cs.root.querySelector('.cc-keys');   // the hint beside the buttons says how a dictation is sent, while there is one
+  if (keys) keys.textContent = t(cs.recording ? 'chat.voice.hintKeys' : 'chat.hintShort');
 }
 /* THE voice chokepoint, beside chatSkinSendKey (dialogs) and submitToPty (messages): it writes ONE space and nothing else.
    Kept apart from the dialog key so the rule "only a dialog's own button answers it" stays exactly as narrow as it was. */
@@ -10162,7 +10190,14 @@ async function chatSkinVoice(id, p) {
   const cs = p.chatSkin;
   if (!cs) return;
   if (cs.recording) { chatSkinVoiceTap(id, p); return; }   // tap again: Claude transcribes and sends
-  if (cs.input.value.trim() || !chatSkinPromptEmpty(p)) { toast(t('chat.voice.notEmpty')); return; }   // the terminal's own prompt too (review)
+  if (cs.input.value.trim() || !chatSkinPromptEmpty(p)) {   // the terminal's own prompt too (review)
+    /* Text hidden in the terminal's prompt is invisible from the chat, so say what it is, as a refused send does (0.14.1
+       round: the mic just refused, and the reason was a draft nobody could see). */
+    let draft = '';
+    if (!cs.input.value.trim()) { try { draft = String(chatSkinPromptDraft(p) || '').trim(); } catch { draft = ''; } }
+    toast(draft ? t('chat.send.draftShown', { draft: draft.length > 60 ? draft.slice(0, 59) + '…' : draft }) : t('chat.voice.notEmpty'));
+    return;
+  }
   let v = null;
   try { v = await window.glassShell.chatVoice(); } catch { v = null; }
   if (!v || !v.enabled) { toast(t('chat.voice.off')); return; }
@@ -11263,6 +11298,9 @@ function chatSkinSendKey(id, p, key) {
 function chatSkinSendNow(id, p, retried) {
   const cs = p.chatSkin;
   if (!cs || p.exited || cs.promptKind) return;
+  /* While tap-to-talk listens, the dictation lives in Claude Code's own prompt, so a send means "send what I said": the same
+     tap the mic button makes. Before, Enter took the message path and was refused by that very dictation (0.14.1 round). */
+  if (cs.recording && !cs.input.value.trim()) { chatSkinVoiceTap(id, p); chatSkinVoicePaint(cs, false); return; }
   /* The hidden terminal must be ready to take a line (review): a panel open over the prompt would read the text as keys (an "x"
      stops a task), and a draft typed in terminal view would have the message glued onto it. The footer holding the keyboard
      is handed back first; anything else keeps the message in the box and says why. */
