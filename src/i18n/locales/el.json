@@ -1280,6 +1280,7 @@
   "rail.newExports": "{n} νέα εξαγωγή(-ές), η πιο πρόσφατη {name}. Κάνε κλικ στον αριθμό για να διαλέξεις ποιες θα ανοίξεις.",
   "chat.you": "You",
   "chat.queued": "Σε αναμονή · στέλνεται όταν τελειώσει αυτός ο γύρος",
+  "chat.copied": "αντιγράφηκαν {n} χαρακτήρες στο πρόχειρο",
   "chat.claude": "{name}",
   "chat.placeholder": "Message {name}…",
   "chat.inputHint": "Enter sends · Shift+Enter adds a new line · Esc interrupts",

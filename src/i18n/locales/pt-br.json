@@ -1267,6 +1267,7 @@
   "health.askClaudeHint": "Abre uma sessão que analisa o que não está verde, explica e propõe correções; pergunta antes de cada comando",
   "chat.you": "Você",
   "chat.queued": "Na fila · enviada quando este turno terminar",
+  "chat.copied": "{n} caracteres copiados para a área de transferência",
   "chat.claude": "{name}",
   "chat.placeholder": "Escreva para {name}…",
   "chat.inputHint": "Enter envia · Shift+Enter quebra a linha · Esc interrompe",

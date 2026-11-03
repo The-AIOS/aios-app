@@ -4018,3 +4018,22 @@ test('the mode row is not mirrored under the chat (the chip says it), and Shift+
   const build = app.slice(app.indexOf('function chatSkinBuild('), app.indexOf('function chatSkinBuild(') + 40000);
   assert.match(build, /if \(e\.key !== 'Tab' \|\| !e\.shiftKey[^\n]*\n\s*e\.preventDefault\(\);\n\s*if \(cs\.promptKind \|\| chatSkinModeNow\(p\) === null \|\| chatSkinAgentCursor\(p\) === null\) return;\n\s*chatSkinModeCycle\(id, p\);/, 'Shift+Tab cycles, guarded like the mode menu');
 });
+
+test('a selection copied from the chat says so, as the terminal does: "copied N chars to clipboard" over the card, then fades', () => {
+  const at = app.indexOf('function chatSkinCopiedNote(');
+  const fn = app.slice(at, app.indexOf('\n}\n', at) + 2);
+  type N = { textContent: string; hidden: boolean; cls: Set<string>; classList: { add: (c: string) => void; remove: (c: string) => void }; setAttribute: () => void };
+  const mk = (): N => { const cls = new Set<string>(); return { textContent: '', hidden: true, cls, classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c) }, setAttribute: () => undefined }; };
+  const timers: Array<() => void> = []; let placed: N | null = null;
+  const note = new Function('el', 't', 'setTimeout', 'clearTimeout', 'document', fn + 'return chatSkinCopiedNote;')(
+    () => mk(), (k: string, v: { n: string }) => `${k}:${v.n}`, (f: () => void) => { timers.push(f); return timers.length; }, () => undefined, {}) as (cs: unknown, n: number) => void;
+  const cs = { queueEl: { after: (n: N) => { placed = n; } } } as { queueEl: unknown; copiedEl?: N };
+  note(cs, 1158);
+  assert.ok(placed, 'placed beside the queue strip, over the card');
+  assert.equal(cs.copiedEl!.textContent, 'chat.copied:1158');
+  assert.equal(cs.copiedEl!.hidden, false);
+  timers.shift()!(); assert.ok(cs.copiedEl!.cls.has('gone'), 'fades');
+  timers.shift()!(); assert.equal(cs.copiedEl!.hidden, true, 'then leaves');
+  assert.match(app, /window\.glassShell\.copyText\(text\)\)\.then\(\(ok\) => \{ if \(ok !== false && typeof chatSkinCopiedNote === 'function'\) chatSkinCopiedNote\(cs, text\.length\); \}\)/, 'only after the copy succeeded');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.copied"'), l);
+});

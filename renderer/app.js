@@ -9294,7 +9294,22 @@ async function chatCopyOnSelectOn() {
 function chatSkinCopySelection(cs) {
   const text = chatSkinLogSelection(cs);
   if (!text) return;
-  void chatCopyOnSelectOn().then((on) => { if (on && chatSkinLogSelection(cs) === text) void window.glassShell.copyText(text); });
+  void chatCopyOnSelectOn().then((on) => {
+    if (!on || chatSkinLogSelection(cs) !== text) return;
+    void Promise.resolve(window.glassShell.copyText(text)).then((ok) => { if (ok !== false && typeof chatSkinCopiedNote === 'function') chatSkinCopiedNote(cs, text.length); });
+  });
+}
+/* "copied 1158 chars to clipboard", as the terminal says it, right-aligned over the card under the session's name: the copy is
+   silent otherwise, and a drag that copied nothing looks the same as one that did (0.14.1 round). Fades on its own. */
+function chatSkinCopiedNote(cs, n) {
+  if (!cs.queueEl || typeof document === 'undefined') return;
+  if (!cs.copiedEl) { cs.copiedEl = el('div', 'chat-copied'); cs.copiedEl.setAttribute('role', 'status'); cs.queueEl.after(cs.copiedEl); }
+  const note = cs.copiedEl;
+  note.textContent = t('chat.copied', { n: String(n) });
+  note.classList.remove('gone');
+  note.hidden = false;
+  clearTimeout(cs.copiedTimer);
+  cs.copiedTimer = setTimeout(() => { note.classList.add('gone'); cs.copiedTimer = setTimeout(() => { note.hidden = true; }, 400); }, 2200);
 }
 function chatSkinFocus(p) {
   requestAnimationFrame(() => {

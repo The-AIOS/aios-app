@@ -1267,6 +1267,7 @@
   "health.askClaudeHint": "Opens a session that looks into what is not green, explains it and proposes fixes — it asks before every command",
   "chat.you": "You",
   "chat.queued": "Queued · sent when this turn ends",
+  "chat.copied": "copied {n} chars to clipboard",
   "chat.claude": "{name}",
   "chat.placeholder": "Message {name}…",
   "chat.inputHint": "Enter sends · Shift+Enter adds a new line · Esc interrupts",
