@@ -10103,6 +10103,8 @@ function chatSkinVoicePaint(cs, rec) {
   btn.classList.toggle('rec', cs.recording);
   const label = t(cs.recording ? 'chat.voice.send' : 'chat.voice.start');
   btn.title = label; btn.setAttribute('aria-label', label);
+  const keys = cs.root.querySelector('.cc-keys');   // the hint beside the buttons says how a dictation is sent, while there is one
+  if (keys) keys.textContent = t(cs.recording ? 'chat.voice.hintKeys' : 'chat.hintShort');
 }
 /* THE voice chokepoint, beside chatSkinSendKey (dialogs) and submitToPty (messages): it writes ONE space and nothing else.
    Kept apart from the dialog key so the rule "only a dialog's own button answers it" stays exactly as narrow as it was. */
@@ -11221,6 +11223,9 @@ function chatSkinSendKey(id, p, key) {
 function chatSkinSendNow(id, p, retried) {
   const cs = p.chatSkin;
   if (!cs || p.exited || cs.promptKind) return;
+  /* While tap-to-talk listens, the dictation lives in Claude Code's own prompt, so a send means "send what I said": the same
+     tap the mic button makes. Before, Enter took the message path and was refused by that very dictation (0.14.1 round). */
+  if (cs.recording && !cs.input.value.trim()) { chatSkinVoiceTap(id, p); chatSkinVoicePaint(cs, false); return; }
   /* The hidden terminal must be ready to take a line (review): a panel open over the prompt would read the text as keys (an "x"
      stops a task), and a draft typed in terminal view would have the message glued onto it. The footer holding the keyboard
      is handed back first; anything else keeps the message in the box and says why. */

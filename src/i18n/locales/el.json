@@ -1398,6 +1398,7 @@
   "chat.skin.dlg.placeholder": "Waiting for your answer above",
   "chat.skin.jump": "Jump to the latest message",
   "chat.hintShort": "↵ αποστολή · ⇧↵ νέα γραμμή · esc διακοπή",
+  "chat.voice.hintKeys": "↵ ή μικρόφωνο για αποστολή · esc ακύρωση",
   "chat.usage.tip.fiveHour": "5-hour window",
   "chat.usage.tip.sevenDay": "Weekly window",
   "chat.usage.tip.context": "Context in this session",

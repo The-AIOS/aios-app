@@ -4080,3 +4080,12 @@ test('the mic, refused by text hidden in the terminal prompt, quotes it, as a re
   assert.match(v, /if \(!cs\.input\.value\.trim\(\)\) \{ try \{ draft = String\(chatSkinPromptDraft\(p\) \|\| ''\)\.trim\(\);/, 'reads the hidden draft only when the chat box itself is empty');
   assert.match(v, /toast\(draft \? t\('chat\.send\.draftShown'[\s\S]{0,120}: t\('chat\.voice\.notEmpty'\)\)/, 'quotes it, or keeps the plain notice');
 });
+
+test('while dictating, Enter and the send button send the dictation, and the hint says so (0.14.1 round)', () => {
+  const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinSendNow(') + 2400);
+  assert.match(send, /if \(cs\.recording && !cs\.input\.value\.trim\(\)\) \{ chatSkinVoiceTap\(id, p\); chatSkinVoicePaint\(cs, false\); return; \}/, 'a send while listening is the mic\'s tap, before any draft check');
+  assert.ok(send.indexOf('chatSkinVoiceTap(id, p)') < send.indexOf('chatSkinPromptEmpty(p)'), 'ahead of the draft refusal');
+  const paint = app.slice(app.indexOf('function chatSkinVoicePaint('), app.indexOf('\n}\n', app.indexOf('function chatSkinVoicePaint(')) + 2);
+  assert.match(paint, /keys\.textContent = t\(cs\.recording \? 'chat\.voice\.hintKeys' : 'chat\.hintShort'\)/, 'the hint follows the recording');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.voice.hintKeys"'), l);
+});

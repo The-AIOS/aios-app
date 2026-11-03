@@ -1385,6 +1385,7 @@
   "chat.skin.dlg.placeholder": "Waiting for your answer above",
   "chat.skin.jump": "Jump to the latest message",
   "chat.hintShort": "↵ send · ⇧↵ new line · esc interrupt",
+  "chat.voice.hintKeys": "↵ or mic to send · esc cancel",
   "chat.usage.tip.fiveHour": "5-hour window",
   "chat.usage.tip.sevenDay": "Weekly window",
   "chat.usage.tip.context": "Context in this session",
