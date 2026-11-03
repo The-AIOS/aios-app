@@ -10113,7 +10113,14 @@ async function chatSkinVoice(id, p) {
   const cs = p.chatSkin;
   if (!cs) return;
   if (cs.recording) { chatSkinVoiceTap(id, p); return; }   // tap again: Claude transcribes and sends
-  if (cs.input.value.trim() || !chatSkinPromptEmpty(p)) { toast(t('chat.voice.notEmpty')); return; }   // the terminal's own prompt too (review)
+  if (cs.input.value.trim() || !chatSkinPromptEmpty(p)) {   // the terminal's own prompt too (review)
+    /* Text hidden in the terminal's prompt is invisible from the chat, so say what it is, as a refused send does (0.14.1
+       round: the mic just refused, and the reason was a draft nobody could see). */
+    let draft = '';
+    if (!cs.input.value.trim()) { try { draft = String(chatSkinPromptDraft(p) || '').trim(); } catch { draft = ''; } }
+    toast(draft ? t('chat.send.draftShown', { draft: draft.length > 60 ? draft.slice(0, 59) + '…' : draft }) : t('chat.voice.notEmpty'));
+    return;
+  }
   let v = null;
   try { v = await window.glassShell.chatVoice(); } catch { v = null; }
   if (!v || !v.enabled) { toast(t('chat.voice.off')); return; }

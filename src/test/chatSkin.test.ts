@@ -4074,3 +4074,9 @@ test('a dictation longer than one line is shown whole while it is heard, not cut
   assert.match(live, /heard = chatSkinPromptBoxText\(p\)/, 'the live placeholder reads the whole box');
   assert.match(live, /el_\.value = heard; el_\.style\.height = 'auto';[\s\S]{0,140}el_\.value = '';/, 'and the box grows to fit it, without ever holding the words as a value');
 });
+
+test('the mic, refused by text hidden in the terminal prompt, quotes it, as a refused send does (0.14.1 round)', () => {
+  const v = app.slice(app.indexOf('async function chatSkinVoice('), app.indexOf('async function chatSkinVoice(') + 1200);
+  assert.match(v, /if \(!cs\.input\.value\.trim\(\)\) \{ try \{ draft = String\(chatSkinPromptDraft\(p\) \|\| ''\)\.trim\(\);/, 'reads the hidden draft only when the chat box itself is empty');
+  assert.match(v, /toast\(draft \? t\('chat\.send\.draftShown'[\s\S]{0,120}: t\('chat\.voice\.notEmpty'\)\)/, 'quotes it, or keeps the plain notice');
+});
