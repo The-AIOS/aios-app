@@ -3786,6 +3786,11 @@ test('the chat view sees tap-to-talk listening: either dot, on a box high in a t
   assert.equal(rec([rule, '❯ ', rule, '  [Opus] aios | main', '  -- INSERT --'].join('\n')), false, 'control: not recording');
   assert.equal(rec(['● REC is what the status line shows', rule, '❯ ', rule, '  [Opus] aios'].join('\n')), false, 'a reply above the box does not count');
   assert.equal(rec('● REC · tap to send'), false, 'no box on screen: not recording');
+  /* Claude Code 2.1.317 on macOS, captured in the dev window: the REC line sits right-aligned ABOVE the box's top rule. */
+  const above = ['▝▝   ▝▝   ~/obsidian', ' '.repeat(51) + '⏺ REC · tap to send', '─'.repeat(61) + ' demo-mic ─', '❯ ', '─'.repeat(72), '  ⏵⏵ auto mode on (shift+tab to cycle)'].join('\n');
+  assert.equal(rec(above), true, 'the macOS 2.1.317 placement, over the box');
+  assert.equal(rec(above.replace('⏺ REC · tap to send', '').replace(' '.repeat(51), '')), false, 'control: the same screen without REC');
+  assert.equal(rec(['⏺ REC was mentioned in my reply', '─'.repeat(61) + ' demo-mic ─', '❯ ', '─'.repeat(72)].join('\n')), false, 'a reply line over the box, not right-aligned, never counts');
 });
 
 test('review fixes: no mode press into a dialog, no agents menu over one, no send into a panel or onto a terminal draft', () => {
@@ -4053,4 +4058,34 @@ test('a question on screen never leaks under the chat box, and "View in the term
   assert.match(mirror, /if \(cs\.promptKind\) \{ host\.hidden = true;/, 'and while a dialog is up the mirror is hidden outright');
   const card = app.slice(app.indexOf("const link = el('button', 'csd-link'"), app.indexOf("const link = el('button', 'csd-link'") + 900);
   assert.match(card, /if \(typeof chatSkinSetView === 'function'\) \{ chatSkinSetView\(cs\.id, 'term'\); return; \}/, 'View in the terminal switches the tab, so the switch says Terminal');
+});
+
+test('a dictation longer than one line is shown whole while it is heard, not cut to its first line (0.14.1 round)', () => {
+  const lb = app.slice(app.indexOf('const chatSkinLookBack'), app.indexOf('\n', app.indexOf('const chatSkinLookBack')) + 1);
+  const at = app.indexOf('function chatSkinPromptBoxText(');
+  const read = new Function(lb + app.slice(at, app.indexOf('\n}\n', at) + 2) + 'return chatSkinPromptBoxText;')() as (p: unknown) => string;
+  const pane = (lines: string[]) => ({ term: { rows: 30, buffer: { active: { length: lines.length, getLine: (i: number) => (lines[i] === undefined ? undefined : { translateToString: () => lines[i] }) } } } });
+  const rule = '─'.repeat(72);
+  const screen = ['⏺ earlier reply', ' '.repeat(40) + '⏺ REC · tap to send', '─'.repeat(60) + ' demo ─',
+    '❯ so the idea is that the release goes out tonight with the mic fix and', '  the chat fixes, and then we answer every issue that shipped', rule, '  ⏵⏵ auto mode on'];
+  assert.equal(read(pane(screen)), 'so the idea is that the release goes out tonight with the mic fix and the chat fixes, and then we answer every issue that shipped', 'both lines, joined');
+  assert.equal(read(pane([rule, '❯ ', rule])), '', 'control: an empty box reads empty');
+  const live = app.slice(app.indexOf('function chatSkinVoiceLive('), app.indexOf('function chatSkinVoiceLive(') + 1400);
+  assert.match(live, /heard = chatSkinPromptBoxText\(p\)/, 'the live placeholder reads the whole box');
+  assert.match(live, /el_\.value = heard; el_\.style\.height = 'auto';[\s\S]{0,140}el_\.value = '';/, 'and the box grows to fit it, without ever holding the words as a value');
+});
+
+test('the mic, refused by text hidden in the terminal prompt, quotes it, as a refused send does (0.14.1 round)', () => {
+  const v = app.slice(app.indexOf('async function chatSkinVoice('), app.indexOf('async function chatSkinVoice(') + 1200);
+  assert.match(v, /if \(!cs\.input\.value\.trim\(\)\) \{ try \{ draft = String\(chatSkinPromptDraft\(p\) \|\| ''\)\.trim\(\);/, 'reads the hidden draft only when the chat box itself is empty');
+  assert.match(v, /toast\(draft \? t\('chat\.send\.draftShown'[\s\S]{0,120}: t\('chat\.voice\.notEmpty'\)\)/, 'quotes it, or keeps the plain notice');
+});
+
+test('while dictating, Enter and the send button send the dictation, and the hint says so (0.14.1 round)', () => {
+  const send = app.slice(app.indexOf('function chatSkinSendNow('), app.indexOf('function chatSkinSendNow(') + 2400);
+  assert.match(send, /if \(cs\.recording && !cs\.input\.value\.trim\(\)\) \{ chatSkinVoiceTap\(id, p\); chatSkinVoicePaint\(cs, false\); return; \}/, 'a send while listening is the mic\'s tap, before any draft check');
+  assert.ok(send.indexOf('chatSkinVoiceTap(id, p)') < send.indexOf('chatSkinPromptEmpty(p)'), 'ahead of the draft refusal');
+  const paint = app.slice(app.indexOf('function chatSkinVoicePaint('), app.indexOf('\n}\n', app.indexOf('function chatSkinVoicePaint(')) + 2);
+  assert.match(paint, /keys\.textContent = t\(cs\.recording \? 'chat\.voice\.hintKeys' : 'chat\.hintShort'\)/, 'the hint follows the recording');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.voice.hintKeys"'), l);
 });
