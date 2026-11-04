@@ -32,7 +32,8 @@ import { writeHandoffFile, sweepHandoffDirs } from './handoffDir';   // #72: Hom
 import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
-import { initCommandBus, appLog } from './commandBus';
+import { QuickBar } from './quickBar';
+import { initCommandBus, appLog, inboxDir } from './commandBus';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
@@ -1178,6 +1179,38 @@ async function chatViewSmoke(win: BrowserWindow): Promise<SmokeChatVerdict> {
 
 let host: PanelHost | undefined;
 
+/* THE QUICK BAR (docs/rfcs/menu-bar.md). Created after the window, never under a smoke/shot/eval run.
+   `applyQuickBar` is the one place that takes the global shortcut and rebuilds the menu around it, so the
+   setting, boot and a locale change cannot leave the menu advertising a key the App does not hold. */
+let quickBar: QuickBar | undefined;
+let quickBarShortcutOk = true;   // false = another app holds the configured shortcut; Settings says so
+const QUICK_BAR_ALLOWED = (): boolean => process.platform === 'darwin' && !SMOKE && !SHOT && !EVAL && !CHAT_SHOT;
+function rebuildMenu(): void {
+  installMenu(() => mainWin, quickBar ? { open: () => quickBar?.show(), globalAccel: quickBar.shortcut } : undefined);
+}
+function applyQuickBar(): void {
+  if (!QUICK_BAR_ALLOWED()) { rebuildMenu(); return; }
+  quickBar ??= new QuickBar({
+    appRoot: path.join(__dirname, '..', '..'),
+    inboxDir,
+    sessions: () => aios.listOperatorSessions(),
+    takenNames: () => aios.listRunningAgents().map((a) => a.name),
+    agents: () => aios.discoverAgents(),
+    primaryNames: () => [...aios.primaryNames()],
+    theme: () => resolvedTheme(aios.shellSettings().theme, nativeTheme.shouldUseDarkColors),
+    reveal: (target) => {
+      const w = mainWin;
+      if (!w || w.isDestroyed()) return;
+      if (w.isMinimized()) w.restore();
+      w.show(); w.focus();
+      if (!w.webContents.isDestroyed()) w.webContents.send('shell:intent', { name: target.name, id: '', kind: 'focusTerminal' });
+    },
+    log: (m) => appLog('quick-bar', m),
+  });
+  quickBarShortcutOk = quickBar.setShortcut(aios.shellSettings().quickBarShortcut);
+  rebuildMenu();
+}
+
 ipcMain.on('panel:msg', (_e, msg) => host?.onMessage(msg));
 
 // ── allowed-roots fs: the vault + any workspace folders the operator added ──
@@ -2098,7 +2131,10 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
 });
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'lidAsked' | 'claudeView', value: unknown) => {
+/* Whether the quick bar holds its shortcut — Settings shows a conflict instead of a key that silently does nothing. */
+ipcMain.handle('quickBar:status', () => ({ available: QUICK_BAR_ALLOWED(), shortcut: aios.shellSettings().quickBarShortcut, held: quickBar?.shortcut ?? '', ok: quickBarShortcutOk }));
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'quickBarShortcut' | 'lidAsked' | 'claudeView', value: unknown) => {
+  if (key === 'quickBarShortcut' && typeof value !== 'string') return aios.shellSettings();   // an accelerator, or '' for none
   /* claudeView is a closed set. Anything else is refused rather than stored: normalizeClaudeView would ignore it on read and fall
      back to the old chatViewDefault, so a bad write could silently resurrect a value the operator had moved on from. */
   if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();
@@ -2109,8 +2145,9 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
   if (key === 'caffeinate') caffeine.modeChanged();
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
-    installMenu(() => mainWin);  // the native menu can't re-render itself — rebuild it
+    rebuildMenu();               // the native menu can't re-render itself — rebuild it
   }
+  if (key === 'quickBarShortcut') applyQuickBar();
   host?.postState();             // re-emit localized pulse state (nudge, calendar)
   return aios.shellSettings();
 });
@@ -2146,7 +2183,9 @@ if (!(SMOKE || CHAT_SHOT) && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => {
     /* Someone asked for this app — a banner click, a Dock click, `open -a`. Show the window
        they already have instead of starting another. */
-    const w = BrowserWindow.getAllWindows()[0];
+    /* `mainWin`, never the first entry of getAllWindows(): the quick bar is a second window, and the first in that list is
+       whichever was created first — not a contract. */
+    const w = mainWin;
     if (!w || w.isDestroyed()) return;
     if (w.isMinimized()) w.restore();
     w.show();
@@ -2502,7 +2541,8 @@ app.whenReady().then(() => {
     if (win.isFullScreen()) { win.once('leave-full-screen', () => win.hide()); win.setFullScreen(false); }
     else win.hide();
   });
-  installMenu(() => mainWin);
+  applyQuickBar();
+  app.on('will-quit', () => quickBar?.dispose());
   host = new PanelHost(win.webContents);
   host.start();
   if (!SMOKE && !SHOT && !CHAT_SHOT) setupExplorerWatch(win);
