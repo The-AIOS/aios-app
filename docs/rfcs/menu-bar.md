@@ -32,14 +32,14 @@ dead-lettered exactly like one from an agent.
 - Clicking opens a menu:
   - **One row per live operator session**, with its state — working, needs you, error, ready — in the same four
     states the panel and the tabs show. Choosing a row brings the App forward on that session.
-  - **Quick bar… ⇧⌘A**, **Open AIOS**, **Settings…**, **Quit AIOS**.
+  - **Quick bar… ⇧⌘A** (once both parts are in, § 5), **Open AIOS**, **Settings…**, **Quit AIOS**.
 - With no live sessions the list collapses to one disabled line ("No sessions running").
 
 ### 2.2 The quick bar
 
-- **⇧⌘A from any app** opens a small frameless panel near the top of the current screen, on the current Space, above
-  other windows. ⇧⌘A again, Esc, or losing focus closes it.
-- One text field and a destination chip. The chip opens a list with three groups:
+- **⇧⌘A from any app** opens a small frameless panel near the top of the screen under the pointer, on the current
+  Space, above other windows. ⇧⌘A again, Esc, or a click elsewhere closes it.
+- One text field and a destination chip. The chip (or **Tab**) opens a filterable list with three groups:
   1. **New session** — default. The name is suggested and editable.
   2. **Agents** — the same list *Launch agent* shows today. Choosing one launches that agent with the text as its task.
   3. **Live sessions** — the text is sent to that session.
@@ -77,12 +77,16 @@ request file into the inbox, addressed to this surface:
 
 | Destination | Request |
 |---|---|
-| New session | `{"name": "<name>", "task": "<text>", "surface": "app", "from": "quick-bar"}` |
-| Agent | `{"name": "<agent>", "task": "/aios:agent <agent> — <text>", "surface": "app", "from": "quick-bar"}` (the same first prompt *Launch agent* sends today) |
-| Live session | `{"action": "send", "name": "<name>", "prompt": "<text>", "surface": "app", "from": "quick-bar"}` |
+| New session | `{"name": "<name>", "task": "<text>", "surface": "app"}` |
+| Agent | `{"name": "<agent>", "task": "/aios:agent <agent> — <text>", "surface": "app"}` (the same first prompt *Launch agent* sends today) |
+| Live session | `{"action": "send", "name": "<name>", "prompt": "<text>", "surface": "app"}` |
 
-Names are sanitised with the bus's own `sanitizeName`. The file is written whole in one atomic rename, so the watcher
-never sees a partial request.
+Names are sanitised with the bus's own `sanitizeName`, and a new session never takes a name that is running. The file
+(`quick-bar-<name>-<ms>.json`, so two sends a moment apart are two files) is written whole and renamed into place, so
+the watcher never sees a partial request.
+
+There is deliberately **no `from`**. The bus uses it to let a newer message from the same writer supersede an older
+one still queued; the operator is not a session, and two things they typed must both arrive.
 
 ### 3.3 Windows
 
@@ -98,7 +102,8 @@ the explicit main-window reference before the second window exists.
 - ⇧⌘A is registered with `globalShortcut`, so it works whether or not the App is focused.
 - The application menu keeps the *Launch agent* item with its accelerator shown but not registered
   (`registerAccelerator: false`), so the two never fight; in-app ⇧⌘A opens the quick bar too.
-- The old modal agent picker stays reachable from the command palette and the action cards; it is not deleted.
+- The modal agent picker is not deleted: the panel's *Launch agent* card still opens it, and it is what the menu item
+  opens where the quick bar does not exist (other platforms, test runs).
 - A global shortcut takes the combination away from every other app (Finder's *Go to Applications*, Chrome's tab
   search). This is said in Settings next to the field.
 - If `globalShortcut.register` returns `false` (another app owns it), Settings shows the conflict instead of failing
@@ -109,7 +114,8 @@ the explicit main-window reference before the second window exists.
 Two keys in `.glass/shell.json`, added to the `shellSettings` interface and to the `shell:setSetting` whitelist:
 
 - `menuBar: boolean` — default `true` on macOS. Toggling it creates or destroys the icon live.
-- `quickBarShortcut: string` — default `CommandOrControl+Shift+A`; empty disables the global registration.
+- `quickBarShortcut: string` — default `CommandOrControl+Shift+A` on macOS; empty disables the global registration.
+  Settings shows the field and, when the OS refused the combination, says so under it.
 
 ### 3.6 Lifecycle and test runs
 
@@ -134,7 +140,8 @@ Two keys in `.glass/shell.json`, added to the `shellSettings` interface and to t
 2. **Quick bar** — the panel window and its preload, the request builder, ⇧⌘A registration and the *Launch agent*
    hand-over, the `quickBarShortcut` setting, the `getAllWindows()[0]` clean-up, locale strings.
 
-Either can merge first; if (2) lands first, its *Quick bar* entry simply has no menu-bar row until (1) does.
+Either can merge first. The menu-bar row *Quick bar… ⇧⌘A* (§ 2.1) needs both, so it is added by a small follow-up
+once the second one lands.
 
 ## 6. Not in this RFC
 
