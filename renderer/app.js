@@ -12180,6 +12180,8 @@ function openSettingsTab() {
     row(wrap, t('settings.secondaryHints'), mkToggle('showHints', cfg.showHints), t('settings.secondaryHintsHint'));
     row(wrap, t('settings.ritualNudges'), mkToggle('showNudges', cfg.showNudges), t('settings.ritualNudgesHint'));
     row(wrap, t('settings.showMemory'), mkToggle('showMemory', cfg.showMemory !== false), t('settings.showMemoryHint'));
+    /* The menu-bar icon (docs/rfcs/menu-bar.md). macOS only; main creates or removes it the moment this changes. */
+    if (window.glassShell.platform === 'darwin') row(wrap, t('settings.menuBar'), mkToggle('menuBar', cfg.menuBar !== false), t('settings.menuBarHint'));
 
     /* #22 — how a session blocked on you reaches you OUTSIDE the panel. Same shape as
        killBehavior above. Three rungs rather than a toggle because the two useful answers to

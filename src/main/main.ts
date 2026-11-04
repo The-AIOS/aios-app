@@ -32,6 +32,7 @@ import { writeHandoffFile, sweepHandoffDirs } from './handoffDir';   // #72: Hom
 import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
+import { MenuBar } from './menuBar';
 import { initCommandBus, appLog } from './commandBus';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
@@ -1178,6 +1179,30 @@ async function chatViewSmoke(win: BrowserWindow): Promise<SmokeChatVerdict> {
 
 let host: PanelHost | undefined;
 
+/* THE MENU-BAR ICON (macOS; docs/rfcs/menu-bar.md). Created after the window, fed by the panel's own
+   2 s pulse, never under a smoke/shot/eval run. `syncMenuBar` is the one place that decides whether it
+   exists, so the setting, boot and quit cannot disagree. */
+let menuBar: MenuBar | undefined;
+const MENU_BAR_ALLOWED = (): boolean => process.platform === 'darwin' && !SMOKE && !SHOT && !EVAL && !CHAT_SHOT;
+function showMainWindow(): BrowserWindow | undefined {
+  const w = mainWin;
+  if (!w || w.isDestroyed()) return undefined;
+  if (w.isMinimized()) w.restore();
+  w.show(); w.focus();
+  return w;
+}
+function syncMenuBar(): void {
+  const want = MENU_BAR_ALLOWED() && aios.shellSettings().menuBar;
+  if (!want) { menuBar?.disable(); return; }
+  menuBar ??= new MenuBar({
+    reveal: (target) => host?.revealSession(target),
+    openApp: () => { showMainWindow(); },
+    openSettings: () => { const w = showMainWindow(); if (w && !w.webContents.isDestroyed()) w.webContents.send('shell:intent', { kind: 'settings' }); },
+    quit: () => app.quit(),
+  }, path.join(__dirname, '..', '..'));
+  if (!menuBar.enable()) console.log('[menu-bar] the icon could not be created');
+}
+
 ipcMain.on('panel:msg', (_e, msg) => host?.onMessage(msg));
 
 // ── allowed-roots fs: the vault + any workspace folders the operator added ──
@@ -2098,7 +2123,8 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
 });
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'lidAsked' | 'claudeView', value: unknown) => {
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'menuBar' | 'lidAsked' | 'claudeView', value: unknown) => {
+  if (key === 'menuBar' && typeof value !== 'boolean') return aios.shellSettings();   // a boolean or nothing
   /* claudeView is a closed set. Anything else is refused rather than stored: normalizeClaudeView would ignore it on read and fall
      back to the old chatViewDefault, so a bad write could silently resurrect a value the operator had moved on from. */
   if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();
@@ -2110,7 +2136,9 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
     installMenu(() => mainWin);  // the native menu can't re-render itself — rebuild it
+    menuBar?.relabel();          // nor can the menu-bar icon's
   }
+  if (key === 'menuBar') syncMenuBar();
   host?.postState();             // re-emit localized pulse state (nudge, calendar)
   return aios.shellSettings();
 });
@@ -2504,7 +2532,10 @@ app.whenReady().then(() => {
   });
   installMenu(() => mainWin);
   host = new PanelHost(win.webContents);
+  host.onRunning = (running) => menuBar?.update(running);
   host.start();
+  syncMenuBar();
+  app.on('will-quit', () => menuBar?.disable());
   if (!SMOKE && !SHOT && !CHAT_SHOT) setupExplorerWatch(win);
   /* Seed Claude's config once, so the Settings mirror has real values to reflect instead of
      assertions nobody read. Idempotent by marker, skipped in smoke/shot so a gate never writes
