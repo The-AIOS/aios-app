@@ -148,7 +148,11 @@ export class QuickBar {
        not necessarily now, and the operator may have typed over it. */
     const target: QuickBarDestination = dest.kind === 'new'
       ? { kind: 'new', name: uniqueName(String(dest.name ?? ''), this.deps.takenNames()) }
-      : dest;
+      : dest.kind === 'agent'
+        /* Same for an agent: a second "lawyer" while one is running would be revealed, not started, and the
+           text lost. It runs as "lawyer-2" instead, exactly as a new session would. */
+        ? { kind: 'agent', name: String(dest.name ?? ''), session: uniqueName(String(dest.name ?? ''), this.deps.takenNames()) }
+        : dest;
     const req = quickBarRequest(target, text, Date.now());
     if (!req.ok) return { ok: false, reason: req.reason };
     try {

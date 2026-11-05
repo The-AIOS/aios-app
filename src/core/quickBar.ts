@@ -12,7 +12,7 @@ import { sanitizeName } from './commandBus';
 
 export type QuickBarDestination =
   | { kind: 'new'; name: string }      // a new session under this name
-  | { kind: 'agent'; name: string }    // launch this agent with the text as its task
+  | { kind: 'agent'; name: string; session?: string }    // launch this agent with the text as its task, in a session named `session` (default: the agent's name)
   | { kind: 'session'; name: string }; // send the text to this live session
 
 export type QuickBarRequest =
@@ -42,8 +42,13 @@ export function quickBarRequest(dest: QuickBarDestination, rawText: string, now:
   switch (dest.kind) {
     case 'session':
       return { ok: true, file, body: { action: 'send', name, prompt: text, surface: 'app' } };
-    case 'agent':
-      return { ok: true, file, body: { name, task: agentTask(name, text), surface: 'app' } };
+    case 'agent': {
+      /* The session may need a name other than the agent's: a spawn under a name that is already running is
+         only revealed by the bus, and the text would be dropped. */
+      const session = dest.session === undefined ? name : sanitizeName(dest.session);
+      if (!session) return { ok: false, reason: 'name' };
+      return { ok: true, file: `quick-bar-${session}-${now}.json`, body: { name: session, task: agentTask(name, text), surface: 'app' } };
+    }
     case 'new':
       return text
         ? { ok: true, file, body: { name, task: text, surface: 'app' } }

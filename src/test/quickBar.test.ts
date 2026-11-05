@@ -38,6 +38,24 @@ test('an agent starts with the same first prompt Launch agent sends', () => {
   assert.match(read('renderer/app.js'), /const arg = task \? a\.name \+ ' — ' \+ task : a\.name;\s*\n\s*void runWhere\('\/aios:agent ' \+ arg, a\.name\);/);
 });
 
+test('an agent that is already running starts a second session under its own name, so the text is never dropped', () => {
+  /* The bus only REVEALS a spawn whose name is running, and deletes the request: the operator's text would be lost. */
+  const r = quickBarRequest({ kind: 'agent', name: 'lawyer', session: 'lawyer-2' }, 'revisá este contrato', NOW);
+  assert.ok(r.ok);
+  assert.equal(r.body.name, 'lawyer-2', 'the session takes the free name');
+  assert.equal(r.body.task, '/aios:agent lawyer — revisá este contrato', 'the agent is still lawyer');
+  assert.equal(r.file, `quick-bar-lawyer-2-${NOW}.json`);
+  assert.deepEqual(quickBarRequest({ kind: 'agent', name: 'lawyer', session: '!!!' }, 'x', NOW), { ok: false, reason: 'name' });
+  /* The main process is what picks the free name: pinned, because without it the core function above is never asked. */
+  assert.match(read('src/main/quickBar.ts'), /kind: 'agent', name: String\(dest\.name \?\? ''\), session: uniqueName\(String\(dest\.name \?\? ''\), this\.deps\.takenNames\(\)\)/);
+});
+
+test('no global shortcut until the operator picks one: a global key is taken from every other app', () => {
+  const src = read('src/main/aios.ts');
+  assert.match(src, /quickBarShortcut: typeof raw\.quickBarShortcut === 'string' \? raw\.quickBarShortcut\.trim\(\) : '',/);
+  assert.doesNotMatch(src, /quickBarShortcut:[^\n]*Shift\+A/, 'no ⇧⌘A default: it is Slack\'s All unreads and Finder\'s Applications');
+});
+
 test('names are the bus’s own kebab handles, and a name that sanitises to nothing is refused', () => {
   assert.deepEqual(quickBarRequest({ kind: 'session', name: '!!!' }, 'hola', NOW), { ok: false, reason: 'name' });
   const r = quickBarRequest({ kind: 'new', name: '  Mi Sesión ' }, 'x', NOW);

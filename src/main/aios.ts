@@ -1448,10 +1448,10 @@ export function shellSettings(): ShellSettings {
        is a choice someone has to make, never a default. */
     lidAwake: raw.lidAwake === true,
     lidAsked: (raw as { lidAsked?: unknown }).lidAsked === true,   // the one-time lid question was answered
-    /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). macOS gets ⇧⌘A by default — the App's own
-       *Launch agent* key, now reachable from any app. An empty string is a real answer (no global shortcut);
-       only an absent or non-string value falls back to the default. */
-    quickBarShortcut: typeof raw.quickBarShortcut === 'string' ? raw.quickBarShortcut.trim() : (process.platform === 'darwin' ? 'CommandOrControl+Shift+A' : ''),
+    /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). OFF until the operator picks one: a global
+       shortcut takes its keys from every other app, and ⇧⌘A is already Slack's *All unreads* and Finder's
+       *Applications*. Inside the App, ⇧⌘A opens the bar either way (QUICK_BAR_LOCAL_ACCEL). */
+    quickBarShortcut: typeof raw.quickBarShortcut === 'string' ? raw.quickBarShortcut.trim() : '',
     openNotesIn: raw.openNotesIn === 'source' ? 'source' : 'rendered', // Glass "Open files in": rendered preview (default) or raw source
   };
 }
