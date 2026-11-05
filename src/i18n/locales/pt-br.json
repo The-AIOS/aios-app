@@ -1274,6 +1274,7 @@
   "chat.copied": "{n} caracteres copiados para a área de transferência",
   "chat.claude": "{name}",
   "chat.placeholder": "Escreva para {name}…",
+  "chat.suggest.placeholder": "{text}   ⇥ Tab para usar · ↵ para enviar",
   "chat.inputHint": "Enter envia · Shift+Enter quebra a linha · Esc interrompe",
   "chat.send": "Enviar",
   "chat.stop": "Parar",

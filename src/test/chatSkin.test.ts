@@ -130,7 +130,7 @@ guarded('slash commands are sent exactly like any other message (no filter, no s
     const send = fnBody(slice(src), 'chatSkinSendNow') + fnBody(slice(src), 'chatSkinSubmit');
     return !/startsWith\('\/'\)\s*\)\s*return/.test(send) && !/ptyRun\(/.test(send) && /submitToPty\(id, text[,)]/.test(send);
   },
-  (src) => src.replace('const text = cs.input.value.replace', "if (cs.input.value.startsWith('/')) return;\n  const text = cs.input.value.replace"));
+  (src) => src.replace('let text = cs.input.value.replace', "if (cs.input.value.startsWith('/')) return;\n  let text = cs.input.value.replace"));
 
 test('Enter sends, Shift+Enter breaks the line, and IME composition never sends', () => {
   const cond = /input\.addEventListener\('keydown', \(e\) => \{[\s\S]*?if \((e\.key !== 'Enter'[^)]*)\) return;/.exec(skin)?.[1];
@@ -1934,7 +1934,7 @@ test('the slash popup wires: the box is a combobox over a listbox, input asks, s
   assert.match(b, /slashFoot\.setAttribute\('aria-hidden', 'true'\)/, 'the footer hint is not read inside the listbox');
   assert.match(b, /wrap\.append\(slashPop, box\)/, 'the popup floats against the card');
   assert.match(b, /slashPop\.addEventListener\('mousedown', \(e\) => e\.preventDefault\(\)\)/, 'a press on a row keeps the caret in the box');
-  assert.match(b, /input\.addEventListener\('input', \(\) => \{ cs\.hist = null; chatSkinAutosize\(cs\); chatSkinControls\(p\); chatSkinSlashRefresh\(cs, p\); \}\)/);
+  assert.match(b, /input\.addEventListener\('input', \(\) => \{ cs\.hist = null; chatSkinAutosize\(cs\); chatSkinControls\(p\); chatSkinSlashRefresh\(cs, p\);(?: chatSkinSuggestPaint\(p\);)? \}\)/);
   assert.match(b, /input\.addEventListener\('blur', \(\) => chatSkinSlashClose\(cs\)\)/);
   assert.match(fnBody(skin, 'chatSkinSendNow'), /chatSkinSlashClose\(cs\)/);
   assert.match(fnBody(skin, 'chatSkinLayout'), /if \(!on \|\| cs\.promptKind\) chatSkinSlashClose\(cs\)/);
@@ -4088,4 +4088,107 @@ test('while dictating, Enter and the send button send the dictation, and the hin
   const paint = app.slice(app.indexOf('function chatSkinVoicePaint('), app.indexOf('\n}\n', app.indexOf('function chatSkinVoicePaint(')) + 2);
   assert.match(paint, /keys\.textContent = t\(cs\.recording \? 'chat\.voice\.hintKeys' : 'chat\.hintShort'\)/, 'the hint follows the recording');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.voice.hintKeys"'), l);
+});
+
+/* ── Claude Code's greyed next-prompt suggestion, offered in the chat box ─────────────────────────────── */
+const skinFn = (name: string): string => skin.slice(skin.indexOf('function ' + name + '('), skin.indexOf('\n}\n', skin.indexOf('function ' + name + '(')) + 2);
+const skinLine = (head: string): string => skin.slice(skin.indexOf(head), skin.indexOf('\n', skin.indexOf(head)) + 1);
+/** A pane whose prompt box holds `typed` (plain) followed by `dim` (greyed), the shape Claude Code paints. */
+function suggestPane(typed: string, dim: string, box = true): unknown {
+  const prompt = '❯ ' + typed + dim;
+  const screen = box ? ['⏺ done', '', '─'.repeat(60), prompt, '─'.repeat(60), '  [Opus] aios | main'] : ['⏺ Do you want to proceed?', '  1. Yes'];
+  const dimFrom = 2 + typed.length;
+  const line = (s: string, isPrompt: boolean) => ({
+    length: s.length,
+    translateToString: () => s,
+    getCell: (x: number, c: { ch: string; dim: boolean }) => { c.ch = s[x] || ''; c.dim = isPrompt && x >= dimFrom; },
+  });
+  return { term: { rows: 30, buffer: { active: {
+    length: screen.length,
+    getLine: (y: number) => (screen[y] === undefined ? undefined : line(screen[y], screen[y] === prompt)),
+    getNullCell: () => ({ ch: '', dim: false, getChars() { return this.ch; }, isDim() { return this.dim; } }),
+  } } } };
+}
+function loadSuggest(src: string): { suggestion: (p: unknown) => string } {
+  const s = slice(src);
+  const fn = (name: string): string => s.slice(s.indexOf('function ' + name + '('), s.indexOf('\n}\n', s.indexOf('function ' + name + '(')) + 2);
+  const grab = (head: string): string => s.slice(s.indexOf(head), s.indexOf('\n', s.indexOf(head)) + 1);
+  return new Function(grab('const chatSkinLookBack') + fn('chatSkinPromptSuggestion') + 'return { suggestion: chatSkinPromptSuggestion };')();
+}
+
+test('the suggestion reader keeps only the greyed text, and nothing when anything is typed or no box is on screen', () => {
+  const { suggestion } = loadSuggest(app);
+  assert.equal(suggestion(suggestPane('', 'run the tests')), 'run the tests', 'greyed only: that is the suggestion');
+  assert.equal(suggestion(suggestPane('fix', ' the bug')), '', 'a typed character means a draft, not a suggestion');
+  assert.equal(suggestion(suggestPane('', '')), '', 'an empty box offers nothing');
+  assert.equal(suggestion(suggestPane('', 'run the tests', false)), '', 'a dialog, no box: nothing');
+  /* Negative control: a reader that ignores the dim flag returns typed text as a suggestion. */
+  const broken = loadSuggest(app.replace("if (!c.isDim()) { if (ch && ch.trim()) return ''; row += ' '; continue; }", ''));
+  assert.notEqual(broken.suggestion(suggestPane('fix', ' the bug')), '', 'control: without the dim check the draft leaks through');
+});
+
+test('Tab on an empty box takes the suggestion into it, cursor at the end', () => {
+  const calls: string[] = [];
+  const take = new Function('chatSkinAutosize', 'chatSkinControls', 'chatSkinPlaceholder', skinFn('chatSkinSuggestTake') + 'return chatSkinSuggestTake;')(
+    () => calls.push('size'), () => calls.push('controls'), () => calls.push('placeholder')) as (cs: unknown) => boolean;
+  const cs = { suggest: 'run the tests', hist: [1], pane: {}, input: { value: '', selectionStart: 0, selectionEnd: 0 } };
+  assert.equal(take(cs), true);
+  assert.equal(cs.input.value, 'run the tests');
+  assert.equal(cs.input.selectionStart, 13);
+  assert.equal(cs.input.selectionEnd, 13);
+  assert.equal(cs.suggest, '', 'taken: no longer offered');
+  assert.deepEqual(calls, ['size', 'controls', 'placeholder']);
+  const typed = { suggest: 'run the tests', pane: {}, input: { value: 'mine', selectionStart: 4, selectionEnd: 4 } };
+  assert.equal(take(typed), false, 'a box with text keeps its text');
+  assert.equal(typed.input.value, 'mine');
+});
+
+test('Enter on an empty box sends the suggestion it shows, and only that', () => {
+  const run = (value: string, shown: string, live: string) => {
+    const sent: string[] = [];
+    let repaint = 0;
+    const send = new Function('toast', 't', 'chatSkinVoiceTap', 'chatSkinVoicePaint', 'chatSkinPanelOpen', 'chatSkinFooterFocus', 'chatSkinFooterRelease',
+      'chatSkinPromptEmpty', 'chatSkinAgentCursor', 'chatSkinPromptDraft', 'chatSkinPromptSuggestion', 'chatSkinSuggestPaint', 'chatSkinAutosize',
+      'chatSkinSlashClose', 'chatSkinPlaceholder', 'chatSkinWorking', 'chatSkinQueueAdd', 'chatSkinSubmit',
+      skinFn('chatSkinSendNow') + 'return chatSkinSendNow;')(
+      () => {}, (k: string) => k, () => {}, () => {}, () => false, () => false, async () => {},
+      () => true, () => -1, () => '', () => live, () => { repaint++; }, () => {},
+      () => {}, () => {}, () => false, () => {}, (_id: string, _p: unknown, text: string) => sent.push(text)) as (id: string, p: unknown) => void;
+    const cs = { suggest: shown, input: { value }, sent: [] as string[] };
+    send('t1', { chatSkin: cs, exited: false });
+    return { sent, repaint, suggest: cs.suggest };
+  };
+  assert.deepEqual(run('', 'run the tests', 'run the tests').sent, ['run the tests'], 'empty box + suggestion: it is sent');
+  assert.equal(run('', 'run the tests', 'run the tests').suggest, '', 'and no longer offered');
+  assert.deepEqual(run('my own words', 'run the tests', 'run the tests').sent, ['my own words'], 'typed text wins over the suggestion');
+  const moved = run('', 'run the tests', 'commit it');
+  assert.deepEqual(moved.sent, [], 'the suggestion changed under the key: nothing is sent');
+  assert.equal(moved.repaint, 1, 'the box shows the new one instead');
+  assert.deepEqual(run('', '', '').sent, [], 'control: empty box, no suggestion, nothing sent');
+});
+
+guarded('the slash popup keeps Tab: its listener runs before the suggestion\'s, which only answers an empty box with a suggestion',
+  (src) => {
+    const s = slice(src);
+    const slash = s.indexOf("input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });");
+    const sug = s.indexOf('chatSkinSuggestTake(cs);\n  });');
+    const head = s.lastIndexOf("input.addEventListener('keydown'", sug);
+    const body = s.slice(head, sug);
+    return slash >= 0 && sug > 0 && slash < head && /input\.value !== ''/.test(body) && /!cs\.suggest/.test(body) && /e\.key !== 'Tab' \|\| e\.shiftKey/.test(body);
+  },
+  (src) => {
+    const line = "  input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });\n";
+    const sugStart = src.indexOf("  /* Tab on an empty box takes Claude Code's suggestion");
+    const sugEnd = src.indexOf('chatSkinSuggestTake(cs);\n  });\n') + 'chatSkinSuggestTake(cs);\n  });\n'.length;
+    const block = src.slice(sugStart, sugEnd);
+    return src.replace(line, '').replace(block, block + line);   // the slash listener moved AFTER the suggestion's
+  });
+
+test('the suggestion repaints with the terminal and steps aside for a dictation or a dialog', () => {
+  const tick = fnBody(skin, 'chatSkinTick');
+  assert.match(tick, /chatSkinControls\(p\);\n\s*chatSkinSuggestPaint\(p\);/, 'every tick, beside the controls');
+  const paint = skinFn('chatSkinSuggestPaint');
+  assert.match(paint, /!cs\.recording && !cs\.promptKind && !chatSkinCardOn\(cs\) && cs\.input\.value === ''/);
+  assert.match(skinFn('chatSkinPlaceholder'), /cs\.suggest \? t\('chat\.suggest\.placeholder'/, 'one writer for the placeholder');
+  assert.ok(skinLine("input.addEventListener('input'").includes('chatSkinSuggestPaint(p)'), 'clearing the box brings it back');
 });

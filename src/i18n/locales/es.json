@@ -1274,6 +1274,7 @@
   "chat.copied": "{n} caracteres copiados al portapapeles",
   "chat.claude": "{name}",
   "chat.placeholder": "Escribe a {name}…",
+  "chat.suggest.placeholder": "{text}   ⇥ Tab para tomarlo · ↵ para enviarlo",
   "chat.inputHint": "Enter envía · Shift+Enter hace un salto de línea · Esc interrumpe",
   "chat.send": "Enviar",
   "chat.stop": "Detener",
