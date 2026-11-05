@@ -1130,6 +1130,8 @@
   "tg.colorMenu": "Color",
   "tg.collapse": "Collapse group",
   "tg.expand": "Expand group",
+  "tg.newSession": "New session in this group",
+  "tg.newSessionTitle": "New session in {group}",
   "tg.ungroup": "Ungroup",
   "tg.close": "Close group",
   "tg.unnamed": "{color} group",

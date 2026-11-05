@@ -1875,29 +1875,38 @@ function followRotatedId(id, pane) {
 /* The Running card's mirror of the tab groups (0.14.0 round): rows given in tab order are put under a small heading in their
    group's colour whenever the group changes; rows in no group stay in the plain list. The heading folds the strip its tabs are
    in, exactly like the pill, so the Sessions and Terminals headings of one group fold together. */
+/* A folded group folds HERE too (0.15 round): the heading stays, with its count, and its rows go. Two rows survive a fold,
+   for the same reason a folded strip keeps the focused tab: the one you are on, and one that is WAITING on you, which a fold
+   must never hide. `keep` is the caller's word for the second. */
 function pgroupRunner(box) {
-  let cur = null, groupBox = null;
-  return (paneId, row) => {
+  let cur = null, groupBox = null, folded = false, hz = 'main';
+  return (paneId, row, keep = false) => {
     const pane = paneId != null ? panes.get(paneId) : null;
     const gid = pane ? tgOf(paneId) : null;
     const g = gid ? tabGroups.get(gid) : null;
     if (gid !== cur) {
       cur = gid;
       groupBox = null;
+      folded = false;
       if (g) {
-        const hz = zoneOf(pane);   // the strip these tabs are in
+        hz = zoneOf(pane);   // the strip these tabs are in
+        folded = tgFoldedIn(gid, hz);
         groupBox = el('div', 'pgroup');
         groupBox.style.setProperty('--tg', `var(--tg-${g.color})`);
         const head = el('button', 'pgroup-head');
         head.type = 'button';
         head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
         if (tgFoldedIn(gid, hz)) head.appendChild(el('span', 'pgroup-n', String(tgMembersIn(gid, hz).length)));
+        head.appendChild(el('span', 'pgroup-caret'));
         head.title = `${tgLabel(gid)} — ${t(tgFoldedIn(gid, hz) ? 'tg.expand' : 'tg.collapse')}`;
         head.addEventListener('click', () => { tgToggle(gid, hz); renderPulseRunning(); });
+        head.setAttribute('aria-expanded', String(!folded));
+        groupBox.classList.toggle('folded', folded);
         groupBox.appendChild(head);
         box.appendChild(groupBox);
       }
     }
+    if (groupBox && folded && !keep && paneId !== active[hz]) return;   // folded: the heading speaks for it
     (groupBox || box).appendChild(row);
   };
 }
@@ -1979,7 +1988,7 @@ function renderPulseRunning(m) {
   for (const a of inTabOrder) {
     const hit = byName(a.name, a.id);
     const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name);
-    runIntoGroups(hit ? hit[0] : null, r);
+    runIntoGroups(hit ? hit[0] : null, r, statusInfo(a.status).cls === 'input');   // waiting on you: never folded away
   }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
     /* Review 13: the operator-session scope can be wrong, and a wrong HIDE is invisible unless it is counted.
@@ -3338,6 +3347,8 @@ async function tgChipMenu(gid, z) {
   const g = tabGroups.get(gid);
   if (!g) return;
   const items = [
+    { label: t('tg.newSession'), value: 'newSession' },
+    { label: '-', value: '-' },
     { label: t('tg.edit'), value: 'rename' },
     { label: t('tg.colorMenu'), items: TG_COLORS.map((c) => ({ label: (c === g.color ? '✓ ' : '') + tgCap(t('tg.color.' + c)), value: 'color:' + c })) },
     { label: t(tgFoldedIn(gid, z) ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
@@ -3347,7 +3358,8 @@ async function tgChipMenu(gid, z) {
   ];
   const pick = await window.glassShell.tabMenu(items);
   if (!pick || !tabGroups.has(gid)) return;
-  if (pick === 'toggle') tgToggle(gid, z);
+  if (pick === 'newSession') void spawnWorkerFlow(gid);
+  else if (pick === 'toggle') tgToggle(gid, z);
   else if (pick.startsWith('color:')) { if (TG_COLORS.includes(pick.slice(6))) { g.color = pick.slice(6); tgRepaint(); } }
   else if (pick === 'rename') await tgEdit(gid, t('tg.rename')); else if (pick === 'ungroup') {
     for (const id of tgMembers(gid)) panes.get(id).group = '';
@@ -13745,10 +13757,11 @@ const ANIMALS = ['otter', 'falcon', 'lynx', 'badger', 'heron', 'fox', 'orca', 'w
 function adjAnimal() {
   return ADJS[Math.floor(Math.random() * ADJS.length)] + '-' + ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
 }
-async function spawnWorkerFlow() {
+async function spawnWorkerFlow(group = '') {
   // Glass parity: ask for a name (blank → adjective-animal handle), then an
   // optional first task — exactly the extension's Spawn-a-session contract.
-  const name = await inputModal(t('spawn.title'), t('spawn.namePlaceholder'));
+  // `group`: start it inside that tab group (the group chip's "New session in this group", 0.15 round).
+  const name = await inputModal(group ? t('tg.newSessionTitle', { group: tgLabel(group) }) : t('spawn.title'), t('spawn.namePlaceholder'));
   if (name === null) return;
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || adjAnimal();
   const task = await inputModal(t('spawn.sessionTitle', { handle }), t('spawn.firstTask'));
@@ -13756,7 +13769,10 @@ async function spawnWorkerFlow() {
   // A bootstrap prompt is what makes the SESSION RITUAL run on turn one (identity →
   // agent match → context load). The spawn wrapper always passes one; a bare
   // `claude --name X` would sit idle and skip the ritual. No task → "Start session".
-  void createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  const id = await createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  /* Joined after it exists: tgAdd unfolds the group in the new tab's strip and pulls the tab in beside its members.
+     A group closed while the two questions were open is simply not joined — the session still starts. */
+  if (group && id != null && tabGroups.has(group)) tgAdd(id, group);
 }
 
 /* Create a custom agent / skill / plugin — scaffolds into the right custom/ dir. */

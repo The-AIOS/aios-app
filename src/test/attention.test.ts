@@ -420,3 +420,35 @@ test('a smoke run never puts a banner on the operator\'s screen', () => {
     assert.equal(flashed, false, 'and does not flash the taskbar');
   } finally { process.argv = argv; }
 });
+
+test('a banner on screen is HELD until it is clicked, closed or refused, so its click still reaches the session', () => {
+  /* 0.15 round: a banner click raised the App and stopped there. Nothing referenced the Notification after show(), so it
+     could be garbage-collected while the OS still showed it, taking its 'click' listener with it. Held, the click lands. */
+  const { Attention, lastBanner, clearBanner } = loadAttention();
+  const revealed: string[] = [];
+  const a = new Attention({ ...NOOP_WIN, reveal: (t) => { revealed.push(t.name); }, notifyBlocked: () => { } }) as AttentionClass & { heldBanners(): number };
+
+  a.tick([{ name: 'one', status: 'waiting', pid: 1, sessionId: 's1' } as RunningAgent], 'banner');
+  const first = lastBanner();
+  clearBanner();
+  a.tick([{ name: 'one', status: 'waiting', pid: 1, sessionId: 's1' } as RunningAgent, { name: 'two', status: 'waiting', pid: 2, sessionId: 's2' } as RunningAgent], 'banner');
+  const second = lastBanner();
+  assert.equal(a.heldBanners(), 2, 'both banners are on screen, so both are held');
+
+  first?.emit('click', {});
+  assert.deepEqual(revealed, ['one'], 'the click reached its session');
+  assert.equal(a.heldBanners(), 1, 'a clicked banner is let go');
+  second?.emit('close', {});
+  assert.equal(a.heldBanners(), 0, 'a dismissed banner is let go');
+});
+
+test('held banners are bounded: a long day of them never grows without limit', () => {
+  const { Attention } = loadAttention();
+  /* Read from the source, not imported: a real import would load electron. */
+  const BANNERS_HELD = Number(/export const BANNERS_HELD = (\d+);/.exec(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'attention.ts'), 'utf8'))?.[1]);
+  assert.ok(BANNERS_HELD > 0);
+  const a = new Attention({ ...NOOP_WIN, reveal: () => { }, notifyBlocked: () => { } }) as AttentionClass & { heldBanners(): number };
+  const many = Array.from({ length: BANNERS_HELD + 7 }, (_, i) => ({ name: `s${i}`, status: 'waiting', pid: i + 1, sessionId: `id${i}` }) as RunningAgent);
+  a.tick(many, 'banner');
+  assert.equal(a.heldBanners(), BANNERS_HELD);
+});

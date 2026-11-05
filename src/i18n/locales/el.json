@@ -1130,6 +1130,8 @@
   "tg.colorMenu": "Χρώμα",
   "tg.collapse": "Σύμπτυξη ομάδας",
   "tg.expand": "Ανάπτυξη ομάδας",
+  "tg.newSession": "Νέα συνεδρία σε αυτή την ομάδα",
+  "tg.newSessionTitle": "Νέα συνεδρία στο {group}",
   "tg.ungroup": "Κατάργηση ομάδας",
   "tg.close": "Κλείσιμο ομάδας",
   "tg.unnamed": "Ομάδα: {color}",
