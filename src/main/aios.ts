@@ -588,6 +588,11 @@ const winScan = backgroundScan({
   slowFactor: 5,
 });
 const winProcTable = (): string => winScan.read();
+/** Settles when a fresh Windows process table is in (a no-op elsewhere, where `ps` is read on demand).
+ *  For tests that must see a process they just started: `read()` never waits, by design. */
+export function refreshProcTable(): Promise<void> {
+  return process.platform === 'win32' ? winScan.refresh() : Promise.resolve();
+}
 
 /** Process-tree RSS (MB) for each given pid — one `ps` scan, summed over each
  *  session's descendants (the Glass "… ready 1h · 1.6 GB" token). Best-effort. */

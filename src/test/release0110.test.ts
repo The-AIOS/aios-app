@@ -538,6 +538,9 @@ test('blocker 6: a session descended from an App pty is the operator\'s, whereve
     aios.setPtyPidSource(() => []);
     assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), [], 'control: not in a pane, not in a workspace → hidden');
     aios.setPtyPidSource(() => [process.pid]);   // this test process plays the pty; the child is its descendant
+    /* On Windows the process table is read in the background (#131) and the first read is empty: wait for a
+       table taken after the child started, as the App's next 2 s pulse would. */
+    await aios.refreshProcTable();
     assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), ['build'], 'in a pane → listed, with no renderer report');
   } finally {
     aios.setPtyPidSource(() => []);
