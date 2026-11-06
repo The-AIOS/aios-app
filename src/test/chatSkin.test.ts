@@ -1383,7 +1383,7 @@ guarded('the status bar is built UNDER the card, and the card holds only the tex
   (src) => {
     const b = fnBody(slice(src), 'chatSkinBuild');
     return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, wrap, meta\)/.test(b)
-      && /root\.append\(log, alertEl, agentBar, compose\)/.test(b)   // log, notice, compose block: nothing above the log
+      && /root\.append\(log, stickyEl, alertEl, agentBar, compose\)/.test(b)   // log (the sticky prompt floats over it), notice, compose block: nothing above the log
       && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(keysHint, micBtn, stopBtn, sendBtn\)/.test(b)   // the mic joined send/stop, the keys hint sits beside them (0.14.0 round)
       && !/cc-chip|chat-usage|usageEl|usageVals/.test(slice(src))
       && b.indexOf('wrap.append(slashPop, box)') > 0 && b.indexOf('wrap.append(slashPop, box)') < b.indexOf('compose.append(')
@@ -1400,11 +1400,11 @@ guarded('the pane has no header: no Terminal | Chat switch, no Aa button, no fon
   (src) => {
     const s = slice(src);
     const b = fnBody(s, 'chatSkinBuild');
-    return !HEADER_TRACES.test(s) && /root\.append\(log, alertEl, agentBar, compose\)/.test(b) && !/\bhead\b/.test(b.replace(/\/\*[\s\S]*?\*\//g, ''))
+    return !HEADER_TRACES.test(s) && /root\.append\(log, stickyEl, alertEl, agentBar, compose\)/.test(b) && !/\bhead\b/.test(b.replace(/\/\*[\s\S]*?\*\//g, ''))
       // the reading settings are not set from the conversation any more: only applied there
       && !/setSetting\('chatFont/.test(s) && /function chatApplyPrefs\(\)/.test(s) && /function chatReadPrefs\(c\)/.test(s);
   },
-  (src) => src.replace('root.append(log, alertEl, agentBar, compose);', "const head = el('div', 'cs-head');\n  root.append(head, log, alertEl, agentBar, compose);"));
+  (src) => src.replace('root.append(log, stickyEl, alertEl, agentBar, compose);', "const head = el('div', 'cs-head');\n  root.append(head, log, stickyEl, alertEl, agentBar, compose);"));
 
 test('the stylesheet carries no rule of the old header, and the stylesheet check catches one that comes back', () => {
   assert.doesNotMatch(css, HEADER_TRACES);
@@ -4209,4 +4209,47 @@ test('the suggestion repaints with the terminal and steps aside for a dictation 
   assert.match(paint, /!cs\.recording && !cs\.promptKind && !chatSkinCardOn\(cs\) && cs\.input\.value === ''/);
   assert.match(skinFn('chatSkinPlaceholder'), /cs\.suggest \? t\('chat\.suggest\.placeholder'/, 'one writer for the placeholder');
   assert.ok(skinLine("input.addEventListener('input'").includes('chatSkinSuggestPaint(p)'), 'clearing the box brings it back');
+});
+
+/* ── the sticky prompt (0.15.0 round): the prompt the reply on screen answers, pinned while scrolling ── */
+function loadSticky(src: string): (rows: { top: number; bottom: number }[], scrollTop: number) => number {
+  const s = slice(src);
+  const fn = (name: string): string => s.slice(s.indexOf('function ' + name + '('), s.indexOf('\n}\n', s.indexOf('function ' + name + '(')) + 2);
+  const line = (head: string): string => s.slice(s.indexOf(head), s.indexOf('\n', s.indexOf(head)) + 1);
+  return new Function(line('const CS_STICKY_TOP_PX') + fn('chatSkinStickyPick') + 'return chatSkinStickyPick;')();
+}
+
+test('sticky prompt: the last prompt above the view, only once its bubble has scrolled out, never at the top', () => {
+  const pick = loadSticky(app);
+  const rows = [{ top: 30, bottom: 70 }, { top: 900, bottom: 940 }, { top: 2000, bottom: 2040 }];
+  assert.equal(pick(rows, 0), -1, 'at the very top: nothing pinned');
+  assert.equal(pick(rows, 5), -1, 'within the top margin: nothing pinned');
+  assert.equal(pick(rows, 400), 0, 'reading the first answer: its prompt is pinned');
+  assert.equal(pick(rows, 920), -1, 'the second prompt\'s bubble is still on screen: no strip');
+  assert.equal(pick(rows, 1200), 1, 'reading the second answer: the second prompt');
+  assert.equal(pick(rows, 5000), 2, 'far below: the last prompt above the view');
+  assert.equal(pick([], 400), -1, 'no prompts: nothing');
+  assert.equal(pick([{ top: 500, bottom: 540 }], 300), -1, 'the only prompt is still below the top: nothing');
+  /* Negative control: a pick that skips the visibility check pins a prompt whose bubble is on screen. */
+  const broken = loadSticky(app.replace("  if (pick < 0 || rows[pick].bottom > scrollTop) return -1;   // its bubble still shows\n", "  if (pick < 0) return -1;\n"));
+  assert.equal(broken(rows, 920), 1, 'control: without the check the visible prompt is pinned twice');
+});
+
+test('sticky prompt: over the log (no layout shift), never steals focus, a click goes to that prompt, painted on scroll and on new rows', () => {
+  assert.match(skin, /root\.append\(log, stickyEl, alertEl, agentBar, compose\);/, 'beside the log, not in its flow');
+  assert.match(skin, /stickyEl\.tabIndex = -1;/);
+  assert.match(skin, /stickyEl\.addEventListener\('mousedown', \(e\) => e\.preventDefault\(\)\);/, 'a click never takes the caret from the box');
+  assert.match(skin, /log\.addEventListener\('scroll', \(\) => chatSkinStickySoon\(cs\), \{ passive: true \}\);/);
+  assert.match(skin, /new MutationObserver\(\(\) => chatSkinStickySoon\(cs\)\)\.observe\(log, \{ childList: true \}\)/);
+  assert.match(skinFn('chatSkinStickySoon'), /requestAnimationFrame/, 'throttled to one paint a frame');
+  const click = skin.slice(skin.indexOf("stickyEl.addEventListener('click'"), skin.indexOf("stickyEl.addEventListener('click'") + 500);
+  assert.match(click, /cs\.stick = false;/, 'going back up stops following the tail');
+  assert.match(click, /cs\.log\.scrollTo\(\{ top: Math\.max\(0, chatSkinRowTop\(cs\.log, node\) - 12\)/);
+  const paint = skinFn('chatSkinStickyPaint');
+  assert.match(paint, /querySelectorAll\('\.chat-row\.who-user'\)/, 'only the operator\'s own prompts');
+  assert.match(paint, /\.chat-text/, 'the prompt\'s text, not its buttons');
+  const css = read('renderer/theme.css');
+  assert.match(css, /\.chatskin \.cs-sticky \{ position: absolute; top: 6px;/);
+  assert.match(css, /\.chatskin \.cs-sticky \{[^}]*text-overflow: ellipsis;/, 'one line');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.skin.stickyJump"'), l);
 });
