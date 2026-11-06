@@ -56,7 +56,7 @@ function harness(opts: Opts = {}) {
     panes, createPane,
     (n: string) => (panes.has('open-' + n) ? ['open-' + n] : null),
     (x: string) => x, 'claude', { glassShell: { sessionIsLive } },
-    (m: string) => toasts.push(m), (k: string, v: { name: string }) => `${k}:${v.name}`,
+    (m: string) => toasts.push(m), (k: string, v: { name?: string; live?: number; n?: number; i?: number }) => (v.name !== undefined ? `${k}:${v.name}` : `${k}:${v.live ?? ''}/${v.n}`),
     (fn: () => void, ms: number) => { clock.now += ms; queueMicrotask(fn); return 0; },
     { now: () => clock.now }) as (p: Pick[]) => Promise<void>;
   return { run, starts, toasts, clock };
@@ -80,7 +80,7 @@ test('only the first session takes the focus', async () => {
 test('a session that never comes up is said, and holds the rest back only up to the cap', async () => {
   const h = harness({ live: (id) => id !== 'stuck' });
   await h.run(pick('stuck', 'next'));
-  assert.deepEqual(h.toasts, ['unattended.notLive:stuck']);
+  assert.deepEqual(h.toasts.filter((m) => m.startsWith('unattended.')), ['unattended.notLive:stuck']);
   const waited = h.starts[1].at - h.starts[0].at;
   assert.ok(waited >= 90_000 && waited <= 90_000 + 2000 + 4000, `waited ${waited} ms`);
 });
@@ -104,4 +104,31 @@ test('the picker hands over to the sequence and returns', () => {
   const body = grab(/async function batchResume\(\) \{[\s\S]*?\n\}/, 'batchResume');
   assert.match(body, /void resumeInSequence\(picked\)/);
   assert.doesNotMatch(body, /createPane\(\{ name: nm/, 'no session is started from the picker itself');
+});
+
+test('0.15.0 round: the wait says what it is doing, one line per start, and how it ended', async () => {
+  const h = harness({ live: (id) => id !== 'stuck' });
+  await h.run(pick('one', 'stuck', 'two'));
+  assert.deepEqual(h.toasts, [
+    'resume.progress:one', 'resume.progress:stuck', 'unattended.notLive:stuck', 'resume.progress:two', 'resume.someUp:2/3',
+  ]);
+  const ok = harness();
+  await ok.run(pick('one', 'two'));
+  assert.deepEqual(ok.toasts, ['resume.progress:one', 'resume.progress:two', 'resume.allUp:/2'], 'all up: said once at the end');
+  const single = harness();
+  await single.run(pick('one'));
+  assert.deepEqual(single.toasts, [], 'one session needs no running commentary (the picker already said it is resuming)');
+  const open = harness({ open: ['one'] });
+  await open.run(pick('one', 'two'));
+  assert.deepEqual(open.toasts, [], 'an already open session is not counted: one left to start, no progress lines');
+});
+
+test('every locale has the resume progress lines with the same placeholders', () => {
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    for (const [k, ph] of [['resume.progress', ['{i}', '{n}', '{name}']], ['resume.allUp', ['{n}']], ['resume.someUp', ['{live}', '{n}']]] as const) {
+      assert.ok(j[k], `${loc} ${k}`);
+      for (const p of ph) assert.ok(j[k].includes(p), `${loc} ${k} keeps ${p}`);
+    }
+  }
 });

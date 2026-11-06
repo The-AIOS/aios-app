@@ -12,7 +12,7 @@
 import { Menu, Tray, nativeImage } from 'electron';
 import * as path from 'path';
 import { t } from '../i18n';
-import { menuBarModel, menuBarTitle, sameModel, type MenuBarModel, type MenuBarSession, type SessionState } from '../core/menuBar';
+import { menuBarModel, menuBarTitle, sameModel, dotBitmap, STATE_DOT_COLOR, type MenuBarModel, type MenuBarSession, type SessionState } from '../core/menuBar';
 
 export interface MenuBarHooks {
   /** Bring the App forward on one session — the same path a "needs you" banner click takes. */
@@ -28,6 +28,19 @@ const STATE_KEY: Record<SessionState, string> = {
   error: 'menuBar.stateError',
   idle: 'status.ready',
 };
+
+/** One coloured dot per state, built once at 1x and 2x (12 pt). NOT a template image: macOS would recolour it. */
+const DOT_PT = 12;
+const dots = new Map<SessionState, Electron.NativeImage>();
+function stateDot(state: SessionState): Electron.NativeImage {
+  let img = dots.get(state);
+  if (img) return img;
+  const hex = STATE_DOT_COLOR[state];
+  img = nativeImage.createFromBitmap(Buffer.from(dotBitmap(hex, DOT_PT)), { width: DOT_PT, height: DOT_PT, scaleFactor: 1 });
+  img.addRepresentation({ scaleFactor: 2, width: DOT_PT * 2, height: DOT_PT * 2, buffer: Buffer.from(dotBitmap(hex, DOT_PT * 2)) });
+  dots.set(state, img);
+  return img;
+}
 
 /** Where the template image lives in the packaged app: `renderer/` is packaged, `build/` is not. */
 export function iconPath(appRoot: string): string {
@@ -99,7 +112,9 @@ export class MenuBar {
   private template(model: MenuBarModel): Electron.MenuItemConstructorOptions[] {
     const rows: Electron.MenuItemConstructorOptions[] = model.rows.length
       ? model.rows.map((r) => ({
-        label: `${r.name} — ${t(STATE_KEY[r.state])}`,
+        label: r.name,
+        icon: stateDot(r.state),          // the sidebar's colour for this state, instead of "— ready" (0.15.0 round)
+        toolTip: t(STATE_KEY[r.state]),   // the state still in words, on hover
         click: () => this.hooks.reveal({ name: r.name, sessionId: r.id || undefined }),
       }))
       : [{ label: t('menuBar.empty'), enabled: false }];

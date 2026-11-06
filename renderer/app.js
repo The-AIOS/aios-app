@@ -3483,6 +3483,43 @@ function tgMoveGroup(z, gid, overId, after) {
   if (typeof renderPulseRunning === 'function' && pulse.lastRunning) renderPulseRunning();
 }
 
+/* Tabs scrolled out of view are said (0.15.0 round: a fourth session sat past the edge with nothing showing it was
+   there). Each strip gets a chevron on each side, shown only while tabs hide on that side, and the strip fades at that
+   edge. Measured from the strip itself on scroll, on resize and whenever its tabs change. */
+function stripOverflowState(strip) {
+  const max = strip.scrollWidth - strip.clientWidth;
+  return { left: max > 1 && strip.scrollLeft > 1, right: max > 1 && strip.scrollLeft < max - 1 };
+}
+function syncStripOverflow(strip) {
+  const st = stripOverflowState(strip);
+  strip.classList.toggle('ov-l', st.left);
+  strip.classList.toggle('ov-r', st.right);
+  if (strip._ovL) strip._ovL.hidden = !st.left;
+  if (strip._ovR) strip._ovR.hidden = !st.right;
+}
+function setupStripOverflow(strip) {
+  if (!strip || strip._ovL) return;
+  const mk = (side) => {
+    const b = el('button', 'tsMore ts-' + side);
+    b.type = 'button';
+    b.hidden = true;
+    b.innerHTML = icon(side === 'l' ? 'chevL' : 'chevR', 12);
+    b.setAttribute('data-i18n-title', side === 'l' ? 'tab.moreLeft' : 'tab.moreRight');   // re-resolved on a locale change
+    b.title = t(b.getAttribute('data-i18n-title'));
+    b.addEventListener('click', () => strip.scrollBy({ left: (side === 'l' ? -1 : 1) * Math.max(120, strip.clientWidth * 0.8), behavior: 'smooth' }));
+    return b;
+  };
+  strip._ovL = mk('l'); strip._ovR = mk('r');
+  strip.before(strip._ovL);
+  strip.after(strip._ovR);
+  const sync = () => syncStripOverflow(strip);
+  strip.addEventListener('scroll', sync, { passive: true });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(sync).observe(strip);
+  if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(strip, { childList: true, subtree: true, characterData: true });
+  sync();
+}
+for (const sid of ['tabs', 'ttabs']) setupStripOverflow(document.getElementById(sid));
+
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
    manual order survive the layout churn that used to erase it. */
 function paintStrip(z) {
@@ -5542,18 +5579,23 @@ async function batchResume() {
    connect in 3-5 s once the machine is quiet. Only the first takes the focus: the rest arrive
    over a minute or more, and must not pull the operator out of the tab they are typing in. */
 async function resumeInSequence(picked) {
-  let started = 0;
-  for (const r of picked) {
+  /* Said as it goes (0.15.0 round): one at a time takes seconds per session, and with nothing on screen the operator
+     read the wait as "not working". Each start says which one and how far along; the end says how it went. */
+  const todo = picked.filter((r) => { const hit = byName(r.name || r.id.slice(0, 8)); return !(hit && !panes.get(hit[0]).exited); });
+  const n = todo.length;
+  let started = 0, live = 0, i = 0;
+  for (const r of todo) {
     const nm = r.name || r.id.slice(0, 8);
-    const hit = byName(nm);
-    if (hit && !panes.get(hit[0]).exited) continue;      // already open — do not duplicate it
+    i++;
     if (started) await sleepMs(UNATTENDED_NEXT_MS);
+    if (n > 1) toast(t('resume.progress', { i, n, name: nm }));
     const id = await createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}`, background: started > 0 });
     if (!id) continue;                                   // createPane said why
     started++;
     const up = await waitUntilLive(r.id, () => { const q = panes.get(id); return !!q && !q.exited; });
-    if (!up) toast(t('unattended.notLive', { name: nm }));
+    if (up) live++; else toast(t('unattended.notLive', { name: nm }));
   }
+  if (n > 1) toast(live === n ? t('resume.allUp', { n }) : t('resume.someUp', { live, n }));
 }
 
 /* ═══ #28 — REOPEN LAST SESSIONS ═══════════════════════════════════════════════
