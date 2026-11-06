@@ -3698,15 +3698,16 @@ test('0.14.0 round: copy takes no room, the chat stays on its newest message whe
   assert.match(app, /more\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); chatPathMenu\(\{ abs: hit\.abs, dir: false \}/);
 });
 
-test("0.14.0 round 2: Claude's text is a bubble with a tail, copy never wraps, and the key hint cannot blink", () => {
+test("0.15 round: the operator's turn is the coral bubble with a tail, Claude's reply is plain text, copy never wraps, and the key hint cannot blink", () => {
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
-  assert.match(css, /\.who-claude \.chat-bubble \{ position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;/);
-  assert.match(css, /background: var\(--chat-claude-bg\); border: 0;/, 'no outline: fill alone, so the tail joins seamlessly');
-  assert.match(css, /--chat-claude-bg: color-mix\(in srgb, #ff7a6c [0-9]+%, var\(--surface\)\)/, 'a whisper of coral mixed into the surface, never the accent fill itself');
-  assert.doesNotMatch(css, /--chat-claude-bg:[^;]*var\(--accent/, 'never the accent token: coral as a FILL is the send button\'s');
-  assert.match(css, /background: var\(--chat-claude-bg\)/);
+  assert.match(css, /\.who-claude \.chat-bubble \{ position: relative; box-sizing: border-box; padding: 2px 2px 3px; border-radius: 0;\s+background: none; border: 0; \}/, 'Claude\'s reply has no fill: it reads as the document');
+  assert.match(css, /\.who-claude \.chat-bubble::after \{ content: none; \}/, 'and no tail');
+  const dark = css.match(/--chat-user-bg: color-mix\(in srgb, (#[0-9a-f]{6}) [0-9.]+%, var\(--surface\)\)/g) || [];
+  assert.equal(dark.length, 2, 'dark and light: the operator\'s bubble is a coral tint mixed into the surface');
+  assert.doesNotMatch(css, /--chat-user-bg:[^;]*var\(--accent/, 'never the accent token: coral as a FILL is the send button\'s');
+  assert.doesNotMatch(css, /--chat-claude-bg:[^;]*#ff/i, 'tool rows are neutral: coral in the conversation only ever means the operator');
+  assert.match(css, /\.who-user \.chat-bubble \{[^}]*background: var\(--chat-user-bg\)/);
   assert.match(css, /\.who-user \.chat-bubble::after \{ right: -6px;[^}]*clip-path: path\(/, 'the operator\'s tail, bottom right');
-  assert.match(css, /\.who-claude \.chat-bubble::after \{ left: -6px;[^}]*clip-path: path\(/, 'Claude\'s tail, bottom left');
   assert.match(css, /\.chat-acts \.cm-copy \{[^}]*white-space: nowrap;/, 'never one letter per line');
   assert.match(css, /\.who-user \.chat-bubble, \.who-claude \.chat-bubble \{ isolation: isolate; \}/);
   assert.match(css, /\.chat-bubble::after \{ content: ''; position: absolute; bottom: 0; width: 22px; height: 18px; z-index: -1; \}/, 'the tail sits under the words, never over the last letter');
