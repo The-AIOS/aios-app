@@ -64,9 +64,11 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
      rule; light overrides below, see the note there). Deliberately NO coral here: the operator's bubble is told apart by tone, side and
      label, and coral stays reserved for the send action. "Waiting on the operator" is the
      existing --st-input hue, which is exactly what a permission card is. ── */
-  --chat-user-bg: color-mix(in srgb, #ff9b8f 13%, var(--surface));   /* the operator's message: a rose-coral tint, the one coloured surface in the conversation, so your turn is found at a glance (0.15 round: the tint moved from Claude's reply to yours). Mixed from the hue, never the accent fill: coral as a FILL is the send button's */
+  --chat-user-bg: #cc3d2a;   /* the operator's message: SOLID coral with white text (0.15 round, after Muse). A deeper coral than the brand #ff5d4d, which carries white at only 3.0:1; this one carries it at 4.9:1 (WCAG AA). Coral as a fill now means: you, and the send button */
+  --chat-user-ink: #ffffff;
+  --chat-reply-bg: color-mix(in srgb, var(--ink) 9%, var(--surface));   /* Claude's reply: a soft grey bubble, a step above the surface */
   --chat-user-line: var(--line);
-  --chat-claude-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));   /* tool rows: neutral, so coral in the conversation only ever means the operator (0.15 round). Claude's reply itself has no fill */
+  --chat-claude-bg: color-mix(in srgb, var(--ink) 4%, var(--surface));   /* tool rows: neutral, a step under Claude's reply bubble */
   --chat-claude-line: var(--line);
   --chat-code-bg: color-mix(in srgb, var(--ink) 7%, var(--surface));
   --chat-tool-ink: var(--faint);
@@ -741,7 +743,9 @@ body.light {
      resolved on the element that declares it: minted on :root they would carry the DARK --ink and
      --surface down into body.light as already-computed colours, and the pane would stay dark-tinted
      in the light theme. Re-declaring makes them resolve against this block's own --ink/--surface. */
-  --chat-user-bg: color-mix(in srgb, #ff7a6c 12%, var(--surface));   /* light: the same rose-coral tint */
+  --chat-user-bg: #cc3d2a;   /* light: the same solid coral, white text 4.9:1 */
+  --chat-user-ink: #ffffff;
+  --chat-reply-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* light: Claude's reply, soft grey */
   --chat-user-line: var(--line);
   --chat-claude-bg: color-mix(in srgb, var(--ink) 3.5%, var(--surface));   /* light: tool rows, neutral */
   --chat-claude-line: var(--line);
@@ -2055,7 +2059,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-who { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* The operator's message: a soft box on the right. Plain text, line breaks kept. */
 .who-user .chat-bubble { max-width: min(86%, 600px); box-sizing: border-box; padding: 7px 13px 8px; border-radius: 16px;
-                         background: var(--chat-user-bg); border: 0; color: var(--ink);
+                         background: var(--chat-user-bg); border: 0; color: var(--chat-user-ink);
                          font-size: .96em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }   /* a step under the answer's size, a thinner skin, no edge-light: a prompt is a line you said, not a card */
 /* Claude's reply: no box at all, just well-set text across the whole column. */
 .chat-copied { align-self: flex-end; text-align: right; padding: 0 26px 16px;   /* clear of the session name riding the card's top edge */ font: 12px var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -2069,11 +2073,11 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
            color: var(--subtle); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; font-size: .92em; }
 .cq-tag { display: block; font-size: .78em; letter-spacing: .02em; color: var(--faint); margin-bottom: 1px; }
 .who-claude .chat-bubble { min-width: 0; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
-/* 0.15 round: Claude's reply is plain text on the surface, no fill and no tail, like a document; only the operator's turn
-   is a coloured bubble. (0.14.0 had both as bubbles, Claude's tinted coral.) */
+/* 0.15 round: two bubbles that read apart at a glance, after Muse: the operator's is solid coral with white text, Claude's
+   is a soft grey bubble with its tail on the left. (0.14.0 tinted Claude's coral; the first 0.15 cut left it with no bubble.) */
 .chat-row.who-claude { align-items: flex-start; margin-bottom: 24px; }   /* room for Copy under the reply: two replies in a row left it on the next bubble (0.14.0 round) */
-.who-claude .chat-bubble { position: relative; box-sizing: border-box; padding: 2px 2px 3px; border-radius: 0;
-                           background: none; border: 0; }
+.who-claude .chat-bubble { position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;
+                           background: var(--chat-reply-bg); border: 0; }
 .who-claude .chat-md > :first-child { margin-top: 0; }
 .who-claude .chat-md > :last-child { margin-bottom: 0; }
 /* The tail: a small curved wedge in the bubble's own colour, drawn without knowing what is behind it. */
@@ -2082,7 +2086,9 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 /* A horn out of the bottom corner (0.14.0 round 2): it fills the bubble's rounded corner completely (no notch where the two
    meet) and curves out to a soft point on the bubble's baseline. */
 .who-user .chat-bubble::after { right: -6px; background: var(--chat-user-bg); clip-path: path('M0 0 L16 0 C16 8 18 14 22 18 L0 18 Z'); }
-.who-claude .chat-bubble::after { content: none; }   /* no bubble, so no tail */
+.who-claude .chat-bubble::after { left: -6px; background: var(--chat-reply-bg); clip-path: path('M22 0 L6 0 C6 8 4 14 0 18 L22 18 Z'); }
+.who-user .chat-bubble .cs-path, .who-user .chat-bubble a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--chat-user-ink) 55%, transparent); }   /* a path in your own text: white on coral, not the cool link hue (2.4:1 there) */
+.who-user .chat-bubble ::selection { background: color-mix(in srgb, var(--chat-user-ink) 35%, transparent); color: var(--chat-user-ink); }
 .chat-md { line-height: 1.7; letter-spacing: .005em; }
 .chat-md > :first-child { margin-top: 0; }
 .chat-md > :last-child { margin-bottom: 0; }
@@ -2338,7 +2344,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .csa-back:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 1px; }
 /* a message the bus typed: its sender above the bubble, in the cool link hue */
 .chat-from { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin: 0 4px 3px; color: var(--chat-link); font-size: 11px; font-weight: 600; }
-.from-bus .chat-bubble { border-style: dashed; border-color: color-mix(in srgb, var(--chat-link) 45%, transparent); background: color-mix(in srgb, var(--chat-link) 9%, var(--chat-user-bg)); font-style: italic; }
+.from-bus .chat-bubble { border-style: dashed; border-color: color-mix(in srgb, var(--chat-link) 45%, transparent); background: color-mix(in srgb, var(--chat-link) 9%, var(--surface)); color: var(--ink); font-style: italic; }
 /* a skill loading wears its own mark in the cool hue, so it reads apart from the tools it then calls */
 .chat-tool[data-kind="skill"] .ct-kind { color: var(--chat-model-ink); }
 .chat-tool[data-kind="skill"] .ct-arg { color: var(--ink); }
