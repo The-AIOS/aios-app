@@ -324,16 +324,19 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 #termzone { flex: 0 0 auto; height: 38%; background: var(--zone-term); }
 /* The strips inherit their zone's tone, so the boundary is legible exactly where the
    ambiguity was — at the tabs, not just in the empty space below them. */
-#viewzone .tabstrip { background: var(--zone-edit); }
-#termzone .tabstrip { background: var(--zone-term); }
+#viewzone .zbar, #viewzone .tabstrip { background: var(--zone-edit); }
+#termzone .zbar, #termzone .tabstrip { background: var(--zone-term); }
 
 /* tab strips */
-/* the strip scrolls horizontally, and the (+) STAYS reachable: it sticks to the right
-   edge over a fading backdrop instead of drifting off past a wall of tabs */
+/* A zone's header row is the bar: the TABS scroll inside it, and the zone's four controls ((+), Chat |
+   Terminal, expand) sit together beside the scroller, outside it. They used to live inside the scrolling
+   strip, where one long session name or a narrow zone pushed them off the right edge — only expand was
+   sticky, and it sat on top of the tab name. Outside the scroller they cannot be scrolled away at any
+   width, and they stay in one place instead of moving with the number of tabs. */
+.zbar { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; padding-right: 10px; -webkit-app-region: no-drag; }
+.zbar > .newTab, .zbar > .zview, .zbar > .zexp { flex: 0 0 auto; margin: 0; }   /* the bar's gap spaces them */
 .tabstrip { display: flex; align-items: center; gap: 5px; padding: 7px 10px; overflow-x: auto; overflow-y: hidden;
-            flex: 0 0 auto; -webkit-app-region: no-drag; scroll-behavior: smooth; }
-/* the (+) sits with the tabs it adds to; the zone's expand is what pins to the right edge */
-.tabstrip .newTab { flex: 0 0 auto; margin-left: 4px; }
+            flex: 1 1 auto; min-width: 0; -webkit-app-region: no-drag; scroll-behavior: smooth; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
        border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
        transition: all .14s; flex: 0 0 auto; }
@@ -1492,7 +1495,7 @@ body.light .hljs-title, body.light .hljs-type { color: #2f6fd0; }
    small caps, letterspaced, quiet — a strip label, not a heading */
 .zlabel { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; letter-spacing: .16em; color: var(--subtle);
           margin: 0 8px 0 4px; user-select: none; }
-.zexp { position: sticky; right: 0; flex: 0 0 auto; z-index: 2; margin-left: auto; background: var(--bg);
+.zexp { flex: 0 0 auto; margin-left: auto; background: var(--bg);
         border: 1px solid var(--line); color: var(--subtle); border-radius: 8px; width: 26px; height: 26px;
         display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: all .15s; }
 .zexp:hover { color: var(--accent-ink); border-color: var(--accent); }
