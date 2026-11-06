@@ -135,6 +135,48 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # Existing users first: install the last PUBLISHED release (unsigned up to 0.14.1), then run
+      # this build's installer over it silently, the way electron-updater does (/S --updated). The
+      # installed app must be this version, and signed by Pulsar Labs when this build is signed.
+      # Installs with no publisherName skip electron-updater's own signature check, so this is
+      # the check that an unsigned install takes a signed update cleanly.
+      - name: Upgrade over the last published release, as the updater does
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $prev = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          "previous published release: $prev"
+          New-Item -ItemType Directory -Force prev | Out-Null
+          gh release download $prev --repo $env:GITHUB_REPOSITORY --pattern 'AIOS-x64.exe' --dir prev --clobber
+          Start-Process -FilePath 'prev\AIOS-x64.exe' -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\AIOS\AIOS.exe'
+          if (-not (Test-Path $exe)) { $exe = (Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse -Filter AIOS.exe | Select-Object -First 1).FullName }
+          if (-not $exe -or -not (Test-Path $exe)) { throw "the previous release ($prev) did not install" }
+          "installed before: {0} at {1}" -f (Get-Item $exe).VersionInfo.ProductVersion, $exe
+          $new = Get-ChildItem dist\AIOS-x64.exe | Select-Object -First 1
+          Start-Process -FilePath $new.FullName -ArgumentList '/S','--updated' -Wait
+          Start-Sleep -Seconds 5
+          $want = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $got = (Get-Item $exe).VersionInfo.ProductVersion
+          "installed after: $got (want $want)"
+          if (-not $got.StartsWith($want)) { throw "after the upgrade the installed app is $got, not $want" }
+          if ($env:ESIGNER -eq 'yes') {
+            $s = Get-AuthenticodeSignature -LiteralPath $exe
+            "installed app signature: {0} · {1}" -f $s.Status, $s.SignerCertificate.Subject
+            if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Pulsar Labs') { throw "the upgraded app is not validly signed by Pulsar Labs" }
+          }
+
+      # Only the x64 binaries ship in the x64 installer: arm64 copies never run here, and each
+      # signed file costs one of the plan's yearly signings.
+      - name: No arm64 binaries in the x64 package
+        shell: bash
+        run: |
+          if find dist/win-unpacked -ipath '*arm64*' -name '*.exe' | grep -q .; then
+            find dist/win-unpacked -ipath '*arm64*' -name '*.exe'; echo "::error::arm64 executables in the x64 package"; exit 1
+          fi
+          echo "no arm64 executables in the x64 package"
+
       - name: Say plainly when this build is unsigned
         if: env.ESIGNER != 'yes'
         run: echo "::warning::No eSigner secrets in this repo, so the Windows installer is UNSIGNED (issue #42). Smart App Control will block it on a clean Windows 11 machine."

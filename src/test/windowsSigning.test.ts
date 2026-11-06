@@ -81,3 +81,23 @@ test('the Windows release lane installs a PINNED CodeSignTool, signs inside the 
   assert.match(verify, /-notmatch 'Pulsar Labs'/, 'and the publisher is ours');
   assert.ok(wf.indexOf('Verify the Windows signatures') < wf.indexOf('Attach the Windows artifacts'), 'verified before anything is attached');
 });
+
+test('the x64 installer ships no arm64 binaries: each signed file costs one of the plan\'s yearly signings', () => {
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  const files: string[] = pkg.build.win.files || [];
+  assert.ok(files.includes('!**/node_modules/node-pty/prebuilds/win32-arm64/**'), 'node-pty\'s arm64 prebuilds stay out');
+  assert.ok(files.includes('!**/node_modules/node-pty/third_party/conpty/*/win10-arm64/**'), 'and the arm64 OpenConsole');
+  assert.ok(!files.some((f) => /x64/.test(f)), 'never an x64 copy: those are the ones that run');
+  const wf = fs.readFileSync('.github/workflows/release-windows.yml', 'utf8');
+  assert.match(wf, /- name: No arm64 binaries in the x64 package/, 'and the lane checks the packaged tree');
+});
+
+test('every Windows release first upgrades over the last published release, the way the updater does, before anything is attached', () => {
+  const wf = fs.readFileSync('.github/workflows/release-windows.yml', 'utf8');
+  const step = wf.slice(wf.indexOf('- name: Upgrade over the last published release'), wf.indexOf('- name: No arm64 binaries'));
+  assert.match(step, /gh release view --repo \$env:GITHUB_REPOSITORY --json tagName/, 'the last PUBLISHED release, which is what users have installed');
+  assert.match(step, /-ArgumentList '\/S','--updated'/, 'silent, flagged as an update, as electron-updater runs it');
+  assert.match(step, /after the upgrade the installed app is/, 'the installed version must be this build');
+  assert.match(step, /the upgraded app is not validly signed by Pulsar Labs/, 'and signed, when this build is');
+  assert.ok(wf.indexOf('Upgrade over the last published release') < wf.indexOf('Attach the Windows artifacts'), 'proven before anything reaches the release');
+});
