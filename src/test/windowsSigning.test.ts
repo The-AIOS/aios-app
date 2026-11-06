@@ -84,7 +84,11 @@ test('the Windows release lane installs a PINNED CodeSignTool, signs inside the 
 
 test('the x64 installer ships no arm64 binaries: each signed file costs one of the plan\'s yearly signings', () => {
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-  const files: string[] = pkg.build.win.files || [];
+  /* In the TOP-LEVEL list: a `files` list under `win` replaced the top-level one and shipped the compiled test suite
+     (the packaged gate caught it). */
+  assert.equal(pkg.build.win.files, undefined, 'no win-level files list: it drops the top-level exclusions');
+  const files: string[] = pkg.build.files;
+  assert.ok(files.includes('!out/test/**'), 'the test suite stays out');
   assert.ok(files.includes('!**/node_modules/node-pty/prebuilds/win32-arm64/**'), 'node-pty\'s arm64 prebuilds stay out');
   assert.ok(files.includes('!**/node_modules/node-pty/third_party/conpty/*/win10-arm64/**'), 'and the arm64 OpenConsole');
   assert.ok(!files.some((f) => /x64/.test(f)), 'never an x64 copy: those are the ones that run');
