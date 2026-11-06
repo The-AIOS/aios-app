@@ -1,25 +1,16 @@
 import { app, Menu, BrowserWindow, shell } from 'electron';
 import { t } from '../i18n';
 
-/** The quick bar's hand-over of *Launch agent* (docs/rfcs/menu-bar.md § 3.4). */
-export interface MenuQuickBar {
-  open(): void;
-  /** The accelerator the OS granted as a GLOBAL shortcut, or '' when none is held. */
-  globalAccel: string;
-}
-
-/** ⇧⌘A in the App when no global shortcut is held — the in-app door to the quick bar never disappears. */
-export const QUICK_BAR_LOCAL_ACCEL = 'CmdOrCtrl+Shift+A';
+/** ⇧⌘A — *Launch agent*, the in-app agent picker, as before the quick bar. */
+export const LAUNCH_AGENT_ACCEL = 'CmdOrCtrl+Shift+A';
 
 /**
- * The *Launch agent* item. With a quick bar it opens the bar; when the bar's shortcut is held globally the
- * item only SHOWS it (`registerAccelerator: false`) — registering it twice would have the menu and the global
- * shortcut both fire on one keystroke, opening and immediately closing the bar.
+ * The *Launch agent* item: always the in-app agent picker. The floating quick bar is reachable only through
+ * the global shortcut the operator chooses in Settings (none by default); inside the App its destinations
+ * live in the Ask panel, so ⇧⌘A keeps the meaning it had (0.15.0 test round).
  */
-export function launchAgentItem(label: string, legacy: () => void, qb?: MenuQuickBar): Electron.MenuItemConstructorOptions {
-  if (!qb) return { label, accelerator: QUICK_BAR_LOCAL_ACCEL, click: legacy };
-  if (qb.globalAccel) return { label, accelerator: qb.globalAccel, registerAccelerator: false, click: () => qb.open() };
-  return { label, accelerator: QUICK_BAR_LOCAL_ACCEL, click: () => qb.open() };
+export function launchAgentItem(label: string, legacy: () => void): Electron.MenuItemConstructorOptions {
+  return { label, accelerator: LAUNCH_AGENT_ACCEL, click: legacy };
 }
 
 /**
@@ -50,7 +41,7 @@ export function launchAgentItem(label: string, legacy: () => void, qb?: MenuQuic
  * Localized via `t()`; main.ts rebuilds the whole menu when the UI locale changes, because
  * a native menu cannot re-render itself.
  */
-export function installMenu(getWin: () => BrowserWindow | undefined, quickBar?: MenuQuickBar): void {
+export function installMenu(getWin: () => BrowserWindow | undefined): void {
   const intent = (kind: string, payload: Record<string, unknown> = {}) => {
     const w = getWin();
     /* `kind` LAST so the routing key can never be shadowed by a payload field. It was,
@@ -164,7 +155,7 @@ export function installMenu(getWin: () => BrowserWindow | undefined, quickBar?: 
       submenu: [
         { label: t('menu.goWithAgents'), accelerator: 'CmdOrCtrl+Shift+G', click: () => intent('pickSuggestion') },
         { type: 'separator' },
-        launchAgentItem(t('menu.launchAgent'), () => intent('pickAgent'), quickBar),
+        launchAgentItem(t('menu.launchAgent'), () => intent('pickAgent')),
         { label: t('menu.loadSkill'), accelerator: 'CmdOrCtrl+Shift+S', click: () => intent('pickSkill') },
         { label: t('menu.runCommand'), accelerator: 'CmdOrCtrl+Shift+C', click: () => intent('pickCommand') },
         { type: 'separator' },

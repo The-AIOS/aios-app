@@ -29,6 +29,43 @@ export interface QuickBarDeps {
   log(msg: string): void;
 }
 
+/** What writing one Ask request needs: where the inbox is, which names are taken, and a log. */
+export interface AskWriteDeps {
+  inboxDir(): string;
+  takenNames(): string[];
+  log(msg: string): void;
+}
+
+/**
+ * Write ONE Ask request to the spawn inbox — the floating bar and the App's own Ask panel share it, so a
+ * destination behaves the same from either door. A new session or an agent never takes a name that is
+ * running: a spawn under a running name is only revealed by the bus, and the text would be lost (an agent
+ * runs as "lawyer-2" instead). Returns the session it went to, or why it was not written.
+ */
+export function writeAskRequest(dest: QuickBarDestination, text: string, deps: AskWriteDeps): { ok: true; name: string } | { ok: false; reason: string } {
+  if (!dest || !['new', 'agent', 'session'].includes(dest.kind)) return { ok: false, reason: 'name' };
+  const target: QuickBarDestination = dest.kind === 'new'
+    ? { kind: 'new', name: uniqueName(String(dest.name ?? ''), deps.takenNames()) }
+    : dest.kind === 'agent'
+      ? { kind: 'agent', name: String(dest.name ?? ''), session: uniqueName(String(dest.name ?? ''), deps.takenNames()) }
+      : { kind: 'session', name: String(dest.name ?? '') };
+  const req = quickBarRequest(target, text, Date.now());
+  if (!req.ok) return { ok: false, reason: req.reason };
+  try {
+    const dir = deps.inboxDir();
+    fs.mkdirSync(dir, { recursive: true });
+    /* Whole or not at all: the bus watches this directory, and must never read half a request. */
+    const tmp = path.join(dir, `.${req.file}.tmp`);
+    fs.writeFileSync(tmp, JSON.stringify(req.body, null, 2));
+    fs.renameSync(tmp, path.join(dir, req.file));
+  } catch (e) {
+    deps.log(`ask: could not write the request — ${(e as Error).message}`);
+    return { ok: false, reason: 'write' };
+  }
+  deps.log(`ask: ${target.kind} → '${req.body.name}'`);
+  return { ok: true, name: req.body.name };
+}
+
 const WIDTH = 680;
 const HEIGHT = 560;   // the panel is transparent around the bar; the list grows into this space
 
@@ -143,32 +180,11 @@ export class QuickBar {
 
   /** Write the request and hide. Returns the outcome so the bar can stay open and say why when it failed. */
   private submit(dest: QuickBarDestination, text: string, reveal: boolean): { ok: boolean; reason?: string } {
-    if (!dest || !['new', 'agent', 'session'].includes(dest.kind)) return { ok: false, reason: 'name' };
-    /* A new session never takes a name that is running — the bar's suggestion was unique when it was made,
-       not necessarily now, and the operator may have typed over it. */
-    const target: QuickBarDestination = dest.kind === 'new'
-      ? { kind: 'new', name: uniqueName(String(dest.name ?? ''), this.deps.takenNames()) }
-      : dest.kind === 'agent'
-        /* Same for an agent: a second "lawyer" while one is running would be revealed, not started, and the
-           text lost. It runs as "lawyer-2" instead, exactly as a new session would. */
-        ? { kind: 'agent', name: String(dest.name ?? ''), session: uniqueName(String(dest.name ?? ''), this.deps.takenNames()) }
-        : dest;
-    const req = quickBarRequest(target, text, Date.now());
-    if (!req.ok) return { ok: false, reason: req.reason };
-    try {
-      const dir = this.deps.inboxDir();
-      fs.mkdirSync(dir, { recursive: true });
-      /* Whole or not at all: the bus watches this directory, and must never read half a request. */
-      const tmp = path.join(dir, `.${req.file}.tmp`);
-      fs.writeFileSync(tmp, JSON.stringify(req.body, null, 2));
-      fs.renameSync(tmp, path.join(dir, req.file));
-    } catch (e) {
-      this.deps.log(`quick bar: could not write the request — ${(e as Error).message}`);
-      return { ok: false, reason: 'write' };
-    }
-    this.deps.log(`quick bar: ${target.kind} → '${req.body.name}'`);
+    const r = writeAskRequest(dest, text, this.deps);
+    if (!r.ok) return { ok: false, reason: r.reason };
     this.hide();
-    if (reveal) this.deps.reveal({ name: req.body.name });
+    if (reveal) this.deps.reveal({ name: r.name });
     return { ok: true };
   }
+
 }

@@ -14,9 +14,10 @@ This RFC adds both, as glass over what already exists:
 
 - **A menu-bar icon** that lists the operator's live sessions with their state, and shows a count when any of them is
   waiting for the operator. It reads the same 2-second pulse that already drives the panel and the Dock badge.
-- **A quick bar** on a global shortcut (**⇧⌘A**): one line of text, one destination picker (a new session, an agent,
-  or a live session), Enter to send. It becomes the App's *Launch agent* — the in-app ⇧⌘A picker it replaces is the
-  same gesture, now reachable from any app.
+- **A quick bar** on a global shortcut the operator chooses: one line of text, one destination picker (a new session,
+  an agent, or a live session), Enter to send. Inside the App the same destinations live in the Ask panel (*Send to*),
+  so the floating bar exists only to reach Ask from another app. (Revised in the 0.15.0 test round: an in-app bar beside
+  the Ask panel offered nothing the panel could not.)
 
 Neither reimplements anything. The icon renders the registry the pulse already reads; the quick bar writes an ordinary
 spawn-inbox request addressed to this surface, so a message from the quick bar is held, queued, verified and
@@ -37,8 +38,8 @@ dead-lettered exactly like one from an agent.
 
 ### 2.2 The quick bar
 
-- **⇧⌘A from any app** opens a small frameless panel near the top of the screen under the pointer, on the current
-  Space, above other windows. ⇧⌘A again, Esc, or a click elsewhere closes it.
+- **The chosen shortcut, from any app,** opens a small frameless panel near the top of the screen under the pointer, on the current
+  Space, above other windows. The shortcut again, Esc, or a click elsewhere closes it.
 - One text field and a destination chip. The chip (or **Tab**) opens a filterable list with three groups:
   1. **New session** — default. The name is suggested and editable.
   2. **Agents** — the same list *Launch agent* shows today. Choosing one launches that agent with the text as its task.
@@ -100,10 +101,8 @@ the explicit main-window reference before the second window exists.
 ### 3.4 The shortcut
 
 - The shortcut the operator picks is registered with `globalShortcut`, so it works whether or not the App is focused.
-- The application menu keeps the *Launch agent* item with its accelerator shown but not registered
-  (`registerAccelerator: false`), so the two never fight; in-app ⇧⌘A opens the quick bar too.
-- The modal agent picker is not deleted: the panel's *Launch agent* card still opens it, and it is what the menu item
-  opens where the quick bar does not exist (other platforms, test runs).
+- In-app ⇧⌘A stays *Launch agent*, the modal agent picker, as before the quick bar. The quick bar has no in-app key:
+  inside the App its destinations are in the Ask panel.
 - A global shortcut takes the combination away from every other app (Finder's *Go to Applications*, Chrome's tab
   search). This is said in Settings next to the field.
 - If `globalShortcut.register` returns `false` (another app owns it), Settings shows the conflict instead of failing
@@ -115,8 +114,7 @@ Two keys in `.glass/shell.json`, added to the `shellSettings` interface and to t
 
 - `menuBar: boolean` — default `true` on macOS. Toggling it creates or destroys the icon live.
 - `quickBarShortcut: string` — default empty: no global shortcut until the operator picks one, because a global
-  shortcut takes its keys from every other app (⇧⌘A is Slack's *All unreads* and Finder's *Applications*). In-app ⇧⌘A
-  opens the bar either way.
+  shortcut takes its keys from every other app (⇧⌘A is Slack's *All unreads* and Finder's *Applications*).
   Settings shows the field and, when the OS refused the combination, says so under it.
 
 ### 3.6 Lifecycle and test runs

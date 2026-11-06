@@ -35,7 +35,9 @@ import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
 import { MenuBar } from './menuBar';
-import { QuickBar } from './quickBar';
+import { QuickBar, writeAskRequest } from './quickBar';
+import { isBlockedStatus } from '../core/attention';
+import type { QuickBarDestination } from '../core/quickBar';
 import { initCommandBus, appLog, inboxDir } from './commandBus';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
@@ -1218,7 +1220,7 @@ let quickBar: QuickBar | undefined;
 let quickBarShortcutOk = true;   // false = another app holds the configured shortcut; Settings says so
 const QUICK_BAR_ALLOWED = (): boolean => process.platform === 'darwin' && !SMOKE && !SHOT && !EVAL && !CHAT_SHOT;
 function rebuildMenu(): void {
-  installMenu(() => mainWin, quickBar ? { open: () => quickBar?.show(), globalAccel: quickBar.shortcut } : undefined);
+  installMenu(() => mainWin);
 }
 function applyQuickBar(): void {
   if (!QUICK_BAR_ALLOWED()) { rebuildMenu(); return; }
@@ -2165,6 +2167,18 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
   return aios.claudeConfig();
 });
 /* Whether the quick bar holds its shortcut — Settings shows a conflict instead of a key that silently does nothing. */
+/* The Ask panel's destinations: a new session (the renderer's own path), a live session, or an agent. The
+   latter two go through the same inbox request the floating quick bar writes (writeAskRequest), on every
+   platform: the bus verifies delivery, holds while a session is busy and dead-letters what it cannot do. */
+ipcMain.handle('ask:destinations', () => ({
+  sessions: aios.listOperatorSessions().map((s) => ({ name: s.name, waiting: isBlockedStatus(s.status) })),
+  agents: aios.discoverAgents().map((a) => ({ name: a.name, desc: a.description ?? '' })),
+}));
+ipcMain.handle('ask:send', (_e, dest: QuickBarDestination, text: unknown) => writeAskRequest(dest, String(text ?? ''), {
+  inboxDir,
+  takenNames: () => aios.listRunningAgents().map((a) => a.name),
+  log: (m) => appLog('ask', m),
+}));
 ipcMain.handle('quickBar:status', () => ({ available: QUICK_BAR_ALLOWED(), shortcut: aios.shellSettings().quickBarShortcut, held: quickBar?.shortcut ?? '', ok: quickBarShortcutOk }));
 ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'menuBar' | 'quickBarShortcut' | 'lidAsked' | 'claudeView', value: unknown) => {
   if (key === 'menuBar' && typeof value !== 'boolean') return aios.shellSettings();   // a boolean or nothing
