@@ -456,6 +456,10 @@ function heldSends(): QueuedSend[] {
   }
   return out;
 }
+/** How many sends are held mid-delivery right now — the unattended install waits for zero. */
+export function heldSendCount(): number {
+  return heldSends().length;
+}
 
 
 /** Move a request to `.undelivered`, recording why. Loud beats silent. */

@@ -1215,7 +1215,7 @@
   "restore.paused": "{name} is not running yet",
   "restore.resumeNow": "Resume",
   "settings.unattended": "Unattended mode",
-  "settings.unattendedHint": "For a machine nobody is watching. When AIOS reopens it brings back every session without asking and starts them one at a time; when Claude asks how to resume a long session, it answers for you. This machine only.",
+  "settings.unattendedHint": "For a machine nobody is watching. When AIOS reopens it brings back every session without asking and starts them one at a time; when Claude asks how to resume a long session, it answers for you. A downloaded update installs itself once nothing is running and nobody has touched the machine for 10 minutes. This machine only.",
   "unattended.off": "Off — ask me",
   "unattended.summary": "On — resume from a summary (recommended)",
   "unattended.full": "On — resume the full session",

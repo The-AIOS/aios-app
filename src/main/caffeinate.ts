@@ -71,7 +71,7 @@ function probeShells(pids: number[]): void {
 }
 
 /** Busy = a session says so, or one went idle under an hour ago and is waiting on a shell it started. */
-function busyNow(): boolean {
+export function busyNow(): boolean {
   const agents = aios.listRunningAgents();
   if (anyBusy(agents.map((a) => a.status))) return true;
   probeShells(agents.map((a) => a.pid));

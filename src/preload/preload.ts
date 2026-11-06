@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   },
   updaterCheck: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),
   updaterInstall: (): Promise<unknown> => ipcRenderer.invoke('updater:quitAndInstall'),
+  /** Unattended mode on/off, so main may install a downloaded update at a quiet moment (core/autoInstall.ts). */
+  updaterUnattended: (on: boolean): Promise<unknown> => ipcRenderer.invoke('updater:unattended', on),
   /* CHAT SKIN — a chat view over a terminal tab. The tab's pty stays the only session; main follows
      its transcript file live and reports what the TUI is waiting on. `paneId` is the pty id.
      chatStatus is the usage bar. The statusline payload is global (the last one ANY session wrote), so the tab passes its own
