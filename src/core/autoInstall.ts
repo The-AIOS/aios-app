@@ -33,6 +33,8 @@
  */
 
 /** Quiet must hold this long, unbroken, before the restart. */
+import { isBlockedStatus } from './attention';
+
 export const QUIET_MS = 2 * 60 * 1000;
 /** Seconds without keyboard or mouse input on the machine before it counts as unattended. */
 export const IDLE_MIN_S = 10 * 60;
@@ -57,7 +59,9 @@ export type QuietBlocker = 'busy' | 'waiting' | 'delivering' | 'person';
 /** The first thing that makes the machine not quiet right now, or null when it is. */
 export function quietBlocker(i: QuietInputs): QuietBlocker | null {
   if (i.busy) return 'busy';
-  if (i.statuses.some((s) => String(s ?? '').toLowerCase() === 'waiting')) return 'waiting';
+  /* The panel's own "needs you" test, not a literal 'waiting': other Claude Code versions name the state differently, and
+     restarting under a pending prompt throws the request away (0.15.0 review). */
+  if (i.statuses.some((s) => isBlockedStatus(String(s ?? '')))) return 'waiting';
   if (i.heldSends > 0) return 'delivering';
   if (!(i.idleSec >= IDLE_MIN_S)) return 'person';
   return null;

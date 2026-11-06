@@ -5,6 +5,7 @@ import * as path from 'path';
 import { markQuitting } from './quitState';
 import { busyNow } from './caffeinate';
 import { listRunningAgents } from './aios';
+import { lastPanelStatuses } from './panelHost';
 import { heldSendCount } from './commandBus';
 import { installStep, mayAutoInstall, SAMPLE_MS, NEVER_QUIET_WARN_MS } from '../core/autoInstall';
 
@@ -216,7 +217,7 @@ function sampleUnattended(): void {
   try {
     step = installStep({
       busy: busyNow(),
-      statuses: listRunningAgents().map((a) => a.status),
+      statuses: [...listRunningAgents().map((a) => a.status), ...lastPanelStatuses()],   // registry AND what the panel shows
       heldSends: heldSendCount(),
       idleSec: powerMonitor.getSystemIdleTime(),
     }, { quietSince: unattended.quietSince, lastSampleAt: unattended.lastSampleAt }, now);

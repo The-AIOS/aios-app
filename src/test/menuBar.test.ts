@@ -98,3 +98,10 @@ test('the template image ships inside the package', () => {
     assert.ok(fs.existsSync(path.join(ROOT, f)), `${f} is missing`);
   }
 });
+
+test('0.15.0 review: the menu is built when it opens, never swapped while open', () => {
+  const src = fs.readFileSync('src/main/menuBar.ts', 'utf8');
+  assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\/|^\s*\*.*$/gm, ''), /setContextMenu\(/, 'no menu replaced on a state change');
+  assert.match(src, /tr\.popUpContextMenu\(Menu\.buildFromTemplate\(this\.template\(this\.model/, 'built from the current model at the click');
+  assert.match(src, /this\.tray\.on\('click', open\);/);
+});

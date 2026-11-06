@@ -6,8 +6,8 @@
  * the panel and the Dock badge, through the pure model in `core/menuBar`. It owns no timer and
  * reads no file of its own.
  *
- * The menu is rebuilt only when the model changes (or the locale does): `setContextMenu` on every
- * tick would close a menu the operator has open.
+ * The title and tooltip follow the model; the menu itself is built when the icon is clicked
+ * (`popUpContextMenu`), so a state change never swaps a menu the operator has open.
  */
 import { Menu, Tray, nativeImage } from 'electron';
 import * as path from 'path';
@@ -56,6 +56,11 @@ export class MenuBar {
       return false;
     }
     this.tray.setToolTip('AIOS');
+    /* The menu is built when it opens, never swapped while it is open (0.15.0 review): with many sessions a state changes
+       every few seconds, and a setContextMenu at each change closed the menu under the operator's pointer. */
+    const open = (): void => { const tr = this.tray; if (tr && !tr.isDestroyed()) tr.popUpContextMenu(Menu.buildFromTemplate(this.template(this.model ?? menuBarModel([])))); };
+    this.tray.on('click', open);
+    this.tray.on('right-click', open);
     this.model = undefined;
     this.render(menuBarModel([]));
     return true;
@@ -89,7 +94,6 @@ export class MenuBar {
     this.model = model;
     tray.setTitle(menuBarTitle(model));
     tray.setToolTip(model.waiting > 0 ? t('menuBar.tooltipWaiting', { n: model.waiting }) : 'AIOS');
-    tray.setContextMenu(Menu.buildFromTemplate(this.template(model)));
   }
 
   private template(model: MenuBarModel): Electron.MenuItemConstructorOptions[] {

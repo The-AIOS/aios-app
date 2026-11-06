@@ -1235,7 +1235,7 @@ const boardCardId = (name) => 'pBoard-' + encodeURIComponent(name);
 
 function boardWhen(ms) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
   return new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -10116,15 +10116,22 @@ function chatSkinPromptSuggestion(p) {
       }
       rows.push(row.replace(/\s+$/, ''));
     }
-    return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
+    const said = rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
+    /* Claude Code's static example placeholder (`Try "fix lint errors"`) is dim too, but it is an example, not a suggestion:
+       Enter on it must never send it (0.15.0 review). */
+    return /^Try ["“]/.test(said) ? '' : said;
   } catch { return ''; }
+}
+/* A suggestion only follows a finished reply: before Claude has answered once, any dim text in the box is a placeholder. */
+function chatSkinHasReply(cs) {
+  return !!(cs && cs.log && cs.log.querySelector('.chat-row.who-claude'));
 }
 /* Offer the suggestion in the chat box the way the terminal does: shown in place of the placeholder while the box is empty,
    Tab takes it into the box, Enter on the empty box sends it (chatSkinSendNow). Never over a dialog, a card or a dictation. */
 function chatSkinSuggestPaint(p) {
   const cs = p && p.chatSkin;
   if (!cs || !cs.input) return;
-  const s = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '' ? chatSkinPromptSuggestion(p) : '';
+  const s = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '' && chatSkinHasReply(cs) ? chatSkinPromptSuggestion(p) : '';
   const shown = s ? t('chat.suggest.placeholder', { text: s }) : (cs.placeholder0 || '');
   if (s === (cs.suggest || '') && (cs.recording || cs.input.placeholder === shown)) return;
   cs.suggest = s;

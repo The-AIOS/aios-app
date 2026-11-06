@@ -42,6 +42,11 @@ const STATE_POLL_MS = 30_000;
  * to VS Code services, this talks to the shell — terminal intents go to the
  * renderer's grid as `shell:intent` events.
  */
+/* The statuses the panel last showed, with the sessions' own signals overlaid (the registry lags). The unattended
+   installer reads them so it never restarts under a session the panel shows as needing you. */
+let lastShownStatuses: string[] = [];
+export function lastPanelStatuses(): readonly string[] { return lastShownStatuses; }
+
 export class PanelHost {
   private timer?: ReturnType<typeof setInterval>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
@@ -363,6 +368,7 @@ export class PanelHost {
     const registry = aios.listOperatorSessions();   // never a daemon spare
     for (const id of this.programStatus.keys()) if (!registry.some((a) => a.sessionId === id)) this.programStatus.delete(id);
     const running = overlayProgramStatus(registry, this.programStatus);
+    lastShownStatuses = running.map((a) => a.status);
     this.attention.tick(running, aios.shellSettings().attention);
     try { this.onRunning?.(running); } catch { /* a listener never stops the pulse */ }
     const rl = aios.rateLimit();

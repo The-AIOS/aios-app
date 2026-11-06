@@ -4130,6 +4130,18 @@ test('the suggestion reader keeps only the greyed text, and nothing when anythin
   assert.notEqual(broken.suggestion(suggestPane('fix', ' the bug')), '', 'control: without the dim check the draft leaks through');
 });
 
+test("0.15.0 review: Claude Code's static example is never offered, and nothing is offered before the first reply", () => {
+  const { suggestion } = loadSuggest(app);
+  assert.equal(suggestion(suggestPane('', 'Try "fix lint errors"')), '', 'the `Try "…"` example is a placeholder: Enter must never send it');
+  assert.equal(suggestion(suggestPane('', 'Try “edit <filepath> to…”')), '', 'curly quotes too');
+  assert.equal(suggestion(suggestPane('', 'Try the tests again')), 'Try the tests again', 'a real suggestion that starts with "Try" still counts');
+  const broken = loadSuggest(app.replace(`return /^Try ["“]/.test(said) ? '' : said;`, 'return said;'));
+  assert.equal(broken.suggestion(suggestPane('', 'Try "fix lint errors"')), 'Try "fix lint errors"', 'control: without the filter the example leaks through');
+  const paint = skinFn('chatSkinSuggestPaint');
+  assert.match(paint, /cs\.input\.value === '' && chatSkinHasReply\(cs\) \? chatSkinPromptSuggestion\(p\)/, 'a suggestion only after a finished reply');
+  assert.match(skinFn('chatSkinHasReply'), /querySelector\('\.chat-row\.who-claude'\)/);
+});
+
 test('Tab on an empty box takes the suggestion into it, cursor at the end', () => {
   const calls: string[] = [];
   const take = new Function('chatSkinAutosize', 'chatSkinControls', 'chatSkinPlaceholder', skinFn('chatSkinSuggestTake') + 'return chatSkinSuggestTake;')(

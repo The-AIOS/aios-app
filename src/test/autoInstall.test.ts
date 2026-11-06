@@ -18,6 +18,10 @@ test('quiet only when every condition holds', () => {
   assert.equal(quietBlocker({ ...quiet, busy: true }), 'busy');
   assert.equal(quietBlocker({ ...quiet, statuses: ['idle', 'waiting'] }), 'waiting', 'a pending prompt is work the restart would lose');
   assert.equal(quietBlocker({ ...quiet, statuses: ['WAITING'] }), 'waiting', 'case does not matter');
+  /* 0.15.0 review: the panel's own "needs you" test, not a literal 'waiting' — another CLI version, or the program-status
+     overlay, can name the state differently, and a restart under it throws the request away. */
+  for (const st of ['needs-input', 'permission', 'awaiting approval', 'blocked']) assert.equal(quietBlocker({ ...quiet, statuses: [st] }), 'waiting', st);
+  assert.equal(quietBlocker({ ...quiet, statuses: ['idle', 'done'] }), null, 'idle and done are quiet');
   assert.equal(quietBlocker({ ...quiet, heldSends: 1 }), 'delivering');
   assert.equal(quietBlocker({ ...quiet, idleSec: IDLE_MIN_S - 1 }), 'person', 'someone at the keyboard (or over screen sharing) blocks it');
   assert.equal(quietBlocker({ ...quiet, idleSec: Number.NaN }), 'person', 'an unreadable idle time is not proof of absence');
