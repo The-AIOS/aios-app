@@ -18,7 +18,7 @@ import { cameFromGit, type GitRun } from './exportOpen';
 const gitIn = (vault: string): GitRun => (args) => new Promise((res) => {
   const ceiling = path.dirname(aios.frameworkRoot() || vault);
   execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', vault, ...args],
-    { timeout: 3000, env: { ...process.env, GIT_CEILING_DIRECTORIES: ceiling, GIT_CONFIG_NOSYSTEM: '1' } },
+    { windowsHide: true, timeout: 3000, env: { ...process.env, GIT_CEILING_DIRECTORIES: ceiling, GIT_CONFIG_NOSYSTEM: '1' } },
     (err, out) => res(err ? null : String(out)));
 });
 import { t } from '../i18n';
