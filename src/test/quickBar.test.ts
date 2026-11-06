@@ -47,7 +47,7 @@ test('an agent that is already running starts a second session under its own nam
   assert.equal(r.file, `quick-bar-lawyer-2-${NOW}.json`);
   assert.deepEqual(quickBarRequest({ kind: 'agent', name: 'lawyer', session: '!!!' }, 'x', NOW), { ok: false, reason: 'name' });
   /* The main process is what picks the free name: pinned, because without it the core function above is never asked. */
-  assert.match(read('src/main/quickBar.ts'), /kind: 'agent', name: String\(dest\.name \?\? ''\), session: uniqueName\(String\(dest\.name \?\? ''\), this\.deps\.takenNames\(\)\)/);
+  assert.match(read('src/main/quickBar.ts'), /kind: 'agent', name: String\(dest\.name \?\? ''\), session: uniqueName\(String\(dest\.name \?\? ''\), deps\.takenNames\(\)\)/);
 });
 
 test('no global shortcut until the operator picks one: a global key is taken from every other app', () => {
@@ -81,27 +81,23 @@ test('two sends to one session a moment apart are two files', () => {
   assert.ok(a.ok && b.ok && a.file !== b.file);
 });
 
-test('Launch agent opens the quick bar, and never registers the same keystroke twice', async () => {
+test('⇧⌘A stays Launch agent: the in-app agent picker, never the floating bar (0.15.0 test round)', async () => {
   /* Imported lazily with electron stubbed: menu.ts imports electron at the top. */
   const Module = require('module') as { _load: (req: string, parent: unknown, isMain: boolean) => unknown };
   const orig = Module._load;
   Module._load = (req, parent, isMain) => (req === 'electron' ? {} : orig(req, parent, isMain));
   try {
-    const { launchAgentItem, QUICK_BAR_LOCAL_ACCEL } = require('../main/menu') as typeof import('../main/menu');
-    let opened = 0, legacy = 0;
-    const qb = { open: () => { opened++; }, globalAccel: 'CommandOrControl+Shift+A' };
-    const held = launchAgentItem('L', () => { legacy++; }, qb);
-    assert.equal(held.registerAccelerator, false, 'held globally → the menu only SHOWS it, or one keystroke opens and closes the bar');
-    assert.equal(held.accelerator, 'CommandOrControl+Shift+A');
-    (held.click as () => void)();
-    assert.equal(opened, 1);
-    const notHeld = launchAgentItem('L', () => { legacy++; }, { ...qb, globalAccel: '' });
-    assert.notEqual(notHeld.registerAccelerator, false, 'no global shortcut → ⇧⌘A still opens the bar inside the App');
-    assert.equal(notHeld.accelerator, QUICK_BAR_LOCAL_ACCEL);
-    const none = launchAgentItem('L', () => { legacy++; });
-    (none.click as () => void)();
-    assert.equal(legacy, 1, 'without a quick bar (other platforms, test runs) the old picker stays');
+    const { launchAgentItem, LAUNCH_AGENT_ACCEL } = require('../main/menu') as typeof import('../main/menu');
+    let legacy = 0;
+    const item = launchAgentItem('L', () => { legacy++; });
+    assert.equal(item.accelerator, 'CmdOrCtrl+Shift+A');
+    assert.equal(LAUNCH_AGENT_ACCEL, 'CmdOrCtrl+Shift+A');
+    assert.notEqual(item.registerAccelerator, false, 'registered: the menu owns ⇧⌘A inside the App');
+    (item.click as () => void)();
+    assert.equal(legacy, 1, 'it opens the agent picker');
   } finally { Module._load = orig; }
+  const main = read('src/main/main.ts');
+  assert.match(main, /installMenu\(\(\) => mainWin\);/, 'the menu no longer hands ⇧⌘A to the quick bar');
 });
 
 test('main: the bar exists only on macOS, outside test runs, and the main window is never "the first window"', () => {

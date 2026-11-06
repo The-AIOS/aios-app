@@ -1478,7 +1478,7 @@ export function shellSettings(): ShellSettings {
     menuBar: raw.menuBar !== false,
     /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). OFF until the operator picks one: a global
        shortcut takes its keys from every other app, and ⇧⌘A is already Slack's *All unreads* and Finder's
-       *Applications*. Inside the App, ⇧⌘A opens the bar either way (QUICK_BAR_LOCAL_ACCEL). */
+       *Applications*. Inside the App, the Ask panel has the same destinations, and ⇧⌘A stays *Launch agent*. */
     quickBarShortcut: typeof raw.quickBarShortcut === 'string' ? raw.quickBarShortcut.trim() : '',
     openNotesIn: raw.openNotesIn === 'source' ? 'source' : 'rendered', // Glass "Open files in": rendered preview (default) or raw source
   };

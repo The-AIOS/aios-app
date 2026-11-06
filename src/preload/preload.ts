@@ -105,6 +105,9 @@ contextBridge.exposeInMainWorld('glassShell', {
   onPanelPost: (cb: (msg: unknown) => void) => ipcRenderer.on('panel:post', (_e, m) => cb(m)),
   // shell intents: main → renderer (open terminals, files, ask modal, toasts)
   onIntent: (cb: (m: { kind: string; [k: string]: unknown }) => void) => ipcRenderer.on('shell:intent', (_e, m) => cb(m)),
+  /* Ask panel destinations (a live session, an agent) — the same inbox request the quick bar writes. */
+  askDestinations: () => ipcRenderer.invoke('ask:destinations'),
+  askSend: (dest: { kind: string; name: string }, text: string) => ipcRenderer.invoke('ask:send', dest, text),
   // vault-scoped fs for explorer + viewers
   fsList: (rel: string): Promise<{ name: string; dir: boolean; path: string; mtime: number }[]> => ipcRenderer.invoke('fs:list', rel),
   // explorer sort prefs — per-folder overrides + master default (.glass/state.json)
