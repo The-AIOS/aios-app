@@ -124,6 +124,17 @@ jobs:
             if ($s.SignerCertificate.Subject -notmatch 'Pulsar Labs') { throw "$f is signed by '$($s.SignerCertificate.Subject)', not Pulsar Labs" }
           }
 
+      # The installer as a run artifact, so a signed build can be installed and checked by hand
+      # BEFORE any release exists (a dispatch against an already-published tag builds, signs and
+      # verifies, then the attach step refuses the live release: this is what it leaves behind).
+      - name: Keep the installer as a run artifact (hand test before a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIOS-windows-x64-${{ env.RELEASE_TAG }}
+          path: dist/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Say plainly when this build is unsigned
         if: env.ESIGNER != 'yes'
         run: echo "::warning::No eSigner secrets in this repo, so the Windows installer is UNSIGNED (issue #42). Smart App Control will block it on a clean Windows 11 machine."
