@@ -28,3 +28,10 @@ test('it accumulates across incremental reads (a transcript is read in pieces)',
   assert.deepEqual(u.skills, ['a', 'b']);
 });
 
+test('a compaction summary is not a new prompt: the chip survives it, a typed prompt does not', () => {
+  const prompt = (extra: object) => JSON.stringify({ type: 'user', message: { role: 'user', content: 'text' }, ...extra });
+  const u = usageIn([use('Skill', { skill: 'a' }), prompt({ isCompactSummary: true })].join('\n'));
+  assert.deepEqual(u.skills, ['a']);
+  const control = usageIn([use('Skill', { skill: 'a' }), prompt({})].join('\n'));
+  assert.deepEqual(control.skills, [], 'control: the same line, not flagged, clears it');
+});

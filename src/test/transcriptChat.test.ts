@@ -128,6 +128,10 @@ test('lines that are not the conversation are ignored (negative control: the sam
   assert.equal(feedAll(lines({})).items.length, 1, 'control: an ordinary user line is shown');
   assert.equal(feedAll(lines({ isMeta: true })).items.length, 0, 'isMeta: injected, not typed');
   assert.equal(feedAll(lines({ isSidechain: true })).items.length, 0, 'sidechain: a subagent');
+  // what Claude Code writes when it compacts: a user line nobody typed, flagged, read by the model
+  assert.equal(feedAll(lines({ isCompactSummary: true, isVisibleInTranscriptOnly: true })).items.length, 0, 'compaction summary: not typed');
+  assert.equal(feedAll(lines({ isCompactSummary: false })).items.length, 1, 'control: only the flag hides it, not the field');
+  assert.equal(feedAll([userBlocks([{ type: 'text', text: 'visible?' }], { isCompactSummary: true })]).items.length, 0, 'compaction summary as blocks');
 
   const asstLine = (extra: object): string[] => [asst({ type: 'text', text: 'hi' }, 'end_turn', extra)];
   assert.equal(feedAll(asstLine({})).items.length, 1);
