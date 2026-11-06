@@ -1281,6 +1281,15 @@ export function updateRetryDelay(failures: number, capMs: number): number {
 let lastTestingBranch = '';
 export function testingBranch(): string { return lastTestingBranch; }
 
+/** How long the framework check may take before it counts as "no answer". Over HTTPS,
+ *  `git ls-remote` makes two round trips (the ref advertisement, then `ls-refs`). When GitHub's
+ *  git endpoint is slow but working, each one has been measured at about 5 s, so a successful
+ *  check took 9-10 s. The old 8 s limit killed every one of them, and the pill sat on
+ *  "retrying…" on a vault that was up to date (issue #132). The check runs in the background
+ *  and never blocks the UI, so waiting longer costs nothing visible; a real failure is still
+ *  reported, only later. */
+export const FRAMEWORK_CHECK_TIMEOUT_MS = 20_000;
+
 export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown' | 'testing'> {
   const status = readFrameworkStatus();
   if (!status || !status.repo || !status.hash) return Promise.resolve('unknown');
@@ -1297,7 +1306,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
     /* Every branch head, not just HEAD: a vault on a release branch is AHEAD of main, and
        comparing it with HEAD alone read it as "update available" — an offer that would pull it back
        to main. `--symref` names the default branch. The decision is shared core (core/freshness). */
-    execFile(gitBin(), ['ls-remote', '--symref', url], { timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+    execFile(gitBin(), ['ls-remote', '--symref', url], { timeout: FRAMEWORK_CHECK_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       if (err || !stdout) return resolve('unknown');
       const f = freshness({ hash: status.hash, ref: status.ref }, parseLsRemote(stdout));
       lastTestingBranch = f.state === 'testing' ? f.branch : '';
