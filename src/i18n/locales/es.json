@@ -1412,6 +1412,7 @@
   "chat.skin.dlg.sent": "Respuesta enviada",
   "chat.skin.dlg.placeholder": "Esperando tu respuesta arriba",
   "chat.skin.jump": "Ir al último mensaje",
+  "chat.skin.stickyJump": "Ir a este mensaje",
   "chat.hintShort": "↵ enviar · ⇧↵ nueva línea · esc interrumpir",
   "chat.voice.hintKeys": "↵ o micrófono para enviar · esc cancela",
   "chat.usage.tip.fiveHour": "Ventana de 5 horas",

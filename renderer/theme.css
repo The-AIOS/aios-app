@@ -2252,6 +2252,15 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .cs-jump { position: absolute; left: 50%; bottom: calc(100% + 10px); z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-left: -17px; padding: 0;
            border: 1px solid var(--chat-composer-line); border-radius: 50%; background: var(--chat-composer-bg); color: var(--ink); box-shadow: var(--chat-pop); cursor: pointer; }
 .cs-jump:hover { background: var(--chat-row-hover); }
+/* The sticky prompt: the prompt the reply on screen answers, pinned over the top of the log while you scroll (0.15.0 round).
+   Absolute over the log, so nothing below it moves; one line, muted, the terminal's ❯ in front. */
+.chatskin .cs-sticky { position: absolute; top: 6px; left: max(16px, calc((100% - var(--cs-col)) / 2)); right: max(16px, calc((100% - var(--cs-col)) / 2));
+  z-index: 2; display: block; box-sizing: border-box; max-width: none; margin: 0; padding: 5px 12px; border: 1px solid var(--chat-bar-line); border-radius: 10px;
+  background: var(--chat-tip-bg); color: var(--subtle); box-shadow: var(--chat-lift); font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.chatskin .cs-sticky::before { content: '❯ '; color: var(--faint); }
+.chatskin .cs-sticky:hover { color: var(--ink); background: var(--chat-pick-bg); }
+.chatskin .cs-sticky[hidden] { display: none; }
 .cs-jump:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .cs-in { animation: none; } }
 

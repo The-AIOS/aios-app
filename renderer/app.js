@@ -9135,11 +9135,19 @@ function chatSkinBuild(id, p) {
      terminal, says who the keyboard now talks to, and offers the way back. Painted by chatSkinBgPaint. */
   const agentBar = el('div', 'cs-agentbar');
   agentBar.hidden = true;
-  root.append(log, alertEl, agentBar, compose);
+  /* The sticky prompt (0.15.0 round): like the terminal pinning your last prompt while you scroll, a one-line strip at the
+     top of the conversation names the prompt the reply on screen answers. Over the log, never in its flow (no layout shift);
+     a click takes you to that prompt. Painted by chatSkinStickyPaint. */
+  const stickyEl = el('button', 'cs-sticky');
+  stickyEl.type = 'button';
+  stickyEl.hidden = true;
+  stickyEl.tabIndex = -1;
+  stickyEl.title = t('chat.skin.stickyJump'); stickyEl.setAttribute('aria-label', t('chat.skin.stickyJump'));
+  root.append(log, stickyEl, alertEl, agentBar, compose);
   p.el.appendChild(root);
 
   const cs = {
-    id, pane: p, who: chatSkinWho(p), root, log, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    id, pane: p, who: chatSkinWho(p), root, log, stickyEl, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
     effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
     slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
     items: new Map(),            // transcript uuid -> { node, role, … }
@@ -9168,6 +9176,17 @@ function chatSkinBuild(id, p) {
     cs.stick = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
     chatSkinPaintJump(cs);
     if (log.scrollTop < CS_EARLIER_NEAR_PX) chatSkinWantEarlier(id, p);   // the operator is reaching for what main did not send
+  });
+  log.addEventListener('scroll', () => chatSkinStickySoon(cs), { passive: true });
+  if (typeof MutationObserver === 'function') new MutationObserver(() => chatSkinStickySoon(cs)).observe(log, { childList: true });   // a new turn moves which prompt is above the fold
+  stickyEl.addEventListener('mousedown', (e) => e.preventDefault());   // never takes the focus from the box
+  stickyEl.addEventListener('click', () => {
+    const node = cs.stickyNode;
+    if (!node || !node.isConnected) return;
+    cs.stick = false;
+    cs.autoUntil = 0;
+    cs.log.scrollTo({ top: Math.max(0, chatSkinRowTop(cs.log, node) - 12), behavior: chatReducedMotion() ? 'auto' : 'smooth' });
+    chatSkinPaintJump(cs);
   });
   log.addEventListener('wheel', (e) => { if (e.deltaY < 0) cs.autoUntil = 0; }, { passive: true });   // the operator reaching for the past takes the wheel back at once
   /* The column changing size keeps the newest message in view when the operator was following it (0.14.0 round): opening a
@@ -10415,6 +10434,41 @@ function chatSkinScroll(cs, smooth) {
 }
 function chatSkinPaintJump(cs) {
   cs.jumpBtn.hidden = cs.stick || cs.log.scrollHeight <= cs.log.clientHeight + 48;
+}
+/* ── the sticky prompt ── */
+/* Which prompt the top of the view belongs to: the last operator row that starts above the view's top edge, and only while
+   that row has scrolled out entirely (its own bubble on screen says it already). Nothing at the very top of the log.
+   `rows` are { top, bottom } in the log's scroll coordinates, in document order. Pure, so it is tested as is. */
+const CS_STICKY_TOP_PX = 8;
+function chatSkinStickyPick(rows, scrollTop) {
+  if (!(scrollTop > CS_STICKY_TOP_PX)) return -1;
+  let pick = -1;
+  for (let i = 0; i < rows.length; i++) { if (rows[i].top < scrollTop) pick = i; else break; }
+  if (pick < 0 || rows[pick].bottom > scrollTop) return -1;   // its bubble still shows
+  return pick;
+}
+/* A row's top in the log's scroll coordinates, whatever its offset parent. */
+function chatSkinRowTop(log, node) {
+  return node.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop;
+}
+function chatSkinStickySoon(cs) {
+  if (cs.stickyRaf) return;
+  cs.stickyRaf = requestAnimationFrame(() => { cs.stickyRaf = 0; chatSkinStickyPaint(cs); });
+}
+function chatSkinStickyPaint(cs) {
+  const strip = cs.stickyEl;
+  if (!strip) return;
+  const log = cs.log;
+  const nodes = [...log.querySelectorAll('.chat-row.who-user')].filter((n) => !n.hidden && n.getClientRects().length);
+  const base = log.getBoundingClientRect().top - log.scrollTop;
+  const rows = nodes.map((n) => { const r = n.getBoundingClientRect(); return { top: r.top - base, bottom: r.bottom - base }; });
+  const i = chatSkinStickyPick(rows, log.scrollTop);
+  const node = i < 0 ? null : nodes[i];
+  const text = node ? (node.querySelector('.chat-text') || node).textContent.replace(/\s+/g, ' ').trim() : '';
+  cs.stickyNode = text ? node : null;
+  if (!text) { if (!strip.hidden) strip.hidden = true; return; }
+  if (strip.textContent !== text) strip.textContent = text;
+  if (strip.hidden) strip.hidden = false;
 }
 function chatSkinAutosize(cs) {
   if (cs.box) { cs.box.classList.toggle('bang', cs.input.value.startsWith('!')); cs.box.classList.toggle('has-text', cs.input.value !== ''); }   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
