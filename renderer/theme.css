@@ -1284,6 +1284,10 @@ body.compact .plitem { padding: 4px 6px; }
 .pgroup-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tg); flex: 0 0 auto; }
 .pgroup-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pgroup-n { color: var(--faint); font-weight: 600; }
+.pgroup-caret { width: 0; height: 0; margin-left: auto; border: 4px solid transparent; border-top-color: var(--faint); border-bottom: 0;
+                transition: transform .15s ease; flex: 0 0 auto; }   /* open = pointing down; folded = pointing right */
+.pgroup.folded .pgroup-caret { transform: rotate(-90deg); }
+.pgroup.folded { padding-bottom: 2px; }
 .phiddentoggle { background: none; border: 0; color: var(--faint); font: inherit; font-size: 11px; padding: 5px 10px; cursor: pointer; text-align: left; }
 .phiddentoggle:hover { color: var(--ink); text-decoration: underline; }
 .phiddentip { padding: 0 10px 6px; color: var(--faint); font-size: 11px; line-height: 1.4; }

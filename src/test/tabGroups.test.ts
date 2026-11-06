@@ -217,3 +217,65 @@ test('dragging a pill moves the whole group as one block, never splitting anothe
 test('a session is not "quiet for a while" while Claude Code\'s spinner is live (a long think writes nothing to the transcript)', () => {
   assert.match(app, /quiet > CS_STALL_MS && !chatSkinSpinnerOn\(p\);/);
 });
+
+/* ── 0.15 round: a folded group folds in the sidebar too, and a session can be started inside a group. ── */
+
+type Runner = (paneId: string | null, row: unknown, keep?: boolean) => void;
+/** pgroupRunner, driven: the renderer's real function over a fake DOM and a fake group table. */
+function sidebar(folded: boolean, activeId: string) {
+  const m = /function pgroupRunner\(box\) \{[\s\S]*?\n\}\n/.exec(app);
+  assert.ok(m, 'could not find pgroupRunner in renderer/app.js — this test would measure nothing');
+  type Node = { cls: string; kids: Node[]; text?: string; append(...n: Node[]): void; appendChild(n: Node): void;
+    style: { setProperty(): void }; classList: { toggle(c: string, on: boolean): void }; setAttribute(): void; addEventListener(): void; title?: string; type?: string };
+  const node = (cls: string, text?: string): Node => {
+    const n: Node = { cls, text, kids: [], append: (...k) => { n.kids.push(...k); }, appendChild: (k) => { n.kids.push(k); },
+      style: { setProperty: () => { } }, classList: { toggle: (c, on) => { if (on) n.cls += ' ' + c; } }, setAttribute: () => { }, addEventListener: () => { } };
+    return n;
+  };
+  const env = {
+    panes: new Map([['a', {}], ['b', {}], ['c', {}], ['x', {}]]),
+    tgOf: (id: string) => (id === 'x' ? '' : 'G'),
+    tabGroups: new Map([['G', { color: 'blue' }]]),
+    zoneOf: () => 'main',
+    tgFoldedIn: () => folded,
+    tgMembersIn: () => ['a', 'b', 'c'],
+    tgLabel: () => 'Build', t: (k: string) => k, tgToggle: () => { }, renderPulseRunning: () => { },
+    el: (_tag: string, cls: string, text?: string) => node(cls, text),
+    active: { main: activeId, term: null },
+  };
+  const make = new Function(...Object.keys(env), `${m[0]} return pgroupRunner;`) as (...a: unknown[]) => (box: Node) => Runner;
+  const box = node('box');
+  const run = make(...Object.values(env))(box);
+  return { box, run, rows: (): string[] => box.kids.flatMap((k) => (k.cls.startsWith('pgroup') ? k.kids.filter((r) => r.cls === 'row').map((r) => r.text!) : k.cls === 'row' ? [k.text!] : [])) , node };
+}
+
+test('sidebar: an open group lists its sessions under its heading', () => {
+  const s = sidebar(false, 'x');
+  for (const id of ['a', 'b', 'c']) s.run(id, s.node('row', id));
+  assert.deepEqual(s.rows(), ['a', 'b', 'c']);
+});
+
+test('sidebar: a folded group shows only its heading — but never hides the session you are on, or one waiting on you', () => {
+  const s = sidebar(true, 'b');
+  s.run('a', s.node('row', 'a'));
+  s.run('b', s.node('row', 'b'));          // the focused tab
+  s.run('c', s.node('row', 'c'), true);    // waiting on the operator
+  s.run('x', s.node('row', 'x'));          // not in the group: untouched
+  assert.deepEqual(s.rows(), ['b', 'c', 'x']);
+  assert.match(s.box.kids[0].cls, /\bfolded\b/, 'the heading carries the fold, so its caret turns');
+});
+
+test('sidebar: the session rows pass "waiting on you" as keep', () => {
+  assert.match(app, /runIntoGroups\(hit \? hit\[0\] : null, r, statusInfo\(a\.status\)\.cls === 'input'\)/);
+});
+
+test('a group can start a session inside itself, through the same New session flow', () => {
+  assert.match(app, /\{ label: t\('tg\.newSession'\), value: 'newSession' \}/, 'the group menu offers it');
+  assert.match(app, /if \(pick === 'newSession'\) void spawnWorkerFlow\(gid\);/);
+  assert.match(app, /const id = await createPane\(\{ name: handle,[^\n]*\n[\s\S]{0,300}?if \(group && id != null && tabGroups\.has\(group\)\) tgAdd\(id, group\);/,
+    'the new pane joins the group once it exists');
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8'));
+    assert.ok(j['tg.newSession'] && j['tg.newSessionTitle']?.includes('{group}'), `${loc} has the strings`);
+  }
+});
