@@ -51,3 +51,38 @@ export function menuBarTitle(model: MenuBarModel): string {
 export function sameModel(a: MenuBarModel | undefined, b: MenuBarModel): boolean {
   return !!a && JSON.stringify(a) === JSON.stringify(b);
 }
+
+/**
+ * The dot beside each session in the menu: the same four colours as the sidebar's state dots (`--st-idle`, `--st-busy`,
+ * `--st-input`, `--st-error` in renderer/theme.css, pinned by `menuBar.test.ts`), instead of a word (0.15.0 round). The
+ * dark-theme values: they are the bright ones, legible on both the light and the dark macOS menu.
+ */
+export const STATE_DOT_COLOR: Record<SessionState, string> = {
+  idle: '#3ec77a',
+  busy: '#f5a623',
+  input: '#6cb0ff',
+  error: '#e5484d',
+};
+
+/**
+ * A filled circle as raw BGRA pixels (Electron's `nativeImage.createFromBitmap` layout on macOS and Windows), `size`
+ * pixels square with an anti-aliased edge. Pure, so a test can read the pixels; the caller builds the image at 1x and 2x.
+ */
+export function dotBitmap(hex: string, size: number): Uint8Array {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) throw new Error(`dotBitmap: not a colour: ${hex}`);
+  const [r, g, b] = [m[1], m[2], m[3]].map((x) => parseInt(x, 16));
+  const out = new Uint8Array(size * size * 4);
+  const c = size / 2;
+  const radius = size * 0.34;   // a dot, not a disc: room around it like the sidebar's 7 px dot in a row
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x + 0.5 - c, y + 0.5 - c);
+      const a = Math.max(0, Math.min(1, radius + 0.5 - d));   // 1 inside, a one-pixel ramp at the edge, 0 outside
+      const i = (y * size + x) * 4;
+      /* Premultiplied BGRA: the colour channels carry the alpha too, or the edge comes out as a light fringe. */
+      out[i] = Math.round(b * a); out[i + 1] = Math.round(g * a); out[i + 2] = Math.round(r * a); out[i + 3] = Math.round(255 * a);
+    }
+  }
+  return out;
+}

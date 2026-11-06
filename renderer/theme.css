@@ -339,6 +339,16 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .zbar > .newTab, .zbar > .zview, .zbar > .zexp { flex: 0 0 auto; margin: 0; }   /* the bar's gap spaces them */
 .tabstrip { display: flex; align-items: center; gap: 5px; padding: 7px 10px; overflow-x: auto; overflow-y: hidden;
             flex: 1 1 auto; min-width: 0; -webkit-app-region: no-drag; scroll-behavior: smooth; }
+/* Tabs hidden past an edge: the strip fades there and a chevron beside it scrolls toward them (0.15.0 round). A mask,
+   not a coloured overlay, so it fades into whatever zone colour and theme is behind it. */
+.tabstrip.ov-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.tabstrip.ov-l { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px); mask-image: linear-gradient(to right, transparent, #000 28px); }
+.tabstrip.ov-l.ov-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+.zbar > .tsMore { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 22px; margin: 0;
+                  padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--subtle); cursor: pointer; }
+.zbar > .tsMore[hidden] { display: none; }
+.zbar > .tsMore:hover { color: var(--ink); border-color: var(--accent); background: var(--surface); }
+.zbar > .tsMore:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
        border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
        transition: all .14s; flex: 0 0 auto; }

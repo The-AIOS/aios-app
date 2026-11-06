@@ -37,3 +37,52 @@ test('tabs are appended to the strip, not inserted before a (+) that no longer l
   assert.match(paint, /strip\.appendChild\(p\.tab\)/);
   assert.doesNotMatch(paint, /newTab/);
 });
+
+/* 0.15.0 round: tabs hidden past an edge are said, with a fade and a chevron on that side. */
+const appSrc = fs.readFileSync('renderer/app.js', 'utf8');
+const fnSrc = (name: string): string => appSrc.slice(appSrc.indexOf('function ' + name + '('), appSrc.indexOf('\n}\n', appSrc.indexOf('function ' + name + '(')) + 2);
+function overflowHarness(src: string) {
+  const fn = (name: string): string => src.slice(src.indexOf('function ' + name + '('), src.indexOf('\n}\n', src.indexOf('function ' + name + '(')) + 2);
+  return new Function(fn('stripOverflowState') + fn('syncStripOverflow') + 'return syncStripOverflow;')() as (s: unknown) => void;
+}
+function fakeStrip(scrollWidth: number, clientWidth: number, scrollLeft: number) {
+  const cls = new Set<string>();
+  return {
+    scrollWidth, clientWidth, scrollLeft, cls,
+    classList: { toggle: (c: string, on: boolean) => { if (on) cls.add(c); else cls.delete(c); } },
+    _ovL: { hidden: true }, _ovR: { hidden: true },
+  };
+}
+
+test('a strip with tabs past its right edge fades there and shows the right chevron; scrolled to the end, the left one', () => {
+  const sync = overflowHarness(appSrc);
+  const fits = fakeStrip(400, 400, 0); sync(fits);
+  assert.deepEqual([...fits.cls], [], 'everything fits: no fade');
+  assert.equal(fits._ovL.hidden && fits._ovR.hidden, true, 'and no chevrons');
+  const start = fakeStrip(700, 400, 0); sync(start);
+  assert.deepEqual([...start.cls], ['ov-r'], 'tabs hide on the right only');
+  assert.equal(start._ovR.hidden, false); assert.equal(start._ovL.hidden, true);
+  const mid = fakeStrip(700, 400, 150); sync(mid);
+  assert.deepEqual([...mid.cls].sort(), ['ov-l', 'ov-r'], 'both sides hide tabs');
+  const end = fakeStrip(700, 400, 300); sync(end);
+  assert.deepEqual([...end.cls], ['ov-l'], 'scrolled to the end: only the left hides tabs');
+  /* Negative control: a sync that never looks at scrollLeft would call the end state "right" too. */
+  const broken = overflowHarness(appSrc.replace('strip.scrollLeft < max - 1', 'true'));
+  const e2 = fakeStrip(700, 400, 300); broken(e2);
+  assert.ok(e2.cls.has('ov-r'), 'control: without the scroll position the right edge is wrongly flagged');
+});
+
+test('both zone strips get the chevrons, kept current on scroll, resize and tab changes, translated, and faded by a mask', () => {
+  assert.match(appSrc, /for \(const sid of \['tabs', 'ttabs'\]\) setupStripOverflow\(document\.getElementById\(sid\)\);/);
+  const setup = fnSrc('setupStripOverflow');
+  assert.match(setup, /strip\.addEventListener\('scroll', sync/);
+  assert.match(setup, /new ResizeObserver\(sync\)\.observe\(strip\)/);
+  assert.match(setup, /new MutationObserver\(sync\)\.observe\(strip, \{ childList: true/);
+  assert.match(setup, /data-i18n-title/, 're-resolved when the locale changes');
+  assert.match(css, /\.tabstrip\.ov-r \{ -webkit-mask-image:/, 'a mask, so it fades into any zone colour in either theme');
+  assert.match(css, /\.zbar > \.tsMore\[hidden\] \{ display: none; \}/);
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
+    assert.ok(j['tab.moreLeft'] && j['tab.moreRight'], loc);
+  }
+});

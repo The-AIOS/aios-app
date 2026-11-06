@@ -105,3 +105,27 @@ test('0.15.0 review: the menu is built when it opens, never swapped while open',
   assert.match(src, /tr\.popUpContextMenu\(Menu\.buildFromTemplate\(this\.template\(this\.model/, 'built from the current model at the click');
   assert.match(src, /this\.tray\.on\('click', open\);/);
 });
+
+test('0.15.0 round: each session in the menu carries the sidebar\'s colour dot for its state, not a word', async () => {
+  const { STATE_DOT_COLOR, dotBitmap } = await import('../core/menuBar');
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  const root = css.slice(0, css.indexOf('}', css.indexOf(':root')));   // the dark (default) tokens
+  const tok = (name: string): string => (new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i').exec(root) || [])[1]?.toLowerCase() ?? '';
+  assert.equal(STATE_DOT_COLOR.idle, tok('st-idle'), 'ready = the sidebar\'s green');
+  assert.equal(STATE_DOT_COLOR.busy, tok('st-busy'), 'working = amber');
+  assert.equal(STATE_DOT_COLOR.input, tok('st-input'), 'needs you = blue');
+  assert.equal(STATE_DOT_COLOR.error, tok('st-error'), 'error = the real red');
+  const px = dotBitmap('#3ec77a', 12);
+  assert.equal(px.length, 12 * 12 * 4);
+  const at = (x: number, y: number) => Array.from(px.slice((y * 12 + x) * 4, (y * 12 + x) * 4 + 4));
+  assert.deepEqual(at(6, 6), [0x7a, 0xc7, 0x3e, 255], 'the middle is the colour, BGRA, opaque');
+  assert.equal(at(0, 0)[3], 0, 'the corner is transparent: a dot, not a square');
+  assert.throws(() => dotBitmap('green', 12), 'a malformed colour is an error, not a black dot');
+  const main = fs.readFileSync('src/main/menuBar.ts', 'utf8');
+  assert.match(main, /label: r\.name,\s*icon: stateDot\(r\.state\),/, 'the name, with the dot');
+  assert.match(main, /toolTip: t\(STATE_KEY\[r\.state\]\)/, 'the state still in words on hover');
+  assert.doesNotMatch(main, /label: `\$\{r\.name\} — /, 'no "— ready" text');
+  const fn = main.slice(main.indexOf('function stateDot('), main.indexOf('\n}\n', main.indexOf('function stateDot(')));
+  assert.doesNotMatch(fn, /setTemplateImage/, 'never a template image: macOS would drop the colour');
+  assert.match(fn, /addRepresentation\(\{ scaleFactor: 2/, 'sharp on a Retina menu bar');
+});
