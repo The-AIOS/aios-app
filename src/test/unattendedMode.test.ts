@@ -335,6 +335,7 @@ test('restored tabs start one at a time; a failure or a session that never comes
   const src = [
     grab(/const UNATTENDED_WINDOW_MS = [\s\S]*?\nconst RESUME_QUOTA_DIALOG = [^\n]*\n/, 'the unattended constants'),
     grab(/const sleepMs = [^\n]*\n/, 'sleepMs'),
+    grab(/async function waitUntilLive\(sessionId, isOpen\) \{[\s\S]*?\n\}/, 'waitUntilLive'),
     grab(/async function materializeInSequence\(ids\) \{[\s\S]*?\n\}/, 'materializeInSequence'),
     'return materializeInSequence;',
   ].join('\n');

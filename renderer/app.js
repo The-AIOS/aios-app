@@ -5443,16 +5443,31 @@ async function batchResume() {
   if (chosen.alt) { void createPane({ name: 'resume', cmd: CLAUDE + ' --resume' }); return; }
   const picked = chosen.filter((c) => c.kind === 'sess').map((c) => c.r);
   if (!picked.length) { toast(t('resume.noneSelected')); return; }
-  /* One pane per selection, each running its own `claude --resume <id>`. Sequential rather than
-     parallel: several ptys spawning at once contend for the same terminal geometry and the
-     resume TUIs race each other for the first paint. */
+  /* NOT awaited: the rest of the sessions come up behind whatever the operator does next. */
+  void resumeInSequence(picked).catch((e) => console.error('[resume] sequence failed', e));
+  toast(t('resume.started', { n: picked.length }));
+}
+
+/* One pane per selection, each running its own `claude --resume <id>`, ONE AT A TIME: the next
+   starts when the previous is live in the registry or the cap runs out. This loop used to say
+   "sequential" while firing every createPane unawaited, so all the processes started in the same
+   second. Each one starts its own copy of every configured MCP server, and with seven resumed
+   together the heavier local servers missed the 30 s connect window in all seven; the same servers
+   connect in 3-5 s once the machine is quiet. Only the first takes the focus: the rest arrive
+   over a minute or more, and must not pull the operator out of the tab they are typing in. */
+async function resumeInSequence(picked) {
+  let started = 0;
   for (const r of picked) {
     const nm = r.name || r.id.slice(0, 8);
     const hit = byName(nm);
     if (hit && !panes.get(hit[0]).exited) continue;      // already open — do not duplicate it
-    void createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}` });
+    if (started) await sleepMs(UNATTENDED_NEXT_MS);
+    const id = await createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}`, background: started > 0 });
+    if (!id) continue;                                   // createPane said why
+    started++;
+    const up = await waitUntilLive(r.id, () => { const q = panes.get(id); return !!q && !q.exited; });
+    if (!up) toast(t('unattended.notLive', { name: nm }));
   }
-  toast(t('resume.started', { n: picked.length }));
 }
 
 /* ═══ #28 — REOPEN LAST SESSIONS ═══════════════════════════════════════════════
@@ -5825,6 +5840,16 @@ function unattendedScan(id, p, data) {
   }, UNATTENDED_GRACE_MS);
 }
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Wait for a session just started to reach the registry. False when its pane is gone or the cap ran out. */
+async function waitUntilLive(sessionId, isOpen) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < UNATTENDED_LIVE_CAP_MS) {
+    if (await window.glassShell.sessionIsLive(sessionId).catch(() => false)) return true;
+    if (!isOpen()) return false;
+    await sleepMs(UNATTENDED_POLL_MS);
+  }
+  return false;
+}
 /** Start restored tabs one by one. A tab that fails is reported and skipped, never a stop. */
 async function materializeInSequence(ids) {
   for (const id of ids) {
@@ -5834,14 +5859,10 @@ async function materializeInSequence(ids) {
     let started = false;
     try { started = await materializeRestore(id); } catch (e) { console.error('[unattended] could not start', name, e); }
     if (!started) { console.error('[unattended] could not start', name); continue; }   // materializeRestore toasted
-    const t0 = Date.now();
-    let live = false;
-    while (Date.now() - t0 < UNATTENDED_LIVE_CAP_MS) {
-      if (await window.glassShell.sessionIsLive(sessionId).catch(() => false)) { live = true; break; }
+    const live = await waitUntilLive(sessionId, () => {
       const open = [...panes.values()].find((q) => q.kind === 'term' && q.sessionId === sessionId);
-      if (!open || open.exited) break;
-      await sleepMs(UNATTENDED_POLL_MS);
-    }
+      return !!open && !open.exited;
+    });
     if (!live) {
       console.error('[unattended] not live after start', name, sessionId);
       toast(t('unattended.notLive', { name }));
