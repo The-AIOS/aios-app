@@ -1404,7 +1404,7 @@ export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault
   return fresh ? 'chat' : 'terminal';
 }
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1476,6 +1476,10 @@ export function shellSettings(): ShellSettings {
        shows, and an operator who never opens Settings is exactly the one who benefits from seeing a waiting
        session without bringing the App forward. Only a literal `false` opts out. */
     menuBar: raw.menuBar !== false,
+    /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). OFF until the operator picks one: a global
+       shortcut takes its keys from every other app, and ⇧⌘A is already Slack's *All unreads* and Finder's
+       *Applications*. Inside the App, ⇧⌘A opens the bar either way (QUICK_BAR_LOCAL_ACCEL). */
+    quickBarShortcut: typeof raw.quickBarShortcut === 'string' ? raw.quickBarShortcut.trim() : '',
     openNotesIn: raw.openNotesIn === 'source' ? 'source' : 'rendered', // Glass "Open files in": rendered preview (default) or raw source
   };
 }

@@ -12378,6 +12378,26 @@ function openSettingsTab() {
     row(wrap, t('settings.showMemory'), mkToggle('showMemory', cfg.showMemory !== false), t('settings.showMemoryHint'));
     /* The menu-bar icon (docs/rfcs/menu-bar.md). macOS only; main creates or removes it the moment this changes. */
     if (window.glassShell.platform === 'darwin') row(wrap, t('settings.menuBar'), mkToggle('menuBar', cfg.menuBar !== false), t('settings.menuBarHint'));
+    /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). Written as an Electron accelerator; main says
+       whether the OS granted it, and a refusal is shown here instead of a key that silently does nothing. Built in
+       place (not appended when the status arrives) so the row keeps its position; hidden until main says the bar exists. */
+    if (window.glassShell.platform === 'darwin') {
+      const qbIn = document.createElement('input');
+      qbIn.className = 'tinput'; qbIn.spellcheck = false; qbIn.placeholder = 'CommandOrControl+Shift+A';
+      const qbRow = row(wrap, t('settings.quickBarShortcut'), qbIn, t('settings.quickBarShortcutHint'));
+      qbRow.hidden = true;
+      const warn = el('div', 'thint', t('settings.quickBarShortcutConflict'));
+      warn.style.color = 'var(--st-error-ink)';
+      warn.hidden = true;
+      qbRow.querySelector('.tlabel')?.appendChild(warn);
+      const paintQb = (st) => { qbRow.hidden = !st || !st.available; if (st) { qbIn.value = st.shortcut || ''; warn.hidden = st.ok !== false; } };
+      void window.glassShell.quickBarStatus().then(paintQb);
+      qbIn.addEventListener('change', async () => {
+        await window.glassShell.setSetting('quickBarShortcut', qbIn.value.trim());
+        paintQb(await window.glassShell.quickBarStatus());
+        toast(t('settings.saved'));
+      });
+    }
 
     /* #22 — how a session blocked on you reaches you OUTSIDE the panel. Same shape as
        killBehavior above. Three rungs rather than a toggle because the two useful answers to

@@ -99,7 +99,7 @@ the explicit main-window reference before the second window exists.
 
 ### 3.4 The shortcut
 
-- ⇧⌘A is registered with `globalShortcut`, so it works whether or not the App is focused.
+- The shortcut the operator picks is registered with `globalShortcut`, so it works whether or not the App is focused.
 - The application menu keeps the *Launch agent* item with its accelerator shown but not registered
   (`registerAccelerator: false`), so the two never fight; in-app ⇧⌘A opens the quick bar too.
 - The modal agent picker is not deleted: the panel's *Launch agent* card still opens it, and it is what the menu item
@@ -114,7 +114,9 @@ the explicit main-window reference before the second window exists.
 Two keys in `.glass/shell.json`, added to the `shellSettings` interface and to the `shell:setSetting` whitelist:
 
 - `menuBar: boolean` — default `true` on macOS. Toggling it creates or destroys the icon live.
-- `quickBarShortcut: string` — default `CommandOrControl+Shift+A` on macOS; empty disables the global registration.
+- `quickBarShortcut: string` — default empty: no global shortcut until the operator picks one, because a global
+  shortcut takes its keys from every other app (⇧⌘A is Slack's *All unreads* and Finder's *Applications*). In-app ⇧⌘A
+  opens the bar either way.
   Settings shows the field and, when the OS refused the combination, says so under it.
 
 ### 3.6 Lifecycle and test runs

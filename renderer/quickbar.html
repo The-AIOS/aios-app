@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AIOS</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  /* The window is transparent; only the bar and its list are drawn. */
+  html, body { background: transparent !important; overflow: hidden; }
+  body { padding: 14px 18px; box-sizing: border-box; }
+  .bar {
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: 18px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.25);
+    padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px;
+  }
+  body.light .bar { box-shadow: 0 18px 50px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08); }
+  #text {
+    width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink);
+    font: 400 18px/1.35 var(--font); padding: 2px 2px; user-select: text;
+  }
+  #text::placeholder { color: var(--faint); }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; flex: none;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+    border-radius: 999px; padding: 4px 10px; font: 500 12.5px var(--font); cursor: pointer;
+  }
+  .chip:hover, .chip.open { border-color: var(--accent); }
+  .chip .lbl { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .car { color: var(--subtle); font-size: 10px; }
+  #name {
+    border: 1px solid transparent; background: transparent; color: var(--subtle); outline: 0;
+    font: 400 12.5px var(--mono, var(--font)); padding: 3px 6px; border-radius: 6px; width: 200px; user-select: text;
+  }
+  #name:hover, #name:focus { border-color: var(--line-strong); color: var(--ink); }
+  .spacer { flex: 1; }
+  .hint { color: var(--faint); font: 400 11.5px var(--font); white-space: nowrap; }
+  .err { color: var(--st-error-ink); font: 500 12px var(--font); }
+  .list {
+    margin-top: 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 14px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.4); padding: 6px; max-height: 360px; display: flex; flex-direction: column; color: var(--ink);
+  }
+  .list[hidden] { display: none; }
+  #filter {
+    border: 0; outline: 0; background: var(--surface); color: var(--ink); border-radius: 8px;
+    font: 400 13px var(--font); padding: 7px 9px; margin-bottom: 4px; user-select: text;
+  }
+  #items { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+  .grp { color: var(--faint); font: 600 10.5px var(--font); text-transform: uppercase; letter-spacing: .06em; padding: 8px 9px 3px; }
+  .it { color: var(--ink); display: flex; align-items: baseline; gap: 8px; padding: 6px 9px; border-radius: 7px; cursor: pointer; font: 400 13px var(--font); }
+  .it > span:first-child { flex: none; white-space: nowrap; }
+  .it .d { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .it .w { color: var(--st-input-ink); font-size: 11.5px; }
+  .it.sel { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <input id="text" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <button id="dest" class="chip" type="button"><span class="lbl"></span><span class="car">▾</span></button>
+      <input id="name" autocomplete="off" spellcheck="false">
+      <span id="err" class="err" hidden></span>
+      <span class="spacer"></span>
+      <span id="hint" class="hint"></span>
+    </div>
+  </div>
+  <div id="list" class="list" hidden>
+    <input id="filter" autocomplete="off" spellcheck="false">
+    <ul id="items"></ul>
+  </div>
+<script src="quickbar.js"></script>
+</body>
+</html>
