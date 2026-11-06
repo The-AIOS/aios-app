@@ -118,7 +118,10 @@ test('every locale names the reveal-only gesture, with the right keys per platfo
 
 test('a stat that never answers is no link, and does not hold the others up', async () => {
   const { statWithin } = await import('../main/pathLinks');
-  const hung = statWithin(50, (abs) => (abs.includes('hung') ? new Promise(() => {}) : fs.promises.stat(abs)));
+  /* The real path answers at once (a resolved promise wins the race before any timer can fire), so only the hung paths ever
+     meet the 50 ms timeout. A real fs.promises.stat raced the same 50 ms and lost on a busy Windows runner, which failed this
+     test on a release run and a PR the same night with nothing wrong in the code. */
+  const hung = statWithin(50, (abs) => (abs.includes('hung') ? new Promise(() => {}) : Promise.resolve(fs.statSync(abs))));
   const p = path.join(outside, 'story');
   const t0 = Date.now();
   const r = await resolveLinkTargets(['/Volumes/hung/x', '/Volumes/hung/y', p], { ...env, stat: hung });

@@ -138,7 +138,17 @@
       ]
     },
     "win": {
+      "files": [
+        "!**/node_modules/node-pty/prebuilds/win32-arm64/**",
+        "!**/node_modules/node-pty/third_party/conpty/*/win10-arm64/**"
+      ],
       "icon": "build/icon.ico",
+      "signtoolOptions": {
+        "sign": "./scripts/sign-windows.cjs",
+        "signingHashAlgorithms": [
+          "sha256"
+        ]
+      },
       "target": [
         {
           "target": "nsis",
