@@ -9183,7 +9183,7 @@ function chatSkinBuild(id, p) {
     e.preventDefault();
     void window.glassShell.openExternal(a.getAttribute('href'));
   });
-  input.addEventListener('input', () => { cs.hist = null; chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); });   // typing leaves the history walk
+  input.addEventListener('input', () => { cs.hist = null; chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); chatSkinSuggestPaint(p); });   // typing leaves the history walk
   input.addEventListener('blur', () => chatSkinSlashClose(cs));
   chatSkinDropBind(cs);
   /* REGISTERED BEFORE the Enter listener below, and it stops the event for it: with the popup open Enter (and Tab)
@@ -9191,6 +9191,13 @@ function chatSkinBuild(id, p) {
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
+  /* Tab on an empty box takes Claude Code's suggestion into it, as Tab does in the terminal. AFTER the slash popup's listener,
+     which stops the event: with the popup open, Tab completes the command and never reaches this. */
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || input.value !== '' || !cs.suggest) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    chatSkinSuggestTake(cs);
+  });
   /* Shift+Tab cycles the permission mode, as it does in the terminal and as the hint under Claude Code's prompt says (0.14.1
      round: in the chat box it moved the focus instead). Same guards as the mode menu: never into a dialog, never blind. */
   input.addEventListener('keydown', (e) => {
@@ -9494,10 +9501,12 @@ function chatSkinPlaceholder(p) {
   /* Measured on the CARD, never on the input (0.14.0 round): the hint shares the input's line, so showing it narrowed the
      input under the threshold, which hid it, which widened the input again: it blinked many times a second. */
   if (keys) keys.hidden = chatSkinCardOn(cs) || (cs.box ? cs.box.clientWidth : cs.input.clientWidth) < CS_KEYS_MIN_CARD;
-  if (cs.recording || cs.input.placeholder === ph) return;   // while voice listens, the placeholder is the words it hears
-  cs.input.placeholder = ph;
+  if (cs.recording) return;   // while voice listens, the placeholder is the words it hears
   cs.placeholder0 = ph;
   cs.input.setAttribute('aria-label', base);
+  /* Claude Code's greyed next-prompt suggestion takes the placeholder's place while the box is empty (chatSkinSuggestPaint). */
+  const show = cs.suggest ? t('chat.suggest.placeholder', { text: cs.suggest }) : ph;
+  if (cs.input.placeholder !== show) cs.input.placeholder = show;
 }
 function chatSkinPaintAlert(p) {
   const cs = p.chatSkin;
@@ -10080,6 +10089,58 @@ function chatSkinPromptDraft(p) {
     }
     return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
   } catch { return ''; }
+}
+/* Claude Code's greyed next-prompt suggestion: the DIM text in its live prompt box, or '' when there is none or anything is typed
+   there (a typed character means the box holds a draft, and the suggestion is gone in the terminal too). Same box as
+   chatSkinPromptEmpty; the inverse of chatSkinPromptDraft, which keeps only what is NOT dim. */
+function chatSkinPromptSuggestion(p) {
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+    let bottom = -1;
+    for (let y = b.length - 1; y >= Math.max(0, b.length - chatSkinLookBack(p, 40)); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    if (bottom < 1) return '';
+    let top = bottom - 1;
+    while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+    if (!/^❯/.test(text(top))) return '';
+    const rows = [];
+    for (let y = top; y < bottom; y++) {
+      const line = b.getLine(y);
+      let row = '';
+      for (let x = y === top ? 2 : 0; x < line.length; x++) {
+        line.getCell(x, c);
+        const ch = c.getChars();
+        if (!c.isDim()) { if (ch && ch.trim()) return ''; row += ' '; continue; }   // typed text: no suggestion
+        row += ch || ' ';
+      }
+      rows.push(row.replace(/\s+$/, ''));
+    }
+    return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
+  } catch { return ''; }
+}
+/* Offer the suggestion in the chat box the way the terminal does: shown in place of the placeholder while the box is empty,
+   Tab takes it into the box, Enter on the empty box sends it (chatSkinSendNow). Never over a dialog, a card or a dictation. */
+function chatSkinSuggestPaint(p) {
+  const cs = p && p.chatSkin;
+  if (!cs || !cs.input) return;
+  const s = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '' ? chatSkinPromptSuggestion(p) : '';
+  const shown = s ? t('chat.suggest.placeholder', { text: s }) : (cs.placeholder0 || '');
+  if (s === (cs.suggest || '') && (cs.recording || cs.input.placeholder === shown)) return;
+  cs.suggest = s;
+  chatSkinPlaceholder(p);
+}
+function chatSkinSuggestTake(cs) {
+  const s = cs.suggest;
+  if (!s || cs.input.value !== '') return false;
+  cs.input.value = s;
+  cs.input.selectionStart = cs.input.selectionEnd = s.length;
+  cs.suggest = '';
+  cs.hist = null;
+  chatSkinAutosize(cs);
+  chatSkinControls(cs.pane);
+  chatSkinPlaceholder(cs.pane);
+  return true;
 }
 /* The terminal shows "Interrupted" every time; the transcript only carries "[Request interrupted by user]" when a TOOL was
    cut, so a reply stopped mid-text just ended in the chat (0.14.0 round: "that's a must when i interrupt"). After the
@@ -11363,12 +11424,21 @@ function chatSkinSendNow(id, p, retried) {
     toast(draft ? t('chat.send.draftShown', { draft: draft.length > 60 ? draft.slice(0, 59) + '…' : draft }) : t('chat.send.draft'));
     return;
   }
-  const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  let text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  /* Enter on an empty box sends the suggestion it shows, as Enter does in the terminal. Read again first: only what is on
+     screen now AND what the box showed is sent, never a suggestion that changed under the key. */
+  if (!text.trim() && cs.suggest) {
+    const live = chatSkinPromptSuggestion(p);
+    if (live && live === cs.suggest) text = live;
+    else { chatSkinSuggestPaint(p); return; }
+  }
   if (!text.trim()) return;
+  cs.suggest = '';
   cs.input.value = '';
   cs.hist = null;
   (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
   chatSkinAutosize(cs);
+  chatSkinPlaceholder(p);   // the sent suggestion leaves the placeholder at once, not on the next tick
   chatSkinSlashClose(cs);
   /* Queued when a turn runs OR the last message has had no answer yet: right after a send, Claude Code has not drawn its
      spinner and the transcript has not opened the turn, so for a few seconds a running turn reads as idle (seen in the demo
@@ -11739,6 +11809,7 @@ function chatSkinTick() {
     const cs = p.chatSkin;
     if (p.view !== 'chat' || !cs) continue;
     chatSkinControls(p);
+    chatSkinSuggestPaint(p);
     const busyNow = chatSkinWorking(p, now);
     if (busyNow && !cs.workSince) cs.workSince = now;   // a working stretch begins: its clock starts here
     else if (!busyNow) cs.workSince = 0;
