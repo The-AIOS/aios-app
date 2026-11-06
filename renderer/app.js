@@ -735,7 +735,7 @@ const CARD_ICONS = {
   pHealth: 'check',
   pConnectors: 'plug',
 };
-function cardIcon(key) { return CARD_ICONS[key] || 'star'; }
+function cardIcon(key) { return CARD_ICONS[key] || (key.startsWith('pBoard-') ? 'layout' : 'star'); }   // #91: every board shares one glyph
 
 function pulseTitle(card, key, text, count) {
   const ti = el('div', 'ptitle', text);
@@ -1219,6 +1219,80 @@ function routineHealthText(j) {
       return t('health.job.overdue', { time: when(j.writtenAt) }) + (j.state && j.state !== 'ok' ? ' ' + t('health.job.lastResult', { state: j.state }) : '');
     default: return t('health.job.unreadable', { why: j.why || '' });
   }
+}
+
+/* ═══ #91 — BOARDS: the sidebar's custom/ slot. One card per ~/.aios/boards/<name>/index.html, a
+   static page the operator's own tooling writes. The App lists them and shows them; it knows nothing
+   about what they mean and never writes there.
+   The frame is NOT the HTML viewer's. That one lets scripts run and loads from file://, which suits a
+   file the operator opens on purpose; a board loads by itself on every launch. So: sandbox="" (no
+   scripts, no navigation, no popups, no forms), served by main's aios-board: protocol (only files
+   inside that board's folder, a CSP that blocks all network) and a main-process guard that refuses
+   every navigation of the frame except reloading its own page. See docs/rfcs/sidebar-boards.md.
+   Staleness is the writer's problem and is drawn like an overdue Health job. ═══ */
+const boardCards = new Map();   // name → { card, frame, url }
+const boardCardId = (name) => 'pBoard-' + encodeURIComponent(name);
+
+function boardWhen(ms) {
+  const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : 'en-US';
+  return new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function refreshBoards() {
+  const panel = document.getElementById('panel');
+  if (!panel || !window.glassShell.listBoards) return;
+  let rows = [];
+  try { rows = await window.glassShell.listBoards(); } catch { rows = []; }
+  const seen = new Set(rows.map((r) => r.name));
+  for (const [name, b] of boardCards) {   // a deleted folder takes its card with it
+    if (!seen.has(name)) { b.card.remove(); boardCards.delete(name); }
+  }
+  let added = false;
+  for (const r of rows) {
+    let b = boardCards.get(r.name);
+    if (!b) {
+      const card = el('div', 'pcard pboard');
+      card.id = boardCardId(r.name);
+      const frame = document.createElement('iframe');
+      frame.className = 'boardview';
+      frame.setAttribute('sandbox', '');               // empty = every restriction, scripts included
+      frame.setAttribute('referrerpolicy', 'no-referrer');
+      frame.setAttribute('allow', '');
+      frame.title = r.title;
+      const wrap = el('div', 'boardwrap');           // resizable by its corner; the page cannot size itself (no scripts)
+      wrap.appendChild(frame);
+      card.appendChild(wrap);
+      panel.appendChild(card);
+      b = { card, frame, wrap, url: '' };
+      boardCards.set(r.name, b);
+      added = true;
+    }
+    if (b.url !== r.url) { b.url = r.url; b.frame.src = r.url; }   // a new mtime is a new URL
+    // nothing about the card changed → leave it alone (a rebuilt title would steal keyboard focus every pass)
+    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
+    if (b.sig === sig) continue;
+    b.sig = sig;
+    const key = boardCardId(r.name);
+    const stale = r.status === 'stale';
+    b.card.classList.toggle('pstale', stale);
+    // title + status lines are rebuilt every pass; the frame is kept, so an unchanged board never reloads
+    for (const n of [...b.card.children]) if (n !== b.wrap) n.remove();
+    const title = pulseTitle(b.card, key, r.title);
+    title.title = t('boards.tip', { name: r.name });
+    b.card.insertBefore(title, b.wrap);
+    const lines = [];
+    if (stale) lines.push(['st-warn', t('boards.stale', { time: boardWhen(r.mtimeMs) })]);
+    if (r.configError) lines.push(['st-warn', r.configError]);
+    for (const [dot, text] of lines) {
+      const row = el('div', 'phrow');
+      row.appendChild(el('span', 'phdot ' + dot));
+      const msg = el('span', 'phmsg', text); msg.title = text;
+      row.appendChild(msg);
+      b.card.insertBefore(row, b.wrap);
+    }
+  }
+  if (added) applyPulseOrder();   // a board the operator already moved goes back where they put it
 }
 
 function healthFixButton(c) {
@@ -14396,6 +14470,10 @@ void initLocale().then(async () => {
      No prompt, no toast: the card just reflects whatever the machine currently has. */
   void refreshConnectors();
   setInterval(() => void refreshConnectors(), 5 * 60 * 1000);
+  /* #91 — boards: a readdir and two stats per board, so it can poll; a frame reloads only when its
+     index.html's mtime changed. */
+  void refreshBoards();
+  setInterval(() => void refreshBoards(), 15 * 1000);
   /* FIRST RUN: with no framework or no vault the app cannot do anything useful, and every
      route to Setup was a control a newcomer has no reason to click — so they landed on an
      empty workspace and a greeting with no next step. Open Setup for them.

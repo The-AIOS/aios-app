@@ -1,4 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme, protocol } from 'electron';
+import { registerBoardScheme, installBoardProtocol, guardBoardNavigation, listBoards } from './boards';   // #91
+import { startHitServer, writeHostileBoard, judgeProbe, recordRequests, sleep, type HitServer, type HostileFixture } from './boardProbe';   // #91 smoke gate
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
@@ -1956,6 +1958,7 @@ ipcMain.handle('doctor:finishSetup', () => aios.finishSetup());
 ipcMain.handle('doctor:wiringLeft', () => aios.wiringLeft());
 ipcMain.handle('doctor:health', () => aios.computeHealth());
 ipcMain.handle('health:routines', () => aios.routineHealth());   // #27
+ipcMain.handle('boards:list', () => listBoards());   // #91 — read only; the App never writes a board
 // "Having issues?" — one battery + a plan per failing tool → the next ACTION, not a report.
 ipcMain.handle('doctor:triage', () => aios.setupTriage(app.getVersion()));
 
@@ -2490,8 +2493,15 @@ async function runChatShot(win: BrowserWindow): Promise<void> {
 /* Every session the App creates, including a browser pane's, gets the web permission policy
    before any page can ask for anything (webPermissions.ts explains why the default is not safe). */
 app.on('session-created', (s) => installWebPermissionPolicy(s));
+/* #91 — sidebar boards are served by their own protocol, never file://. The scheme must be declared
+   before `ready`; the handler goes on the default session only (browser panes use another partition). */
+registerBoardScheme(protocol);
+/** Only the smoke's boards gate sets these: they let it see what the protocol read and which
+ *  navigations the guard refused. Empty in normal use. */
+const boardProbeHooks: { onServe?: (file: string) => void; onBlock?: (from: string, to: string) => void } = {};
 app.whenReady().then(() => {
   installWebPermissionPolicy(session.defaultSession);
+  installBoardProtocol(protocol, (f) => boardProbeHooks.onServe?.(f));
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
   const win = createWindow();
@@ -2584,6 +2594,8 @@ app.whenReady().then(() => {
   const appPage = pathToFileURL(path.join(__dirname, '..', '..', 'renderer', 'index.html')).href;
   const isAppPage = (url: string): boolean => url.split(/[?#]/)[0] === appPage;
   win.webContents.on('will-navigate', (e, url) => { if (!isAppPage(url)) e.preventDefault(); });
+  /* #91 — the rule above sees only the top frame. A board's frame may only reload its own page. */
+  guardBoardNavigation(win.webContents, (from, to) => boardProbeHooks.onBlock?.(from, to));
   let navigations = 0;
   win.webContents.on('did-navigate', (_e, url) => {
     if (!isAppPage(url)) return;   // never the case after the guard above; and ending sessions needs certainty
@@ -3077,6 +3089,47 @@ app.whenReady().then(() => {
         if (!mapOk) console.error(`shell-smoke: SHORTCUT MAP LEAKED RAW TOKENS — ${leaks}`);
         else console.log('shell-smoke: shortcuts — every accelerator on the live menu formats cleanly');
       } catch (e) { console.error('shell-smoke: shortcut gate error', e); }
+      /* GATE: #91 — A HOSTILE BOARD IN THE REAL CARD REACHES NOTHING. The same probe as
+         src/test/boardIsolation.e2e.test.ts, but through the App's own wiring: the renderer's card
+         (its frame attributes), main's protocol handler and main's navigation guard. The board's
+         own stylesheet and image must load, or the gate is measuring nothing. */
+      let boardsOk = false;
+      {
+        const prevBoards = process.env.AIOS_BOARDS_DIR;
+        let srv: HitServer | undefined;
+        let fx: HostileFixture | undefined;
+        let stopRec: (() => void) | undefined;
+        try {
+          srv = await startHitServer();
+          fx = writeHostileBoard(srv.port);
+          const requested: string[] = [], served: string[] = [], blocked: string[] = [];
+          boardProbeHooks.onServe = (f) => served.push(f);
+          boardProbeHooks.onBlock = (_from, to) => blocked.push(to);
+          stopRec = recordRequests(win.webContents, requested);
+          process.env.AIOS_BOARDS_DIR = fx.root;
+          const cardId = 'pBoard-' + encodeURIComponent(fx.name);
+          const frameAttr = await win.webContents.executeJavaScript(
+            `refreshBoards().then(() => { const f = document.querySelector('#${cardId} iframe'); return f ? f.getAttribute('sandbox') : null; })`).catch(() => null);
+          await sleep(2500);
+          await win.webContents.executeJavaScript(
+            `(() => { const f = document.querySelector('#${cardId} iframe'); if (f) f.src = ${JSON.stringify(fx.net + '/parent-set')}; return 1; })()`).catch(() => 0);
+          await sleep(1500);
+          const v = judgeProbe(fx, { hits: srv.hits, requested, served, blockedNavigations: blocked });
+          if (frameAttr !== '') v.why.push(`the card's frame is not sandbox="" (got ${JSON.stringify(frameAttr)})`);
+          if (!blocked.some((u) => u.endsWith('/parent-set'))) v.why.push('the navigation guard did not refuse the frame being pointed at the network');
+          boardsOk = v.why.length === 0;
+          if (boardsOk) console.log(`shell-smoke: boards — hostile board reached nothing; own files served: ${served.length}; navigations refused: ${blocked.length}`);
+          else console.error('shell-smoke: boards gate FAIL — ' + v.why.join(' | '));
+        } catch (err) { console.error('shell-smoke: boards gate error', err); }
+        finally {
+          stopRec?.();
+          boardProbeHooks.onServe = boardProbeHooks.onBlock = undefined;
+          if (prevBoards === undefined) delete process.env.AIOS_BOARDS_DIR; else process.env.AIOS_BOARDS_DIR = prevBoards;
+          await win.webContents.executeJavaScript('refreshBoards().then(() => 1)').catch(() => 0);   // the fixture's card leaves
+          await srv?.close();
+          if (fx) { try { fs.rmSync(path.dirname(fx.root), { recursive: true, force: true }); } catch { /* temp */ } }
+        }
+      }
       const ptyOk = buf.includes('GLASS_SHELL_PTY_OK');
       /* A renderer that threw is broken whether or not the thing it broke is something a gate
          happens to look at. Three uncaught errors reached a human tester tonight with every
@@ -3087,10 +3140,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && pillOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && idleOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && pillOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && idleOk && boardsOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + update-pill + shortcuts + animations + row-actions + settings-rebuild + header + restore + idle + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, pill=${pillOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, idle=${idleOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + update-pill + shortcuts + animations + row-actions + settings-rebuild + header + restore + idle + boards + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, pill=${pillOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, idle=${idleOk}, boards=${boardsOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

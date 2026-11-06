@@ -1265,6 +1265,8 @@
   "health.job.fail": "falló{detail} · {time}",
   "health.job.neverRan": "instalada, sin ninguna ejecución completa (se esperaba antes de {time})",
   "health.job.overdue": "sin resultado desde {time}",
+  "boards.stale": "sin actualizar desde {time}",
+  "boards.tip": "Tablero: ~/.aios/boards/{name}/index.html — lo escribe tu propia herramienta; la App sólo lo muestra",
   "health.job.lastResult": "(último resultado: {state})",
   "health.job.unreadable": "archivo de estado ilegible ({why})",
   "health.askClaude": "Que Claude te ayude con esto",
