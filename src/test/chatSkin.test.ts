@@ -2757,12 +2757,14 @@ test('main forwards what the parser read of a dialog — the question and the op
   assert.match(w, /onRefresh: \(prompt\) => send\(\{ type: 'prompt', kind: prompt\.kind,[^\n]*\.\.\.promptWire\(prompt\), refresh: true \}\)/);
   assert.match(wire, /\.slice\(0, 12\)/, 'at most a dozen rows');
   assert.match(wire, /label: String\(o\.label\)\.slice\(0, 200\)/);
-  assert.match(wire, /prompt\.question\.slice\(0, 300\)/);
+  assert.match(wire, /prompt\.question\.slice\(0, QUESTION_MAX\)/, 'a wrapped question is several rows: the parser\'s cap, not a hint\'s');
+  assert.match(wire, /desc: String\(o\.desc\)\.slice\(0, DESC_MAX\)/, 'the line under an option travels with it');
+  assert.match(wire, /prompt\.header\.slice\(0, 80\)/);
   assert.match(wire, /key: o\.key/, 'the key is the parser\'s, passed through untouched');
   assert.doesNotMatch(wire, /key: [^o]|o\.key\s*[+=]/, 'main never edits or invents a key');
   // a `null` dialog carries no options at all (nothing to draw once it is gone)
   assert.match(wire, /if \(!prompt\) return \{\}/);
-  assert.match(preload, /\| \{ type: 'prompt'; kind: TuiPromptKind \| null; hint\?: string; question\?: string; options\?: TuiOption\[\]; refresh\?: boolean \}/);
+  assert.match(preload, /\| \{ type: 'prompt'; kind: TuiPromptKind \| null; hint\?: string; question\?: string; header\?: string; options\?: TuiOption\[\]; refresh\?: boolean \}/);
 });
 
 test('chat-shot fixture: the permission card, the menu cards, the used card, the narrow card and the strip-with-a-way-back are shot in dark and light, from neutral, hand-written events', () => {

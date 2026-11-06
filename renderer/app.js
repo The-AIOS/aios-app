@@ -9047,7 +9047,7 @@ function chatSkinBuild(id, p) {
     errorCode: '',
     turnOpen: false, lastEventAt: 0, lastSubmitAt: 0, stick: true, resetAt: Date.now(), autoUntil: 0,
     promptKind: null, promptHint: '', stalled: false, idCheckedAt: 0, idChecks: 0, watchedAt: 0,
-    promptQ: '', promptOpts: null, promptUsed: false, promptTerm: false, promptGen: 0, dlg: null, dlgSig: '',   // a dialog drawn as a card: see chatSkinPrompt
+    promptQ: '', promptHead: '', promptOpts: null, promptUsed: false, promptTerm: false, promptGen: 0, dlg: null, dlgSig: '',   // a dialog drawn as a card: see chatSkinPrompt
     stream: null,                // the provisional bubble of the reply being written: { rec, anchor, text, live } — see chatSkinStream
     screenTimer: 0, screenSince: 0, framing: false,
   };
@@ -9176,7 +9176,7 @@ function chatSkinSetView(id, view) {
   if (view === 'chat') {
     const cs = chatSkinBuild(id, p);
     cs.promptKind = null; cs.promptHint = ''; cs.stalled = false;
-    cs.promptOpts = null; cs.promptQ = ''; cs.promptUsed = false; cs.promptTerm = false;
+    cs.promptOpts = null; cs.promptQ = ''; cs.promptHead = ''; cs.promptUsed = false; cs.promptTerm = false;
     cs.lastEventAt = Date.now();
     try { p.term.blur(); } catch { /* disposed */ }
     void Promise.resolve(window.glassShell.shellConfig()).then((c) => { chatReadPrefs(c); chatApplyPrefs(); }).catch(() => {});
@@ -11044,7 +11044,8 @@ function chatSkinPromptOptions(raw) {
   const out = [];
   for (const o of raw.slice(0, 12)) {
     if (!o || typeof o.label !== 'string' || !o.label.trim() || typeof o.key !== 'string' || !CHAT_KEY_OK.test(o.key)) return null;
-    out.push({ n: Number.isInteger(o.n) ? o.n : null, label: o.label.slice(0, 200), selected: !!o.selected, key: o.key, freeText: o.freeText === true });
+    out.push({ n: Number.isInteger(o.n) ? o.n : null, label: o.label.slice(0, 200), selected: !!o.selected, key: o.key, freeText: o.freeText === true,
+      desc: typeof o.desc === 'string' ? o.desc.slice(0, 300) : '' });
   }
   return out;
 }
@@ -11052,7 +11053,8 @@ function chatSkinPrompt(id, p, ev) {
   const cs = p.chatSkin;
   const kind = ev.kind ? (CHAT_PROMPT_KINDS.includes(ev.kind) ? ev.kind : 'other') : null;
   const opts = kind ? chatSkinPromptOptions(ev.options) : null;
-  const question = kind && typeof ev.question === 'string' ? ev.question.slice(0, 300) : '';
+  const question = kind && typeof ev.question === 'string' ? ev.question.slice(0, 800) : '';
+  const header = kind && typeof ev.header === 'string' ? ev.header.slice(0, 80) : '';
   cs.promptHint = kind && typeof ev.hint === 'string' ? ev.hint.slice(0, 200) : '';
   if (kind && ev.refresh === true && kind === cs.promptKind) {
     /* The SAME dialog with its cursor moved: the keys of an unnumbered menu are relative to the cursor, so adopt the new
@@ -11062,7 +11064,7 @@ function chatSkinPrompt(id, p, ev) {
     return;
   }
   if (kind === cs.promptKind && question === cs.promptQ && chatSkinOptsSig(opts) === chatSkinOptsSig(cs.promptOpts)) { chatSkinPaintAlert(p); return; }   // announced already
-  cs.promptKind = kind; cs.promptQ = question; cs.promptOpts = opts;
+  cs.promptKind = kind; cs.promptQ = question; cs.promptHead = header; cs.promptOpts = opts;
   cs.promptUsed = false; cs.promptTerm = false; cs.promptGen++;   // a new dialog is a new, enabled card, buttons first
   cs.stalled = false;
   chatSkinLayout(p);
@@ -11115,6 +11117,7 @@ function chatSkinCardBuild(p) {
   card.dataset.kind = cs.promptKind;
   const head = el('div', 'csd-head');
   head.append(csIcon('term', 15), el('span', 'csd-kind', t('chat.skin.dlg.kind.' + cs.promptKind, { name: who })));
+  if (cs.promptHead) head.append(el('span', 'csd-chip', cs.promptHead));   // AskUserQuestion's header chip, the CLI's own words
   const q = el('div', 'csd-q', cs.promptQ || cs.promptHint || t('chat.skin.dlg.noQuestion'));   // the question is the CLI's own words, shown as text and never parsed
   q.id = 'cs-dlg-q-' + cs.id + '-' + cs.promptGen;
   card.setAttribute('aria-describedby', q.id);
@@ -11128,7 +11131,10 @@ function chatSkinCardBuild(p) {
     if (num >= 1 && num <= 9) b.setAttribute('aria-keyshortcuts', String(num));
     const def = el('span', 'csd-def', '↵');
     def.setAttribute('aria-hidden', 'true');
-    b.append(el('span', 'csd-n', String(num)), el('span', 'csd-l', o.label), def, el('span', 'cs-sr', t('chat.skin.dlg.default')));
+    if (o.freeText) b.classList.add('free');   // "Type something.": opens the terminal to type, it is not an answer
+    const text = el('span', 'csd-l', o.label);
+    if (o.desc) text.append(el('span', 'csd-d', o.desc));   // what this option does, as the CLI prints it under the label
+    b.append(el('span', 'csd-n', String(num)), text, def, el('span', 'cs-sr', t('chat.skin.dlg.default')));
     list.appendChild(b);
   });
   list.addEventListener('click', (e) => {
