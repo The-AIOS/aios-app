@@ -1892,6 +1892,9 @@ ipcMain.handle('notes:counts', () => aios.sessionNoteCounts());
 // lines (command bus, updater, doctor) and renderer errors both land there.
 ipcMain.handle('shell:devtools', () => { mainWin?.webContents.openDevTools({ mode: 'bottom' }); return true; });
 ipcMain.handle('shell:setPrimary', (_e, name: string) => aios.setPrimaryName(String(name)));
+/* This computer's primary identity (machine-local, ~/.aios/app.json): a name from USER.md's Identity table, or '' for the first row. */
+ipcMain.handle('shell:primaryIdentity', () => aios.primaryIdentitySetting());
+ipcMain.handle('shell:setPrimaryIdentity', (_e, name: string) => { const r = aios.setPrimaryIdentity(String(name ?? '')); host?.postState(); return r; });
 ipcMain.handle('accounts:list', () => aios.anthropicAccounts());
 ipcMain.handle('accounts:swap', (_e, email: string) => aios.swapAccount(String(email)));
 ipcMain.handle('notes:add', (_e, name: string, note: string) => aios.addSessionNote(String(name), String(note)));
