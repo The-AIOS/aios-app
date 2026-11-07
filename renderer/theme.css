@@ -1084,6 +1084,9 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
    capped), and the detail is hover-only anyway. Scoped here so the Connectors card keeps a
    shrinkable name for long service labels. */
 #pHealth .phrow .phlab { flex-shrink: 0; max-width: 65%; }
+/* The Health rows scroll inside their own box, resizable from the corner like .boardwrap; the
+   height itself is set by sizeHealthList() (remembered, or a default only when the rows need it). */
+.phlist { min-height: 24px; max-height: 80vh; overflow-y: auto; resize: vertical; }
 
 /* #91 — boards. The page inside cannot size itself (no scripts), so the frame has a sensible height
    and the operator can drag it taller or shorter from the corner. A stale board dims its title, as an

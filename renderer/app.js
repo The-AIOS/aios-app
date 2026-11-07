@@ -1130,6 +1130,14 @@ async function refreshHealth() {
     mv.prepend(re);
   }
   H.appendChild(title);
+  /* The rows scroll inside their own box, resizable from its corner like a board (operator: a
+     machine with many scheduled jobs grew the card past the screen, and the buttons below it out of
+     reach). Title and buttons stay outside the box, so ↻ and "Let Claude help" never scroll away.
+     Rows are collected first and appended in healthRank order: red, then amber, then waiting, then
+     green — inside a scrolling box a red row in the middle of sixty green ones is a row nobody sees. */
+  const list = el('div', 'phlist');
+  H.appendChild(list);
+  const ranked = [];
   /* ONE RULE FOR EVERY ROW, WHATEVER ITS COLOUR (operator, 0.12.0): a dot and the full name; the
      detail appears on hover, full text in the tooltip. Operators are mostly non-technical — the
      colour tells them something needs attention and "Let Claude help" is what they act on; a
@@ -1145,7 +1153,7 @@ async function refreshHealth() {
     r.appendChild(msg);
     if (c.status !== 'pass' && (c.canRepair || c.repairCmd)) r.appendChild(healthFixButton(c));
     feedMark(r, 'health', c.id + '|' + c.status);
-    H.appendChild(r);
+    ranked.push({ rank: healthRank('check', c.status), node: r });
   }
   /* #27 — SCHEDULED JOBS, from canonical's status files (~/.aios/health, hooks/aios-health.py).
      Shown only when a job has written one; a machine with no scheduled jobs sees nothing new. A
@@ -1165,9 +1173,12 @@ async function refreshHealth() {
       msg.title = [routineHealthText(j), j.detail].filter(Boolean).join('\n');
       r.appendChild(msg);
       feedMark(r, 'health', 'job:' + j.name + '|' + j.status);
-      H.appendChild(r);
+      ranked.push({ rank: healthRank('job', j.status), node: r });
     }
   }
+  // Array.prototype.sort is stable: inside one colour, checks stay before jobs and each keeps its order.
+  for (const x of ranked.sort((a, b) => a.rank - b.rank)) list.appendChild(x.node);
+  sizeHealthList(list);
   /* "OK, BUT THEN?" — a red or amber dot with no next step (operator test, 0.12.0). One button for
      the whole card, shown only when something is not green: it opens a helper session whose brief
      carries the ACTUAL findings, and which asks before every command (`default` mode, the
@@ -1193,6 +1204,40 @@ async function refreshHealth() {
   }
   H.style.display = rows.length || jobs.length ? '' : 'none';
   feedPrime('health');
+}
+
+/** Health row order: 0 red · 1 amber · 2 waiting · 3 green — the same colours the dots get above
+ *  (a check is green or amber; a job's `unreadable` and `overdue` read amber, like `warn`). */
+function healthRank(kind, status) {
+  if (kind === 'check') return status === 'pass' ? 3 : 1;
+  if (status === 'fail') return 0;
+  if (status === 'waiting') return 2;
+  if (status === 'ok') return 3;
+  return 1;
+}
+
+const HEALTH_LIST_KEY = 'healthListH';
+const HEALTH_LIST_DEFAULT = 300;
+let healthListObserver = null;
+
+/** The list's height: the one the operator dragged it to, remembered across ↻ (the card is rebuilt
+ *  every check); otherwise HEALTH_LIST_DEFAULT, and only when the rows need it — a short list keeps
+ *  its natural height instead of a box with empty space under it. */
+function sizeHealthList(list) {
+  let saved = 0;
+  try { saved = parseInt(localStorage.getItem(HEALTH_LIST_KEY) || '0', 10) || 0; } catch { /* ignore */ }
+  if (saved) list.style.height = saved + 'px';
+  else if (list.scrollHeight > HEALTH_LIST_DEFAULT) list.style.height = HEALTH_LIST_DEFAULT + 'px';
+  list.dataset.set = list.style.height;   // what WE set; a different inline height later came from the corner
+  if (typeof ResizeObserver !== 'function') return;
+  if (healthListObserver) healthListObserver.disconnect();
+  healthListObserver = new ResizeObserver(() => {
+    const h = list.style.height;
+    if (!h || h === list.dataset.set) return;
+    const px = Math.round(parseFloat(h));
+    if (px > 0) { try { localStorage.setItem(HEALTH_LIST_KEY, String(px)); } catch { /* ignore */ } }
+  });
+  healthListObserver.observe(list);
 }
 
 /** The health helper: a brief built from what is actually wrong, delivered through the private
