@@ -4244,7 +4244,7 @@ test('sticky prompt: over the log (no layout shift), never steals focus, a click
   assert.match(skinFn('chatSkinStickySoon'), /requestAnimationFrame/, 'throttled to one paint a frame');
   const click = skin.slice(skin.indexOf("stickyEl.addEventListener('click'"), skin.indexOf("stickyEl.addEventListener('click'") + 500);
   assert.match(click, /cs\.stick = false;/, 'going back up stops following the tail');
-  assert.match(click, /cs\.log\.scrollTo\(\{ top: Math\.max\(0, chatSkinRowTop\(cs\.log, node\) - 12\)/);
+  assert.match(click, /cs\.log\.scrollTo\(\{ top: Math\.max\(0, chatSkinRowTop\(cs\.log, node\) - chatSkinStickyClear\(cs\)\)/);
   const paint = skinFn('chatSkinStickyPaint');
   assert.match(paint, /querySelectorAll\('\.chat-row\.who-user'\)/, 'only the operator\'s own prompts');
   assert.match(paint, /\.chat-text/, 'the prompt\'s text, not its buttons');
@@ -4252,4 +4252,33 @@ test('sticky prompt: over the log (no layout shift), never steals focus, a click
   assert.match(css, /\.chatskin \.cs-sticky \{ position: absolute; top: 6px;/);
   assert.match(css, /\.chatskin \.cs-sticky \{[^}]*text-overflow: ellipsis;/, 'one line');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.skin.stickyJump"'), l);
+});
+
+test('round 3: the sticky prompt lands below the strip, hides while a dialog is up, and a recognised dialog replaces the lost-prompt terminal', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fnOf = (name: string): string => app.slice(app.indexOf('function ' + name + '('), app.indexOf('\n}\n', app.indexOf('function ' + name + '(')) + 2);
+  assert.match(app, /scrollTo\(\{ top: Math\.max\(0, chatSkinRowTop\(cs\.log, node\) - chatSkinStickyClear\(cs\)\)/, 'clears the strip, not 12px');
+  const clear = new Function(fnOf('chatSkinStickyClear') + 'return chatSkinStickyClear;')() as (cs: unknown) => number;
+  assert.equal(clear({ stickyEl: { hidden: false, offsetTop: 6, getBoundingClientRect: () => ({ height: 30 }) } }), 48, 'strip height + its offset + air');
+  assert.equal(clear({ stickyEl: { hidden: true, offsetTop: 6, getBoundingClientRect: () => ({ height: 30 }) } }), 12, 'no strip: just air');
+  const paint = fnOf('chatSkinStickyPaint');
+  assert.match(paint, /if \(cs\.promptKind \|\| cs\.lostPrompt\) \{ cs\.stickyNode = null; if \(!strip\.hidden\) strip\.hidden = true; return; \}/);
+  const run = (cs: Record<string, unknown>) => { new Function('cs', paint.replace(/^function chatSkinStickyPaint\(cs\) \{/, '').replace(/\}\s*$/, ''))(cs); return cs; };
+  const strip = { hidden: false, textContent: 'x' };
+  assert.equal((run({ stickyEl: strip, promptKind: 'question' }).stickyEl as { hidden: boolean }).hidden, true, 'a card owns the top');
+  assert.match(fnOf('chatSkinPrompt'), /if \(kind\) \{ cs\.lostPrompt = false; cs\.lostSince = 0; \}/);
+  const lost = fnOf('chatSkinLostPrompt');
+  assert.match(lost, /if \(cs\.promptKind\) \{ cs\.lostSince = 0; if \(cs\.lostPrompt\) \{ cs\.lostPrompt = false; chatSkinLayout\(p\); \} return; \}/);
+  /* Control: the old guard left lostPrompt set under a card. */
+  const old = lost.replace(/if \(cs\.promptKind\) \{[^\n]*\n/, '');
+  const f = (src: string) => new Function('chatSkinAgentCursor', 'chatSkinLayout', 'chatSkinFocus', 'chatSkinWorking', 'repaintTerm', 'panes', src + 'return chatSkinLostPrompt;')(() => null, () => {}, () => {}, () => false, () => {}, new Map());
+  const csA = { promptKind: 'question', lostPrompt: true, sawPrompt: true, lostSince: 1 };
+  f(lost)('id', { chatSkin: csA }, 5000);
+  assert.equal(csA.lostPrompt, false, 'a dialog clears the lost-prompt terminal');
+  const csB = { promptKind: 'question', lostPrompt: true, sawPrompt: true, lostSince: 1 };
+  f(old.includes('function chatSkinLostPrompt') ? old : lost)('id', { chatSkin: csB }, 5000);
+  assert.equal(csB.lostPrompt, true, 'control: without the guard it stays set');
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.from-bus \.chat-bubble::after \{ background: color-mix\(in srgb, var\(--chat-link\) 9%, var\(--surface\)\); \}/, 'the bus tail matches the bus bubble');
+  assert.ok(css.indexOf('.from-bus .chat-bubble::after') > css.indexOf('.who-user .chat-bubble::after'), 'and comes after the coral tail, so it wins');
 });

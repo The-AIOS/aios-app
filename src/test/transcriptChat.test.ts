@@ -395,3 +395,19 @@ test('Claude Code 2.1.31x: /rename as system local_command records becomes the t
   assert.equal(r[0].text, '/rename r2-chat');
   assert.deepEqual([r[1].tool?.name, r[1].tool?.summary, r[1].tool?.fold], ['/rename', 'Session renamed to: r2-chat', true]);
 });
+
+test('round 3: a slash command written twice under one promptId is one message (the /compact double bubble)', () => {
+  /* As Claude Code 2.1.319 writes it: the line as typed, then its <command-name> record, both with the same promptId. */
+  const typed = userStr('/compact', { promptId: 'p-1' });
+  const cmd = userStr('<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>', { promptId: 'p-1' });
+  const once = byRole(feedAll([typed, cmd]).items, 'user');
+  assert.deepEqual(once.map((i) => i.text), ['/compact']);
+  /* Typed twice on purpose: two prompts, two messages. */
+  const twice = byRole(feedAll([userStr('/compact', { promptId: 'p-1' }), userStr('/compact', { promptId: 'p-2' })]).items, 'user');
+  assert.equal(twice.length, 2, 'different prompts are different messages');
+  /* With args: /model opus written both ways under one prompt. */
+  const model = byRole(feedAll([userStr('/model opus', { promptId: 'p-3' }), userStr('<command-name>/model</command-name><command-args>opus</command-args>', { promptId: 'p-3' })]).items, 'user');
+  assert.deepEqual(model.map((i) => i.text), ['/model opus']);
+  /* No promptId (older CLIs): nothing is merged on a guess. */
+  assert.equal(byRole(feedAll([userStr('/compact'), userStr('<command-name>/compact</command-name>')]).items, 'user').length, 2);
+});
