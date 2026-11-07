@@ -4315,3 +4315,76 @@ test('round 3: the sticky prompt lands below the strip, hides while a dialog is 
   assert.match(css, /\.from-bus \.chat-bubble::after \{ background: color-mix\(in srgb, var\(--chat-link\) 9%, var\(--surface\)\); \}/, 'the bus tail matches the bus bubble');
   assert.ok(css.indexOf('.from-bus .chat-bubble::after') > css.indexOf('.who-user .chat-bubble::after'), 'and comes after the coral tail, so it wins');
 });
+
+test('a question the chat cannot draw switches the tab to the terminal, and back to chat when it is answered (0.15.0)', () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
+  const footerRe = /const CS_SELECT_FOOTER = (\/.*\/);/.exec(skin)![1];
+  const make = (body: string) => {
+    let screen = '';
+    const views: string[] = [];
+    const toasts: string[] = [];
+    const panes = new Map<number, unknown>();
+    const run = new Function('chatMode', 'chatSkinEligible', 'chatSkinScreenText', 'chatSkinSetView', 'toast', 't', 'panes', 'setTimeout',
+      'const CS_SELECT_FOOTER = ' + footerRe + ';\n' + body + grab('chatSkinAgentCursor') + '; return chatSkinQuestionTerm;')(
+      'chat', () => true, () => screen,
+      (_id: number, v: string) => { views.push(v); (panes.get(1) as Record<string, unknown>).view = v === 'chat' ? 'chat' : 'term'; return true; },
+      (m: string) => toasts.push(m), (k: string) => k, panes, () => 0) as (id: number, p: unknown, now: number) => void;
+    return { run, views, toasts, panes, set: (s: string) => { screen = s; } };
+  };
+  const QUESTION = ['   Close the laptop and do nothing work-related until Monday.', '  5. Type something.', '─'.repeat(40), '  6. Chat about this', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
+  const PROMPT = ['─'.repeat(40) + ' main ─', '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on'].join('\n');
+
+  const h = make(grab('chatSkinQuestionTerm'));
+  const p: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+  h.panes.set(1, p);
+  h.set(QUESTION);
+  h.run(1, p, 1000);
+  assert.deepEqual(h.views, [], 'waits first: the card detector gets its turn');
+  h.run(1, p, 2300);
+  assert.deepEqual(h.views, ['term'], 'a question with no card: the terminal');
+  assert.deepEqual(h.toasts, ['chat.skin.questionInTerm'], 'said once');
+  h.run(1, p, 3000);
+  assert.deepEqual(h.views, ['term'], 'stays while the question is up');
+  h.set(PROMPT);
+  h.run(1, p, 4000);
+  assert.deepEqual(h.views, ['term', 'chat'], 'answered: back to chat');
+
+  // a dialog the chat already draws as a card: no switch
+  const c = make(grab('chatSkinQuestionTerm'));
+  const q: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: 'question' } };
+  c.panes.set(1, q);
+  c.set(QUESTION);
+  c.run(1, q, 1000); c.run(1, q, 5000);
+  assert.deepEqual(c.views, [], 'a card is up: the chat keeps it');
+
+  // the operator goes back to chat by hand while the question is up: never switched again for that dialog
+  const m = make(grab('chatSkinQuestionTerm'));
+  const r: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+  m.panes.set(1, r);
+  m.set(QUESTION);
+  m.run(1, r, 1000); m.run(1, r, 2300);
+  assert.deepEqual(m.views, ['term']);
+  r.view = 'chat';                       // the operator's own click
+  m.run(1, r, 3000); m.run(1, r, 5000); m.run(1, r, 9000);
+  assert.deepEqual(m.views, ['term'], 'the hand choice stands');
+  m.set(PROMPT);
+  m.run(1, r, 10000);
+  assert.deepEqual(m.views, ['term'], 'and nothing switches when the dialog ends');
+
+  // control: without the card guard, a recognised card would be switched away
+  const broken = make(grab('chatSkinQuestionTerm').replace(' || (cs && cs.promptKind)', ''));
+  const b: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: 'question' } };
+  broken.panes.set(1, b);
+  broken.set(QUESTION);
+  broken.run(1, b, 1000); broken.run(1, b, 5000);
+  assert.deepEqual(broken.views, ['term'], 'control: the guard is what keeps a card');
+  // and a reply that merely mentions "Esc to cancel" while the prompt box is up is not a question
+  const e = make(grab('chatSkinQuestionTerm'));
+  const w: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+  e.panes.set(1, w);
+  e.set(['⏺ Press Esc to cancel a run.', PROMPT].join('\n'));
+  e.run(1, w, 1000); e.run(1, w, 5000);
+  assert.deepEqual(e.views, [], 'the prompt box is up: no dialog');
+  assert.match(skin, /chatSkinFirstRun\(id, p\);\n\s*chatSkinQuestionTerm\(id, p, now\);/, 'runs on every tick, for every terminal pane');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok((JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>)['chat.skin.questionInTerm'], l);
+});
