@@ -18,7 +18,7 @@ import { cameFromGit, type GitRun } from './exportOpen';
 const gitIn = (vault: string): GitRun => (args) => new Promise((res) => {
   const ceiling = path.dirname(aios.frameworkRoot() || vault);
   execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', vault, ...args],
-    { timeout: 3000, env: { ...process.env, GIT_CEILING_DIRECTORIES: ceiling, GIT_CONFIG_NOSYSTEM: '1' } },
+    { windowsHide: true, timeout: 3000, env: { ...process.env, GIT_CEILING_DIRECTORIES: ceiling, GIT_CONFIG_NOSYSTEM: '1' } },
     (err, out) => res(err ? null : String(out)));
 });
 import { t } from '../i18n';
@@ -42,6 +42,11 @@ const STATE_POLL_MS = 30_000;
  * to VS Code services, this talks to the shell — terminal intents go to the
  * renderer's grid as `shell:intent` events.
  */
+/* The statuses the panel last showed, with the sessions' own signals overlaid (the registry lags). The unattended
+   installer reads them so it never restarts under a session the panel shows as needing you. */
+let lastShownStatuses: string[] = [];
+export function lastPanelStatuses(): readonly string[] { return lastShownStatuses; }
+
 export class PanelHost {
   private timer?: ReturnType<typeof setInterval>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
@@ -267,13 +272,20 @@ export class PanelHost {
       const w = BrowserWindow.fromWebContents(this.wc);
       return !!w && !w.isDestroyed() && w.isFocused();
     },
-    reveal: (target) => {
-      const w = BrowserWindow.fromWebContents(this.wc);
-      if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
-      /* `id` is what `aios.revealAgent` sends too — one payload shape for one renderer handler. */
-      this.intent('focusTerminal', { name: target.name, id: target.sessionId ?? '' });
-    },
+    reveal: (target) => this.revealSession(target),
   });
+
+  /** Bring the window forward on one session. Shared by the "needs you" banner and the menu-bar icon,
+   *  so both land the operator in the same place. */
+  revealSession(target: { name: string; sessionId?: string }): void {
+    const w = BrowserWindow.fromWebContents(this.wc);
+    if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
+    /* `id` is what `aios.revealAgent` sends too — one payload shape for one renderer handler. */
+    this.intent('focusTerminal', { name: target.name, id: target.sessionId ?? '' });
+  }
+
+  /** Called with each 2 s observation of the operator's sessions (the menu-bar icon listens here). */
+  onRunning?: (running: ReadonlyArray<{ name: string; sessionId: string; status: string }>) => void;
 
   /**
    * A 32px taskbar overlay glyph carrying `text`, as a data URL — drawn in the RENDERER because
@@ -356,7 +368,9 @@ export class PanelHost {
     const registry = aios.listOperatorSessions();   // never a daemon spare
     for (const id of this.programStatus.keys()) if (!registry.some((a) => a.sessionId === id)) this.programStatus.delete(id);
     const running = overlayProgramStatus(registry, this.programStatus);
+    lastShownStatuses = running.map((a) => a.status);
     this.attention.tick(running, aios.shellSettings().attention);
+    try { this.onRunning?.(running); } catch { /* a listener never stops the pulse */ }
     const rl = aios.rateLimit();
     const fwReal = aios.frameworkRoot() ?? '';
     const projOf = (cwd: string): string => {

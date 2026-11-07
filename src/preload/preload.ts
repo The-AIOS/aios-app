@@ -32,7 +32,7 @@ type ChatSkinEvent = { paneId: number; sid?: string } & (
   | { type: 'items'; items: ChatItem[] }
   | { type: 'turn'; open: boolean }
   | { type: 'usage'; contextTokens?: number; model?: string }
-  | { type: 'prompt'; kind: TuiPromptKind | null; hint?: string; question?: string; options?: TuiOption[]; refresh?: boolean }
+  | { type: 'prompt'; kind: TuiPromptKind | null; hint?: string; question?: string; header?: string; options?: TuiOption[]; refresh?: boolean }
   | { type: 'stream'; text: string; anchor: string; headCut: boolean }
   | { type: 'stream'; text: null; adopt?: string }
   | { type: 'missing' }
@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   },
   updaterCheck: (): Promise<unknown> => ipcRenderer.invoke('updater:check'),
   updaterInstall: (): Promise<unknown> => ipcRenderer.invoke('updater:quitAndInstall'),
+  /** Unattended mode on/off, so main may install a downloaded update at a quiet moment (core/autoInstall.ts). */
+  updaterUnattended: (on: boolean): Promise<unknown> => ipcRenderer.invoke('updater:unattended', on),
   /* CHAT SKIN — a chat view over a terminal tab. The tab's pty stays the only session; main follows
      its transcript file live and reports what the TUI is waiting on. `paneId` is the pty id.
      chatStatus is the usage bar. The statusline payload is global (the last one ANY session wrote), so the tab passes its own
@@ -103,6 +105,11 @@ contextBridge.exposeInMainWorld('glassShell', {
   onPanelPost: (cb: (msg: unknown) => void) => ipcRenderer.on('panel:post', (_e, m) => cb(m)),
   // shell intents: main → renderer (open terminals, files, ask modal, toasts)
   onIntent: (cb: (m: { kind: string; [k: string]: unknown }) => void) => ipcRenderer.on('shell:intent', (_e, m) => cb(m)),
+  /** The tab groups, for the menu bar icon's menu (macOS): [{ name, color, members: session names }]. */
+  menuBarGroups: (groups: unknown): void => ipcRenderer.send('menuBar:groups', groups),
+  /* Ask panel destinations (a live session, an agent) — the same inbox request the quick bar writes. */
+  askDestinations: () => ipcRenderer.invoke('ask:destinations'),
+  askSend: (dest: { kind: string; name: string }, text: string) => ipcRenderer.invoke('ask:send', dest, text),
   // vault-scoped fs for explorer + viewers
   fsList: (rel: string): Promise<{ name: string; dir: boolean; path: string; mtime: number }[]> => ipcRenderer.invoke('fs:list', rel),
   // explorer sort prefs — per-folder overrides + master default (.glass/state.json)
@@ -137,7 +144,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   tabMenu: (items: TabMenuRow[]): Promise<string | null> => ipcRenderer.invoke('tab:menu', items),
   caffeinateState: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:state'),
   caffeinateToggle: (): Promise<unknown> => ipcRenderer.invoke('caffeinate:toggle'),
-  caffeinateLid: (on: boolean, prompt: string): Promise<unknown> => ipcRenderer.invoke('caffeinate:lid', on, prompt),
+  caffeinateLid: (mode: 'always' | 'plugged' | 'off', prompt: string): Promise<unknown> => ipcRenderer.invoke('caffeinate:lid', mode, prompt),
   caffeinateLidRemove: (prompt: string): Promise<unknown> => ipcRenderer.invoke('caffeinate:lidRemove', prompt),
   onCaffeinate: (cb: (s: unknown) => void) => ipcRenderer.on('shell:caffeinate', (_e, s) => cb(s)),
   menuShortcuts: (): Promise<Array<{ group: string; label: string; accel: string }>> => ipcRenderer.invoke('menu:shortcuts'),
@@ -169,6 +176,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   }> => ipcRenderer.invoke('doctor:triage'),
   doctorHealth: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('doctor:health'),
   routineHealth: (): Promise<Array<{ name: string; status: string; state?: string; detail?: string; writtenAt?: number; validUntil?: number; why?: string }>> => ipcRenderer.invoke('health:routines'),
+  // #91 — sidebar boards (~/.aios/boards/<name>/index.html), rendered through the aios-board: protocol
+  listBoards: (): Promise<Array<{ name: string; title: string; url: string; mtimeMs: number; validForS: number; status: 'fresh' | 'stale'; configError?: string }>> => ipcRenderer.invoke('boards:list'),
   // Connectors card: list / connect / disconnect / add one the framework does not bundle
   connectorsList: (): Promise<{ rows: ConnRow[]; foreign: { id: string }[]; other: { id: string; custom: boolean; tracked: boolean }[] }> => ipcRenderer.invoke('connectors:list'),
   connectorsConnect: (id: string, answers?: Record<string, string>): Promise<ConnResult> => ipcRenderer.invoke('connectors:connect', id, answers),
@@ -194,6 +203,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   designerBrief: (req: { kind: string; fields: { name: string; description: string; keywords?: string; tier?: string; body: string }; mode: string; templatePath?: string; targetPath?: string }): Promise<string> => ipcRenderer.invoke('designer:brief', req),
   shellConfig: (): Promise<{ claudeCmd: string; showHints: boolean; showNudges: boolean }> => ipcRenderer.invoke('shell:config'),
   nameHolder: (cmd: string): Promise<{ name: string; pid: number } | null> => ipcRenderer.invoke('shell:nameHolder', cmd),
+  quickBarStatus: (): Promise<{ available: boolean; shortcut: string; held: string; ok: boolean }> => ipcRenderer.invoke('quickBar:status'),
   setSetting: (key: string, value: unknown): Promise<{ claudeCmd: string; showHints: boolean; showNudges: boolean }> => ipcRenderer.invoke('shell:setSetting', key, value),
   claudeConfig: (): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; diffPanel: boolean; agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:config'),
   claudeSet: (key: string, value: unknown): Promise<{ account: string; model: string; mode: string; remoteControl: boolean; autoUpdates: boolean; outputStyle: string; reduceMotion: boolean; switchModelsOnFlag: boolean; claudeInChrome: boolean; copyOnSelect: boolean; diffPanel: boolean; agentPushNotif: boolean; inputNeededNotif: boolean; awaySummary: boolean; autoCompact: boolean }> => ipcRenderer.invoke('claude:set', key, value),
@@ -228,6 +238,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   sessionUnder: (paneIds: number[]): Promise<Record<number, { name: string; id: string; pid: number }>> =>
     ipcRenderer.invoke('session:under', paneIds),
   setPrimary: (name: string): Promise<{ ok: boolean; name: string }> => ipcRenderer.invoke('shell:setPrimary', name),
+  primaryIdentity: (): Promise<{ rows: { name: string; role: string }[]; name: string; stale: boolean; stored: string }> => ipcRenderer.invoke('shell:primaryIdentity'),
+  setPrimaryIdentity: (name: string): Promise<{ ok: boolean; name: string; stale: boolean }> => ipcRenderer.invoke('shell:setPrimaryIdentity', name),
   accountsList: (): Promise<{ accounts: { email: string; label: string; note: string; state: string; current: boolean; canSwitch: boolean }[]; error: string }> => ipcRenderer.invoke('accounts:list'),
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),
   notesAdd: (name: string, note: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:add', name, note),

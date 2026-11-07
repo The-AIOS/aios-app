@@ -19,7 +19,7 @@
  *  - a `user` line has `message.content` as a string (what the operator typed, or an injected
  *    prompt) or as blocks: `tool_result` (the answer to a tool_use, `is_error` flags a failure) or
  *    `text` (a typed prompt with attachments, or the `[Request interrupted by user]` marker).
- *  - `isMeta`, `isSidechain` and the `<system-reminder>` / `<local-command-*>` wrappers mark text
+ *  - `isMeta`, `isCompactSummary`, `isSidechain` and the `<system-reminder>` / `<local-command-*>` wrappers mark text
  *    the operator did not write and should not see as a bubble.
  *  - the end of a turn is written as `system` with subtype `turn_duration` (and usually a
  *    `stop_hook_summary` beside it); a final answer also has `stop_reason: "end_turn"`.
@@ -240,6 +240,17 @@ export function createTranscriptTracker(): TranscriptTracker {
   /** The operator's own runs: the last `! command` waiting for its output, and the last slash command typed (its output's title). */
   let bang: ChatItem | null = null;
   let lastCommand = '';
+  /** The operator's recent lines by promptId. Claude Code writes a typed slash command TWICE under one promptId: the line as
+      typed (`/compact`), then its `<command-name>` record. Both read `/compact`, so the second is the same message, not a new
+      one (0.15.0 round 3: two coral bubbles). Small: only the last few prompts can still be echoed. */
+  const shownByPrompt = new Map<string, string>();
+  function seenBefore(promptId: string | undefined, text: string): boolean {
+    if (!promptId) return false;
+    if (shownByPrompt.get(promptId) === text) return true;
+    shownByPrompt.set(promptId, text);
+    if (shownByPrompt.size > 16) shownByPrompt.delete(shownByPrompt.keys().next().value as string);
+    return false;
+  }
   /** A `! command` and a slash command's printout become a card like a tool's, marked as the operator's own. */
   function ownRun(uuid: string, ts: string | undefined, r: { text: string; local?: true; bang?: 'input' | 'output' | 'error' }, u: TranscriptUpdate, command?: string): boolean {
     const at = ts ? { ts } : {};
@@ -330,6 +341,7 @@ export function createTranscriptTracker(): TranscriptTracker {
 
   function onUser(d: Obj, u: TranscriptUpdate): void {
     if (d.isMeta === true) return;      // skill bodies, auto-continuations, caveats: injected, not typed
+    if (d.isCompactSummary === true) return;   // the summary a compaction leaves for the model: a user line nobody typed
     const msg = isObj(d.message) ? d.message : {};
     const uuid = str(d.uuid) ?? '';
     const ts = str(d.timestamp);
@@ -340,6 +352,7 @@ export function createTranscriptTracker(): TranscriptTracker {
       if (!r) return;
       if (uuid && ownRun(uuid, ts, r, u)) return;   // the operator's own run: no turn starts
       if (r.role === 'user' && r.text.startsWith('/')) lastCommand = r.text.split(/\s/)[0];
+      if (r.role === 'user' && seenBefore(str(d.promptId), r.text)) return;   // the same prompt written twice (a slash command)
       if (uuid) u.items.push({ uuid, role: r.role, text: r.text, ...(ts ? { ts } : {}) });
       setTurn(r.role === 'user', u);     // a typed message starts a turn; an output note does not
       return;

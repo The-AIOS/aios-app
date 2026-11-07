@@ -49,16 +49,37 @@ export const LID_BATTERY_FLOOR = 10;
  * LID_GRACE_MS), so the grace is kept small. Closing the lid with nothing working in the last
  * grace window is untouched: no hold exists, and macOS sleeps at once as it always has.
  */
+/**
+ * The setting (0.15.0): Always (the default), While plugged in, or Off. Stored as that string under the
+ * old `lidAwake` key; an older build's boolean reads as Always (true) or Off (false), and an absent
+ * value as the default. The default can never take effect by itself: the hold also needs the root
+ * guard, which only macOS's own administrator prompt installs (the ask-once question, or Settings).
+ */
+export type LidMode = 'always' | 'plugged' | 'off';
+export const LID_MODES: readonly LidMode[] = ['always', 'plugged', 'off'];
+export function lidModeOf(raw: unknown): LidMode {
+  if (raw === 'always' || raw === 'plugged' || raw === 'off') return raw;
+  if (raw === true) return 'always';
+  if (raw === false) return 'off';
+  return 'always';
+}
+
 export function desiredLidHold(input: {
   platform: string;
-  enabled: boolean;
+  /** The setting. 'plugged' holds only while on AC power. */
+  mode: LidMode;
+  /** True on battery (Electron's powerMonitor.isOnBatteryPower()). */
+  onBattery: boolean;
   installed: boolean;
   blockerWanted: boolean;
   /** ms since epoch of the last tick the blocker was wanted; 0 = never this run. */
   lastWantedAt: number;
   now: number;
 }): boolean {
-  if (input.platform !== 'darwin' || !input.enabled || !input.installed) return false;
+  if (input.platform !== 'darwin' || input.mode === 'off' || !input.installed) return false;
+  /* While plugged in: unplugging lets go at once (the driver re-applies on the power-source event), so
+     a laptop that leaves the desk for a bag sleeps when the lid closes, like any Mac. */
+  if (input.mode === 'plugged' && input.onBattery) return false;
   if (input.blockerWanted) return true;
   return input.lastWantedAt > 0 && input.now - input.lastWantedAt < LID_GRACE_MS;
 }

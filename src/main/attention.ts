@@ -28,6 +28,8 @@ import { t } from '../i18n';
 
 /** Banner attempts per block before giving up on the BANNER (the badge is unaffected). */
 const MAX_BANNER_TRIES = 3;
+/** Banners kept alive for their click at most: macOS keeps a handful on screen; older ones sit in the Notification Centre. */
+export const BANNERS_HELD = 50;
 
 /**
  * WINDOWS HAS NO DOCK BADGE, and `setBadgeCount` is a silent no-op there — so on Windows the
@@ -91,6 +93,11 @@ export class Attention {
   private toldAboutPermission = false;
   /** Windows taskbar flash, mirrored so it is only ever toggled on a change. */
   private flashing = false;
+  /* THE BANNERS STILL ON SCREEN, held so their click handler survives (0.15 round: a banner click raised the App but
+     never reached the session). A Notification nothing references is garbage-collected while the OS still shows it, and
+     its 'click' listener goes with it: the click then only activates the App. Released on click, on failure, on close,
+     and past BANNERS_HELD the oldest goes, so a long day of banners cannot grow this without bound. */
+  private held: Notification[] = [];
   constructor(private hooks: AttentionHooks) {}
 
   /** One observation. Called from the same 2s poll that already lists the sessions. */
@@ -147,9 +154,12 @@ export class Attention {
            "isn't a pane in this window" instead of focusing the session that was waiting. It went
            unseen because the only machine testing it had two installed bundles, and the banner was
            opening the OTHER one before this code ever ran. */
+        this.hold(n);
         n.on('click', () => {
+          this.release(n);
           if (hit) this.hooks.reveal({ name: hit.name, sessionId: hit.sessionId });
         });
+        n.on('close', () => this.release(n));
         /* DELIVERY IS ASYNCHRONOUS, and this is what was wrong. `show()` does not throw and
            returns immediately — the OS reports the outcome later, on these events. Marking the
            block notified beside `show()` therefore recorded a banner that never appeared:
@@ -159,6 +169,7 @@ export class Attention {
            about, reached from the one direction a try/catch cannot see. */
         n.on('show', () => { this.failures.delete(s.id); });
         n.on('failed', () => {
+          this.release(n);
           const tries = (this.failures.get(s.id) ?? 0) + 1;
           this.failures.set(s.id, tries);
           /* Retry, but only up to the bound — after three refusals the OS is not changing its
@@ -191,6 +202,19 @@ export class Attention {
       } catch { /* constructor threw → stays pending, and the next tick tries again */ }
     }
   }
+
+  private hold(n: Notification): void {
+    this.held.push(n);
+    if (this.held.length > BANNERS_HELD) this.held.splice(0, this.held.length - BANNERS_HELD);
+  }
+
+  private release(n: Notification): void {
+    const i = this.held.indexOf(n);
+    if (i >= 0) this.held.splice(i, 1);
+  }
+
+  /** How many banners are held for their click (tests). */
+  heldBanners(): number { return this.held.length; }
 
   /** Clear the badge when the App is going away, so the Dock does not keep a stale number. */
   dispose(): void {

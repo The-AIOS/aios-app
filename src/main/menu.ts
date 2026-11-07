@@ -1,6 +1,18 @@
 import { app, Menu, BrowserWindow, shell } from 'electron';
 import { t } from '../i18n';
 
+/** ⇧⌘A — *Launch agent*, the in-app agent picker, as before the quick bar. */
+export const LAUNCH_AGENT_ACCEL = 'CmdOrCtrl+Shift+A';
+
+/**
+ * The *Launch agent* item: always the in-app agent picker. The floating quick bar is reachable only through
+ * the global shortcut the operator chooses in Settings (none by default); inside the App its destinations
+ * live in the Ask panel, so ⇧⌘A keeps the meaning it had (0.15.0 test round).
+ */
+export function launchAgentItem(label: string, legacy: () => void): Electron.MenuItemConstructorOptions {
+  return { label, accelerator: LAUNCH_AGENT_ACCEL, click: legacy };
+}
+
 /**
  * Native application menu — the app's front face, and for a non-technical operator the
  * only complete map of what it can do. Every item emits the SAME `shell:intent` the
@@ -50,14 +62,23 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
         { role: 'about', label: t('menu.about') },
         { type: 'separator' },
         { label: t('menu.settings'), accelerator: 'CmdOrCtrl+,', click: () => intent('settings') },
-        { label: t('menu.installSetup'), click: () => intent('setup') },
         { type: 'separator' },
+        /* The two updates, side by side and named for what they update (0.15 menu tidy: "Check for Updates" beside "Update
+           AIOS" read as the same thing). Windows and Linux have no app menu, so both are in Help there. Set Up & Health Check
+           lives in Help only: it was listed twice. */
+        { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') },
         { label: t('menu.updateFramework'), click: () => term('update', "claude '/aios:update'") },
+        { type: 'separator' },
         { label: t('menu.syncCompanies'), click: () => term('company-sync', "claude '/aios:company --sync-all'") },
         { type: 'separator' },
-        { label: t('menu.loginClaude'), click: () => term('login', 'claude /login') },
-        { label: t('menu.swapAccount'), click: () => intent('accountSwap') },
-        { label: t('menu.logout'), click: () => term('logout', 'claude /logout') },
+        {
+          label: t('menu.claudeAccount'),
+          submenu: [
+            { label: t('menu.loginClaude'), click: () => term('login', 'claude /login') },
+            { label: t('menu.swapAccount'), click: () => intent('accountSwap') },
+            { label: t('menu.logout'), click: () => term('logout', 'claude /logout') },
+          ],
+        },
         { type: 'separator' },
         { role: 'hide', label: t('menu.hide') },
         { role: 'hideOthers', label: t('menu.hideOthers') },
@@ -84,18 +105,7 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
            it immediately.) */
         { label: t('menu.openRecent'), accelerator: 'CmdOrCtrl+Shift+T', click: () => intent('recents') },
         { type: 'separator' },
-        /* An operator must be able to ASK. The 6h interval cannot be predicted (it runs on a clock
-           that does not track sleep), so without this the only honest answer to "is there an
-           update?" was "quit and reopen". No accelerator: it is a rare, deliberate action. */
-        { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') },
-        { type: 'separator' },
         { label: t('menu.newTerminal'), accelerator: 'CmdOrCtrl+T', click: () => intent('terminal', { name: 'terminal' }) },
-        /* ⌘⇧L: flips how EVERY Claude session is shown, chat or terminal. It changes the same setting as the selector in Settings
-           (claudeView) and the open sessions follow at once, so there is one answer to "chat or terminal?" and not one per tab.
-           A switch on a surface that already exists rather than a picker, but every free plain-⌘ letter is taken, so it sits in
-           the ⌘⇧ family. The letter was checked against every accelerator in this menu and the renderer-owned chords (menu.test.ts
-           rejects duplicates). */
-        { label: t('menu.chatView'), accelerator: 'CmdOrCtrl+Shift+L', click: () => intent('toggleChatView') },
         { type: 'separator' },
         { label: t('menu.openFile'), accelerator: 'CmdOrCtrl+P', click: () => intent('quickOpen') },
         { label: t('menu.todayNote'), accelerator: 'CmdOrCtrl+Shift+Y', click: () => intent('openToday') },
@@ -115,17 +125,12 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
         // ctxKind, never kind — see the envelope note in `intent`
         { label: t('menu.browseContext'), accelerator: 'CmdOrCtrl+Shift+X', click: () => intent('pickContext', { ctxKind: '' }) },
         { label: t('menu.runningSessions'), accelerator: 'CmdOrCtrl+Shift+R', click: () => intent('pickRunning') },
-        { type: 'separator' },
-        { label: t('menu.toggleExplorer'), accelerator: 'CmdOrCtrl+E', click: () => intent('layout', { toggleExplorer: true }) },
-        { label: t('menu.togglePanel'), accelerator: 'CmdOrCtrl+B', click: () => intent('layout', { togglePanel: true }) },
       ],
     },
     /* ── Rituals: the daily loop, in the order a day actually runs ── */
     {
       label: t('menu.rituals'),
       submenu: [
-        { label: t('menu.askAios'), accelerator: 'CmdOrCtrl+J', click: () => intent('ask') },
-        { type: 'separator' },
         { label: t('menu.planDay'), click: () => ritual('/aios:today') },
         { label: t('menu.closeSession'), click: () => ritual('/aios:close-session') },
         { label: t('menu.closeDay'), click: () => ritual('/aios:close-day') },
@@ -141,9 +146,10 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
     {
       label: t('menu.agents'),
       submenu: [
+        { label: t('menu.askAios'), accelerator: 'CmdOrCtrl+J', click: () => intent('ask') },   // Ask is not a ritual: it hands work to AIOS
         { label: t('menu.goWithAgents'), accelerator: 'CmdOrCtrl+Shift+G', click: () => intent('pickSuggestion') },
         { type: 'separator' },
-        { label: t('menu.launchAgent'), accelerator: 'CmdOrCtrl+Shift+A', click: () => intent('pickAgent') },
+        launchAgentItem(t('menu.launchAgent'), () => intent('pickAgent')),
         { label: t('menu.loadSkill'), accelerator: 'CmdOrCtrl+Shift+S', click: () => intent('pickSkill') },
         { label: t('menu.runCommand'), accelerator: 'CmdOrCtrl+Shift+C', click: () => intent('pickCommand') },
         { type: 'separator' },
@@ -202,7 +208,15 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
           ],
         },
         { type: 'separator' },
+        /* ⌘⇧L: flips how EVERY Claude session is shown, chat or terminal. It changes the same setting as the selector in Settings
+           (claudeView) and the open sessions follow at once, so there is one answer to "chat or terminal?" and not one per tab.
+           A switch on a surface that already exists rather than a picker, but every free plain-⌘ letter is taken, so it sits in
+           the ⌘⇧ family. The letter was checked against every accelerator in this menu and the renderer-owned chords (menu.test.ts
+           rejects duplicates). */
+        { label: t('menu.chatView'), accelerator: 'CmdOrCtrl+Shift+L', click: () => intent('toggleChatView') },
         { label: t('menu.toggleTerminals'), accelerator: 'CmdOrCtrl+0', click: () => intent('layout', { toggleSplit: true }) },
+        { label: t('menu.toggleExplorer'), accelerator: 'CmdOrCtrl+E', click: () => intent('layout', { toggleExplorer: true }) },
+        { label: t('menu.togglePanel'), accelerator: 'CmdOrCtrl+B', click: () => intent('layout', { togglePanel: true }) },
         { role: 'togglefullscreen' },
         { type: 'separator' },
         {
@@ -259,7 +273,12 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
       ],
     },
   ];
-  if (process.platform !== 'darwin') template.shift(); // non-mac: fold app menu into defaults
+  if (process.platform !== 'darwin') {
+    template.shift(); // non-mac: fold app menu into defaults
+    /* …which took both update items with it: on Windows and Linux they live in Help, where those platforms keep them. */
+    const help = template.find((m) => m.role === 'help');
+    if (help && Array.isArray(help.submenu)) help.submenu.push({ type: 'separator' }, { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') }, { label: t('menu.updateFramework'), click: () => term('update', "claude '/aios:update'") });
+  }
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   void app; // (referenced for platform docs)
 }

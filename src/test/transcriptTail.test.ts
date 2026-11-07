@@ -358,7 +358,10 @@ test('the watch is tied to the pty: fed by its output, ended by its exit, kill, 
 test('a dialog is cleared only by proof from the transcript, not by assistant text', () => {
   const m = /monitor\.clear\(\);/.exec(main);
   assert.ok(m, 'the monitor is cleared somewhere');
-  assert.match(main, /it\.role === 'user' \|\| \(it\.tool && it\.tool\.status !== 'running'\)/);
+  /* 0.15.0 round 4: the rule moved to core (answeredBy), where it also reads ORDER (a question still running after the
+     operator's message is the open dialog, not an answer to it). */
+  assert.match(main, /answeredBy\(ev\.items\)\) skin\.monitor\.clear\(\);/);
+  assert.match(fs.readFileSync('src/core/tuiPrompt.ts', 'utf8'), /it\.role === 'user' \|\| \(it\.tool && it\.tool\.status !== 'running'\)/);
 });
 
 /** The migration function, compiled from aios.ts as written (optionally mutated first), so a control can break the SOURCE and watch the behaviour change. */

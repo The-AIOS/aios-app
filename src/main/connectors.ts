@@ -185,7 +185,7 @@ function isTracked(framework: string, dir: string): boolean {
   const rel = path.relative(framework, dir);
   try {
     execFileSync(gitBin(), ['-C', framework, 'ls-files', '--error-unmatch', '--', rel],
-      { stdio: 'ignore', timeout: 4000 });
+      { stdio: 'ignore', windowsHide: true, timeout: 4000 });
     return true;
   } catch { return false; }
 }

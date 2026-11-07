@@ -1,6 +1,8 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
+import { identityRowsIn, choosePrimaryIdentity, type IdentityRow } from '../core/primaryIdentity';
 import { routineRows, type RoutineRow } from '../core/routineHealth';
 import { runDir, writePrivateFile } from './privateRun';
 import * as fs from 'fs';
@@ -15,6 +17,7 @@ import { resolveBash } from './resolveBash';
 import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '../core/accounts';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
+import { backgroundScan } from '../core/backgroundScan';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
 import { FINISH_SETUP_IDS, needsFinishSetup, runFinishSetup, pluginRepairArgv, missingHooks, oneLine, type FinishSetupOutcome } from '../core/finishSetup';
@@ -257,7 +260,7 @@ export function personalization(): PersonalizationEvidence & { ok: boolean; miss
   const root = frameworkRoot();
   if (root) {
     try {
-      const url = execFileSync(gitBin(), ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 4000 }).trim();
+      const url = execFileSync(gitBin(), ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true, timeout: 4000 }).trim();
       remote = !!url && !/[/:]The-AIOS\/aios(\.git)?$/i.test(url);
     } catch { remote = false; }
   }
@@ -274,22 +277,48 @@ export function personalization(): PersonalizationEvidence & { ok: boolean; miss
  * from an answer is unusable as evidence.
  */
 export function primaryNameRaw(): string {
+  return choosePrimaryIdentity(identityRows(), storedPrimaryIdentity()).name;
+}
+
+/** The Identity table's rows, in order (one per computer's primary when the vault spans several). */
+export function identityRows(): IdentityRow[] {
   const root = frameworkRoot();
-  if (root) {
-    try {
-      const lines = fs.readFileSync(path.join(root, 'USER.md'), 'utf8').split(/\r?\n/);
-      let inSection = false;
-      for (const line of lines) {
-        if (/^##\s+Identity/.test(line)) { inSection = true; continue; }
-        if (inSection && /^##\s/.test(line)) break;
-        if (inSection && line.startsWith('|')) {
-          const raw = (line.split('|')[1] ?? '').replace(/`/g, '').trim();
-          if (raw && raw !== 'Name' && !/^[ -]+$/.test(raw)) return raw;
-        }
-      }
-    } catch { /* fall through */ }
-  }
-  return '';
+  if (!root) return [];
+  try { return identityRowsIn(fs.readFileSync(path.join(root, 'USER.md'), 'utf8')); } catch { return []; }
+}
+
+/* THIS COMPUTER'S PRIMARY IDENTITY lives in ~/.aios/app.json, beside the framework path: machine-local
+   on purpose. The framework (and its .glass/shell.json) syncs across the operator's computers, so a
+   choice stored there would follow them from the laptop to the agent machine and both would launch
+   the same identity again, which is the bug this setting exists to fix. */
+function storedPrimaryIdentity(): string {
+  try {
+    const raw = JSON.parse(fs.readFileSync(appLocalPath(), 'utf8')) as { primaryIdentity?: unknown };
+    return typeof raw.primaryIdentity === 'string' ? raw.primaryIdentity.trim() : '';
+  } catch { return ''; }
+}
+
+/** Set (or clear, with '') this computer's primary identity. Only a name from the Identity table is stored. */
+export function setPrimaryIdentity(value: string): { ok: boolean; name: string; stale: boolean } {
+  const v = String(value || '').trim();
+  const rows = identityRows();
+  if (v && !rows.some((r) => r.name.toLowerCase() === v.toLowerCase())) return { ok: false, ...choosePrimaryIdentity(rows, storedPrimaryIdentity()) };
+  const p = appLocalPath();
+  let j: Record<string, unknown> = {};
+  try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { /* first write */ }
+  if (v) j.primaryIdentity = v; else delete j.primaryIdentity;
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
+  fs.renameSync(tmp, p);
+  return { ok: true, ...choosePrimaryIdentity(rows, v) };
+}
+
+/** What Settings shows: the rows, the effective choice, and whether a stored choice went stale. */
+export function primaryIdentitySetting(): { rows: IdentityRow[]; name: string; stale: boolean; stored: string } {
+  const rows = identityRows();
+  const stored = storedPrimaryIdentity();
+  return { rows, stored, ...choosePrimaryIdentity(rows, stored) };
 }
 
 /** As above, with the shipped default applied — for display, where something must be shown. */
@@ -566,18 +595,32 @@ function isAlive(pid: number): boolean {
  * bytes), printed in the same `pid ppid kb` shape, so the tree walk below is shared and only the
  * harvest differs — without it the whole call threw ENOENT and every session showed no memory.
  *
- * Memoized, and that part is not cosmetic: this is execFileSync, which BLOCKS the main thread,
- * and the panel re-reads memory on every poll. A full CIM enumeration costs hundreds of
- * milliseconds, so an unmemoized call meant the UI stuttering once per poll forever. The TTL is
- * shorter than the poll, so the reading stays live while repeat calls within one tick are free.
+ * A BACKGROUND READING, never a wait (issue #131). It used to be a 4 s TTL memo over
+ * execFileSync, so every panel poll past 4 s started a PowerShell and blocked the main thread on
+ * it. On a machine under memory pressure a CIM scan slows down: the App froze for up to the 8 s
+ * timeout each cycle, every new PowerShell added load, and without `windowsHide` each one opened
+ * a blank console. Reported from a 16 GB Windows 11 machine that had to be powered off.
+ * Now: callers get the last finished table at once, a scan never overlaps another, the gap
+ * between scans grows with how long a scan took, and the console stays hidden. The first
+ * read returns '' (no table yet), which every caller already treats as "nothing known".
  */
-const winProcTable = ttlMemo((): string => {
-  try {
-    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+const winScan = backgroundScan({
+  run: () => new Promise<string>((res, rej) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
       'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
-    { encoding: 'utf8', timeout: 8000 });
-  } catch { return ''; }
-}, 4000);
+    { encoding: 'utf8', windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
+    (err, out) => (err ? rej(err) : res(String(out))));
+  }),
+  minIntervalMs: 4_000,
+  maxIntervalMs: 60_000,
+  slowFactor: 5,
+});
+const winProcTable = (): string => winScan.read();
+/** Settles when a fresh Windows process table is in (a no-op elsewhere, where `ps` is read on demand).
+ *  For tests that must see a process they just started: `read()` never waits, by design. */
+export function refreshProcTable(): Promise<void> {
+  return process.platform === 'win32' ? winScan.refresh() : Promise.resolve();
+}
 
 /** Process-tree RSS (MB) for each given pid — one `ps` scan, summed over each
  *  session's descendants (the Glass "… ready 1h · 1.6 GB" token). Best-effort. */
@@ -1247,13 +1290,13 @@ export function gitBin(): string {
   let pathHit: string | undefined;
   try {
     pathHit = execFileSync(process.platform === 'win32' ? 'where' : 'which', ['git'],
-      { encoding: 'utf8', timeout: 3000 }).split('\n')[0].trim() || undefined;
+      { encoding: 'utf8', windowsHide: true, timeout: 3000 }).split('\n')[0].trim() || undefined;
   } catch { /* nothing on PATH */ }
   GIT_BIN = pickGit({
     platform: process.platform,
     pathHit,
     works: (p) => {
-      try { execFileSync(p, ['--version'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); return true; }
+      try { execFileSync(p, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); return true; }
       catch { return false; }
     },
   });
@@ -1281,6 +1324,15 @@ export function updateRetryDelay(failures: number, capMs: number): number {
 let lastTestingBranch = '';
 export function testingBranch(): string { return lastTestingBranch; }
 
+/** How long the framework check may take before it counts as "no answer". Over HTTPS,
+ *  `git ls-remote` makes two round trips (the ref advertisement, then `ls-refs`). When GitHub's
+ *  git endpoint is slow but working, each one has been measured at about 5 s, so a successful
+ *  check took 9-10 s. The old 8 s limit killed every one of them, and the pill sat on
+ *  "retrying…" on a vault that was up to date (issue #132). The check runs in the background
+ *  and never blocks the UI, so waiting longer costs nothing visible; a real failure is still
+ *  reported, only later. */
+export const FRAMEWORK_CHECK_TIMEOUT_MS = 20_000;
+
 export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown' | 'testing'> {
   const status = readFrameworkStatus();
   if (!status || !status.repo || !status.hash) return Promise.resolve('unknown');
@@ -1297,7 +1349,7 @@ export function checkForUpdates(): Promise<'up-to-date' | 'available' | 'unknown
     /* Every branch head, not just HEAD: a vault on a release branch is AHEAD of main, and
        comparing it with HEAD alone read it as "update available" — an offer that would pull it back
        to main. `--symref` names the default branch. The decision is shared core (core/freshness). */
-    execFile(gitBin(), ['ls-remote', '--symref', url], { timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+    execFile(gitBin(), ['ls-remote', '--symref', url], { windowsHide: true, timeout: FRAMEWORK_CHECK_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       if (err || !stdout) return resolve('unknown');
       const f = freshness({ hash: status.hash, ref: status.ref }, parseLsRemote(stdout));
       lastTestingBranch = f.state === 'testing' ? f.branch : '';
@@ -1380,7 +1432,7 @@ export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault
   return fresh ? 'chat' : 'terminal';
 }
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: LidMode; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; chatBubble: string; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1418,6 +1470,8 @@ export function shellSettings(): ShellSettings {
     // conversation unreadable or the composer overflow
     chatFontFamily: typeof raw.chatFontFamily === 'string' ? raw.chatFontFamily.trim().slice(0, 200) : '',
     chatFontSize: Math.min(28, Math.max(10, Number(raw.chatFontSize) || 14)),
+    /* The operator's chat message colour: a palette id the renderer knows, 'coral' when unset or unknown. */
+    chatBubble: typeof (raw as { chatBubble?: unknown }).chatBubble === 'string' && /^[a-z]{3,12}$/.test((raw as { chatBubble: string }).chatBubble) ? (raw as { chatBubble: string }).chatBubble : 'coral',
     claudeView: normalizeClaudeView(raw, fresh),
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.
     // Applied as a real zoom factor (crisp text) rather than restyling every rule.
@@ -1446,8 +1500,16 @@ export function shellSettings(): ShellSettings {
     /* Keep-awake with the lid closed (macOS). OFF unless the operator turns it on: unlike the
        blocker it needs a one-time administrator install, and a laptop that stays awake in a bag
        is a choice someone has to make, never a default. */
-    lidAwake: raw.lidAwake === true,
+    lidAwake: lidModeOf((raw as { lidAwake?: unknown }).lidAwake),   // 'always' | 'plugged' | 'off' (0.15.0); an old boolean still reads
     lidAsked: (raw as { lidAsked?: unknown }).lidAsked === true,   // the one-time lid question was answered
+    /* The menu-bar icon (macOS). ON unless the operator turned it off: it only reads what the panel already
+       shows, and an operator who never opens Settings is exactly the one who benefits from seeing a waiting
+       session without bringing the App forward. Only a literal `false` opts out. */
+    menuBar: raw.menuBar !== false,
+    /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). OFF until the operator picks one: a global
+       shortcut takes its keys from every other app, and ⇧⌘A is already Slack's *All unreads* and Finder's
+       *Applications*. Inside the App, the Ask panel has the same destinations, and ⇧⌘A stays *Launch agent*. */
+    quickBarShortcut: typeof raw.quickBarShortcut === 'string' ? raw.quickBarShortcut.trim() : '',
     openNotesIn: raw.openNotesIn === 'source' ? 'source' : 'rendered', // Glass "Open files in": rendered preview (default) or raw source
   };
 }
@@ -1619,7 +1681,7 @@ async function zshOut(snippet: string, flags = '-lc'): Promise<string | null> {
 /** Run a snippet through PowerShell — the Windows counterpart of zshOnce. */
 function psOnce(snippet: string): Promise<string | null> {
   return new Promise((res) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { timeout: 8000 },
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { windowsHide: true, timeout: 8000 },
       (err, out) => res(err ? null : String(out).trim() || null));
   });
 }
@@ -1639,7 +1701,7 @@ function psProfileOnce(snippet: string): Promise<string | null> {
      terminal opened on "running scripts is disabled on this system". A probe that bypasses the
      policy the real terminal runs under measures a machine that does not exist. */
   return new Promise((res) => {
-    execFile('powershell.exe', ['-NonInteractive', '-Command', snippet], { timeout: 8000 },
+    execFile('powershell.exe', ['-NonInteractive', '-Command', snippet], { windowsHide: true, timeout: 8000 },
       (err, out) => res(err ? null : String(out).trim() || null));
   });
 }
@@ -1662,7 +1724,7 @@ export function psPolicyProbe(): Promise<PsPolicy | null> {
     '"POLICY=$e|MANAGED=$m|CLAUDE=$c"',
   ].join('; ');
   const p = new Promise<PsPolicy | null>((res) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { timeout: 8000 }, (err, out) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', snippet], { windowsHide: true, timeout: 8000 }, (err, out) => {
       if (err) return res(null);
       const m = /POLICY=([^|]*)\|MANAGED=(\d*)\|CLAUDE=(.*)/.exec(String(out));
       if (!m) return res(null);
@@ -1735,7 +1797,7 @@ function runScript(script: string, cwd?: string): Promise<void> {
     const isPs = process.platform === 'win32' && /\.ps1$/i.test(script);
     const bin = isPs ? 'powershell.exe' : 'bash';
     const args = isPs ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] : [script];
-    execFile(bin, args, { timeout: 120000, cwd }, (err, stdout, stderr) =>
+    execFile(bin, args, { windowsHide: true, timeout: 120000, cwd }, (err, stdout, stderr) =>
       (err ? reject(Object.assign(err, { output: `${String(stdout || '')}\n${String(stderr || '')}` })) : resolve()));
   });
 }
@@ -2454,7 +2516,7 @@ export async function toolPlan(tool: InstallableTool): Promise<ToolPlan | undefi
     ? ['powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Tool', tool, '-Plan']]
     : ['bash', [script, tool, '--plan']];
   return new Promise((resolve) => {
-    execFile(bin, args, { timeout: 20000 }, (err, stdout) => {
+    execFile(bin, args, { windowsHide: true, timeout: 20000 }, (err, stdout) => {
       if (err && !stdout) { resolve(undefined); return; }
       const plan = parsePlan(tool, String(stdout || ''));
       resolve(plan.rungs.length ? plan : undefined);
@@ -2612,7 +2674,7 @@ export function storeGitHubPat(pat: string): boolean {
   if (!token || /\s/.test(token)) return false;
   try {
     let helper = '';
-    try { helper = execFileSync(gitBin(), ['config', '--get', 'credential.helper'], { encoding: 'utf8', timeout: 4000 }).trim(); } catch { helper = ''; }
+    try { helper = execFileSync(gitBin(), ['config', '--get', 'credential.helper'], { encoding: 'utf8', windowsHide: true, timeout: 4000 }).trim(); } catch { helper = ''; }
     if (!helper) {
       // no helper anywhere → give git one (Keychain on macOS, plain store elsewhere)
       /* Windows has an OS credential vault too, and Git for Windows ships the helper for it, so
@@ -2620,11 +2682,11 @@ export function storeGitHubPat(pat: string): boolean {
          would write the PAT to ~/.git-credentials in PLAIN TEXT — acceptable as a last resort on
          a Linux box with no vault, never the default on a machine that has one. */
       const fallback = process.platform === 'win32' ? 'manager' : 'store';
-      execFileSync(gitBin(), ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', timeout: 4000 });
+      execFileSync(gitBin(), ['config', '--global', 'credential.helper', process.platform === 'darwin' ? 'osxkeychain' : fallback], { encoding: 'utf8', windowsHide: true, timeout: 4000 });
     }
     execFileSync(gitBin(), ['credential', 'approve'], {
       input: `protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token}\n\n`,
-      encoding: 'utf8', timeout: 8000,
+      encoding: 'utf8', windowsHide: true, timeout: 8000,
     });
     return true;
   } catch { return false; }
@@ -3507,7 +3569,7 @@ const winPersistedPath = ttlMemo((): string[] => {
   try {
     const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
       "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"],
-    { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] });
+    { encoding: 'utf8', windowsHide: true, timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] });
     const dirs = out.split(';').map((s) => s.trim().replace(/^"|"$/g, '')).filter(Boolean);
     if (dirs.length) return dirs;
   } catch { /* fall back to this process's copy — stale, but better than nothing */ }
@@ -3620,7 +3682,7 @@ export function claudeLocation(): { where: 'path' | 'disk' | 'none'; bin: string
       ['-ilc', `command -v ${cmd}`],
     ]) {
       try {
-        const found = execFileSync(sh, args, { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        const found = execFileSync(sh, args, { encoding: 'utf8', windowsHide: true, timeout: 6000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         const hit = found.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith('/')).pop();
         if (hit) return { where: 'path', bin: hit };
       } catch { /* try the next form */ }
@@ -3631,7 +3693,7 @@ export function claudeLocation(): { where: 'path' | 'disk' | 'none'; bin: string
        which silently threw away the PATH export appended at the end of that same file.
        It matters here because it decides whether the rc scan below can be trusted at all. */
     try {
-      const errOut = execFileSync(sh, ['-ilc', 'true'], { encoding: 'utf8', timeout: 6000, stdio: ['ignore', 'ignore', 'pipe'] });
+      const errOut = execFileSync(sh, ['-ilc', 'true'], { encoding: 'utf8', windowsHide: true, timeout: 6000, stdio: ['ignore', 'ignore', 'pipe'] });
       void errOut;
     } catch (e) {
       const msg = String((e as { stderr?: Buffer }).stderr ?? '');
@@ -4020,7 +4082,7 @@ export function gitRefreshInterval(lastMs: number, tooSlow: boolean): number {
 
 type GitRunner = (repo: string, cb: (err: (Error & { killed?: boolean }) | null, out: string) => void) => void;
 let runGitStatus: GitRunner = (repo, cb) => {
-  execFile(gitBin(), ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8', timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 1 << 22 },
+  execFile(gitBin(), ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8', windowsHide: true, timeout: GIT_STATUS_TIMEOUT_MS, maxBuffer: 1 << 22 },
     (err, out) => cb(err as (Error & { killed?: boolean }) | null, String(out ?? '')));
 };
 /** Tests only: swap the git runner (and clear state). */
@@ -4102,7 +4164,7 @@ export function gitDirtyLines(absFile: string): Array<[number, number]> {
   if (!root) { diffCache.set(absFile, { at: now, ranges }); return ranges; }
   const rel = path.relative(root, absFile);
   const run = (args: string[]): string => {
-    try { return execFileSync(gitBin(), ['-C', root, ...args], { encoding: 'utf8', timeout: 4000, maxBuffer: 1 << 22 }); }
+    try { return execFileSync(gitBin(), ['-C', root, ...args], { encoding: 'utf8', windowsHide: true, timeout: 4000, maxBuffer: 1 << 22 }); }
     catch { return ''; }
   };
   // untracked → every line is new

@@ -735,7 +735,7 @@ const CARD_ICONS = {
   pHealth: 'check',
   pConnectors: 'plug',
 };
-function cardIcon(key) { return CARD_ICONS[key] || 'star'; }
+function cardIcon(key) { return CARD_ICONS[key] || (key.startsWith('pBoard-') ? 'layout' : 'star'); }   // #91: every board shares one glyph
 
 function pulseTitle(card, key, text, count) {
   const ti = el('div', 'ptitle', text);
@@ -1085,7 +1085,17 @@ function renderActionCards(m) {
 
 async function onIntentAsk() {
   const ask = await askWithChips();
-  if (ask) await launchAsk(ask);
+  if (!ask) return;
+  if (!ask.dest || ask.dest.kind === 'new') { await launchAsk(ask); return; }
+  await sendAskTo(ask.dest, ask.intent);
+}
+/* A live session or an agent: the same inbox request the floating quick bar writes, so the bus verifies the
+   delivery, holds it while the session is busy, and starts a running agent as a fresh copy (lawyer-2) rather
+   than revealing it and dropping the text. */
+async function sendAskTo(dest, text) {
+  const r = await window.glassShell.askSend({ kind: dest.kind, name: dest.name }, text).catch(() => ({ ok: false, reason: 'write' }));
+  if (r && r.ok) toast(t(dest.kind === 'agent' ? 'ask.sentAgent' : 'ask.sentSession', { name: r.name }));
+  else toast(t('ask.sendFailed'));
 }
 
 async function openFrameworkDoc(file) {
@@ -1219,6 +1229,80 @@ function routineHealthText(j) {
       return t('health.job.overdue', { time: when(j.writtenAt) }) + (j.state && j.state !== 'ok' ? ' ' + t('health.job.lastResult', { state: j.state }) : '');
     default: return t('health.job.unreadable', { why: j.why || '' });
   }
+}
+
+/* ═══ #91 — BOARDS: the sidebar's custom/ slot. One card per ~/.aios/boards/<name>/index.html, a
+   static page the operator's own tooling writes. The App lists them and shows them; it knows nothing
+   about what they mean and never writes there.
+   The frame is NOT the HTML viewer's. That one lets scripts run and loads from file://, which suits a
+   file the operator opens on purpose; a board loads by itself on every launch. So: sandbox="" (no
+   scripts, no navigation, no popups, no forms), served by main's aios-board: protocol (only files
+   inside that board's folder, a CSP that blocks all network) and a main-process guard that refuses
+   every navigation of the frame except reloading its own page. See docs/rfcs/sidebar-boards.md.
+   Staleness is the writer's problem and is drawn like an overdue Health job. ═══ */
+const boardCards = new Map();   // name → { card, frame, url }
+const boardCardId = (name) => 'pBoard-' + encodeURIComponent(name);
+
+function boardWhen(ms) {
+  const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  return new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function refreshBoards() {
+  const panel = document.getElementById('panel');
+  if (!panel || !window.glassShell.listBoards) return;
+  let rows = [];
+  try { rows = await window.glassShell.listBoards(); } catch { rows = []; }
+  const seen = new Set(rows.map((r) => r.name));
+  for (const [name, b] of boardCards) {   // a deleted folder takes its card with it
+    if (!seen.has(name)) { b.card.remove(); boardCards.delete(name); }
+  }
+  let added = false;
+  for (const r of rows) {
+    let b = boardCards.get(r.name);
+    if (!b) {
+      const card = el('div', 'pcard pboard');
+      card.id = boardCardId(r.name);
+      const frame = document.createElement('iframe');
+      frame.className = 'boardview';
+      frame.setAttribute('sandbox', '');               // empty = every restriction, scripts included
+      frame.setAttribute('referrerpolicy', 'no-referrer');
+      frame.setAttribute('allow', '');
+      frame.title = r.title;
+      const wrap = el('div', 'boardwrap');           // resizable by its corner; the page cannot size itself (no scripts)
+      wrap.appendChild(frame);
+      card.appendChild(wrap);
+      panel.appendChild(card);
+      b = { card, frame, wrap, url: '' };
+      boardCards.set(r.name, b);
+      added = true;
+    }
+    if (b.url !== r.url) { b.url = r.url; b.frame.src = r.url; }   // a new mtime is a new URL
+    // nothing about the card changed → leave it alone (a rebuilt title would steal keyboard focus every pass)
+    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
+    if (b.sig === sig) continue;
+    b.sig = sig;
+    const key = boardCardId(r.name);
+    const stale = r.status === 'stale';
+    b.card.classList.toggle('pstale', stale);
+    // title + status lines are rebuilt every pass; the frame is kept, so an unchanged board never reloads
+    for (const n of [...b.card.children]) if (n !== b.wrap) n.remove();
+    const title = pulseTitle(b.card, key, r.title);
+    title.title = t('boards.tip', { name: r.name });
+    b.card.insertBefore(title, b.wrap);
+    const lines = [];
+    if (stale) lines.push(['st-warn', t('boards.stale', { time: boardWhen(r.mtimeMs) })]);
+    if (r.configError) lines.push(['st-warn', r.configError]);
+    for (const [dot, text] of lines) {
+      const row = el('div', 'phrow');
+      row.appendChild(el('span', 'phdot ' + dot));
+      const msg = el('span', 'phmsg', text); msg.title = text;
+      row.appendChild(msg);
+      b.card.insertBefore(row, b.wrap);
+    }
+  }
+  if (added) applyPulseOrder();   // a board the operator already moved goes back where they put it
 }
 
 function healthFixButton(c) {
@@ -1875,29 +1959,38 @@ function followRotatedId(id, pane) {
 /* The Running card's mirror of the tab groups (0.14.0 round): rows given in tab order are put under a small heading in their
    group's colour whenever the group changes; rows in no group stay in the plain list. The heading folds the strip its tabs are
    in, exactly like the pill, so the Sessions and Terminals headings of one group fold together. */
+/* A folded group folds HERE too (0.15 round): the heading stays, with its count, and its rows go. Two rows survive a fold,
+   for the same reason a folded strip keeps the focused tab: the one you are on, and one that is WAITING on you, which a fold
+   must never hide. `keep` is the caller's word for the second. */
 function pgroupRunner(box) {
-  let cur = null, groupBox = null;
-  return (paneId, row) => {
+  let cur = null, groupBox = null, folded = false, hz = 'main';
+  return (paneId, row, keep = false) => {
     const pane = paneId != null ? panes.get(paneId) : null;
     const gid = pane ? tgOf(paneId) : null;
     const g = gid ? tabGroups.get(gid) : null;
     if (gid !== cur) {
       cur = gid;
       groupBox = null;
+      folded = false;
       if (g) {
-        const hz = zoneOf(pane);   // the strip these tabs are in
+        hz = zoneOf(pane);   // the strip these tabs are in
+        folded = tgFoldedIn(gid, hz);
         groupBox = el('div', 'pgroup');
         groupBox.style.setProperty('--tg', `var(--tg-${g.color})`);
         const head = el('button', 'pgroup-head');
         head.type = 'button';
         head.append(el('span', 'pgroup-dot'), el('span', 'pgroup-name', tgLabel(gid)));
         if (tgFoldedIn(gid, hz)) head.appendChild(el('span', 'pgroup-n', String(tgMembersIn(gid, hz).length)));
+        head.appendChild(el('span', 'pgroup-caret'));
         head.title = `${tgLabel(gid)} — ${t(tgFoldedIn(gid, hz) ? 'tg.expand' : 'tg.collapse')}`;
         head.addEventListener('click', () => { tgToggle(gid, hz); renderPulseRunning(); });
+        head.setAttribute('aria-expanded', String(!folded));
+        groupBox.classList.toggle('folded', folded);
         groupBox.appendChild(head);
         box.appendChild(groupBox);
       }
     }
+    if (groupBox && folded && !keep && paneId !== active[hz]) return;   // folded: the heading speaks for it
     (groupBox || box).appendChild(row);
   };
 }
@@ -1979,7 +2072,7 @@ function renderPulseRunning(m) {
   for (const a of inTabOrder) {
     const hit = byName(a.name, a.id);
     const r = sessionRow(a); feedMark(r, 'sess', a.key || a.name);
-    runIntoGroups(hit ? hit[0] : null, r);
+    runIntoGroups(hit ? hit[0] : null, r, statusInfo(a.status).cls === 'input');   // waiting on you: never folded away
   }
     if (!sessions.length) box.appendChild(el('div', 'psubempty', t('pulse.noSessions')));
     /* Review 13: the operator-session scope can be wrong, and a wrong HIDE is invisible unless it is counted.
@@ -2548,6 +2641,12 @@ const restoreOnLaunch = (() => {
 const UNATTENDED_KEY = 'unattendedMode';
 function unattendedModeOf(v) { return v === 'summary' || v === 'full' ? v : 'off'; }
 let UNATTENDED = (() => { try { return unattendedModeOf(localStorage.getItem(UNATTENDED_KEY)); } catch { return 'off'; } })();
+/* Main installs a downloaded update by itself only while this is on (src/core/autoInstall.ts has
+   the quiet rule). Main cannot read localStorage, so it is told at launch and on every change. */
+function tellUpdaterUnattended() {
+  try { void window.glassShell.updaterUnattended?.(UNATTENDED !== 'off').catch(() => { /* dev build: no updater */ }); } catch { /* */ }
+}
+tellUpdaterUnattended();
 const panes = new Map(); // id → { kind, name, el, tab, term?, fit?, exited?, path? }
 /* `active` is now FOCUS, not visibility.
    It used to be both, and that conflation WAS the one-terminal ceiling: `setVisible` showed the
@@ -3253,6 +3352,25 @@ function tgAdd(id, gid) {
   tgRepaint();
 }
 
+/* A bus request names its tab group (`"group": "Release"`): join the group with that name, matched without regard to
+   case, or create it with the next free colour, the way tgNew picks one. The name is already cleaned by main (parseGroup);
+   it is cut to the editor's 40 again here so nothing else can hand in a longer one. Returns the group id, or ''. */
+function tgJoinByName(id, name) {
+  const want = String(name || '').trim().slice(0, 40);
+  if (!want || !panes.get(id)) return '';
+  const key = want.toLocaleLowerCase();
+  let gid = '';
+  for (const [g, v] of tabGroups) if ((v.name || '').trim().toLocaleLowerCase() === key) { gid = g; break; }
+  if (!gid) {
+    const used = new Set([...tabGroups.values()].map((g) => g.color));
+    const color = TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length];
+    gid = tgNewId();
+    tabGroups.set(gid, { name: want, color, collapsed: false });
+  }
+  tgAdd(id, gid);
+  return gid;
+}
+
 async function tgNew(id) {
   const p = panes.get(id);
   if (!p) return;
@@ -3338,6 +3456,8 @@ async function tgChipMenu(gid, z) {
   const g = tabGroups.get(gid);
   if (!g) return;
   const items = [
+    { label: t('tg.newSession'), value: 'newSession' },
+    { label: '-', value: '-' },
     { label: t('tg.edit'), value: 'rename' },
     { label: t('tg.colorMenu'), items: TG_COLORS.map((c) => ({ label: (c === g.color ? '✓ ' : '') + tgCap(t('tg.color.' + c)), value: 'color:' + c })) },
     { label: t(tgFoldedIn(gid, z) ? 'tg.expand' : 'tg.collapse'), value: 'toggle' },
@@ -3347,7 +3467,8 @@ async function tgChipMenu(gid, z) {
   ];
   const pick = await window.glassShell.tabMenu(items);
   if (!pick || !tabGroups.has(gid)) return;
-  if (pick === 'toggle') tgToggle(gid, z);
+  if (pick === 'newSession') void spawnWorkerFlow(gid);
+  else if (pick === 'toggle') tgToggle(gid, z);
   else if (pick.startsWith('color:')) { if (TG_COLORS.includes(pick.slice(6))) { g.color = pick.slice(6); tgRepaint(); } }
   else if (pick === 'rename') await tgEdit(gid, t('tg.rename')); else if (pick === 'ungroup') {
     for (const id of tgMembers(gid)) panes.get(id).group = '';
@@ -3391,15 +3512,52 @@ function tgMoveGroup(z, gid, overId, after) {
   if (typeof renderPulseRunning === 'function' && pulse.lastRunning) renderPulseRunning();
 }
 
+/* Tabs scrolled out of view are said (0.15.0 round: a fourth session sat past the edge with nothing showing it was
+   there). Each strip gets a chevron on each side, shown only while tabs hide on that side, and the strip fades at that
+   edge. Measured from the strip itself on scroll, on resize and whenever its tabs change. */
+function stripOverflowState(strip) {
+  const max = strip.scrollWidth - strip.clientWidth;
+  return { left: max > 1 && strip.scrollLeft > 1, right: max > 1 && strip.scrollLeft < max - 1 };
+}
+function syncStripOverflow(strip) {
+  const st = stripOverflowState(strip);
+  strip.classList.toggle('ov-l', st.left);
+  strip.classList.toggle('ov-r', st.right);
+  if (strip._ovL) strip._ovL.hidden = !st.left;
+  if (strip._ovR) strip._ovR.hidden = !st.right;
+}
+function setupStripOverflow(strip) {
+  if (!strip || strip._ovL) return;
+  const mk = (side) => {
+    const b = el('button', 'tsMore ts-' + side);
+    b.type = 'button';
+    b.hidden = true;
+    b.innerHTML = icon(side === 'l' ? 'chevL' : 'chevR', 12);
+    b.setAttribute('data-i18n-title', side === 'l' ? 'tab.moreLeft' : 'tab.moreRight');   // re-resolved on a locale change
+    b.title = t(b.getAttribute('data-i18n-title'));
+    b.addEventListener('click', () => strip.scrollBy({ left: (side === 'l' ? -1 : 1) * Math.max(120, strip.clientWidth * 0.8), behavior: 'smooth' }));
+    return b;
+  };
+  strip._ovL = mk('l'); strip._ovR = mk('r');
+  strip.before(strip._ovL);
+  strip.after(strip._ovR);
+  const sync = () => syncStripOverflow(strip);
+  strip.addEventListener('scroll', sync, { passive: true });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(sync).observe(strip);
+  if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(strip, { childList: true, subtree: true, characterData: true });
+  sync();
+}
+for (const sid of ['tabs', 'ttabs']) setupStripOverflow(document.getElementById(sid));
+
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
    manual order survive the layout churn that used to erase it. */
 function paintStrip(z) {
   const strip = tabsEl(z);
   if (!strip) return;
-  const plus = strip.querySelector('.newTab');
+  // The (+) lives beside the strip with the zone's other controls, so the tabs are its last children.
   for (const id of tabOrder[z]) {
     const p = panes.get(id);
-    if (p && p.tab) strip.insertBefore(p.tab, plus);
+    if (p && p.tab) strip.appendChild(p.tab);
   }
   paintGroups(z);
 }
@@ -3851,7 +4009,12 @@ if (window.glassShell.onUpdater) {
     /* 'available' and 'progress' now REACH the UI. They used to be log-only, which left
        the whole download invisible. 'checking' stays silent on purpose — a poll that finds
        nothing is not news, and surfacing it would make the chrome flicker on every focus. */
-    if (channel === 'ready') showUpdatePill((payload || {}).version, 'ready');
+    if (channel === 'ready') {
+      showUpdatePill((payload || {}).version, 'ready');
+      /* Again, now that main has certainly registered its handler: the launch-time report can run
+         before the updater is initialised, and its rejection is swallowed. Idempotent in main. */
+      tellUpdaterUnattended();
+    }
     else if (channel === 'available') showUpdatePill((payload || {}).version, 'downloading');
     else if (channel === 'progress') {
       /* Progress can arrive without a version in the payload, and it must not blank the one
@@ -5432,16 +5595,25 @@ async function batchResume() {
   if (chosen.alt) { void createPane({ name: 'resume', cmd: CLAUDE + ' --resume' }); return; }
   const picked = chosen.filter((c) => c.kind === 'sess').map((c) => c.r);
   if (!picked.length) { toast(t('resume.noneSelected')); return; }
-  /* One pane per selection, each running its own `claude --resume <id>`. Sequential rather than
-     parallel: several ptys spawning at once contend for the same terminal geometry and the
-     resume TUIs race each other for the first paint. */
-  for (const r of picked) {
-    const nm = r.name || r.id.slice(0, 8);
-    const hit = byName(nm);
-    if (hit && !panes.get(hit[0]).exited) continue;      // already open — do not duplicate it
-    void createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}` });
-  }
-  toast(t('resume.started', { n: picked.length }));
+  const ids = resumeAsTabs(picked);
+  if (!ids.length) return;
+  toast(ids.length > 1 ? t('resume.openedTabs', { n: ids.length }) : t('resume.started', { n: 1 }));
+}
+
+/* Several picked sessions come back the way a relaunch brings them back (0.15.0 round, the operator's call: "reuse that
+   behavior"): as tabs whose names stay italic until opened, each resuming when it is opened, and only the FIRST now, so a
+   single resume still feels instant. It replaces a one-at-a-time start that made the operator watch an unexplained wait.
+   The reason that sequence existed still holds and is met better: each `claude --resume` starts its own copy of every
+   configured MCP server, and seven started in the same second missed their connect window in all seven. A lazy tab starts
+   nothing until it is opened, so they start one at a time, at the operator's pace, and the storm cannot happen.
+   Already-open sessions are skipped; materializeRestore also refuses a transcript that is live elsewhere. */
+function resumeAsTabs(picked) {
+  const todo = picked.filter((r) => { const hit = byName(r.name || r.id.slice(0, 8)); return !(hit && !panes.get(hit[0]).exited); });
+  if (!todo.length) return [];
+  const ids = todo.map((r) => createRestoreTab({ sessionId: r.id, name: r.name || r.id.slice(0, 8), cwd: r.cwd || '' }));
+  void materializeRestore(ids[0]);
+  persistSessions();
+  return ids;
 }
 
 /* ═══ #28 — REOPEN LAST SESSIONS ═══════════════════════════════════════════════
@@ -5501,7 +5673,23 @@ function sessionsSnapshot() {
 }
 /* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
    written is the state at the moment of the change, never the state mid-teardown. */
+/* The tab groups for the menu bar icon (0.15.0 round 2): each group's label, colour and members' session names, sent to
+   main when they change. Rides persistSessions, which every group, tab and rename change already calls. */
+let tgReportedJson = '';
+function tgReportMenuBar() {
+  if (!window.glassShell || !window.glassShell.menuBarGroups) return;
+  const groups = [];
+  for (const [gid, g] of tabGroups) {
+    const members = tgMembers(gid).map((id) => panes.get(id)).filter((p) => p && p.name && !p.exited).map((p) => p.name);
+    if (members.length) groups.push({ name: g.name || '', color: g.color, members });
+  }
+  const json = JSON.stringify(groups);
+  if (json === tgReportedJson) return;
+  tgReportedJson = json;
+  try { window.glassShell.menuBarGroups(groups); } catch { /* main not ready */ }
+}
 function persistSessions() {
+  try { tgReportMenuBar(); } catch { /* the menu bar never stops a save */ }
   if (restoreQuitting) return;
   try { restorePending = sessionsSnapshot(); } catch { return; }
   clearTimeout(restoreTimer);
@@ -5814,6 +6002,16 @@ function unattendedScan(id, p, data) {
   }, UNATTENDED_GRACE_MS);
 }
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Wait for a session just started to reach the registry. False when its pane is gone or the cap ran out. */
+async function waitUntilLive(sessionId, isOpen) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < UNATTENDED_LIVE_CAP_MS) {
+    if (await window.glassShell.sessionIsLive(sessionId).catch(() => false)) return true;
+    if (!isOpen()) return false;
+    await sleepMs(UNATTENDED_POLL_MS);
+  }
+  return false;
+}
 /** Start restored tabs one by one. A tab that fails is reported and skipped, never a stop. */
 async function materializeInSequence(ids) {
   for (const id of ids) {
@@ -5823,14 +6021,10 @@ async function materializeInSequence(ids) {
     let started = false;
     try { started = await materializeRestore(id); } catch (e) { console.error('[unattended] could not start', name, e); }
     if (!started) { console.error('[unattended] could not start', name); continue; }   // materializeRestore toasted
-    const t0 = Date.now();
-    let live = false;
-    while (Date.now() - t0 < UNATTENDED_LIVE_CAP_MS) {
-      if (await window.glassShell.sessionIsLive(sessionId).catch(() => false)) { live = true; break; }
+    const live = await waitUntilLive(sessionId, () => {
       const open = [...panes.values()].find((q) => q.kind === 'term' && q.sessionId === sessionId);
-      if (!open || open.exited) break;
-      await sleepMs(UNATTENDED_POLL_MS);
-    }
+      return !!open && !open.exited;
+    });
     if (!live) {
       console.error('[unattended] not live after start', name, sessionId);
       toast(t('unattended.notLive', { name }));
@@ -6959,12 +7153,12 @@ let caffState = null;
    it is ASKED ONCE, Yes preselected, the first time the operator turns the cup on. Yes → the helper
    is installed and the lid hold enabled; No → remembered, never asked again. Settings still has it. */
 async function maybeAskLid(st) {
-  if (!IS_MAC || !st || !st.on || (st.lid && (st.lid.enabled || st.lid.installed))) return;
+  if (!IS_MAC || !st || !st.on || (st.lid && st.lid.installed)) return;   // installed = already answered with a yes
   const cfg = await window.glassShell.shellConfig().catch(() => null);
-  if (!cfg || cfg.lidAsked || cfg.lidAwake) return;
+  if (!cfg || cfg.lidAsked || cfg.lidAwake === 'off' || cfg.lidAwake === false) return;   // an explicit Off is never re-asked
   await window.glassShell.setSetting('lidAsked', true);
-  if (!window.confirm(t('caffeinate.lidAsk'))) return;   // OK (the default button) = Yes
-  const res = await window.glassShell.caffeinateLid(true, t('caffeinate.lidPrompt')).catch(() => null);
+  if (!window.confirm(t('caffeinate.lidAsk'))) { await window.glassShell.caffeinateLid('off', '').catch(() => null); return; }   // OK (the default button) = Yes, Always; Cancel = Off
+  const res = await window.glassShell.caffeinateLid('always', t('caffeinate.lidPrompt')).catch(() => null);
   paintCaffeine(res);
   if (res && res.lid && res.lid.error && res.lid.error !== 'cancelled') toast(t('caffeinate.lidFailed') + ' ' + res.lid.error);
 }
@@ -7391,10 +7585,13 @@ const paneOf = (name, id) => {
 
 window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
-    case 'terminal':
+    case 'terminal': {
       // cwd: a bus request's validated directory (main/busCwd); absent = the framework root.
-      await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m) });
+      const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m) });
+      // group: a bus spawn/resume asked for a tab group by name (core/commandBus parseGroup).
+      if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group);
       return;
+    }
     case 'toggleChatView': void chatSkinToggleMode(); return;
     case 'spawnWorker': void spawnWorkerFlow(); return;
     case 'launchPrimary': { const c = await window.glassShell.shellConfig(); launchPrimary(c.primary || 'aios'); return; }
@@ -7487,11 +7684,7 @@ window.glassShell.onIntent(async (m) => {
       if (hit) window.glassShell.ptyWrite(hit[0], '');
       return;
     }
-    case 'ask': {
-      const ask = await askWithChips();
-      if (ask) await launchAsk(ask);
-      return;
-    }
+    case 'ask': void onIntentAsk(); return;   // the menu bar's Ask AIOS… and the bus: destinations included
     case 'openFile':
       if (m.path) void openViewer(m.path);
       return;
@@ -7714,7 +7907,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'mic'], [2, 'img'], [3, 'help'], [4, 'copy'], [5, 'inbox'], [6, 'sliders']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'sparkles'], [2, 'chat'], [3, 'panel'], [4, 'stack'], [5, 'id'], [6, 'shield'], [7, 'megaphone']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -7759,7 +7952,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -8146,7 +8339,16 @@ const CHAT_KEY_OK = /^(?:\x1b\[[AB]|\r|[0-9])+$/;
 const CHAT_KEY_CHUNK = /\x1b\[[0-9;]*[A-Za-z]|\r|[^\x1b\r]/g;
 /* One preference pair for every chat view: changing the font in one conversation changing it in
    the others is what "my chat font" means. Seeded from shellConfig on each entry. */
-const chatPrefs = { family: '', size: CHAT_DEFAULT_SIZE };
+const chatPrefs = { family: '', size: CHAT_DEFAULT_SIZE, bubble: 'coral' };
+/* The operator's message colour in the chat view (0.15 round 3): coral by default, or one of the tab-group hues, each
+   deepened until white text holds at least as well as on the coral (3.95:1). Only the operator's bubble and the sticky
+   prompt take it; the brand coral everywhere else is untouched. */
+const CHAT_BUBBLES = [
+  { id: 'coral', bg: '#e5483a' }, { id: 'grey', bg: '#5f6368' }, { id: 'blue', bg: '#1a73e8' }, { id: 'indigo', bg: '#4f5bd5' },
+  { id: 'purple', bg: '#9334e6' }, { id: 'pink', bg: '#d01884' }, { id: 'orange', bg: '#c26401' }, { id: 'yellow', bg: '#a07800' },
+  { id: 'lime', bg: '#4d7c0f' }, { id: 'green', bg: '#1e8e3e' }, { id: 'cyan', bg: '#007b83' }, { id: 'brown', bg: '#8a6343' },
+];
+const chatBubbleOf = (id) => CHAT_BUBBLES.find((b) => b.id === id) || CHAT_BUBBLES[0];
 
 /* Glyphs only the chat uses, added to the shared table so icon() stays the one way to draw them.
    Plain geometric strokes of our own (nothing taken from any brand's set). */
@@ -8507,10 +8709,14 @@ function chatApplyPrefs() {
 function chatStyleSkin(cs) {
   cs.root.style.setProperty('--chat-font', chatPrefs.family || 'inherit');   // '' = follow the app's own font
   cs.root.style.setProperty('--chat-size', String(chatPrefs.size));
+  const b = chatBubbleOf(chatPrefs.bubble);
+  if (b.id === 'coral') cs.root.style.removeProperty('--chat-user-bg');   // the theme's own coral
+  else cs.root.style.setProperty('--chat-user-bg', b.bg);
 }
 function chatReadPrefs(c) {
   if (!c) return;
   if (typeof c.chatFontFamily === 'string') chatPrefs.family = c.chatFontFamily;
+  if (typeof c.chatBubble === 'string') chatPrefs.bubble = chatBubbleOf(c.chatBubble).id;
   const n = Number(c.chatFontSize);
   if (Number.isFinite(n) && n >= 8 && n <= 40) chatPrefs.size = n;
 }
@@ -9017,11 +9223,19 @@ function chatSkinBuild(id, p) {
      terminal, says who the keyboard now talks to, and offers the way back. Painted by chatSkinBgPaint. */
   const agentBar = el('div', 'cs-agentbar');
   agentBar.hidden = true;
-  root.append(log, alertEl, agentBar, compose);
+  /* The sticky prompt (0.15.0 round): like the terminal pinning your last prompt while you scroll, a one-line strip at the
+     top of the conversation names the prompt the reply on screen answers. Over the log, never in its flow (no layout shift);
+     a click takes you to that prompt. Painted by chatSkinStickyPaint. */
+  const stickyEl = el('button', 'cs-sticky');
+  stickyEl.type = 'button';
+  stickyEl.hidden = true;
+  stickyEl.tabIndex = -1;
+  stickyEl.title = t('chat.skin.stickyJump'); stickyEl.setAttribute('aria-label', t('chat.skin.stickyJump'));
+  root.append(log, stickyEl, alertEl, agentBar, compose);
   p.el.appendChild(root);
 
   const cs = {
-    id, pane: p, who: chatSkinWho(p), root, log, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    id, pane: p, who: chatSkinWho(p), root, log, stickyEl, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
     effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
     slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
     items: new Map(),            // transcript uuid -> { node, role, … }
@@ -9036,7 +9250,7 @@ function chatSkinBuild(id, p) {
     errorCode: '',
     turnOpen: false, lastEventAt: 0, lastSubmitAt: 0, stick: true, resetAt: Date.now(), autoUntil: 0,
     promptKind: null, promptHint: '', stalled: false, idCheckedAt: 0, idChecks: 0, watchedAt: 0,
-    promptQ: '', promptOpts: null, promptUsed: false, promptTerm: false, promptGen: 0, dlg: null, dlgSig: '',   // a dialog drawn as a card: see chatSkinPrompt
+    promptQ: '', promptHead: '', promptOpts: null, promptUsed: false, promptTerm: false, promptGen: 0, dlg: null, dlgSig: '',   // a dialog drawn as a card: see chatSkinPrompt
     stream: null,                // the provisional bubble of the reply being written: { rec, anchor, text, live } — see chatSkinStream
     screenTimer: 0, screenSince: 0, framing: false,
   };
@@ -9050,6 +9264,18 @@ function chatSkinBuild(id, p) {
     cs.stick = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
     chatSkinPaintJump(cs);
     if (log.scrollTop < CS_EARLIER_NEAR_PX) chatSkinWantEarlier(id, p);   // the operator is reaching for what main did not send
+  });
+  log.addEventListener('scroll', () => chatSkinStickySoon(cs), { passive: true });
+  if (typeof MutationObserver === 'function') new MutationObserver(() => chatSkinStickySoon(cs)).observe(log, { childList: true });   // a new turn moves which prompt is above the fold
+  stickyEl.addEventListener('mousedown', (e) => e.preventDefault());   // never takes the focus from the box
+  stickyEl.addEventListener('click', () => {
+    const node = cs.stickyNode;
+    if (!node || !node.isConnected) return;
+    cs.stick = false;
+    cs.autoUntil = 0;
+    /* Below the strip, not under it (round 3: under it, the strip at once named the prompt before, and that read as a miss). */
+    cs.log.scrollTo({ top: Math.max(0, chatSkinRowTop(cs.log, node) - chatSkinStickyClear(cs)), behavior: chatReducedMotion() ? 'auto' : 'smooth' });
+    chatSkinPaintJump(cs);
   });
   log.addEventListener('wheel', (e) => { if (e.deltaY < 0) cs.autoUntil = 0; }, { passive: true });   // the operator reaching for the past takes the wheel back at once
   /* The column changing size keeps the newest message in view when the operator was following it (0.14.0 round): opening a
@@ -9065,7 +9291,7 @@ function chatSkinBuild(id, p) {
     e.preventDefault();
     void window.glassShell.openExternal(a.getAttribute('href'));
   });
-  input.addEventListener('input', () => { cs.hist = null; chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); });   // typing leaves the history walk
+  input.addEventListener('input', () => { cs.hist = null; chatSkinAutosize(cs); chatSkinControls(p); chatSkinSlashRefresh(cs, p); chatSkinSuggestPaint(p); });   // typing leaves the history walk
   input.addEventListener('blur', () => chatSkinSlashClose(cs));
   chatSkinDropBind(cs);
   /* REGISTERED BEFORE the Enter listener below, and it stops the event for it: with the popup open Enter (and Tab)
@@ -9073,6 +9299,13 @@ function chatSkinBuild(id, p) {
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
+  /* Tab on an empty box takes Claude Code's suggestion into it, as Tab does in the terminal. AFTER the slash popup's listener,
+     which stops the event: with the popup open, Tab completes the command and never reaches this. */
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || input.value !== '' || !cs.suggest) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    chatSkinSuggestTake(cs);
+  });
   /* Shift+Tab cycles the permission mode, as it does in the terminal and as the hint under Claude Code's prompt says (0.14.1
      round: in the chat box it moved the focus instead). Same guards as the mode menu: never into a dialog, never blind. */
   input.addEventListener('keydown', (e) => {
@@ -9165,7 +9398,7 @@ function chatSkinSetView(id, view) {
   if (view === 'chat') {
     const cs = chatSkinBuild(id, p);
     cs.promptKind = null; cs.promptHint = ''; cs.stalled = false;
-    cs.promptOpts = null; cs.promptQ = ''; cs.promptUsed = false; cs.promptTerm = false;
+    cs.promptOpts = null; cs.promptQ = ''; cs.promptHead = ''; cs.promptUsed = false; cs.promptTerm = false;
     cs.lastEventAt = Date.now();
     try { p.term.blur(); } catch { /* disposed */ }
     void Promise.resolve(window.glassShell.shellConfig()).then((c) => { chatReadPrefs(c); chatApplyPrefs(); }).catch(() => {});
@@ -9342,6 +9575,7 @@ function chatSkinLayout(p) {
   chatSkinControls(p);
   chatSkinPaintAlert(p);
   chatSkinPaintState(p);
+  if (typeof chatSkinStickySoon === 'function') chatSkinStickySoon(cs);   // a dialog opening or closing hides or brings back the strip
 }
 function chatSkinControls(p) {
   const cs = p.chatSkin;
@@ -9376,10 +9610,12 @@ function chatSkinPlaceholder(p) {
   /* Measured on the CARD, never on the input (0.14.0 round): the hint shares the input's line, so showing it narrowed the
      input under the threshold, which hid it, which widened the input again: it blinked many times a second. */
   if (keys) keys.hidden = chatSkinCardOn(cs) || (cs.box ? cs.box.clientWidth : cs.input.clientWidth) < CS_KEYS_MIN_CARD;
-  if (cs.recording || cs.input.placeholder === ph) return;   // while voice listens, the placeholder is the words it hears
-  cs.input.placeholder = ph;
+  if (cs.recording) return;   // while voice listens, the placeholder is the words it hears
   cs.placeholder0 = ph;
   cs.input.setAttribute('aria-label', base);
+  /* Claude Code's greyed next-prompt suggestion takes the placeholder's place while the box is empty (chatSkinSuggestPaint). */
+  const show = cs.suggest ? t('chat.suggest.placeholder', { text: cs.suggest }) : ph;
+  if (cs.input.placeholder !== show) cs.input.placeholder = show;
 }
 function chatSkinPaintAlert(p) {
   const cs = p.chatSkin;
@@ -9963,6 +10199,65 @@ function chatSkinPromptDraft(p) {
     return rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
   } catch { return ''; }
 }
+/* Claude Code's greyed next-prompt suggestion: the DIM text in its live prompt box, or '' when there is none or anything is typed
+   there (a typed character means the box holds a draft, and the suggestion is gone in the terminal too). Same box as
+   chatSkinPromptEmpty; the inverse of chatSkinPromptDraft, which keeps only what is NOT dim. */
+function chatSkinPromptSuggestion(p) {
+  try {
+    const b = p.term.buffer.active;
+    const c = b.getNullCell();
+    const text = (y) => (b.getLine(y) ? b.getLine(y).translateToString(true) : '');
+    let bottom = -1;
+    for (let y = b.length - 1; y >= Math.max(0, b.length - chatSkinLookBack(p, 40)); y--) if (/^─{10,}\s*$/.test(text(y))) { bottom = y; break; }
+    if (bottom < 1) return '';
+    let top = bottom - 1;
+    while (top > 0 && !/^─{3,}/.test(text(top - 1)) && bottom - top < 12) top--;
+    if (!/^❯/.test(text(top))) return '';
+    const rows = [];
+    for (let y = top; y < bottom; y++) {
+      const line = b.getLine(y);
+      let row = '';
+      for (let x = y === top ? 2 : 0; x < line.length; x++) {
+        line.getCell(x, c);
+        const ch = c.getChars();
+        if (!c.isDim()) { if (ch && ch.trim()) return ''; row += ' '; continue; }   // typed text: no suggestion
+        row += ch || ' ';
+      }
+      rows.push(row.replace(/\s+$/, ''));
+    }
+    const said = rows.map((r) => r.replace(/^ {2}/, '')).join(' ').replace(/\s+/g, ' ').trim();
+    /* Claude Code's static example placeholder (`Try "fix lint errors"`) is dim too, but it is an example, not a suggestion:
+       Enter on it must never send it (0.15.0 review). */
+    return /^Try ["“]/.test(said) ? '' : said;
+  } catch { return ''; }
+}
+/* A suggestion only follows a finished reply: before Claude has answered once, any dim text in the box is a placeholder. */
+function chatSkinHasReply(cs) {
+  return !!(cs && cs.log && cs.log.querySelector('.chat-row.who-claude'));
+}
+/* Offer the suggestion in the chat box the way the terminal does: shown in place of the placeholder while the box is empty,
+   Tab takes it into the box, Enter on the empty box sends it (chatSkinSendNow). Never over a dialog, a card or a dictation. */
+function chatSkinSuggestPaint(p) {
+  const cs = p && p.chatSkin;
+  if (!cs || !cs.input) return;
+  const s = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '' && chatSkinHasReply(cs) ? chatSkinPromptSuggestion(p) : '';
+  const shown = s ? t('chat.suggest.placeholder', { text: s }) : (cs.placeholder0 || '');
+  if (s === (cs.suggest || '') && (cs.recording || cs.input.placeholder === shown)) return;
+  cs.suggest = s;
+  chatSkinPlaceholder(p);
+}
+function chatSkinSuggestTake(cs) {
+  const s = cs.suggest;
+  if (!s || cs.input.value !== '') return false;
+  cs.input.value = s;
+  cs.input.selectionStart = cs.input.selectionEnd = s.length;
+  cs.suggest = '';
+  cs.hist = null;
+  chatSkinAutosize(cs);
+  chatSkinControls(cs.pane);
+  chatSkinPlaceholder(cs.pane);
+  return true;
+}
 /* The terminal shows "Interrupted" every time; the transcript only carries "[Request interrupted by user]" when a TOOL was
    cut, so a reply stopped mid-text just ended in the chat (0.14.0 round: "that's a must when i interrupt"). After the
    operator's Esc the chat adds the same marker itself, unless the transcript brought one for this turn. Local to the view:
@@ -10229,6 +10524,52 @@ function chatSkinScroll(cs, smooth) {
 }
 function chatSkinPaintJump(cs) {
   cs.jumpBtn.hidden = cs.stick || cs.log.scrollHeight <= cs.log.clientHeight + 48;
+}
+/* ── the sticky prompt ── */
+/* Which prompt the top of the view belongs to: the last operator row that starts above the view's top edge, and only while
+   that row has scrolled out entirely (its own bubble on screen says it already). Nothing at the very top of the log.
+   `rows` are { top, bottom } in the log's scroll coordinates, in document order. Pure, so it is tested as is. */
+const CS_STICKY_TOP_PX = 8;
+function chatSkinStickyPick(rows, scrollTop) {
+  if (!(scrollTop > CS_STICKY_TOP_PX)) return -1;
+  let pick = -1;
+  for (let i = 0; i < rows.length; i++) { if (rows[i].top < scrollTop) pick = i; else break; }
+  if (pick < 0 || rows[pick].bottom > scrollTop) return -1;   // its bubble still shows
+  return pick;
+}
+/* How far below the log's top a prompt lands when the strip takes you to it: the strip's own height and offset plus air. */
+function chatSkinStickyClear(cs) {
+  const strip = cs.stickyEl;
+  const h = strip && !strip.hidden ? strip.getBoundingClientRect().height + (strip.offsetTop || 0) : 0;
+  return Math.max(12, Math.round(h) + 12);
+}
+/* A row's top in the log's scroll coordinates, whatever its offset parent. */
+function chatSkinRowTop(log, node) {
+  return node.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop;
+}
+function chatSkinStickySoon(cs) {
+  if (cs.stickyRaf) return;
+  cs.stickyRaf = requestAnimationFrame(() => { cs.stickyRaf = 0; chatSkinStickyPaint(cs); });
+}
+function chatSkinStickyPaint(cs) {
+  const strip = cs.stickyEl;
+  if (!strip) return;
+  /* A dialog owns the top of the conversation (round 3: the strip covered the question card). */
+  if (cs.promptKind || cs.lostPrompt) { cs.stickyNode = null; if (!strip.hidden) strip.hidden = true; return; }
+  /* Only once the operator has scrolled up (round 4): while the chat follows the bottom, a reply taller than the view
+     put its prompt above the top and showed the strip with no scrolling at all, in some sessions and not others. */
+  if (cs.stick) { cs.stickyNode = null; if (!strip.hidden) strip.hidden = true; return; }
+  const log = cs.log;
+  const nodes = [...log.querySelectorAll('.chat-row.who-user')].filter((n) => !n.hidden && n.getClientRects().length);
+  const base = log.getBoundingClientRect().top - log.scrollTop;
+  const rows = nodes.map((n) => { const r = n.getBoundingClientRect(); return { top: r.top - base, bottom: r.bottom - base }; });
+  const i = chatSkinStickyPick(rows, log.scrollTop);
+  const node = i < 0 ? null : nodes[i];
+  const text = node ? (node.querySelector('.chat-text') || node).textContent.replace(/\s+/g, ' ').trim() : '';
+  cs.stickyNode = text ? node : null;
+  if (!text) { if (!strip.hidden) strip.hidden = true; return; }
+  if (strip.textContent !== text) strip.textContent = text;
+  if (strip.hidden) strip.hidden = false;
 }
 function chatSkinAutosize(cs) {
   if (cs.box) { cs.box.classList.toggle('bang', cs.input.value.startsWith('!')); cs.box.classList.toggle('has-text', cs.input.value !== ''); }   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
@@ -11033,7 +11374,8 @@ function chatSkinPromptOptions(raw) {
   const out = [];
   for (const o of raw.slice(0, 12)) {
     if (!o || typeof o.label !== 'string' || !o.label.trim() || typeof o.key !== 'string' || !CHAT_KEY_OK.test(o.key)) return null;
-    out.push({ n: Number.isInteger(o.n) ? o.n : null, label: o.label.slice(0, 200), selected: !!o.selected, key: o.key, freeText: o.freeText === true });
+    out.push({ n: Number.isInteger(o.n) ? o.n : null, label: o.label.slice(0, 200), selected: !!o.selected, key: o.key, freeText: o.freeText === true,
+      desc: typeof o.desc === 'string' ? o.desc.slice(0, 300) : '' });
   }
   return out;
 }
@@ -11041,7 +11383,8 @@ function chatSkinPrompt(id, p, ev) {
   const cs = p.chatSkin;
   const kind = ev.kind ? (CHAT_PROMPT_KINDS.includes(ev.kind) ? ev.kind : 'other') : null;
   const opts = kind ? chatSkinPromptOptions(ev.options) : null;
-  const question = kind && typeof ev.question === 'string' ? ev.question.slice(0, 300) : '';
+  const question = kind && typeof ev.question === 'string' ? ev.question.slice(0, 800) : '';
+  const header = kind && typeof ev.header === 'string' ? ev.header.slice(0, 80) : '';
   cs.promptHint = kind && typeof ev.hint === 'string' ? ev.hint.slice(0, 200) : '';
   if (kind && ev.refresh === true && kind === cs.promptKind) {
     /* The SAME dialog with its cursor moved: the keys of an unnumbered menu are relative to the cursor, so adopt the new
@@ -11051,8 +11394,12 @@ function chatSkinPrompt(id, p, ev) {
     return;
   }
   if (kind === cs.promptKind && question === cs.promptQ && chatSkinOptsSig(opts) === chatSkinOptsSig(cs.promptOpts)) { chatSkinPaintAlert(p); return; }   // announced already
-  cs.promptKind = kind; cs.promptQ = question; cs.promptOpts = opts;
+  cs.promptKind = kind; cs.promptQ = question; cs.promptHead = header; cs.promptOpts = opts;
   cs.promptUsed = false; cs.promptTerm = false; cs.promptGen++;   // a new dialog is a new, enabled card, buttons first
+  /* A dialog that is recognised replaces the lost-prompt terminal (round 3): a question taller than the pane hid its top, the
+     prompt box vanished, chatSkinLostPrompt showed the live terminal, and the transcript-built card that came next sat on
+     top of it with the raw dialog still drawn below. */
+  if (kind) { cs.lostPrompt = false; cs.lostSince = 0; }
   cs.stalled = false;
   chatSkinLayout(p);
   const card = chatSkinCardOn(cs);
@@ -11104,6 +11451,7 @@ function chatSkinCardBuild(p) {
   card.dataset.kind = cs.promptKind;
   const head = el('div', 'csd-head');
   head.append(csIcon('term', 15), el('span', 'csd-kind', t('chat.skin.dlg.kind.' + cs.promptKind, { name: who })));
+  if (cs.promptHead) head.append(el('span', 'csd-chip', cs.promptHead));   // AskUserQuestion's header chip, the CLI's own words
   const q = el('div', 'csd-q', cs.promptQ || cs.promptHint || t('chat.skin.dlg.noQuestion'));   // the question is the CLI's own words, shown as text and never parsed
   q.id = 'cs-dlg-q-' + cs.id + '-' + cs.promptGen;
   card.setAttribute('aria-describedby', q.id);
@@ -11117,7 +11465,10 @@ function chatSkinCardBuild(p) {
     if (num >= 1 && num <= 9) b.setAttribute('aria-keyshortcuts', String(num));
     const def = el('span', 'csd-def', '↵');
     def.setAttribute('aria-hidden', 'true');
-    b.append(el('span', 'csd-n', String(num)), el('span', 'csd-l', o.label), def, el('span', 'cs-sr', t('chat.skin.dlg.default')));
+    if (o.freeText) b.classList.add('free');   // "Type something.": opens the terminal to type, it is not an answer
+    const text = el('span', 'csd-l', o.label);
+    if (o.desc) text.append(el('span', 'csd-d', o.desc));   // what this option does, as the CLI prints it under the label
+    b.append(el('span', 'csd-n', String(num)), text, def, el('span', 'cs-sr', t('chat.skin.dlg.default')));
     list.appendChild(b);
   });
   list.addEventListener('click', (e) => {
@@ -11239,12 +11590,21 @@ function chatSkinSendNow(id, p, retried) {
     toast(draft ? t('chat.send.draftShown', { draft: draft.length > 60 ? draft.slice(0, 59) + '…' : draft }) : t('chat.send.draft'));
     return;
   }
-  const text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  let text = cs.input.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+  /* Enter on an empty box sends the suggestion it shows, as Enter does in the terminal. Read again first: only what is on
+     screen now AND what the box showed is sent, never a suggestion that changed under the key. */
+  if (!text.trim() && cs.suggest) {
+    const live = chatSkinPromptSuggestion(p);
+    if (live && live === cs.suggest) text = live;
+    else { chatSkinSuggestPaint(p); return; }
+  }
   if (!text.trim()) return;
+  cs.suggest = '';
   cs.input.value = '';
   cs.hist = null;
   (cs.sent || (cs.sent = [])).push(text);   // recallable at once, before the transcript records it
   chatSkinAutosize(cs);
+  chatSkinPlaceholder(p);   // the sent suggestion leaves the placeholder at once, not on the next tick
   chatSkinSlashClose(cs);
   /* Queued when a turn runs OR the last message has had no answer yet: right after a send, Claude Code has not drawn its
      spinner and the transcript has not opened the turn, so for a few seconds a running turn reads as idle (seen in the demo
@@ -11571,6 +11931,54 @@ function chatSkinFirstRun(id, p) {
     if (p.view !== 'chat') chatSkinSetView(id, 'chat');
   }
 }
+/* A QUESTION THE CHAT CANNOT DRAW (0.15.0, the operator's call). A question taller than a short pane loses its top rows: on
+   macOS Claude Code draws in the alternate screen, which keeps no scrollback, and the transcript only gets the question once
+   it is answered, so no card can be built. Rather than a raw terminal squeezed into the chat with a stall banner, the tab
+   switches to the real terminal, keyboard and all, and comes back to chat when the dialog is gone. Only when the switch was
+   automatic: an operator who goes back to chat by hand, or turns chat off, is never overridden. A dialog the chat already
+   draws as a card (cs.promptKind) never switches; the 1.2 s wait gives the card detector its turn first. */
+const CS_SELECT_FOOTER = /Enter to select\b|↑\/↓ to navigate|Esc to cancel/;
+/* The last non-empty rows Claude Code is drawing: the live end of the buffer, never the operator's scroll position, and
+   with blank rows dropped so a footer above trailing blank rows is still found (round 5: it fell out of a 6-row window). */
+const chatSkinLiveTail = (text, n) => text.split('\n').filter((l) => l.trim()).slice(-n).join('\n');
+/* Leaving the terminal waits for the dialog to be really gone: no footer AND Claude Code's prompt box back, held for this
+   long. The dialog's own selection marker (`❯ 1. …`) moves on scroll and arrow keys and could read as the prompt box for a
+   tick, which sent the tab back to chat and then here again: a flap (round 5, the operator's report). */
+const CS_QUESTION_SETTLE_MS = 1000;
+function chatSkinQuestionTerm(id, p, now) {
+  if (chatMode !== 'chat' || p.exited || !chatSkinEligible(p)) { p.questionTerm = false; p.questionSince = 0; p.questionGoneSince = 0; return; }
+  let text = '';
+  try { text = chatSkinScreenText(p); } catch { return; }
+  const footer = CS_SELECT_FOOTER.test(chatSkinLiveTail(text, 8));
+  /* While the selection footer is up, a `❯ 1.` row is the dialog's own marker, not Claude Code's prompt box. */
+  const box = chatSkinAgentCursor(p) !== null && !(footer && /^❯\s*\d+[.)]/m.test(text));
+  const settled = !footer && box;
+  if (settled) { if (!p.questionGoneSince) p.questionGoneSince = now; } else p.questionGoneSince = 0;
+  const gone = settled && now - p.questionGoneSince >= CS_QUESTION_SETTLE_MS;
+  const cs = p.chatSkin;
+  if (p.questionTerm) {
+    if (p.view === 'chat') { p.questionTerm = false; p.questionHeld = true; return; }   // back to chat by hand: the operator's choice stands for this dialog
+    if (gone) { p.questionTerm = false; p.questionHeld = false; p.questionSince = 0; chatSkinSetView(id, 'chat'); }
+    return;
+  }
+  /* One switch per dialog: after a return by hand, nothing switches again until that dialog has really ended. */
+  if (p.questionHeld) { if (gone) p.questionHeld = false; p.questionSince = 0; return; }
+  const open = footer && !box;
+  if (!open) { p.questionSince = 0; return; }
+  if (p.view !== 'chat' || (cs && cs.promptKind)) { p.questionSince = 0; return; }
+  if (!p.questionSince) { p.questionSince = now; return; }
+  if (now - p.questionSince < 1200) return;
+  p.questionSince = 0;
+  if (cs) { cs.lostPrompt = false; cs.lostSince = 0; cs.stalled = false; }
+  p.questionTerm = true;
+  if (!chatSkinSetView(id, 'term')) { p.questionTerm = false; return; }
+  toast(t('chat.skin.questionInTerm', { name: p.name || '' }));
+  /* Take the keyboard only if the operator is not typing somewhere else (0.15.0 review 2): with two sessions visible, a
+     focus steal would send the next keys into this dialog, answering it by accident. */
+  const ae = typeof document !== "undefined" ? document.activeElement : null;
+  const elsewhere = ae && ae !== (typeof document !== "undefined" ? document.body : null) && !(p.el && p.el.contains(ae)) && /^(INPUT|TEXTAREA)$|xterm-helper-textarea/.test(ae.tagName + ' ' + (ae.className || ''));
+  if (!elsewhere) setTimeout(() => { if (panes.get(id) === p) { try { p.term.focus(); } catch { /* gone */ } } }, 60);
+}
 /* A PANEL NOTHING RECOGNISED. Claude Code 2.1.314's /cost (also /status, /config, /usage, /stats) opens a full-screen Settings
    panel whose "Esc" footer falls below a short terminal's last row, so no detector sees it: the chat looked idle while
    every key went into the panel (0.14.0 sweep). The general rule: Claude Code's prompt box gone for 1.5 s, while it is not
@@ -11586,7 +11994,8 @@ function chatSkinLostPrompt(id, p, now) {
     if (cs.lostPrompt) { cs.lostPrompt = false; chatSkinLayout(p); chatSkinFocus(p); }
     return;
   }
-  if (!cs.sawPrompt || cs.promptKind || chatSkinWorking(p) || p.exited) { cs.lostSince = 0; return; }
+  if (cs.promptKind) { cs.lostSince = 0; if (cs.lostPrompt) { cs.lostPrompt = false; chatSkinLayout(p); } return; }   // a dialog has its own card or strip
+  if (!cs.sawPrompt || chatSkinWorking(p) || p.exited) { cs.lostSince = 0; return; }
   if (!cs.lostSince) { cs.lostSince = now; return; }
   if (!cs.lostPrompt && now - cs.lostSince > 1500) {
     cs.lostPrompt = true;
@@ -11600,6 +12009,7 @@ function chatSkinTick() {
   for (const [id, p] of panes) {
     if (p.kind !== 'term') continue;
     chatSkinFirstRun(id, p);
+    chatSkinQuestionTerm(id, p, now);
     /* Reconcile sessions learned by a path that does not call chatSkinSessionChanged itself
        (adoptUnidentified, or an assignment added later): idempotent, no DOM work when nothing moved. */
     const ok = chatSkinEligible(p);
@@ -11615,6 +12025,7 @@ function chatSkinTick() {
     const cs = p.chatSkin;
     if (p.view !== 'chat' || !cs) continue;
     chatSkinControls(p);
+    chatSkinSuggestPaint(p);
     const busyNow = chatSkinWorking(p, now);
     if (busyNow && !cs.workSince) cs.workSince = now;   // a working stretch begins: its clock starts here
     else if (!busyNow) cs.workSince = 0;
@@ -11914,7 +12325,46 @@ function openSettingsTab() {
       pulse.send({ type: 'recheck' });   // PanelHost re-posts state → launch button + greeting repaint
       toast(t('settings.primarySaved', { name: r.name }));
     });
-    row(wrap, t('settings.primaryName'), primIn, t('settings.primaryNameHint'));
+    const primRow = row(wrap, t('settings.primaryName'), primIn, t('settings.primaryNameHint'));
+    /* SEVERAL COMPUTERS, ONE VAULT. USER.md's Identity table keeps one row per computer's primary session
+       (the laptop's, the agent machine's), and the vault syncs, so the first row used to launch on every
+       machine. With two or more rows this computer picks its own; the choice is stored machine-locally
+       (~/.aios/app.json, never the synced framework). It replaces the rename field, which only ever
+       edited the first row. */
+    const identSel = document.createElement('select');
+    identSel.className = 'tinput';
+    identSel.dataset.setting = 'primaryIdentity';
+    const identRow = row(wrap, t('settings.primaryIdentity'), identSel, t('settings.primaryIdentityHint'));
+    identRow.hidden = true;
+    const identWarn = el('div', 'thint', '');
+    identWarn.style.color = 'var(--st-warn-ink)';
+    identWarn.hidden = true;
+    identRow.querySelector('.tlabel')?.appendChild(identWarn);
+    const paintIdentity = (st) => {
+      const many = !!(st && Array.isArray(st.rows) && st.rows.length >= 2);
+      identRow.hidden = !many;
+      /* The rename field stays (0.15.0 review 2): it is still the one place to rename the first row in USER.md. */
+      if (!many) return;
+      identSel.replaceChildren();
+      for (const r of st.rows) {
+        const o = document.createElement('option');
+        o.value = r.name;
+        o.textContent = r.role ? `${r.name} — ${r.role}` : r.name;
+        identSel.appendChild(o);
+      }
+      identSel.value = st.name;
+      identWarn.hidden = !st.stale;
+      identWarn.textContent = st.stale ? t('settings.primaryIdentityStale', { stored: st.stored, name: st.name }) : '';
+    };
+    void window.glassShell.primaryIdentity().then(paintIdentity).catch(() => {});
+    identSel.addEventListener('change', async () => {
+      const r = await window.glassShell.setPrimaryIdentity(identSel.value).catch(() => ({ ok: false }));
+      if (!r || !r.ok) { toast(t('settings.primaryFailed')); return; }
+      cfg.primary = r.name;
+      paintIdentity(await window.glassShell.primaryIdentity().catch(() => null));
+      pulse.send({ type: 'recheck' });   // PanelHost re-posts state → the Launch button repaints with this computer's identity
+      toast(t('settings.primarySaved', { name: r.name }));
+    });
 
     const langSel = document.createElement('select');
     langSel.className = 'tinput';
@@ -11990,23 +12440,24 @@ function openSettingsTab() {
     if (window.glassShell.platform === 'darwin') {
       const lidSel = document.createElement('select');
       lidSel.className = 'tinput';
-      for (const [l, v] of [[t('caffeinate.lidOff'), 'off'], [t('caffeinate.lidOn'), 'on']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; lidSel.appendChild(o); }
-      lidSel.value = cfg.lidAwake === true ? 'on' : 'off';
+      for (const [l, v] of [[t('caffeinate.lidOn'), 'always'], [t('caffeinate.lidPlugged'), 'plugged'], [t('caffeinate.lidOff'), 'off']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; lidSel.appendChild(o); }
+      lidSel.value = 'off';   // painted from main's state below: a mode only shows once the helper is installed
       row(wrap, t('settings.lidAwake'), lidSel, t('settings.lidAwakeHint'));
       /* Remove undoes the install entirely (all three files) — offered whenever anything is
          installed, so trying the feature never leaves something behind the operator cannot see. */
       const lidRemove = el('button', 'vbtn', t('caffeinate.lidRemove'));
       const paintLid = (st) => {
         const l = st && st.lid;
-        lidSel.value = l && l.enabled && l.installed ? 'on' : 'off';
+        lidSel.value = l && l.installed && (l.mode === 'always' || l.mode === 'plugged') ? l.mode : 'off';   // no helper → no hold, whatever is stored
         lidRemove.hidden = !(l && l.installed);
       };
       lidSel.addEventListener('change', async () => {
-        const st = await window.glassShell.caffeinateLid(lidSel.value === 'on', t('caffeinate.lidPrompt'));
+        const want = lidSel.value;
+        const st = await window.glassShell.caffeinateLid(want, t('caffeinate.lidPrompt'));
         paintLid(st); paintCaffeine(st);
         /* Cancelled at the password prompt, or the install failed: the select snaps back to off
            and the reason is said, rather than showing "on" over a hold that cannot happen. */
-        if (lidSel.value === 'on') toast(t('settings.saved'));
+        if (lidSel.value === want) toast(t('settings.saved'));
         else if (st && st.lid && st.lid.error && st.lid.error !== 'cancelled') toast(t('caffeinate.lidFailed') + ' ' + st.lid.error);
       });
       lidRemove.addEventListener('click', async () => {
@@ -12051,6 +12502,7 @@ function openSettingsTab() {
     unSel.addEventListener('change', () => {
       UNATTENDED = unattendedModeOf(unSel.value);
       try { localStorage.setItem(UNATTENDED_KEY, UNATTENDED); } catch { /* private mode: lasts this run */ }
+      tellUpdaterUnattended();
       toast(t('settings.saved'));
     });
     row(wrap, t('settings.unattended'), unSel, t('settings.unattendedHint'));
@@ -12115,12 +12567,33 @@ function openSettingsTab() {
     });
     const chatFontRow = row(wrap, t('settings.chatFont'), chatFontSel, t('settings.chatFontHint'));
     const chatSizeRow = row(wrap, t('settings.chatSize'), chatSizeSel, t('settings.chatSizeHint'));
+    /* Your message colour: one swatch per hue, the chosen one ringed. Applies at once to every open chat. */
+    const bubbleRow = el('div', 'chat-bubble-swatches');
+    bubbleRow.setAttribute('role', 'radiogroup');
+    const paintSwatches = () => { for (const b of bubbleRow.children) b.setAttribute('aria-checked', String(b.dataset.bubble === chatPrefs.bubble)); };
+    for (const b of CHAT_BUBBLES) {
+      const sw = document.createElement('button');
+      sw.type = 'button'; sw.className = 'chat-swatch'; sw.dataset.bubble = b.id; sw.setAttribute('role', 'radio');
+      sw.style.setProperty('--sw', b.bg);
+      const name = tgCap(t('tg.color.' + b.id));
+      sw.title = name; sw.setAttribute('aria-label', name);
+      sw.addEventListener('click', async () => {
+        chatPrefs.bubble = b.id;
+        paintSwatches();
+        chatApplyPrefs();
+        await window.glassShell.setSetting('chatBubble', b.id);
+        toast(t('settings.saved'));
+      });
+      bubbleRow.appendChild(sw);
+    }
+    paintSwatches();
+    const chatBubbleRow = row(wrap, t('settings.chatBubble'), bubbleRow, t('settings.chatBubbleHint'));
     wrap.appendChild(chatSample);
     const paintClaudeView = () => {
       if (!claudeViewSel.isConnected && claudeViewSel.dataset.painted) { chatModeSubs.delete(paintClaudeView); return; }   // the page was closed
       claudeViewSel.dataset.painted = '1';
       claudeViewSel.value = chatMode;
-      for (const n of [chatFontRow, chatSizeRow, chatSample]) n.hidden = chatMode !== 'chat';
+      for (const n of [chatFontRow, chatSizeRow, chatBubbleRow, chatSample]) n.hidden = chatMode !== 'chat';
     };
     chatModeSubs.add(paintClaudeView);
     paintClaudeView();
@@ -12180,6 +12653,50 @@ function openSettingsTab() {
     row(wrap, t('settings.secondaryHints'), mkToggle('showHints', cfg.showHints), t('settings.secondaryHintsHint'));
     row(wrap, t('settings.ritualNudges'), mkToggle('showNudges', cfg.showNudges), t('settings.ritualNudgesHint'));
     row(wrap, t('settings.showMemory'), mkToggle('showMemory', cfg.showMemory !== false), t('settings.showMemoryHint'));
+    /* The menu-bar icon (docs/rfcs/menu-bar.md). macOS only; main creates or removes it the moment this changes. */
+    if (window.glassShell.platform === 'darwin') row(wrap, t('settings.menuBar'), mkToggle('menuBar', cfg.menuBar !== false), t('settings.menuBarHint'));
+    /* "Ask AIOS from any app": its global shortcut (docs/rfcs/menu-bar.md § 3.4). A KEY RECORDER, not a text field: the
+       operator could not tell what to type into a field expecting an Electron accelerator (0.15.0 round 3). Click, press
+       the keys; Esc cancels; Clear turns it off. Main says whether the OS granted it, and a refusal is shown here instead
+       of a key that silently does nothing. Hidden until main says the bar exists (macOS only). */
+    if (window.glassShell.platform === 'darwin') {
+      const box = el('div', 'qbrec');
+      const qbBtn = el('button', 'tinput qbrec-key'); qbBtn.type = 'button';
+      const qbClear = el('button', 'qbrec-clear', t('settings.quickBarShortcutClear')); qbClear.type = 'button';
+      box.append(qbBtn, qbClear);
+      const qbRow = row(wrap, t('settings.quickBarShortcut'), box, t('settings.quickBarShortcutHint'));
+      qbRow.hidden = true;
+      const warn = el('div', 'thint', t('settings.quickBarShortcutConflict'));
+      warn.style.color = 'var(--st-error-ink)';
+      warn.hidden = true;
+      qbRow.querySelector('.tlabel')?.appendChild(warn);
+      let current = '', recording = false;
+      const paintKey = () => {
+        qbBtn.classList.toggle('rec', recording);
+        qbBtn.textContent = recording ? t('settings.quickBarShortcutRecording') : (current ? accelLabel(current) : t('settings.quickBarShortcutRecord'));
+        qbClear.hidden = recording || !current;
+      };
+      const paintQb = (st) => { qbRow.hidden = !st || !st.available; if (st) { current = st.shortcut || ''; warn.hidden = st.ok !== false; } paintKey(); };
+      const save = async (accel) => {
+        await window.glassShell.setSetting('quickBarShortcut', accel);
+        paintQb(await window.glassShell.quickBarStatus());
+        toast(t('settings.saved'));
+      };
+      void window.glassShell.quickBarStatus().then(paintQb);
+      qbBtn.addEventListener('click', () => { recording = !recording; paintKey(); });
+      qbBtn.addEventListener('blur', () => { if (recording) { recording = false; paintKey(); } });
+      qbBtn.addEventListener('keydown', (e) => {
+        if (!recording) return;
+        e.preventDefault(); e.stopPropagation();
+        if (e.key === 'Escape') { recording = false; paintKey(); return; }
+        const accel = accelFromKeydown(e);
+        if (accel === null) return;            // a modifier on its own: keep listening for the key
+        if (!accel) { toast(t('settings.quickBarShortcutNeedsModifier')); return; }
+        recording = false; current = accel; paintKey();
+        void save(accel);
+      });
+      qbClear.addEventListener('click', () => { current = ''; paintKey(); void save(''); });
+    }
 
     /* #22 — how a session blocked on you reaches you OUTSIDE the panel. Same shape as
        killBehavior above. Three rungs rather than a toggle because the two useful answers to
@@ -13745,10 +14262,11 @@ const ANIMALS = ['otter', 'falcon', 'lynx', 'badger', 'heron', 'fox', 'orca', 'w
 function adjAnimal() {
   return ADJS[Math.floor(Math.random() * ADJS.length)] + '-' + ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
 }
-async function spawnWorkerFlow() {
+async function spawnWorkerFlow(group = '') {
   // Glass parity: ask for a name (blank → adjective-animal handle), then an
   // optional first task — exactly the extension's Spawn-a-session contract.
-  const name = await inputModal(t('spawn.title'), t('spawn.namePlaceholder'));
+  // `group`: start it inside that tab group (the group chip's "New session in this group", 0.15 round).
+  const name = await inputModal(group ? t('tg.newSessionTitle', { group: tgLabel(group) }) : t('spawn.title'), t('spawn.namePlaceholder'));
   if (name === null) return;
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || adjAnimal();
   const task = await inputModal(t('spawn.sessionTitle', { handle }), t('spawn.firstTask'));
@@ -13756,7 +14274,10 @@ async function spawnWorkerFlow() {
   // A bootstrap prompt is what makes the SESSION RITUAL run on turn one (identity →
   // agent match → context load). The spawn wrapper always passes one; a bare
   // `claude --name X` would sit idle and skip the ritual. No task → "Start session".
-  void createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  const id = await createPane({ name: handle, cmd: CLAUDE + ' --name ' + handle + ' ' + shq(task || RITUAL_BOOTSTRAP) });
+  /* Joined after it exists: tgAdd unfolds the group in the new tab's strip and pulls the tab in beside its members.
+     A group closed while the two questions were open is simply not joined — the session still starts. */
+  if (group && id != null && tabGroups.has(group)) tgAdd(id, group);
 }
 
 /* Create a custom agent / skill / plugin — scaffolds into the right custom/ dir. */
@@ -14108,9 +14629,15 @@ async function askWithChips() {
   const v = await inputModal(t('ask.title'), t('ask.placeholder'), null, {
     hint: { before: t('ask.frequentHintBefore'), link: t('ask.frequentHintLink'), after: t('ask.frequentHintAfter', { keys }), onLink: () => void pickFrequent() },
     nameField: { label: t('ask.nameLabel'), suggest: (text) => window.glassShell.askName(text, openPaneNames()).catch(() => '') },
+    destField: { label: t('ask.destLabel'), load: () => window.glassShell.askDestinations().catch(() => ({ sessions: [], agents: [] })) },
   });
   if (!v || !v.value) return null;
-  return { intent: v.value, name: v.name };
+  return { intent: v.value, name: v.name, dest: v.dest || { kind: 'new' } };
+}
+/** The picker's strings, shared by the Ask panel; main hands the floating bar the same keys (quickBar.ts). */
+function askDestStrings() {
+  return { newSession: t('ask.destNew'), sessions: t('ask.destSessions'), agents: t('ask.destAgents'), filter: t('quickBar.filter'),
+    hint: t('ask.destHint'), waiting: t('status.needsInput'), agentTag: t('ask.destAgentTag'), sessionTag: t('ask.destSessionTag') };
 }
 /** A session name that is safe on a command line and in the registry, whatever was typed. */
 function safeSessionName(raw, fallback) {
@@ -14170,6 +14697,40 @@ async function openSessionNotes(name) {
     else if (e.key === 'Escape') { e.preventDefault(); done(); }
   });
   wrap.addEventListener('click', (e) => { if (e.target === wrap) done(); });
+}
+
+/* "Ask AIOS from any app" key recorder (0.15.0 round 3). A keydown → an Electron accelerator. Returns null for a lone
+   modifier (keep listening), '' for a key with no ⌘/⌃/⌥ (a global shortcut without one would steal plain typing), else the
+   accelerator. Letters and digits come from `code`, so the shortcut does not depend on the keyboard layout. */
+const ACCEL_NAMED = { Space: 'Space', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Escape: 'Escape',
+  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+  Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`' };
+function accelFromKeydown(e) {
+  const code = String(e.code || '');
+  if (/^(Meta|Control|Alt|Shift|OS|CapsLock|Fn)/.test(code) || /^(Meta|Control|Alt|Shift)$/.test(String(e.key || ''))) return null;
+  let key = '';
+  if (/^Key[A-Z]$/.test(code)) key = code.slice(3);
+  else if (/^Digit[0-9]$/.test(code)) key = code.slice(5);
+  else if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) key = code;
+  else if (ACCEL_NAMED[code]) key = ACCEL_NAMED[code];
+  else return '';
+  if (!(e.metaKey || e.ctrlKey || e.altKey)) return '';
+  const mods = [];
+  if (e.ctrlKey) mods.push('Control');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  if (e.metaKey) mods.push('Command');
+  return [...mods, key].join('+');
+}
+/* An accelerator as the Mac shows it: ⌃⌥⇧⌘ then the key. */
+function accelLabel(accel) {
+  const parts = String(accel || '').split('+').filter(Boolean);
+  const sym = { Control: '⌃', Ctrl: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Command: '⌘', Cmd: '⌘', CommandOrControl: '⌘', CmdOrCtrl: '⌘', Super: '⌘', Meta: '⌘' };
+  const order = ['⌃', '⌥', '⇧', '⌘'];
+  const mods = parts.filter((p) => sym[p]).map((p) => sym[p]).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const key = parts.filter((p) => !sym[p]).join('+');
+  const named = { Space: 'Space', Up: '↑', Down: '↓', Left: '←', Right: '→', Enter: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Escape: '⎋' };
+  return mods.join('') + (named[key] || key);
 }
 
 /* ONE DIALOG AT A TIME. Shortcuts open dialogs from anywhere, so ⌘⇧F with Ask open stacked Frequent
@@ -14241,6 +14802,29 @@ function inputModal(title, placeholder, chips, opts) {
 
       nameIn.addEventListener('input', () => { touched = true; });
     }
+    /* opts.destField — WHERE the Ask goes: a new session (default, the name field above), a live session, or an
+       agent. The picker is `AskDest` (renderer/askdest.js), the SAME one the floating Ask AIOS bar uses, so both doors look
+       and behave alike (0.15.0 round 2: a native <select> read as foreign to the App). Tab in the text opens it.
+       Choosing anything but a new session hides the name field, which only names a new session. */
+    let destPick = null;
+    if (opts && opts.destField && window.AskDest) {
+      const row = el('div', 'mname mdest');
+      row.appendChild(el('span', 'mnamelbl', opts.destField.label));
+      const chipHost = el('span', 'mdestchip');
+      row.appendChild(chipHost);
+      row.appendChild(el('span', 'mdesthint', t('ask.destHint')));
+      const listHost = el('div', 'mdestlist');
+      const nameRow = nameIn ? nameIn.closest('.mname') : null;
+      (nameRow || wrap.querySelector('.mhint')).before(row);
+      row.after(listHost);
+      destPick = window.AskDest.mount(chipHost, listHost, {
+        strings: askDestStrings(),
+        load: opts.destField.load,
+        returnFocus: input,
+        onChange: (d) => { if (nameRow) nameRow.hidden = d.kind !== 'new'; },
+      });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); destPick.open(); } });
+    }
     /* opts.hint — one italic line above "Enter to run", with an optional link that leaves this dialog
        for somewhere better suited (Ask → Frequent Tasks for a job that recurs). */
     if (opts && opts.hint) {
@@ -14258,17 +14842,24 @@ function inputModal(title, placeholder, chips, opts) {
     const done = (val) => { wrap.remove(); resolve(val); };
     const submit = () => {
       const v = input.value.trim();
-      done(nameIn ? { value: v, name: nameIn.value.trim() } : v);
+      if (!nameIn && !destPick) { done(v); return; }
+      const out = { value: v, name: nameIn ? nameIn.value.trim() : '' };
+      if (destPick) out.dest = destPick.dest.kind === 'new' ? { kind: 'new' } : { kind: destPick.dest.kind, name: destPick.dest.name };
+      done(out);
     };
     // Enter resolves the (trimmed) string — '' is a valid "submit blank" (e.g. spawn → adj-animal
     // handle); only Escape / backdrop resolve null (cancel). Callers distinguish '' from null.
     for (const f of [input, nameIn].filter(Boolean)) {
       f.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); submit(); }
-        else if (e.key === 'Escape') { e.preventDefault(); done(null); }
+        else if (e.key === 'Escape') { e.preventDefault(); if (destPick && destPick.isOpen()) destPick.close(); else done(null); }
       });
     }
-    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
+    /* The backdrop cancels only a click that also STARTED on it (round 3): a press inside the dialog that ends outside it,
+       because something in the dialog closed and the dialog shrank under the pointer, is not "clicked outside". */
+    let downOnBackdrop = false;
+    wrap.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === wrap; });
+    wrap.addEventListener('click', (e) => { if (e.target === wrap && downOnBackdrop) done(null); downOnBackdrop = false; });
   });
 }
 
@@ -14357,6 +14948,10 @@ void initLocale().then(async () => {
      No prompt, no toast: the card just reflects whatever the machine currently has. */
   void refreshConnectors();
   setInterval(() => void refreshConnectors(), 5 * 60 * 1000);
+  /* #91 — boards: a readdir and two stats per board, so it can poll; a frame reloads only when its
+     index.html's mtime changed. */
+  void refreshBoards();
+  setInterval(() => void refreshBoards(), 15 * 1000);
   /* FIRST RUN: with no framework or no vault the app cannot do anything useful, and every
      route to Setup was a control a newcomer has no reason to click — so they landed on an
      empty workspace and a greeting with no next step. Open Setup for them.

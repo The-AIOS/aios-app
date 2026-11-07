@@ -538,6 +538,9 @@ test('blocker 6: a session descended from an App pty is the operator\'s, whereve
     aios.setPtyPidSource(() => []);
     assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), [], 'control: not in a pane, not in a workspace → hidden');
     aios.setPtyPidSource(() => [process.pid]);   // this test process plays the pty; the child is its descendant
+    /* On Windows the process table is read in the background (#131) and the first read is empty: wait for a
+       table taken after the child started, as the App's next 2 s pulse would. */
+    await aios.refreshProcTable();
     assert.deepEqual(aios.listOperatorSessions().map((a) => a.name), ['build'], 'in a pane → listed, with no renderer report');
   } finally {
     aios.setPtyPidSource(() => []);
@@ -627,9 +630,9 @@ test('operator decision: "with the lid closed" is asked ONCE, Yes preselected, t
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   const fn = /async function maybeAskLid\(st\) \{[\s\S]*?\n\}/.exec(app);
   assert.ok(fn, 'maybeAskLid exists');
-  assert.match(fn![0], /if \(!IS_MAC \|\| !st \|\| !st\.on \|\| \(st\.lid && \(st\.lid\.enabled \|\| st\.lid\.installed\)\)\) return;/, 'only on a Mac, only when the cup just turned on, never when it is already set up');
-  assert.match(fn![0], /if \(!cfg \|\| cfg\.lidAsked \|\| cfg\.lidAwake\) return;\s*await window\.glassShell\.setSetting\('lidAsked', true\);/, 'asked once: marked before asking, so Cancel is remembered');
-  assert.match(fn![0], /if \(!window\.confirm\(t\('caffeinate\.lidAsk'\)\)\) return;/, 'OK — the default button — is Yes');
+  assert.match(fn![0], /if \(!IS_MAC \|\| !st \|\| !st\.on \|\| \(st\.lid && st\.lid\.installed\)\) return;/, 'only on a Mac, only when the cup just turned on, never when it is already set up (0.15.0: the mode defaults to Always, so "installed" is what says it was set up)');
+  assert.match(fn![0], /if \(!cfg \|\| cfg\.lidAsked \|\| cfg\.lidAwake === 'off' \|\| cfg\.lidAwake === false\) return;[^\n]*\n\s*await window\.glassShell\.setSetting\('lidAsked', true\);/, 'asked once: marked before asking, so Cancel is remembered; an explicit Off is never re-asked');
+  assert.match(fn![0], /if \(!window\.confirm\(t\('caffeinate\.lidAsk'\)\)\) \{ await window\.glassShell\.caffeinateLid\('off', ''\)/, 'OK — the default button — is Yes (Always); Cancel stores Off');
   assert.match(app, /paintCaffeine\(st\);\s*void maybeAskLid\(st\);/, 'on the operator\'s own click');
   for (const loc of ['en', 'es', 'pt-br']) assert.ok(JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'i18n', 'locales', `${loc}.json`), 'utf8'))['caffeinate.lidAsk'], loc);
 });

@@ -732,3 +732,19 @@ test('#80 follow-up: Start on an open primary reveals it and pulses its tab — 
   assert.match(css, /\.tab\.tabpulse \{ animation: tabpulse/);
   assert.match(css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)')), /\.tab\.tabpulse \{ box-shadow/, 'still visible without motion');
 });
+
+test('0.15 menu tidy: each item once, and where it belongs', () => {
+  const src = fs.readFileSync('src/main/menu.ts', 'utf8');
+  const count = (key: string) => (src.match(new RegExp(`t\\('${key.replace('.', '\\.')}'\\)`, 'g')) || []).length;
+  assert.equal(count('menu.installSetup'), 1, 'Set Up & Health Check only in Help');
+  const block = (label: string) => { const i = src.indexOf(`label: t('${label}')`); return src.slice(i, src.indexOf('\n    },', i)); };
+  assert.match(block('menu.aios'), /menu\.checkUpdates/, 'Check for Updates beside Settings (macOS)');
+  assert.match(block('menu.aios'), /label: t\('menu\.claudeAccount'\),\s*submenu: \[/, 'the three account items in one submenu');
+  assert.doesNotMatch(block('menu.file'), /menu\.(checkUpdates|chatView)/, 'File holds files and sessions only');
+  assert.doesNotMatch(block('menu.go'), /menu\.toggle/, 'Go only goes places');
+  assert.match(block('menu.view'), /menu\.chatView[\s\S]*menu\.toggleTerminals[\s\S]*menu\.toggleExplorer[\s\S]*menu\.togglePanel/, 'View holds the view toggles together');
+  assert.doesNotMatch(block('menu.rituals'), /menu\.askAios/, 'Ask is not a ritual');
+  assert.match(block('menu.agents'), /^label: t\('menu\.agents'\),\s*submenu: \[\s*\{ label: t\('menu\.askAios'\)/, 'Ask leads Agents');
+  assert.match(src, /help\.submenu\.push\(\{ type: 'separator' \}, \{ label: t\('menu\.checkUpdates'\)[^\n]*menu\.updateFramework/, 'Windows and Linux: both updates in Help');
+  assert.match(block('menu.aios'), /menu\.checkUpdates'\), click: \(\) => intent\('checkUpdates'\) \},\s*\{ label: t\('menu\.updateFramework'\)/, 'the two updates side by side');
+});

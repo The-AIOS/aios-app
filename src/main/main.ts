@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme, protocol } from 'electron';
+import { registerBoardScheme, installBoardProtocol, guardBoardNavigation, listBoards } from './boards';   // #91
+import { startHitServer, writeHostileBoard, judgeProbe, recordRequests, sleep, type HitServer, type HostileFixture } from './boardProbe';   // #91 smoke gate
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
 import { createTranscriptTail, isSessionId } from './transcriptTail';
-import { createPromptMonitor, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
+import { createPromptMonitor, answeredBy, QUESTION_MAX, DESC_MAX, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
 import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker } from '../core/screenStream';
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
@@ -32,7 +34,12 @@ import { writeHandoffFile, sweepHandoffDirs } from './handoffDir';   // #72: Hom
 import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
-import { initCommandBus, appLog } from './commandBus';
+import { MenuBar } from './menuBar';
+import { sanitizeGroups, type MenuBarGroup } from '../core/menuBar';
+import { QuickBar, writeAskRequest } from './quickBar';
+import { isBlockedStatus } from '../core/attention';
+import type { QuickBarDestination } from '../core/quickBar';
+import { initCommandBus, appLog, inboxDir } from './commandBus';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
@@ -419,8 +426,13 @@ function promptWire(prompt: TuiPrompt | undefined): Record<string, unknown> {
   if (!prompt) return {};
   const options = (prompt.options ?? []).slice(0, 12).map((o) => ({
     n: o.n, label: String(o.label).slice(0, 200), selected: !!o.selected, key: o.key, ...(o.freeText ? { freeText: true } : {}),
+    ...(o.desc ? { desc: String(o.desc).slice(0, DESC_MAX) } : {}),
   }));
-  return { ...(prompt.question ? { question: prompt.question.slice(0, 300) } : {}), ...(options.length ? { options } : {}) };
+  return {
+    ...(prompt.question ? { question: prompt.question.slice(0, QUESTION_MAX) } : {}),
+    ...(prompt.header ? { header: prompt.header.slice(0, 80) } : {}),
+    ...(options.length ? { options } : {}),
+  };
 }
 
 async function endSkin(paneId: number, flush: boolean): Promise<void> {
@@ -470,8 +482,8 @@ ipcMain.handle('chatSkin:watch', async (e, paneId: number, sessionId: string | n
   if (!transcript) return { ok: true, file: '' };
   const skin = k;
   return tail.watch(id, sessionId as string, (ev) => {
-    // a finished tool or a new operator message proves the dialog that was open has been answered
-    if (ev.type === 'items' && ev.items.some((it) => it.role === 'user' || (it.tool && it.tool.status !== 'running'))) skin.monitor.clear();
+    /* A finished tool or a new operator message proves the dialog that was open has been answered (core answeredBy). */
+    if (ev.type === 'items' && answeredBy(ev.items)) skin.monitor.clear();
     /* The finished message replaces the preview: tell the renderer which transcript line IS the previewed text BEFORE
        the items event, so it hands the preview's node to that item (same place, no second bubble, no jump). */
     if (ev.type === 'items') { const a = skin.stream.items(ev.items); if (a) skin.send({ ...a }); }
@@ -549,7 +561,7 @@ ipcMain.handle('chat:where', async (_e, sessionId: unknown) => {
   if (!cwd) return { cwd: null, branch: null, changes: 0 };
   const git = (args: string[]): Promise<string | null> => new Promise((res) => {
     execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', cwd, ...args],
-      { timeout: 2000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => res(err ? null : String(out)));
+      { windowsHide: true, timeout: 2000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => res(err ? null : String(out)));
   });
   const branch = (await git(['branch', '--show-current']))?.trim() || null;
   const status = branch ? await git(['status', '--porcelain']) : null;
@@ -565,7 +577,7 @@ function mentionList(cwd: string): Promise<string[]> {
   if (hit && Date.now() - hit.at < 10_000) return hit.list;
   const list = new Promise<string[]>((res) => {
     execFile(aios.gitBin(), ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + os.devNull, '-C', cwd, 'ls-files', '-co', '--exclude-standard'],
-      { timeout: 3000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => {
+      { windowsHide: true, timeout: 3000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, out) => {
         if (!err) { res(String(out).split('\n').filter(Boolean).slice(0, 50_000)); return; }
         const found: string[] = [];
         const walk = (rel: string, depth: number): void => {
@@ -1177,6 +1189,74 @@ async function chatViewSmoke(win: BrowserWindow): Promise<SmokeChatVerdict> {
 }
 
 let host: PanelHost | undefined;
+
+/* THE MENU-BAR ICON (macOS; docs/rfcs/menu-bar.md). Created after the window, fed by the panel's own
+   2 s pulse, never under a smoke/shot/eval run. `syncMenuBar` is the one place that decides whether it
+   exists, so the setting, boot and quit cannot disagree. */
+let menuBar: MenuBar | undefined;
+const MENU_BAR_ALLOWED = (): boolean => process.platform === 'darwin' && !SMOKE && !SHOT && !EVAL && !CHAT_SHOT;
+function showMainWindow(): BrowserWindow | undefined {
+  const w = mainWin;
+  if (!w || w.isDestroyed()) return undefined;
+  if (w.isMinimized()) w.restore();
+  w.show(); w.focus();
+  /* From the menu bar, AIOS is not the active app: showing the window left it behind the app in front, so "Show AIOS"
+     took a second click (0.15.0 hand test). Activate the App itself. */
+  if (process.platform === 'darwin') { try { app.focus({ steal: true }); } catch { /* older Electron */ } }
+  return w;
+}
+function syncMenuBar(): void {
+  const want = MENU_BAR_ALLOWED() && aios.shellSettings().menuBar;
+  if (!want) { menuBar?.disable(); return; }
+  menuBar ??= new MenuBar({
+    reveal: (target) => { showMainWindow(); host?.revealSession(target); },
+    openApp: () => { showMainWindow(); },
+    /* Ask AIOS from the menu bar: the floating Ask (the same one the optional global shortcut opens) when this platform
+       has it, else the App's own Ask panel. */
+    ask: () => {
+      if (QUICK_BAR_ALLOWED() && quickBar) { quickBar.show(); return; }
+      const w = showMainWindow(); if (w && !w.webContents.isDestroyed()) w.webContents.send('shell:intent', { kind: 'ask' });
+    },
+    openSettings: () => { const w = showMainWindow(); if (w && !w.webContents.isDestroyed()) w.webContents.send('shell:intent', { kind: 'settings' }); },
+    quit: () => app.quit(),
+  }, path.join(__dirname, '..', '..'));
+  if (!menuBar.enable()) console.log('[menu-bar] the icon could not be created');
+  menuBar.setGroups(menuBarGroups);
+}
+/* The App's tab groups as the renderer last reported them, kept here so a menu bar icon created later starts with them. */
+let menuBarGroups: MenuBarGroup[] = [];
+ipcMain.on('menuBar:groups', (_e, raw: unknown) => { menuBarGroups = sanitizeGroups(raw); menuBar?.setGroups(menuBarGroups); });
+
+/* THE QUICK BAR (docs/rfcs/menu-bar.md). Created after the window, never under a smoke/shot/eval run.
+   `applyQuickBar` is the one place that takes the global shortcut and rebuilds the menu around it, so the
+   setting, boot and a locale change cannot leave the menu advertising a key the App does not hold. */
+let quickBar: QuickBar | undefined;
+let quickBarShortcutOk = true;   // false = another app holds the configured shortcut; Settings says so
+const QUICK_BAR_ALLOWED = (): boolean => process.platform === 'darwin' && !SMOKE && !SHOT && !EVAL && !CHAT_SHOT;
+function rebuildMenu(): void {
+  installMenu(() => mainWin);
+}
+function applyQuickBar(): void {
+  if (!QUICK_BAR_ALLOWED()) { rebuildMenu(); return; }
+  quickBar ??= new QuickBar({
+    appRoot: path.join(__dirname, '..', '..'),
+    inboxDir,
+    sessions: () => aios.listOperatorSessions(),
+    takenNames: () => aios.listRunningAgents().map((a) => a.name),
+    agents: () => aios.discoverAgents(),
+    primaryNames: () => [...aios.primaryNames()],
+    theme: () => resolvedTheme(aios.shellSettings().theme, nativeTheme.shouldUseDarkColors),
+    reveal: (target) => {
+      const w = mainWin;
+      if (!w || w.isDestroyed()) return;
+      showMainWindow();
+      if (!w.webContents.isDestroyed()) w.webContents.send('shell:intent', { name: target.name, id: '', kind: 'focusTerminal' });
+    },
+    log: (m) => appLog('quick-bar', m),
+  });
+  quickBarShortcutOk = quickBar.setShortcut(aios.shellSettings().quickBarShortcut);
+  rebuildMenu();
+}
 
 ipcMain.on('panel:msg', (_e, msg) => host?.onMessage(msg));
 
@@ -1814,6 +1894,9 @@ ipcMain.handle('notes:counts', () => aios.sessionNoteCounts());
 // lines (command bus, updater, doctor) and renderer errors both land there.
 ipcMain.handle('shell:devtools', () => { mainWin?.webContents.openDevTools({ mode: 'bottom' }); return true; });
 ipcMain.handle('shell:setPrimary', (_e, name: string) => aios.setPrimaryName(String(name)));
+/* This computer's primary identity (machine-local, ~/.aios/app.json): a name from USER.md's Identity table, or '' for the first row. */
+ipcMain.handle('shell:primaryIdentity', () => aios.primaryIdentitySetting());
+ipcMain.handle('shell:setPrimaryIdentity', (_e, name: string) => { const r = aios.setPrimaryIdentity(String(name ?? '')); host?.postState(); return r; });
 ipcMain.handle('accounts:list', () => aios.anthropicAccounts());
 ipcMain.handle('accounts:swap', (_e, email: string) => aios.swapAccount(String(email)));
 ipcMain.handle('notes:add', (_e, name: string, note: string) => aios.addSessionNote(String(name), String(note)));
@@ -1951,6 +2034,7 @@ ipcMain.handle('doctor:finishSetup', () => aios.finishSetup());
 ipcMain.handle('doctor:wiringLeft', () => aios.wiringLeft());
 ipcMain.handle('doctor:health', () => aios.computeHealth());
 ipcMain.handle('health:routines', () => aios.routineHealth());   // #27
+ipcMain.handle('boards:list', () => listBoards());   // #91 — read only; the App never writes a board
 // "Having issues?" — one battery + a plan per failing tool → the next ACTION, not a report.
 ipcMain.handle('doctor:triage', () => aios.setupTriage(app.getVersion()));
 
@@ -2005,7 +2089,11 @@ ipcMain.handle('tab:menu', async (e, items: TabMenuRow[]) => new Promise<string 
 ipcMain.handle('shell:appVersion', () => app.getVersion());
 ipcMain.handle('caffeinate:state', () => caffeine.state());
 ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
-ipcMain.handle('caffeinate:lid', (_e, on: unknown, prompt: unknown) => caffeine.lidEnable(on === true, String(prompt ?? '')));
+ipcMain.handle('caffeinate:lid', (_e, mode: unknown, prompt: unknown) => {
+  /* 'always' | 'plugged' | 'off'; a boolean from an older renderer still means Always / Off. Anything else changes nothing. */
+  const m = mode === true ? 'always' : mode === false ? 'off' : mode === 'always' || mode === 'plugged' || mode === 'off' ? mode : null;
+  return m ? caffeine.lidEnable(m, String(prompt ?? '')) : caffeine.state();
+});
 ipcMain.handle('caffeinate:lidRemove', (_e, prompt: unknown) => caffeine.lidRemove(String(prompt ?? '')));
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());
@@ -2098,7 +2186,24 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
   aios.setClaudeConfig(key, value);
   return aios.claudeConfig();
 });
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'lidAsked' | 'claudeView', value: unknown) => {
+/* Whether the quick bar holds its shortcut — Settings shows a conflict instead of a key that silently does nothing. */
+/* The Ask panel's destinations: a new session (the renderer's own path), a live session, or an agent. The
+   latter two go through the same inbox request the floating quick bar writes (writeAskRequest), on every
+   platform: the bus verifies delivery, holds while a session is busy and dead-letters what it cannot do. */
+ipcMain.handle('ask:destinations', () => ({
+  sessions: aios.listOperatorSessions().map((s) => ({ name: s.name, waiting: isBlockedStatus(s.status) })),
+  agents: aios.discoverAgents().map((a) => ({ name: a.name, desc: a.description ?? '' })),
+}));
+ipcMain.handle('ask:send', (_e, dest: QuickBarDestination, text: unknown) => writeAskRequest(dest, String(text ?? ''), {
+  inboxDir,
+  takenNames: () => aios.listRunningAgents().map((a) => a.name),
+  log: (m) => appLog('ask', m),
+}));
+ipcMain.handle('quickBar:status', () => ({ available: QUICK_BAR_ALLOWED(), shortcut: aios.shellSettings().quickBarShortcut, held: quickBar?.shortcut ?? '', ok: quickBarShortcutOk }));
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'menuBar' | 'quickBarShortcut' | 'chatBubble' | 'lidAsked' | 'claudeView', value: unknown) => {
+  if (key === 'chatBubble' && (typeof value !== 'string' || !/^[a-z]{3,12}$/.test(value))) return aios.shellSettings();   // a palette id, nothing else
+  if (key === 'menuBar' && typeof value !== 'boolean') return aios.shellSettings();   // a boolean or nothing
+  if (key === 'quickBarShortcut' && typeof value !== 'string') return aios.shellSettings();   // an accelerator, or '' for none
   /* claudeView is a closed set. Anything else is refused rather than stored: normalizeClaudeView would ignore it on read and fall
      back to the old chatViewDefault, so a bad write could silently resurrect a value the operator had moved on from. */
   if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();
@@ -2109,8 +2214,11 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
   if (key === 'caffeinate') caffeine.modeChanged();
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
-    installMenu(() => mainWin);  // the native menu can't re-render itself — rebuild it
+    rebuildMenu();               // the native menu can't re-render itself — rebuild it
+    menuBar?.relabel();          // nor can the menu-bar icon's
   }
+  if (key === 'menuBar') syncMenuBar();
+  if (key === 'quickBarShortcut') applyQuickBar();
   host?.postState();             // re-emit localized pulse state (nudge, calendar)
   return aios.shellSettings();
 });
@@ -2146,7 +2254,9 @@ if (!(SMOKE || CHAT_SHOT) && !app.requestSingleInstanceLock()) {
   app.on('second-instance', () => {
     /* Someone asked for this app — a banner click, a Dock click, `open -a`. Show the window
        they already have instead of starting another. */
-    const w = BrowserWindow.getAllWindows()[0];
+    /* `mainWin`, never the first entry of getAllWindows(): the quick bar is a second window, and the first in that list is
+       whichever was created first — not a contract. */
+    const w = mainWin;
     if (!w || w.isDestroyed()) return;
     if (w.isMinimized()) w.restore();
     w.show();
@@ -2485,8 +2595,15 @@ async function runChatShot(win: BrowserWindow): Promise<void> {
 /* Every session the App creates, including a browser pane's, gets the web permission policy
    before any page can ask for anything (webPermissions.ts explains why the default is not safe). */
 app.on('session-created', (s) => installWebPermissionPolicy(s));
+/* #91 — sidebar boards are served by their own protocol, never file://. The scheme must be declared
+   before `ready`; the handler goes on the default session only (browser panes use another partition). */
+registerBoardScheme(protocol);
+/** Only the smoke's boards gate sets these: they let it see what the protocol read and which
+ *  navigations the guard refused. Empty in normal use. */
+const boardProbeHooks: { onServe?: (file: string) => void; onBlock?: (from: string, to: string) => void } = {};
 app.whenReady().then(() => {
   installWebPermissionPolicy(session.defaultSession);
+  installBoardProtocol(protocol, (f) => boardProbeHooks.onServe?.(f));
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
   const win = createWindow();
@@ -2502,9 +2619,13 @@ app.whenReady().then(() => {
     if (win.isFullScreen()) { win.once('leave-full-screen', () => win.hide()); win.setFullScreen(false); }
     else win.hide();
   });
-  installMenu(() => mainWin);
+  applyQuickBar();
+  app.on('will-quit', () => quickBar?.dispose());
   host = new PanelHost(win.webContents);
+  host.onRunning = (running) => menuBar?.update(running);
   host.start();
+  syncMenuBar();
+  app.on('will-quit', () => menuBar?.disable());
   if (!SMOKE && !SHOT && !CHAT_SHOT) setupExplorerWatch(win);
   /* Seed Claude's config once, so the Settings mirror has real values to reflect instead of
      assertions nobody read. Idempotent by marker, skipped in smoke/shot so a gate never writes
@@ -2579,6 +2700,8 @@ app.whenReady().then(() => {
   const appPage = pathToFileURL(path.join(__dirname, '..', '..', 'renderer', 'index.html')).href;
   const isAppPage = (url: string): boolean => url.split(/[?#]/)[0] === appPage;
   win.webContents.on('will-navigate', (e, url) => { if (!isAppPage(url)) e.preventDefault(); });
+  /* #91 — the rule above sees only the top frame. A board's frame may only reload its own page. */
+  guardBoardNavigation(win.webContents, (from, to) => boardProbeHooks.onBlock?.(from, to));
   let navigations = 0;
   win.webContents.on('did-navigate', (_e, url) => {
     if (!isAppPage(url)) return;   // never the case after the guard above; and ending sessions needs certainty
@@ -3072,6 +3195,47 @@ app.whenReady().then(() => {
         if (!mapOk) console.error(`shell-smoke: SHORTCUT MAP LEAKED RAW TOKENS — ${leaks}`);
         else console.log('shell-smoke: shortcuts — every accelerator on the live menu formats cleanly');
       } catch (e) { console.error('shell-smoke: shortcut gate error', e); }
+      /* GATE: #91 — A HOSTILE BOARD IN THE REAL CARD REACHES NOTHING. The same probe as
+         src/test/boardIsolation.e2e.test.ts, but through the App's own wiring: the renderer's card
+         (its frame attributes), main's protocol handler and main's navigation guard. The board's
+         own stylesheet and image must load, or the gate is measuring nothing. */
+      let boardsOk = false;
+      {
+        const prevBoards = process.env.AIOS_BOARDS_DIR;
+        let srv: HitServer | undefined;
+        let fx: HostileFixture | undefined;
+        let stopRec: (() => void) | undefined;
+        try {
+          srv = await startHitServer();
+          fx = writeHostileBoard(srv.port);
+          const requested: string[] = [], served: string[] = [], blocked: string[] = [];
+          boardProbeHooks.onServe = (f) => served.push(f);
+          boardProbeHooks.onBlock = (_from, to) => blocked.push(to);
+          stopRec = recordRequests(win.webContents, requested);
+          process.env.AIOS_BOARDS_DIR = fx.root;
+          const cardId = 'pBoard-' + encodeURIComponent(fx.name);
+          const frameAttr = await win.webContents.executeJavaScript(
+            `refreshBoards().then(() => { const f = document.querySelector('#${cardId} iframe'); return f ? f.getAttribute('sandbox') : null; })`).catch(() => null);
+          await sleep(2500);
+          await win.webContents.executeJavaScript(
+            `(() => { const f = document.querySelector('#${cardId} iframe'); if (f) f.src = ${JSON.stringify(fx.net + '/parent-set')}; return 1; })()`).catch(() => 0);
+          await sleep(1500);
+          const v = judgeProbe(fx, { hits: srv.hits, requested, served, blockedNavigations: blocked });
+          if (frameAttr !== '') v.why.push(`the card's frame is not sandbox="" (got ${JSON.stringify(frameAttr)})`);
+          if (!blocked.some((u) => u.endsWith('/parent-set'))) v.why.push('the navigation guard did not refuse the frame being pointed at the network');
+          boardsOk = v.why.length === 0;
+          if (boardsOk) console.log(`shell-smoke: boards — hostile board reached nothing; own files served: ${served.length}; navigations refused: ${blocked.length}`);
+          else console.error('shell-smoke: boards gate FAIL — ' + v.why.join(' | '));
+        } catch (err) { console.error('shell-smoke: boards gate error', err); }
+        finally {
+          stopRec?.();
+          boardProbeHooks.onServe = boardProbeHooks.onBlock = undefined;
+          if (prevBoards === undefined) delete process.env.AIOS_BOARDS_DIR; else process.env.AIOS_BOARDS_DIR = prevBoards;
+          await win.webContents.executeJavaScript('refreshBoards().then(() => 1)').catch(() => 0);   // the fixture's card leaves
+          await srv?.close();
+          if (fx) { try { fs.rmSync(path.dirname(fx.root), { recursive: true, force: true }); } catch { /* temp */ } }
+        }
+      }
       const ptyOk = buf.includes('GLASS_SHELL_PTY_OK');
       /* A renderer that threw is broken whether or not the thing it broke is something a gate
          happens to look at. Three uncaught errors reached a human tester tonight with every
@@ -3082,10 +3246,10 @@ app.whenReady().then(() => {
         for (const e of [...new Set(rendererErrors)].slice(0, 5)) console.error('  · ' + e);
       }
       const clean = rendererErrors.length === 0;
-      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && pillOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && idleOk && clean;
+      const ok = loaded && ptyOk && stateOk && !!rendererOk && panelOk && themeOk && setupOk && chromeOk && pillOk && mapOk && animOk && rowOk && rebuildOk && headOk && restoreOk && idleOk && boardsOk && clean;
       console.log(ok
-        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + update-pill + shortcuts + animations + row-actions + settings-rebuild + header + restore + idle + no-renderer-errors OK ✓'
-        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, pill=${pillOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, idle=${idleOk}, rendererClean=${clean})`);
+        ? 'shell-smoke: window + pty + state + workbench + panel + theme + setup + chrome + update-pill + shortcuts + animations + row-actions + settings-rebuild + header + restore + idle + boards + no-renderer-errors OK ✓'
+        : `shell-smoke: FAIL (loaded=${loaded}, pty=${ptyOk}, state=${stateOk}, workbench=${rendererOk}, panel=${panelOk}, theme=${themeOk}, setup=${setupOk}, chrome=${chromeOk}, pill=${pillOk}, shortcutMap=${mapOk}, animations=${animOk}, rowActions=${rowOk}, settingsRebuild=${rebuildOk}, header=${headOk}, restore=${restoreOk}, idle=${idleOk}, boards=${boardsOk}, rendererClean=${clean})`);
       return ok;
     };
     void Promise.race([

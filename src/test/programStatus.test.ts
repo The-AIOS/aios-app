@@ -63,5 +63,5 @@ test('the App answers the probe in every terminal, and relays statuses by sessio
   assert.match(app, /term\.parser\.registerOscHandler\(7501, \(data\) => programStatusOsc\(oscPane, data\)\);\s*const id = await window\.glassShell\.ptySpawn/, 'registered before the pty can emit');
   assert.match(app, /if \(s\.startsWith\('\?'\)\) \{ window\.glassShell\.ptyWrite\(paneId, '\\x1b\]7501;\?\\x1b\\\\'\); return true; \}/);
   const host = fs.readFileSync(path.join(ROOT, 'src', 'main', 'panelHost.ts'), 'utf8');
-  assert.match(host, /const running = overlayProgramStatus\(registry, this\.programStatus\);\s*this\.attention\.tick\(running/, 'the badge and banners read the merged list');
+  assert.match(host, /const running = overlayProgramStatus\(registry, this\.programStatus\);\s*lastShownStatuses = running\.map\(\(a\) => a\.status\);\s*this\.attention\.tick\(running/, 'the badge and banners read the merged list');
 });

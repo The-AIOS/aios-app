@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AIOS</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  /* The window is transparent; only the bar and its list are drawn. */
+  html, body { background: transparent !important; overflow: hidden; }
+  body { padding: 14px 18px; box-sizing: border-box; }
+  .bar {
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: 18px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.25);
+    padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px;
+  }
+  body.light .bar { box-shadow: 0 18px 50px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08); }
+  #text {
+    width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink);
+    font: 400 18px/1.35 var(--font); padding: 2px 2px; user-select: text;
+  }
+  #text::placeholder { color: var(--faint); }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+  #name {
+    border: 1px solid transparent; background: transparent; color: var(--subtle); outline: 0;
+    font: 400 12.5px var(--mono, var(--font)); padding: 3px 6px; border-radius: 6px; width: 200px; user-select: text;
+  }
+  #name:hover, #name:focus { border-color: var(--line-strong); color: var(--ink); }
+  .spacer { flex: 1; }
+  .hint { color: var(--faint); font: 400 11.5px var(--font); white-space: nowrap; }
+  .err { color: var(--st-error-ink); font: 500 12px var(--font); }
+  /* The destination chip and list are AskDest's (renderer/askdest.js), styled in theme.css as .adest-*: one look with the Ask panel. */
+  .listhost .adest-list { box-shadow: 0 18px 50px rgba(0,0,0,.4); max-height: 360px; }
+  .ttl { color: var(--subtle); font: 600 11.5px var(--font); letter-spacing: .02em; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div id="ttl" class="ttl"></div>
+    <input id="text" autocomplete="off" spellcheck="false">
+    <div class="row">
+      <span id="dest"></span>
+      <input id="name" autocomplete="off" spellcheck="false">
+      <span id="err" class="err" hidden></span>
+      <span class="spacer"></span>
+      <span id="hint" class="hint"></span>
+    </div>
+  </div>
+  <div id="list" class="listhost"></div>
+<script src="askdest.js"></script>
+<script src="quickbar.js"></script>
+</body>
+</html>

@@ -335,6 +335,7 @@ test('restored tabs start one at a time; a failure or a session that never comes
   const src = [
     grab(/const UNATTENDED_WINDOW_MS = [\s\S]*?\nconst RESUME_QUOTA_DIALOG = [^\n]*\n/, 'the unattended constants'),
     grab(/const sleepMs = [^\n]*\n/, 'sleepMs'),
+    grab(/async function waitUntilLive\(sessionId, isOpen\) \{[\s\S]*?\n\}/, 'waitUntilLive'),
     grab(/async function materializeInSequence\(ids\) \{[\s\S]*?\n\}/, 'materializeInSequence'),
     'return materializeInSequence;',
   ].join('\n');
@@ -388,4 +389,11 @@ test('Settings offers the three values, labelled in every locale', () => {
       assert.ok(L[k], `${loc} carries ${k}`);
     }
   }
+});
+
+test('0.15.0 review: the unattended installer also reads the statuses the panel shows (registry overlaid with the sessions\' own signals)', () => {
+  const up = fs.readFileSync('src/main/updater.ts', 'utf8');
+  assert.match(up, /statuses: \[\.\.\.listRunningAgents\(\)\.map\(\(a\) => a\.status\), \.\.\.lastPanelStatuses\(\)\]/);
+  const ph = fs.readFileSync('src/main/panelHost.ts', 'utf8');
+  assert.match(ph, /const running = overlayProgramStatus\(registry, this\.programStatus\);\s*lastShownStatuses = running\.map\(\(a\) => a\.status\);/);
 });

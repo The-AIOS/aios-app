@@ -130,7 +130,7 @@ guarded('slash commands are sent exactly like any other message (no filter, no s
     const send = fnBody(slice(src), 'chatSkinSendNow') + fnBody(slice(src), 'chatSkinSubmit');
     return !/startsWith\('\/'\)\s*\)\s*return/.test(send) && !/ptyRun\(/.test(send) && /submitToPty\(id, text[,)]/.test(send);
   },
-  (src) => src.replace('const text = cs.input.value.replace', "if (cs.input.value.startsWith('/')) return;\n  const text = cs.input.value.replace"));
+  (src) => src.replace('let text = cs.input.value.replace', "if (cs.input.value.startsWith('/')) return;\n  let text = cs.input.value.replace"));
 
 test('Enter sends, Shift+Enter breaks the line, and IME composition never sends', () => {
   const cond = /input\.addEventListener\('keydown', \(e\) => \{[\s\S]*?if \((e\.key !== 'Enter'[^)]*)\) return;/.exec(skin)?.[1];
@@ -629,7 +629,7 @@ guarded('the chat font and size are chosen in Settings, in the same section as t
     return together
       && /chatPrefs\.family = chatFontSel\.value/.test(fontHandler) && /chatApplyPrefs\(\)/.test(fontHandler) && /setSetting\('chatFontFamily', chatPrefs\.family\)/.test(fontHandler)
       && /chatPrefs\.size = v/.test(sizeHandler) && /chatApplyPrefs\(\)/.test(sizeHandler) && /setSetting\('chatFontSize', v\)/.test(sizeHandler)
-      && /for \(const n of \[chatFontRow, chatSizeRow, chatSample\]\) n\.hidden = chatMode !== 'chat';/.test(st)   // only meaningful in Chat
+      && /for \(const n of \[chatFontRow, chatSizeRow, chatBubbleRow, chatSample\]\) n\.hidden = chatMode !== 'chat';/.test(st)   // only meaningful in Chat
       && /chatReadPrefs\(cfg\)/.test(st)   // seeded from the config this page was built from, not from whatever a chat view last read
       && /CHAT_FONTS\.map/.test(st) && /CHAT_SIZES\.map/.test(st);
   },
@@ -1383,7 +1383,7 @@ guarded('the status bar is built UNDER the card, and the card holds only the tex
   (src) => {
     const b = fnBody(slice(src), 'chatSkinBuild');
     return /meta\.appendChild\(bar\)/.test(b) && /compose\.append\(jumpBtn, wrap, meta\)/.test(b)
-      && /root\.append\(log, alertEl, agentBar, compose\)/.test(b)   // log, notice, compose block: nothing above the log
+      && /root\.append\(log, stickyEl, alertEl, agentBar, compose\)/.test(b)   // log (the sticky prompt floats over it), notice, compose block: nothing above the log
       && /box\.append\(input, ccRow, dropEl\)/.test(b) && /ccRow\.append\(keysHint, micBtn, stopBtn, sendBtn\)/.test(b)   // the mic joined send/stop, the keys hint sits beside them (0.14.0 round)
       && !/cc-chip|chat-usage|usageEl|usageVals/.test(slice(src))
       && b.indexOf('wrap.append(slashPop, box)') > 0 && b.indexOf('wrap.append(slashPop, box)') < b.indexOf('compose.append(')
@@ -1400,11 +1400,11 @@ guarded('the pane has no header: no Terminal | Chat switch, no Aa button, no fon
   (src) => {
     const s = slice(src);
     const b = fnBody(s, 'chatSkinBuild');
-    return !HEADER_TRACES.test(s) && /root\.append\(log, alertEl, agentBar, compose\)/.test(b) && !/\bhead\b/.test(b.replace(/\/\*[\s\S]*?\*\//g, ''))
+    return !HEADER_TRACES.test(s) && /root\.append\(log, stickyEl, alertEl, agentBar, compose\)/.test(b) && !/\bhead\b/.test(b.replace(/\/\*[\s\S]*?\*\//g, ''))
       // the reading settings are not set from the conversation any more: only applied there
       && !/setSetting\('chatFont/.test(s) && /function chatApplyPrefs\(\)/.test(s) && /function chatReadPrefs\(c\)/.test(s);
   },
-  (src) => src.replace('root.append(log, alertEl, agentBar, compose);', "const head = el('div', 'cs-head');\n  root.append(head, log, alertEl, agentBar, compose);"));
+  (src) => src.replace('root.append(log, stickyEl, alertEl, agentBar, compose);', "const head = el('div', 'cs-head');\n  root.append(head, log, stickyEl, alertEl, agentBar, compose);"));
 
 test('the stylesheet carries no rule of the old header, and the stylesheet check catches one that comes back', () => {
   assert.doesNotMatch(css, HEADER_TRACES);
@@ -1934,7 +1934,7 @@ test('the slash popup wires: the box is a combobox over a listbox, input asks, s
   assert.match(b, /slashFoot\.setAttribute\('aria-hidden', 'true'\)/, 'the footer hint is not read inside the listbox');
   assert.match(b, /wrap\.append\(slashPop, box\)/, 'the popup floats against the card');
   assert.match(b, /slashPop\.addEventListener\('mousedown', \(e\) => e\.preventDefault\(\)\)/, 'a press on a row keeps the caret in the box');
-  assert.match(b, /input\.addEventListener\('input', \(\) => \{ cs\.hist = null; chatSkinAutosize\(cs\); chatSkinControls\(p\); chatSkinSlashRefresh\(cs, p\); \}\)/);
+  assert.match(b, /input\.addEventListener\('input', \(\) => \{ cs\.hist = null; chatSkinAutosize\(cs\); chatSkinControls\(p\); chatSkinSlashRefresh\(cs, p\);(?: chatSkinSuggestPaint\(p\);)? \}\)/);
   assert.match(b, /input\.addEventListener\('blur', \(\) => chatSkinSlashClose\(cs\)\)/);
   assert.match(fnBody(skin, 'chatSkinSendNow'), /chatSkinSlashClose\(cs\)/);
   assert.match(fnBody(skin, 'chatSkinLayout'), /if \(!on \|\| cs\.promptKind\) chatSkinSlashClose\(cs\)/);
@@ -2757,12 +2757,14 @@ test('main forwards what the parser read of a dialog — the question and the op
   assert.match(w, /onRefresh: \(prompt\) => send\(\{ type: 'prompt', kind: prompt\.kind,[^\n]*\.\.\.promptWire\(prompt\), refresh: true \}\)/);
   assert.match(wire, /\.slice\(0, 12\)/, 'at most a dozen rows');
   assert.match(wire, /label: String\(o\.label\)\.slice\(0, 200\)/);
-  assert.match(wire, /prompt\.question\.slice\(0, 300\)/);
+  assert.match(wire, /prompt\.question\.slice\(0, QUESTION_MAX\)/, 'a wrapped question is several rows: the parser\'s cap, not a hint\'s');
+  assert.match(wire, /desc: String\(o\.desc\)\.slice\(0, DESC_MAX\)/, 'the line under an option travels with it');
+  assert.match(wire, /prompt\.header\.slice\(0, 80\)/);
   assert.match(wire, /key: o\.key/, 'the key is the parser\'s, passed through untouched');
   assert.doesNotMatch(wire, /key: [^o]|o\.key\s*[+=]/, 'main never edits or invents a key');
   // a `null` dialog carries no options at all (nothing to draw once it is gone)
   assert.match(wire, /if \(!prompt\) return \{\}/);
-  assert.match(preload, /\| \{ type: 'prompt'; kind: TuiPromptKind \| null; hint\?: string; question\?: string; options\?: TuiOption\[\]; refresh\?: boolean \}/);
+  assert.match(preload, /\| \{ type: 'prompt'; kind: TuiPromptKind \| null; hint\?: string; question\?: string; header\?: string; options\?: TuiOption\[\]; refresh\?: boolean \}/);
 });
 
 test('chat-shot fixture: the permission card, the menu cards, the used card, the narrow card and the strip-with-a-way-back are shot in dark and light, from neutral, hand-written events', () => {
@@ -3698,15 +3700,19 @@ test('0.14.0 round: copy takes no room, the chat stays on its newest message whe
   assert.match(app, /more\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); chatPathMenu\(\{ abs: hit\.abs, dir: false \}/);
 });
 
-test("0.14.0 round 2: Claude's text is a bubble with a tail, copy never wraps, and the key hint cannot blink", () => {
+test("0.15 round: the operator's turn is a solid coral bubble with white text, Claude's a soft grey bubble, copy never wraps, and the key hint cannot blink", () => {
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
-  assert.match(css, /\.who-claude \.chat-bubble \{ position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;/);
-  assert.match(css, /background: var\(--chat-claude-bg\); border: 0;/, 'no outline: fill alone, so the tail joins seamlessly');
-  assert.match(css, /--chat-claude-bg: color-mix\(in srgb, #ff7a6c [0-9]+%, var\(--surface\)\)/, 'a whisper of coral mixed into the surface, never the accent fill itself');
-  assert.doesNotMatch(css, /--chat-claude-bg:[^;]*var\(--accent/, 'never the accent token: coral as a FILL is the send button\'s');
-  assert.match(css, /background: var\(--chat-claude-bg\)/);
+  const user = css.match(/--chat-user-bg: (#[0-9a-f]{6});/g) || [];
+  assert.equal(user.length, 2, 'dark and light: a solid coral fill');
+  for (const u of user) assert.match(u, /#e5483a/, 'solid coral: #e5483a, white 3.95:1, between the brand #ff5d4d (3.0:1) and #cc3d2a (4.9:1)');
+  assert.equal((css.match(/--chat-user-ink: #ffffff;/g) || []).length, 2, 'white text in both themes');
+  assert.match(css, /\.who-user \.chat-bubble \{[^}]*background: var\(--chat-user-bg\); border: 0; color: var\(--chat-user-ink\);/);
+  assert.equal((css.match(/--chat-reply-bg: color-mix\(in srgb, var\(--ink\) [0-9.]+%, var\(--surface\)\);/g) || []).length, 2, 'Claude\'s reply: neutral grey in both themes');
+  assert.match(css, /\.who-claude \.chat-bubble \{ position: relative; box-sizing: border-box; padding: 8px 14px 9px; border-radius: 16px;\s+background: var\(--chat-reply-bg\); border: 0; \}/);
+  assert.match(css, /\.who-claude \.chat-bubble::after \{ left: -6px; background: var\(--chat-reply-bg\);/, 'its tail, bottom left');
+  assert.doesNotMatch(css, /--chat-(claude|reply)-bg:[^;]*#ff/i, 'coral never marks Claude');
+  assert.match(css, /\.who-user \.chat-bubble \.cs-path, \.who-user \.chat-bubble a \{ color: inherit;/, 'a path in your own text stays readable on coral');
   assert.match(css, /\.who-user \.chat-bubble::after \{ right: -6px;[^}]*clip-path: path\(/, 'the operator\'s tail, bottom right');
-  assert.match(css, /\.who-claude \.chat-bubble::after \{ left: -6px;[^}]*clip-path: path\(/, 'Claude\'s tail, bottom left');
   assert.match(css, /\.chat-acts \.cm-copy \{[^}]*white-space: nowrap;/, 'never one letter per line');
   assert.match(css, /\.who-user \.chat-bubble, \.who-claude \.chat-bubble \{ isolation: isolate; \}/);
   assert.match(css, /\.chat-bubble::after \{ content: ''; position: absolute; bottom: 0; width: 22px; height: 18px; z-index: -1; \}/, 'the tail sits under the words, never over the last letter');
@@ -4088,4 +4094,355 @@ test('while dictating, Enter and the send button send the dictation, and the hin
   const paint = app.slice(app.indexOf('function chatSkinVoicePaint('), app.indexOf('\n}\n', app.indexOf('function chatSkinVoicePaint(')) + 2);
   assert.match(paint, /keys\.textContent = t\(cs\.recording \? 'chat\.voice\.hintKeys' : 'chat\.hintShort'\)/, 'the hint follows the recording');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.voice.hintKeys"'), l);
+});
+
+/* ── Claude Code's greyed next-prompt suggestion, offered in the chat box ─────────────────────────────── */
+const skinFn = (name: string): string => skin.slice(skin.indexOf('function ' + name + '('), skin.indexOf('\n}\n', skin.indexOf('function ' + name + '(')) + 2);
+const skinLine = (head: string): string => skin.slice(skin.indexOf(head), skin.indexOf('\n', skin.indexOf(head)) + 1);
+/** A pane whose prompt box holds `typed` (plain) followed by `dim` (greyed), the shape Claude Code paints. */
+function suggestPane(typed: string, dim: string, box = true): unknown {
+  const prompt = '❯ ' + typed + dim;
+  const screen = box ? ['⏺ done', '', '─'.repeat(60), prompt, '─'.repeat(60), '  [Opus] aios | main'] : ['⏺ Do you want to proceed?', '  1. Yes'];
+  const dimFrom = 2 + typed.length;
+  const line = (s: string, isPrompt: boolean) => ({
+    length: s.length,
+    translateToString: () => s,
+    getCell: (x: number, c: { ch: string; dim: boolean }) => { c.ch = s[x] || ''; c.dim = isPrompt && x >= dimFrom; },
+  });
+  return { term: { rows: 30, buffer: { active: {
+    length: screen.length,
+    getLine: (y: number) => (screen[y] === undefined ? undefined : line(screen[y], screen[y] === prompt)),
+    getNullCell: () => ({ ch: '', dim: false, getChars() { return this.ch; }, isDim() { return this.dim; } }),
+  } } } };
+}
+function loadSuggest(src: string): { suggestion: (p: unknown) => string } {
+  const s = slice(src);
+  const fn = (name: string): string => s.slice(s.indexOf('function ' + name + '('), s.indexOf('\n}\n', s.indexOf('function ' + name + '(')) + 2);
+  const grab = (head: string): string => s.slice(s.indexOf(head), s.indexOf('\n', s.indexOf(head)) + 1);
+  return new Function(grab('const chatSkinLookBack') + fn('chatSkinPromptSuggestion') + 'return { suggestion: chatSkinPromptSuggestion };')();
+}
+
+test('the suggestion reader keeps only the greyed text, and nothing when anything is typed or no box is on screen', () => {
+  const { suggestion } = loadSuggest(app);
+  assert.equal(suggestion(suggestPane('', 'run the tests')), 'run the tests', 'greyed only: that is the suggestion');
+  assert.equal(suggestion(suggestPane('fix', ' the bug')), '', 'a typed character means a draft, not a suggestion');
+  assert.equal(suggestion(suggestPane('', '')), '', 'an empty box offers nothing');
+  assert.equal(suggestion(suggestPane('', 'run the tests', false)), '', 'a dialog, no box: nothing');
+  /* Negative control: a reader that ignores the dim flag returns typed text as a suggestion. */
+  const broken = loadSuggest(app.replace("if (!c.isDim()) { if (ch && ch.trim()) return ''; row += ' '; continue; }", ''));
+  assert.notEqual(broken.suggestion(suggestPane('fix', ' the bug')), '', 'control: without the dim check the draft leaks through');
+});
+
+test("0.15.0 review: Claude Code's static example is never offered, and nothing is offered before the first reply", () => {
+  const { suggestion } = loadSuggest(app);
+  assert.equal(suggestion(suggestPane('', 'Try "fix lint errors"')), '', 'the `Try "…"` example is a placeholder: Enter must never send it');
+  assert.equal(suggestion(suggestPane('', 'Try “edit <filepath> to…”')), '', 'curly quotes too');
+  assert.equal(suggestion(suggestPane('', 'Try the tests again')), 'Try the tests again', 'a real suggestion that starts with "Try" still counts');
+  const broken = loadSuggest(app.replace(`return /^Try ["“]/.test(said) ? '' : said;`, 'return said;'));
+  assert.equal(broken.suggestion(suggestPane('', 'Try "fix lint errors"')), 'Try "fix lint errors"', 'control: without the filter the example leaks through');
+  const paint = skinFn('chatSkinSuggestPaint');
+  assert.match(paint, /cs\.input\.value === '' && chatSkinHasReply\(cs\) \? chatSkinPromptSuggestion\(p\)/, 'a suggestion only after a finished reply');
+  assert.match(skinFn('chatSkinHasReply'), /querySelector\('\.chat-row\.who-claude'\)/);
+});
+
+test('Tab on an empty box takes the suggestion into it, cursor at the end', () => {
+  const calls: string[] = [];
+  const take = new Function('chatSkinAutosize', 'chatSkinControls', 'chatSkinPlaceholder', skinFn('chatSkinSuggestTake') + 'return chatSkinSuggestTake;')(
+    () => calls.push('size'), () => calls.push('controls'), () => calls.push('placeholder')) as (cs: unknown) => boolean;
+  const cs = { suggest: 'run the tests', hist: [1], pane: {}, input: { value: '', selectionStart: 0, selectionEnd: 0 } };
+  assert.equal(take(cs), true);
+  assert.equal(cs.input.value, 'run the tests');
+  assert.equal(cs.input.selectionStart, 13);
+  assert.equal(cs.input.selectionEnd, 13);
+  assert.equal(cs.suggest, '', 'taken: no longer offered');
+  assert.deepEqual(calls, ['size', 'controls', 'placeholder']);
+  const typed = { suggest: 'run the tests', pane: {}, input: { value: 'mine', selectionStart: 4, selectionEnd: 4 } };
+  assert.equal(take(typed), false, 'a box with text keeps its text');
+  assert.equal(typed.input.value, 'mine');
+});
+
+test('Enter on an empty box sends the suggestion it shows, and only that', () => {
+  const run = (value: string, shown: string, live: string) => {
+    const sent: string[] = [];
+    let repaint = 0;
+    const send = new Function('toast', 't', 'chatSkinVoiceTap', 'chatSkinVoicePaint', 'chatSkinPanelOpen', 'chatSkinFooterFocus', 'chatSkinFooterRelease',
+      'chatSkinPromptEmpty', 'chatSkinAgentCursor', 'chatSkinPromptDraft', 'chatSkinPromptSuggestion', 'chatSkinSuggestPaint', 'chatSkinAutosize',
+      'chatSkinSlashClose', 'chatSkinPlaceholder', 'chatSkinWorking', 'chatSkinQueueAdd', 'chatSkinSubmit',
+      skinFn('chatSkinSendNow') + 'return chatSkinSendNow;')(
+      () => {}, (k: string) => k, () => {}, () => {}, () => false, () => false, async () => {},
+      () => true, () => -1, () => '', () => live, () => { repaint++; }, () => {},
+      () => {}, () => {}, () => false, () => {}, (_id: string, _p: unknown, text: string) => sent.push(text)) as (id: string, p: unknown) => void;
+    const cs = { suggest: shown, input: { value }, sent: [] as string[] };
+    send('t1', { chatSkin: cs, exited: false });
+    return { sent, repaint, suggest: cs.suggest };
+  };
+  assert.deepEqual(run('', 'run the tests', 'run the tests').sent, ['run the tests'], 'empty box + suggestion: it is sent');
+  assert.equal(run('', 'run the tests', 'run the tests').suggest, '', 'and no longer offered');
+  assert.deepEqual(run('my own words', 'run the tests', 'run the tests').sent, ['my own words'], 'typed text wins over the suggestion');
+  const moved = run('', 'run the tests', 'commit it');
+  assert.deepEqual(moved.sent, [], 'the suggestion changed under the key: nothing is sent');
+  assert.equal(moved.repaint, 1, 'the box shows the new one instead');
+  assert.deepEqual(run('', '', '').sent, [], 'control: empty box, no suggestion, nothing sent');
+});
+
+guarded('the slash popup keeps Tab: its listener runs before the suggestion\'s, which only answers an empty box with a suggestion',
+  (src) => {
+    const s = slice(src);
+    const slash = s.indexOf("input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });");
+    const sug = s.indexOf('chatSkinSuggestTake(cs);\n  });');
+    const head = s.lastIndexOf("input.addEventListener('keydown'", sug);
+    const body = s.slice(head, sug);
+    return slash >= 0 && sug > 0 && slash < head && /input\.value !== ''/.test(body) && /!cs\.suggest/.test(body) && /e\.key !== 'Tab' \|\| e\.shiftKey/.test(body);
+  },
+  (src) => {
+    const line = "  input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });\n";
+    const sugStart = src.indexOf("  /* Tab on an empty box takes Claude Code's suggestion");
+    const sugEnd = src.indexOf('chatSkinSuggestTake(cs);\n  });\n') + 'chatSkinSuggestTake(cs);\n  });\n'.length;
+    const block = src.slice(sugStart, sugEnd);
+    return src.replace(line, '').replace(block, block + line);   // the slash listener moved AFTER the suggestion's
+  });
+
+test('the suggestion repaints with the terminal and steps aside for a dictation or a dialog', () => {
+  const tick = fnBody(skin, 'chatSkinTick');
+  assert.match(tick, /chatSkinControls\(p\);\n\s*chatSkinSuggestPaint\(p\);/, 'every tick, beside the controls');
+  const paint = skinFn('chatSkinSuggestPaint');
+  assert.match(paint, /!cs\.recording && !cs\.promptKind && !chatSkinCardOn\(cs\) && cs\.input\.value === ''/);
+  assert.match(skinFn('chatSkinPlaceholder'), /cs\.suggest \? t\('chat\.suggest\.placeholder'/, 'one writer for the placeholder');
+  assert.ok(skinLine("input.addEventListener('input'").includes('chatSkinSuggestPaint(p)'), 'clearing the box brings it back');
+});
+
+/* ── the sticky prompt (0.15.0 round): the prompt the reply on screen answers, pinned while scrolling ── */
+function loadSticky(src: string): (rows: { top: number; bottom: number }[], scrollTop: number) => number {
+  const s = slice(src);
+  const fn = (name: string): string => s.slice(s.indexOf('function ' + name + '('), s.indexOf('\n}\n', s.indexOf('function ' + name + '(')) + 2);
+  const line = (head: string): string => s.slice(s.indexOf(head), s.indexOf('\n', s.indexOf(head)) + 1);
+  return new Function(line('const CS_STICKY_TOP_PX') + fn('chatSkinStickyPick') + 'return chatSkinStickyPick;')();
+}
+
+test('sticky prompt: the last prompt above the view, only once its bubble has scrolled out, never at the top', () => {
+  const pick = loadSticky(app);
+  const rows = [{ top: 30, bottom: 70 }, { top: 900, bottom: 940 }, { top: 2000, bottom: 2040 }];
+  assert.equal(pick(rows, 0), -1, 'at the very top: nothing pinned');
+  assert.equal(pick(rows, 5), -1, 'within the top margin: nothing pinned');
+  assert.equal(pick(rows, 400), 0, 'reading the first answer: its prompt is pinned');
+  assert.equal(pick(rows, 920), -1, 'the second prompt\'s bubble is still on screen: no strip');
+  assert.equal(pick(rows, 1200), 1, 'reading the second answer: the second prompt');
+  assert.equal(pick(rows, 5000), 2, 'far below: the last prompt above the view');
+  assert.equal(pick([], 400), -1, 'no prompts: nothing');
+  assert.equal(pick([{ top: 500, bottom: 540 }], 300), -1, 'the only prompt is still below the top: nothing');
+  /* Negative control: a pick that skips the visibility check pins a prompt whose bubble is on screen. */
+  const broken = loadSticky(app.replace("  if (pick < 0 || rows[pick].bottom > scrollTop) return -1;   // its bubble still shows\n", "  if (pick < 0) return -1;\n"));
+  assert.equal(broken(rows, 920), 1, 'control: without the check the visible prompt is pinned twice');
+});
+
+test('sticky prompt: over the log (no layout shift), never steals focus, a click goes to that prompt, painted on scroll and on new rows', () => {
+  assert.match(skin, /root\.append\(log, stickyEl, alertEl, agentBar, compose\);/, 'beside the log, not in its flow');
+  assert.match(skin, /stickyEl\.tabIndex = -1;/);
+  assert.match(skin, /stickyEl\.addEventListener\('mousedown', \(e\) => e\.preventDefault\(\)\);/, 'a click never takes the caret from the box');
+  assert.match(skin, /log\.addEventListener\('scroll', \(\) => chatSkinStickySoon\(cs\), \{ passive: true \}\);/);
+  assert.match(skin, /new MutationObserver\(\(\) => chatSkinStickySoon\(cs\)\)\.observe\(log, \{ childList: true \}\)/);
+  assert.match(skinFn('chatSkinStickySoon'), /requestAnimationFrame/, 'throttled to one paint a frame');
+  const click = skin.slice(skin.indexOf("stickyEl.addEventListener('click'"), skin.indexOf("stickyEl.addEventListener('click'") + 500);
+  assert.match(click, /cs\.stick = false;/, 'going back up stops following the tail');
+  assert.match(click, /cs\.log\.scrollTo\(\{ top: Math\.max\(0, chatSkinRowTop\(cs\.log, node\) - chatSkinStickyClear\(cs\)\)/);
+  const paint = skinFn('chatSkinStickyPaint');
+  assert.match(paint, /querySelectorAll\('\.chat-row\.who-user'\)/, 'only the operator\'s own prompts');
+  assert.match(paint, /\.chat-text/, 'the prompt\'s text, not its buttons');
+  const css = read('renderer/theme.css');
+  assert.match(css, /\.chatskin \.cs-sticky \{ position: absolute; top: 6px;/);
+  assert.match(css, /\.chatskin \.cs-sticky \{[^}]*text-overflow: ellipsis;/, 'one line');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.skin.stickyJump"'), l);
+});
+
+test('0.15 round 3: your message colour — every swatch keeps white text at least as readable as the coral default, and only your bubble changes', () => {
+  const src = fs.readFileSync('renderer/app.js', 'utf8');
+  const block = src.slice(src.indexOf('const CHAT_BUBBLES = ['), src.indexOf('];', src.indexOf('const CHAT_BUBBLES = [')) + 2);
+  const bubbles = new Function(block + 'return CHAT_BUBBLES;')() as { id: string; bg: string }[];
+  const lum = (hex: string): number => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const onWhite = (hex: string): number => 1.05 / (lum(hex) + 0.05);
+  assert.equal(bubbles[0].id, 'coral', 'coral first: the default');
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.ok(css.includes(`--chat-user-bg: ${bubbles[0].bg};`), 'the default swatch IS the theme\'s coral');
+  const floor = onWhite(bubbles[0].bg);
+  for (const b of bubbles) assert.ok(onWhite(b.bg) >= floor - 0.001, `${b.id} ${b.bg}: white text ${onWhite(b.bg).toFixed(2)}:1 must be ≥ the coral's ${floor.toFixed(2)}:1`);
+  assert.equal(new Set(bubbles.map((b) => b.bg)).size, bubbles.length, 'no two swatches the same colour');
+  /* Negative control: the tab-group yellow as-is (#e37400) fails the floor — the check can fail. */
+  assert.ok(onWhite('#e37400') < floor, 'control: an undeepened yellow is caught');
+  const style = src.slice(src.indexOf('function chatStyleSkin('), src.indexOf('\n}\n', src.indexOf('function chatStyleSkin(')));
+  assert.match(style, /if \(b\.id === 'coral'\) cs\.root\.style\.removeProperty\('--chat-user-bg'\);[^\n]*\n\s*else cs\.root\.style\.setProperty\('--chat-user-bg', b\.bg\);/, 'only the chat view, only your bubble\'s token');
+  assert.match(fs.readFileSync('src/main/main.ts', 'utf8'), /if \(key === 'chatBubble' && \(typeof value !== 'string' \|\| !\/\^\[a-z\]\{3,12\}\$\/\.test\(value\)\)\) return aios\.shellSettings\(\);/);
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
+    assert.ok(j['settings.chatBubble'] && j['settings.chatBubbleHint'], `${l}: the setting is named`);
+    for (const b of bubbles) assert.ok(j['tg.color.' + b.id], `${l}: tg.color.${b.id}`);
+  }
+});
+
+test('round 3: the sticky prompt lands below the strip, hides while a dialog is up, and a recognised dialog replaces the lost-prompt terminal', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fnOf = (name: string): string => app.slice(app.indexOf('function ' + name + '('), app.indexOf('\n}\n', app.indexOf('function ' + name + '(')) + 2);
+  assert.match(app, /scrollTo\(\{ top: Math\.max\(0, chatSkinRowTop\(cs\.log, node\) - chatSkinStickyClear\(cs\)\)/, 'clears the strip, not 12px');
+  const clear = new Function(fnOf('chatSkinStickyClear') + 'return chatSkinStickyClear;')() as (cs: unknown) => number;
+  assert.equal(clear({ stickyEl: { hidden: false, offsetTop: 6, getBoundingClientRect: () => ({ height: 30 }) } }), 48, 'strip height + its offset + air');
+  assert.equal(clear({ stickyEl: { hidden: true, offsetTop: 6, getBoundingClientRect: () => ({ height: 30 }) } }), 12, 'no strip: just air');
+  const paint = fnOf('chatSkinStickyPaint');
+  assert.match(paint, /if \(cs\.promptKind \|\| cs\.lostPrompt\) \{ cs\.stickyNode = null; if \(!strip\.hidden\) strip\.hidden = true; return; \}/);
+  assert.match(paint, /if \(cs\.stick\) \{ cs\.stickyNode = null; if \(!strip\.hidden\) strip\.hidden = true; return; \}/, 'round 4: never while the chat follows the bottom');
+  const run = (cs: Record<string, unknown>) => { new Function('cs', paint.replace(/^function chatSkinStickyPaint\(cs\) \{/, '').replace(/\}\s*$/, ''))(cs); return cs; };
+  const strip = { hidden: false, textContent: 'x' };
+  assert.equal((run({ stickyEl: strip, promptKind: 'question' }).stickyEl as { hidden: boolean }).hidden, true, 'a card owns the top');
+  {
+    const s2 = { hidden: false, textContent: 'x' };
+    const r = run({ stickyEl: s2, stick: true, log: { querySelectorAll: () => { throw new Error('should not measure while following the tail'); } } });
+    assert.equal((r.stickyEl as { hidden: boolean }).hidden, true, 'following the bottom: no strip, without even measuring');
+  }
+  assert.match(fnOf('chatSkinPrompt'), /if \(kind\) \{ cs\.lostPrompt = false; cs\.lostSince = 0; \}/);
+  const lost = fnOf('chatSkinLostPrompt');
+  assert.match(lost, /if \(cs\.promptKind\) \{ cs\.lostSince = 0; if \(cs\.lostPrompt\) \{ cs\.lostPrompt = false; chatSkinLayout\(p\); \} return; \}/);
+  /* Control: the old guard left lostPrompt set under a card. */
+  const old = lost.replace(/if \(cs\.promptKind\) \{[^\n]*\n/, '');
+  const f = (src: string) => new Function('chatSkinAgentCursor', 'chatSkinLayout', 'chatSkinFocus', 'chatSkinWorking', 'repaintTerm', 'panes', src + 'return chatSkinLostPrompt;')(() => null, () => {}, () => {}, () => false, () => {}, new Map());
+  const csA = { promptKind: 'question', lostPrompt: true, sawPrompt: true, lostSince: 1 };
+  f(lost)('id', { chatSkin: csA }, 5000);
+  assert.equal(csA.lostPrompt, false, 'a dialog clears the lost-prompt terminal');
+  const csB = { promptKind: 'question', lostPrompt: true, sawPrompt: true, lostSince: 1 };
+  f(old.includes('function chatSkinLostPrompt') ? old : lost)('id', { chatSkin: csB }, 5000);
+  assert.equal(csB.lostPrompt, true, 'control: without the guard it stays set');
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.from-bus \.chat-bubble::after \{ background: color-mix\(in srgb, var\(--chat-link\) 9%, var\(--surface\)\); \}/, 'the bus tail matches the bus bubble');
+  assert.ok(css.indexOf('.from-bus .chat-bubble::after') > css.indexOf('.who-user .chat-bubble::after'), 'and comes after the coral tail, so it wins');
+});
+
+test('a question the chat cannot draw switches the tab to the terminal, and back to chat when it is answered (0.15.0)', () => {
+  const grab = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
+  const footerRe = /const CS_SELECT_FOOTER = (\/.*\/);/.exec(skin)![1];
+  const liveTail = /const chatSkinLiveTail = [^\n]*\n/.exec(skin)![0];
+  const settle = /const CS_QUESTION_SETTLE_MS = [^\n]*\n/.exec(skin)![0];
+  const make = (body: string) => {
+    let screen = '';
+    const views: string[] = [];
+    const toasts: string[] = [];
+    const panes = new Map<number, unknown>();
+    const run = new Function('chatMode', 'chatSkinEligible', 'chatSkinScreenText', 'chatSkinSetView', 'toast', 't', 'panes', 'setTimeout',
+      'const CS_SELECT_FOOTER = ' + footerRe + ';\n' + liveTail + settle + body + grab('chatSkinAgentCursor') + '; return chatSkinQuestionTerm;')(
+      'chat', () => true, () => screen,
+      (_id: number, v: string) => { views.push(v); (panes.get(1) as Record<string, unknown>).view = v === 'chat' ? 'chat' : 'term'; return true; },
+      (m: string) => toasts.push(m), (k: string) => k, panes, () => 0) as (id: number, p: unknown, now: number) => void;
+    return { run, views, toasts, panes, set: (s: string) => { screen = s; } };
+  };
+  const QUESTION = ['   Close the laptop and do nothing work-related until Monday.', '  5. Type something.', '─'.repeat(40), '  6. Chat about this', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel'].join('\n');
+  const PROMPT = ['─'.repeat(40) + ' main ─', '❯ ', '─'.repeat(40), '  ⏵⏵ auto mode on'].join('\n');
+
+  const h = make(grab('chatSkinQuestionTerm'));
+  const p: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+  h.panes.set(1, p);
+  h.set(QUESTION);
+  h.run(1, p, 1000);
+  assert.deepEqual(h.views, [], 'waits first: the card detector gets its turn');
+  h.run(1, p, 2300);
+  assert.deepEqual(h.views, ['term'], 'a question with no card: the terminal');
+  assert.deepEqual(h.toasts, ['chat.skin.questionInTerm'], 'said once');
+  h.run(1, p, 3000);
+  assert.deepEqual(h.views, ['term'], 'stays while the question is up');
+  h.set(PROMPT);
+  h.run(1, p, 4000);
+  assert.deepEqual(h.views, ['term'], 'the prompt box is back: wait for it to hold');
+  h.run(1, p, 5000);
+  assert.deepEqual(h.views, ['term', 'chat'], 'answered and settled: back to chat');
+
+  // a dialog the chat already draws as a card: no switch
+  const c = make(grab('chatSkinQuestionTerm'));
+  const q: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: 'question' } };
+  c.panes.set(1, q);
+  c.set(QUESTION);
+  c.run(1, q, 1000); c.run(1, q, 5000);
+  assert.deepEqual(c.views, [], 'a card is up: the chat keeps it');
+
+  // the operator goes back to chat by hand while the question is up: never switched again for that dialog
+  const m = make(grab('chatSkinQuestionTerm'));
+  const r: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+  m.panes.set(1, r);
+  m.set(QUESTION);
+  m.run(1, r, 1000); m.run(1, r, 2300);
+  assert.deepEqual(m.views, ['term']);
+  r.view = 'chat';                       // the operator's own click
+  m.run(1, r, 3000); m.run(1, r, 5000); m.run(1, r, 9000);
+  assert.deepEqual(m.views, ['term'], 'the hand choice stands');
+  m.set(PROMPT);
+  m.run(1, r, 10000);
+  assert.deepEqual(m.views, ['term'], 'and nothing switches when the dialog ends');
+
+  // control: without the card guard, a recognised card would be switched away
+  const broken = make(grab('chatSkinQuestionTerm').replace(' || (cs && cs.promptKind)', ''));
+  const b: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: 'question' } };
+  broken.panes.set(1, b);
+  broken.set(QUESTION);
+  broken.run(1, b, 1000); broken.run(1, b, 5000);
+  assert.deepEqual(broken.views, ['term'], 'control: the guard is what keeps a card');
+  // and a reply that merely mentions "Esc to cancel" while the prompt box is up is not a question
+  const e = make(grab('chatSkinQuestionTerm'));
+  const w: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+  e.panes.set(1, w);
+  e.set(['⏺ Press Esc to cancel a run.', PROMPT].join('\n'));
+  e.run(1, w, 1000); e.run(1, w, 5000);
+  assert.deepEqual(e.views, [], 'the prompt box is up: no dialog');
+  /* Round 5, the operator's report: "when i scroll it kinda goes back to chat view and glitches". The dialog's own selection
+     marker (❯ 1. …) moves on scroll and arrow keys and read as the prompt box; blank rows below the footer pushed it out of
+     a 6-row window. Either flipped the switch back to chat for a tick, then here again. */
+  const SELECTED = ['❯ 1. Deep build session', '     Put on headphones and build something small.', '  2. Long dinner with people', '─'.repeat(40),
+    '  6. Chat about this', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel', '', '', '', '', '', '', ''].join('\n');   // the marker in column 0, as Claude Code draws it; blank rows below the footer
+  {
+    const cur = new Function('chatSkinScreenText', grab('chatSkinAgentCursor') + 'return chatSkinAgentCursor;')(() => SELECTED) as (p: unknown) => number | null;
+    assert.notEqual(cur({}), null, 'the fixture reproduces the trap: the selection marker reads as a prompt box');
+  }
+  const WORKING = ['⏺ Thinking about your answer…', '', '✻ Working… (3s)'].join('\n');
+  const flap = (body: string) => {
+    const f = make(body);
+    const x: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+    f.panes.set(1, x);
+    f.set(QUESTION); f.run(1, x, 1000); f.run(1, x, 2300);
+    for (let i = 0; i < 8; i++) { f.set(i % 2 ? QUESTION : SELECTED); f.run(1, x, 2600 + i * 300); }   // scrolling / arrow keys
+    return { f, x };
+  };
+  {
+    const g = make(grab('chatSkinQuestionTerm'));
+    const y: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+    g.panes.set(1, y);
+    g.set(SELECTED); g.run(1, y, 1000); g.run(1, y, 2300);
+    assert.deepEqual(g.views, ['term'], 'the selected option on screen from the start still switches');
+  }
+  const ok = flap(grab('chatSkinQuestionTerm'));
+  assert.deepEqual(ok.f.views, ['term'], 'the selection marker and blank rows below the footer: still the terminal, no flap');
+  ok.f.set(WORKING); ok.f.run(1, ok.x, 6000); ok.f.run(1, ok.x, 8000);
+  assert.deepEqual(ok.f.views, ['term'], 'footer gone but the prompt box not back yet: stays');
+  ok.f.set(PROMPT); ok.f.run(1, ok.x, 9000); ok.f.run(1, ok.x, 9500);
+  assert.deepEqual(ok.f.views, ['term'], 'the box is back, not yet held for a second');
+  ok.f.set(QUESTION); ok.f.run(1, ok.x, 9700); ok.f.set(PROMPT); ok.f.run(1, ok.x, 10000); ok.f.run(1, ok.x, 10600);
+  assert.deepEqual(ok.f.views, ['term'], 'a dialog flicker restarts the wait');
+  ok.f.run(1, ok.x, 11000);
+  assert.deepEqual(ok.f.views, ['term', 'chat'], 'held for a second: back to chat, once');
+  /* Control: the round-4 rule (footer in the last 6 rows, leave the moment either signal drops) flaps on the same input. */
+  const old = grab('chatSkinQuestionTerm')
+    .replace('CS_SELECT_FOOTER.test(chatSkinLiveTail(text, 8))', "CS_SELECT_FOOTER.test(text.split('\\n').slice(-6).join('\\n'))")
+    .replace('const gone = settled && now - p.questionGoneSince >= CS_QUESTION_SETTLE_MS;', 'const gone = !footer || box;');
+  const bad = flap(old);
+  assert.ok(bad.f.views.length > 1 && bad.f.views.includes('chat'), `control: the old rule flaps (${bad.f.views.join(',')})`);
+  assert.match(skin, /chatSkinFirstRun\(id, p\);\n\s*chatSkinQuestionTerm\(id, p, now\);/, 'runs on every tick, for every terminal pane');
+  for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok((JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>)['chat.skin.questionInTerm'], l);
+});
+
+test('0.15.0 review 2: the long-question switch never takes the keyboard from another pane, and names the session; the light pinned prompt is near solid', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('function chatSkinQuestionTerm('), app.indexOf('\n}\n', app.indexOf('function chatSkinQuestionTerm(')));
+  assert.match(fn, /toast\(t\('chat\.skin\.questionInTerm', \{ name: p\.name \|\| '' \}\)\);/);
+  assert.match(fn, /if \(!elsewhere\) setTimeout\(\(\) => \{ if \(panes\.get\(id\) === p\) \{ try \{ p\.term\.focus\(\); \}/, 'focus only when the operator is not typing elsewhere');
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
+    assert.match(j['chat.skin.questionInTerm'], /\{name\}/, `${l}: names the session`);
+  }
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /body\.light \.chatskin \.cs-sticky \{ background: color-mix\(in srgb, var\(--chat-user-bg\) 90%, transparent\); \}/);
 });
