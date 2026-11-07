@@ -157,12 +157,17 @@ export class QuickBar {
   private destinations(): Record<string, unknown> {
     return {
       strings: {
-        placeholder: t('quickBar.placeholder'),
-        newSession: t('quickBar.newSession'),
-        agents: t('quickBar.agents'),
-        sessions: t('quickBar.sessions'),
+        /* The Ask panel's own words (0.15.0 round 2): this bar is "Ask AIOS from any app", the same Ask with the same picker. */
+        title: t('ask.title'),
+        placeholder: t('ask.placeholder'),
+        newSession: t('ask.destNew'),
+        agents: t('ask.destAgents'),
+        sessions: t('ask.destSessions'),
         filter: t('quickBar.filter'),
         hint: t('quickBar.hint'),
+        waiting: t('status.needsInput'),
+        agentTag: t('ask.destAgentTag'),
+        sessionTag: t('ask.destSessionTag'),
         nameLabel: t('quickBar.nameLabel'),
         emptyText: t('quickBar.emptyText'),
         failed: t('quickBar.failed'),

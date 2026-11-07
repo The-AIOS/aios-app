@@ -17,21 +17,48 @@ const fn = (src: string, name: string): string => {
   return src.slice(start, src.indexOf('\n}\n', head) + 2);
 };
 
-const destOf = (src: string): ((v: string) => { kind: string; name?: string }) =>
-  new Function(fn(src, 'askDestOf') + 'return askDestOf;')();
+/* The shared picker (renderer/askdest.js) run for real in a tiny fake page: the module only needs `window`. */
+const askdest = fs.readFileSync('renderer/askdest.js', 'utf8');
+const loadAskDest = (src: string): { buildRows: (q: string, d: unknown, S: unknown) => Array<Record<string, unknown>> } => {
+  const win: Record<string, unknown> = {};
+  new Function('window', src)(win);
+  return win.AskDest as never;
+};
+const S = { newSession: 'New session', sessions: 'Live sessions', agents: 'Agents' };
+const DATA = { sessions: [{ name: 'warm-puma', waiting: true }, { name: 'bold-orca' }], agents: [{ name: 'lawyer', desc: 'contracts' }, { name: 'accountant', desc: 'books' }] };
 
-test('the picker defaults to a new session, and reads a live session or an agent', () => {
-  const askDestOf = destOf(app);
-  assert.deepEqual(askDestOf('new:'), { kind: 'new' }, 'the first option: a new session, today\'s behaviour');
-  assert.deepEqual(askDestOf(''), { kind: 'new' });
-  assert.deepEqual(askDestOf('session:warm-puma'), { kind: 'session', name: 'warm-puma' });
-  assert.deepEqual(askDestOf('agent:lawyer'), { kind: 'agent', name: 'lawyer' });
-  assert.deepEqual(askDestOf('agent:'), { kind: 'new' }, 'no name, no destination');
-  assert.deepEqual(askDestOf('shell:rm'), { kind: 'new' }, 'an unknown kind never becomes a send');
-  /* Negative control: a parser that trusts any kind lets an unknown one through. */
-  const loose = destOf(app.replace("return (kind === 'session' || kind === 'agent') && name ? { kind, name } : { kind: 'new' };", 'return { kind, name };'));
-  assert.notDeepEqual(loose('shell:rm'), { kind: 'new' }, 'control: without the check the unknown kind leaks through');
-  assert.match(app, /destSel\.appendChild\(new Option\(t\('ask\.destNew'\), 'new:'\)\);/, 'New session is the first option, so it is selected by default');
+test('0.15.0 round 2: one picker for both doors, New session first, then Live sessions, then Agents, filtered', () => {
+  const { buildRows } = loadAskDest(askdest);
+  const all = buildRows('', DATA, S);
+  assert.deepEqual(all[0], { kind: 'new', name: '', label: 'New session' }, 'New session first: today\'s behaviour is the default');
+  assert.deepEqual(all.map((r) => r.group || r.name), ['', 'Live sessions', 'warm-puma', 'bold-orca', 'Agents', 'lawyer', 'accountant']);
+  assert.equal(all.find((r) => r.name === 'warm-puma')!.waiting, true, 'a session waiting on you is marked');
+  const f = buildRows('contr', DATA, S);
+  assert.deepEqual(f.map((r) => r.group || r.name), ['', 'Agents', 'lawyer'], 'the filter matches an agent by its description; empty sections disappear; New session stays');
+  /* Negative control: a picker that ignores the filter shows everything. */
+  const loose = loadAskDest(askdest.replace("const hit = (s) => !f || String(s || '').toLowerCase().includes(f);", 'const hit = () => true;'));
+  assert.notDeepEqual(loose.buildRows('contr', DATA, S).length, f.length, 'control: without the filter every row shows');
+});
+
+test('0.15.0 round 2: the Ask panel uses the shared picker, never a native <select>, and Tab opens it', () => {
+  const modal = app.slice(app.indexOf('/* opts.destField'), app.indexOf('/* opts.hint'));
+  assert.doesNotMatch(modal, /createElement\('select'\)|new Option\(/, 'no native select: it read as foreign to the App');
+  assert.match(modal, /window\.AskDest\.mount\(chipHost, listHost, \{/);
+  assert.match(modal, /if \(e\.key === 'Tab' && !e\.shiftKey\) \{ e\.preventDefault\(\); destPick\.open\(\); \}/);
+  assert.match(app, /if \(destPick\) out\.dest = destPick\.dest\.kind === 'new' \? \{ kind: 'new' \} : \{ kind: destPick\.dest\.kind, name: destPick\.dest\.name \};/);
+  assert.match(fs.readFileSync('renderer/index.html', 'utf8'), /<script src="askdest\.js"><\/script>\s*<script src="app\.js"><\/script>/, 'loaded before the App');
+  assert.match(app, /case 'ask': void onIntentAsk\(\); return;/, 'the menu bar and the bus open the same Ask, destinations included');
+});
+
+test('0.15.0 round 2: the floating Ask is the same Ask: same picker, same words', () => {
+  const html = fs.readFileSync('renderer/quickbar.html', 'utf8');
+  assert.match(html, /<script src="askdest\.js"><\/script>\s*<script src="quickbar\.js"><\/script>/);
+  assert.doesNotMatch(html, /<ul id="items">/, 'no list of its own');
+  assert.match(fs.readFileSync('renderer/quickbar.js', 'utf8'), /picker = window\.AskDest\.mount\(\$\('dest'\), \$\('list'\), \{/);
+  const qb = fs.readFileSync('src/main/quickBar.ts', 'utf8');
+  for (const k of ['ask.title', 'ask.placeholder', 'ask.destNew', 'ask.destSessions', 'ask.destAgents']) assert.match(qb, new RegExp(`t\\('${k.replace('.', '\\.')}'\\)`), k);
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /\.adest-chip \{/, 'one look, in theme.css, for both pages');
 });
 
 test('each destination takes its own path: a new session launches as before, the others go to the inbox', async () => {

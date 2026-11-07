@@ -35,6 +35,7 @@ import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
 import { installMenu } from './menu';
 import { MenuBar } from './menuBar';
+import { sanitizeGroups, type MenuBarGroup } from '../core/menuBar';
 import { QuickBar, writeAskRequest } from './quickBar';
 import { isBlockedStatus } from '../core/attention';
 import type { QuickBarDestination } from '../core/quickBar';
@@ -1207,11 +1208,21 @@ function syncMenuBar(): void {
   menuBar ??= new MenuBar({
     reveal: (target) => host?.revealSession(target),
     openApp: () => { showMainWindow(); },
+    /* Ask AIOS from the menu bar: the floating Ask (the same one the optional global shortcut opens) when this platform
+       has it, else the App's own Ask panel. */
+    ask: () => {
+      if (QUICK_BAR_ALLOWED() && quickBar) { quickBar.show(); return; }
+      const w = showMainWindow(); if (w && !w.webContents.isDestroyed()) w.webContents.send('shell:intent', { kind: 'ask' });
+    },
     openSettings: () => { const w = showMainWindow(); if (w && !w.webContents.isDestroyed()) w.webContents.send('shell:intent', { kind: 'settings' }); },
     quit: () => app.quit(),
   }, path.join(__dirname, '..', '..'));
   if (!menuBar.enable()) console.log('[menu-bar] the icon could not be created');
+  menuBar.setGroups(menuBarGroups);
 }
+/* The App's tab groups as the renderer last reported them, kept here so a menu bar icon created later starts with them. */
+let menuBarGroups: MenuBarGroup[] = [];
+ipcMain.on('menuBar:groups', (_e, raw: unknown) => { menuBarGroups = sanitizeGroups(raw); menuBar?.setGroups(menuBarGroups); });
 
 /* THE QUICK BAR (docs/rfcs/menu-bar.md). Created after the window, never under a smoke/shot/eval run.
    `applyQuickBar` is the one place that takes the global shortcut and rebuilds the menu around it, so the

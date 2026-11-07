@@ -530,6 +530,32 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .maskhintlink:hover { text-decoration: underline; }
 .modal .mnamein { padding: 6px 10px; font-size: 12.5px; font-family: var(--mono, ui-monospace, Menlo, monospace); }
 .mhint { color: var(--subtle); font-size: 11px; margin-top: 9px; }
+/* ── Ask AIOS destination picker (renderer/askdest.js): ONE look for the Ask panel and the floating Ask bar ── */
+.adest-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 4px 10px;
+              border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--ink);
+              font: 500 12.5px var(--font); cursor: pointer; }
+.adest-chip:hover, .adest-chip.open, .adest-chip:focus-visible { border-color: var(--accent); outline: none; }
+.adest-arrow { color: var(--subtle); }
+.adest-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.adest-kind { color: var(--faint); font-size: 11px; }
+.adest-kind[hidden] { display: none; }
+.adest-car { color: var(--subtle); font-size: 10px; }
+.adest-list { margin-top: 8px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 12px;
+              padding: 6px; max-height: 280px; display: flex; flex-direction: column; color: var(--ink); }
+.adest-list[hidden] { display: none; }
+.adest-list .adest-filter, .modal .adest-list .adest-filter { width: 100%; box-sizing: border-box; border: 0; outline: 0; background: var(--surface);
+              color: var(--ink); border-radius: 8px; font: 400 13px var(--font); padding: 7px 9px; margin-bottom: 4px; }
+.adest-items { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.adest-grp { color: var(--faint); font: 600 10.5px var(--font); text-transform: uppercase; letter-spacing: .06em; padding: 8px 9px 3px; }
+.adest-it { display: flex; align-items: baseline; gap: 8px; padding: 6px 9px; border-radius: 7px; cursor: pointer; font: 400 13px var(--font); }
+.adest-it .adest-n { flex: none; white-space: nowrap; }
+.adest-it .adest-d { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adest-it .adest-w { color: var(--st-input-ink); font-size: 11.5px; }
+.adest-it .adest-w::before { content: '● '; }
+.adest-it:hover { background: var(--surface); }
+.adest-it.sel { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.mdestchip { min-width: 0; display: inline-flex; }
+.mdesthint { margin-left: auto; color: var(--faint); font-size: 11px; white-space: nowrap; }
 
 /* ── layout menu + toasts ── */
 .lmenu { position: fixed; z-index: 70; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 5px;
