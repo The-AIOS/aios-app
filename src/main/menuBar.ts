@@ -51,6 +51,13 @@ export function iconPath(appRoot: string): string {
   return path.join(appRoot, 'renderer', 'tray', 'iconTemplate.png');
 }
 
+/** macOS 14 (Sonoma, Darwin 23) added native menu section headers; Electron's `type: 'header'` maps to them. */
+function sectionHeadersSupported(): boolean {
+  if (process.platform !== 'darwin') return false;
+  const major = Number(String(process.getSystemVersion?.() || '0').split('.')[0]);
+  return major >= 14;
+}
+
 export class MenuBar {
   private tray?: Tray;
   private model?: MenuBarModel;
@@ -124,34 +131,39 @@ export class MenuBar {
   }
 
   private template(model: MenuBarModel): Electron.MenuItemConstructorOptions[] {
+    /* Round 3 (operator): Ask and Show at the top, then the sessions, then Settings and Quit. A group's name is a native
+       section header on macOS 14+ (the system's own look, aligned with nothing to fake); before 14, a disabled row with the
+       group's colour dot. Members carry only their state dot: leading spaces moved the text but never the icon, so the dots
+       looked misaligned. */
+    const headers = sectionHeadersSupported();
     const rows: Electron.MenuItemConstructorOptions[] = [];
     let last = -2;
     for (const r of model.rows) {
-      /* A group's heading before its first session, in the group's colour; the sessions in no group after a separator. */
       if (r.group !== last) {
         if (r.group >= 0) {
           const g = model.groups[r.group];
-          rows.push({ label: g.name || t('tg.unnamed', { color: t('tg.color.' + g.color) }), icon: groupDot(g.color), enabled: false });
+          const label = g.name || t('tg.unnamed', { color: t('tg.color.' + g.color) });
+          if (rows.length) rows.push({ type: 'separator' });
+          rows.push(headers ? { type: 'header', label, icon: groupDot(g.color) } : { label, icon: groupDot(g.color), enabled: false });
         } else if (last >= 0) rows.push({ type: 'separator' });
         last = r.group;
       }
       rows.push({
-        label: model.groups.length && r.group >= 0 ? '   ' + r.name : r.name,   // indented under its group
+        label: r.name,
         icon: stateDot(r.state),          // the sidebar's colour for this state, instead of "— ready" (0.15.0 round)
         toolTip: t(STATE_KEY[r.state]),   // the state still in words, on hover
         click: () => this.hooks.reveal({ name: r.name, sessionId: r.id || undefined }),
       });
     }
     if (!rows.length) rows.push({ label: t('menuBar.empty'), enabled: false });
+    else if (!model.groups.length) rows.unshift(headers ? { type: 'header', label: t('menuBar.sessions') } : { label: t('menuBar.sessions'), enabled: false });
     return [
       { label: t('menuBar.ask'), click: () => this.hooks.ask() },
+      { label: t('menuBar.open'), click: () => this.hooks.openApp() },
       { type: 'separator' },
-      { label: t('menuBar.sessions'), enabled: false },
       ...rows,
       { type: 'separator' },
-      { label: t('menuBar.open'), click: () => this.hooks.openApp() },
       { label: t('menu.settings'), click: () => this.hooks.openSettings() },
-      { type: 'separator' },
       { label: t('menu.quit'), click: () => this.hooks.quit() },
     ];
   }

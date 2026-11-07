@@ -2399,3 +2399,11 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 /* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
 .cc-box.bang, .cc-box.bang:focus-within { border-color: var(--chat-bang); }
 .cc-box.bang .chat-input { color: var(--chat-bang-ink); }
+
+/* Settings › Ask AIOS from any app: the key recorder (0.15.0 round 3). The button IS the field; while it listens it says so. */
+.qbrec { display: flex; align-items: center; gap: 8px; }
+.qbrec-key { min-width: 200px; text-align: left; cursor: pointer; font-family: var(--mono); letter-spacing: .02em; }
+.qbrec-key.rec { border-color: color-mix(in srgb, var(--ink) 45%, transparent); color: var(--subtle); font-family: inherit; letter-spacing: 0; }
+.qbrec-clear { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--subtle); font: inherit; font-size: 12px; cursor: pointer; }
+.qbrec-clear:hover { color: var(--ink); }
+.qbrec-clear[hidden] { display: none; }

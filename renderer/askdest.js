@@ -81,7 +81,10 @@
         const n = document.createElement('span'); n.className = 'adest-n'; n.textContent = r.label; li.appendChild(n);
         if (r.waiting) { const w = document.createElement('span'); w.className = 'adest-w'; w.textContent = S.waiting; li.appendChild(w); }
         if (r.desc) { const d = document.createElement('span'); d.className = 'adest-d'; d.textContent = r.desc; li.appendChild(d); }
-        li.addEventListener('mousedown', (e) => { e.preventDefault(); choose(r); });
+        /* Chosen on CLICK, not mousedown (round 3): hiding the list on mousedown shrank the dialog under the pointer, so the
+           mouseup/click that followed landed on the backdrop and cancelled the whole Ask. mousedown only keeps the focus. */
+        li.addEventListener('mousedown', (e) => { e.preventDefault(); });
+        li.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); choose(r); });
         items.appendChild(li);
         if (idx === sel) li.scrollIntoView({ block: 'nearest' });
       }

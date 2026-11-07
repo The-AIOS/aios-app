@@ -122,7 +122,7 @@ test('0.15.0 round: each session in the menu carries the sidebar\'s colour dot f
   assert.equal(at(0, 0)[3], 0, 'the corner is transparent: a dot, not a square');
   assert.throws(() => dotBitmap('green', 12), 'a malformed colour is an error, not a black dot');
   const main = fs.readFileSync('src/main/menuBar.ts', 'utf8');
-  assert.match(main, /label: model\.groups\.length && r\.group >= 0 \? '   ' \+ r\.name : r\.name,[^\n]*\n\s*icon: stateDot\(r\.state\),/, 'the name, with the dot');
+  assert.match(main, /label: r\.name,\n\s*icon: stateDot\(r\.state\),/, 'the name, with the dot, and no leading spaces (they moved the text but not the icon)');
   assert.match(main, /toolTip: t\(STATE_KEY\[r\.state\]\)/, 'the state still in words on hover');
   assert.doesNotMatch(main, /label: `\$\{r\.name\} — /, 'no "— ready" text');
   const fn = main.slice(main.indexOf('function stateDot('), main.indexOf('\n}\n', main.indexOf('function stateDot(')));
@@ -155,8 +155,22 @@ test('0.15.0 round 2: the menu lists sessions under their tab groups, in the gro
   assert.equal(groupDotColor('nonsense'), GROUP_DOT_COLOR.grey);
   const main = fs.readFileSync('src/main/menuBar.ts', 'utf8');
   assert.match(main, /return \[\s*\{ label: t\('menuBar\.ask'\), click: \(\) => this\.hooks\.ask\(\) \},/, 'Ask AIOS… first in the menu');
-  assert.match(main, /icon: groupDot\(g\.color\), enabled: false/, 'a group heading in its colour');
+  assert.match(main, /rows\.push\(headers \? \{ type: 'header', label, icon: groupDot\(g\.color\) \} : \{ label, icon: groupDot\(g\.color\), enabled: false \}\);/, 'a native section header on macOS 14+, else a disabled row with the group colour');
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /function persistSessions\(\) \{\s*try \{ tgReportMenuBar\(\); \}/, 'the renderer reports its groups on every layout change');
   assert.match(fs.readFileSync('src/main/main.ts', 'utf8'), /ipcMain\.on\('menuBar:groups', \(_e, raw: unknown\) => \{ menuBarGroups = sanitizeGroups\(raw\);/);
+});
+
+test('0.15.0 round 3: Ask AIOS and Show AIOS first, then the sessions, then Settings and Quit', () => {
+  const main = fs.readFileSync('src/main/menuBar.ts', 'utf8');
+  const ret = main.slice(main.indexOf('    return [\n      { label: t(\'menuBar.ask\')'), main.indexOf('    ];', main.indexOf('    return [\n      { label: t(\'menuBar.ask\')')));
+  const order = ['menuBar.ask', 'menuBar.open', "type: 'separator'", '...rows', "type: 'separator'", 'menu.settings', 'menu.quit'].map((k) => ret.indexOf(k));
+  assert.ok(order.every((i) => i >= 0), 'every item is there');
+  const want = ['menuBar.ask', 'menuBar.open', '...rows', 'menu.settings', 'menu.quit'].map((k) => ret.indexOf(k));
+  assert.deepEqual([...want].sort((a, b) => a - b), want, 'in this order');
+  assert.ok(ret.indexOf('menuBar.open') < ret.indexOf("type: 'separator'"), 'Show AIOS sits with Ask, above the sessions');
+  assert.match(main, /function sectionHeadersSupported\(\): boolean \{[\s\S]*?major >= 14;/, 'native headers only where macOS has them');
+  for (const [l, want2] of [['en', 'Show AIOS'], ['es', 'Mostrar AIOS'], ['pt-br', 'Mostrar o AIOS'], ['el', 'Εμφάνιση AIOS']] as const) {
+    assert.equal(JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8'))['menuBar.open'], want2, l);
+  }
 });

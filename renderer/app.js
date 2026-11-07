@@ -12514,25 +12514,47 @@ function openSettingsTab() {
     row(wrap, t('settings.showMemory'), mkToggle('showMemory', cfg.showMemory !== false), t('settings.showMemoryHint'));
     /* The menu-bar icon (docs/rfcs/menu-bar.md). macOS only; main creates or removes it the moment this changes. */
     if (window.glassShell.platform === 'darwin') row(wrap, t('settings.menuBar'), mkToggle('menuBar', cfg.menuBar !== false), t('settings.menuBarHint'));
-    /* The quick bar's global shortcut (docs/rfcs/menu-bar.md § 3.4). Written as an Electron accelerator; main says
-       whether the OS granted it, and a refusal is shown here instead of a key that silently does nothing. Built in
-       place (not appended when the status arrives) so the row keeps its position; hidden until main says the bar exists. */
+    /* "Ask AIOS from any app": its global shortcut (docs/rfcs/menu-bar.md § 3.4). A KEY RECORDER, not a text field: the
+       operator could not tell what to type into a field expecting an Electron accelerator (0.15.0 round 3). Click, press
+       the keys; Esc cancels; Clear turns it off. Main says whether the OS granted it, and a refusal is shown here instead
+       of a key that silently does nothing. Hidden until main says the bar exists (macOS only). */
     if (window.glassShell.platform === 'darwin') {
-      const qbIn = document.createElement('input');
-      qbIn.className = 'tinput'; qbIn.spellcheck = false; qbIn.placeholder = 'CommandOrControl+Shift+A';
-      const qbRow = row(wrap, t('settings.quickBarShortcut'), qbIn, t('settings.quickBarShortcutHint'));
+      const box = el('div', 'qbrec');
+      const qbBtn = el('button', 'tinput qbrec-key'); qbBtn.type = 'button';
+      const qbClear = el('button', 'qbrec-clear', t('settings.quickBarShortcutClear')); qbClear.type = 'button';
+      box.append(qbBtn, qbClear);
+      const qbRow = row(wrap, t('settings.quickBarShortcut'), box, t('settings.quickBarShortcutHint'));
       qbRow.hidden = true;
       const warn = el('div', 'thint', t('settings.quickBarShortcutConflict'));
       warn.style.color = 'var(--st-error-ink)';
       warn.hidden = true;
       qbRow.querySelector('.tlabel')?.appendChild(warn);
-      const paintQb = (st) => { qbRow.hidden = !st || !st.available; if (st) { qbIn.value = st.shortcut || ''; warn.hidden = st.ok !== false; } };
-      void window.glassShell.quickBarStatus().then(paintQb);
-      qbIn.addEventListener('change', async () => {
-        await window.glassShell.setSetting('quickBarShortcut', qbIn.value.trim());
+      let current = '', recording = false;
+      const paintKey = () => {
+        qbBtn.classList.toggle('rec', recording);
+        qbBtn.textContent = recording ? t('settings.quickBarShortcutRecording') : (current ? accelLabel(current) : t('settings.quickBarShortcutRecord'));
+        qbClear.hidden = recording || !current;
+      };
+      const paintQb = (st) => { qbRow.hidden = !st || !st.available; if (st) { current = st.shortcut || ''; warn.hidden = st.ok !== false; } paintKey(); };
+      const save = async (accel) => {
+        await window.glassShell.setSetting('quickBarShortcut', accel);
         paintQb(await window.glassShell.quickBarStatus());
         toast(t('settings.saved'));
+      };
+      void window.glassShell.quickBarStatus().then(paintQb);
+      qbBtn.addEventListener('click', () => { recording = !recording; paintKey(); });
+      qbBtn.addEventListener('blur', () => { if (recording) { recording = false; paintKey(); } });
+      qbBtn.addEventListener('keydown', (e) => {
+        if (!recording) return;
+        e.preventDefault(); e.stopPropagation();
+        if (e.key === 'Escape') { recording = false; paintKey(); return; }
+        const accel = accelFromKeydown(e);
+        if (accel === null) return;            // a modifier on its own: keep listening for the key
+        if (!accel) { toast(t('settings.quickBarShortcutNeedsModifier')); return; }
+        recording = false; current = accel; paintKey();
+        void save(accel);
       });
+      qbClear.addEventListener('click', () => { current = ''; paintKey(); void save(''); });
     }
 
     /* #22 — how a session blocked on you reaches you OUTSIDE the panel. Same shape as
@@ -14536,6 +14558,40 @@ async function openSessionNotes(name) {
   wrap.addEventListener('click', (e) => { if (e.target === wrap) done(); });
 }
 
+/* "Ask AIOS from any app" key recorder (0.15.0 round 3). A keydown → an Electron accelerator. Returns null for a lone
+   modifier (keep listening), '' for a key with no ⌘/⌃/⌥ (a global shortcut without one would steal plain typing), else the
+   accelerator. Letters and digits come from `code`, so the shortcut does not depend on the keyboard layout. */
+const ACCEL_NAMED = { Space: 'Space', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Escape: 'Escape',
+  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+  Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`' };
+function accelFromKeydown(e) {
+  const code = String(e.code || '');
+  if (/^(Meta|Control|Alt|Shift|OS|CapsLock|Fn)/.test(code) || /^(Meta|Control|Alt|Shift)$/.test(String(e.key || ''))) return null;
+  let key = '';
+  if (/^Key[A-Z]$/.test(code)) key = code.slice(3);
+  else if (/^Digit[0-9]$/.test(code)) key = code.slice(5);
+  else if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) key = code;
+  else if (ACCEL_NAMED[code]) key = ACCEL_NAMED[code];
+  else return '';
+  if (!(e.metaKey || e.ctrlKey || e.altKey)) return '';
+  const mods = [];
+  if (e.ctrlKey) mods.push('Control');
+  if (e.altKey) mods.push('Alt');
+  if (e.shiftKey) mods.push('Shift');
+  if (e.metaKey) mods.push('Command');
+  return [...mods, key].join('+');
+}
+/* An accelerator as the Mac shows it: ⌃⌥⇧⌘ then the key. */
+function accelLabel(accel) {
+  const parts = String(accel || '').split('+').filter(Boolean);
+  const sym = { Control: '⌃', Ctrl: '⌃', Alt: '⌥', Option: '⌥', Shift: '⇧', Command: '⌘', Cmd: '⌘', CommandOrControl: '⌘', CmdOrCtrl: '⌘', Super: '⌘', Meta: '⌘' };
+  const order = ['⌃', '⌥', '⇧', '⌘'];
+  const mods = parts.filter((p) => sym[p]).map((p) => sym[p]).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const key = parts.filter((p) => !sym[p]).join('+');
+  const named = { Space: 'Space', Up: '↑', Down: '↓', Left: '←', Right: '→', Enter: '↩', Tab: '⇥', Backspace: '⌫', Delete: '⌦', Escape: '⎋' };
+  return mods.join('') + (named[key] || key);
+}
+
 /* ONE DIALOG AT A TIME. Shortcuts open dialogs from anywhere, so ⌘⇧F with Ask open stacked Frequent
    Tasks on top of it (operator test, 0.12.0) — two dialogs, Esc closing only the front one. Every
    dialog claims the slot as it opens: whatever is already open is CANCELLED (its caller gets the
@@ -14658,7 +14714,11 @@ function inputModal(title, placeholder, chips, opts) {
         else if (e.key === 'Escape') { e.preventDefault(); if (destPick && destPick.isOpen()) destPick.close(); else done(null); }
       });
     }
-    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
+    /* The backdrop cancels only a click that also STARTED on it (round 3): a press inside the dialog that ends outside it,
+       because something in the dialog closed and the dialog shrank under the pointer, is not "clicked outside". */
+    let downOnBackdrop = false;
+    wrap.addEventListener('mousedown', (e) => { downOnBackdrop = e.target === wrap; });
+    wrap.addEventListener('click', (e) => { if (e.target === wrap && downOnBackdrop) done(null); downOnBackdrop = false; });
   });
 }
 
