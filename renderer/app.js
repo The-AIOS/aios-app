@@ -11938,19 +11938,34 @@ function chatSkinFirstRun(id, p) {
    automatic: an operator who goes back to chat by hand, or turns chat off, is never overridden. A dialog the chat already
    draws as a card (cs.promptKind) never switches; the 1.2 s wait gives the card detector its turn first. */
 const CS_SELECT_FOOTER = /Enter to select\b|↑\/↓ to navigate|Esc to cancel/;
+/* The last non-empty rows Claude Code is drawing: the live end of the buffer, never the operator's scroll position, and
+   with blank rows dropped so a footer above trailing blank rows is still found (round 5: it fell out of a 6-row window). */
+const chatSkinLiveTail = (text, n) => text.split('\n').filter((l) => l.trim()).slice(-n).join('\n');
+/* Leaving the terminal waits for the dialog to be really gone: no footer AND Claude Code's prompt box back, held for this
+   long. The dialog's own selection marker (`❯ 1. …`) moves on scroll and arrow keys and could read as the prompt box for a
+   tick, which sent the tab back to chat and then here again: a flap (round 5, the operator's report). */
+const CS_QUESTION_SETTLE_MS = 1000;
 function chatSkinQuestionTerm(id, p, now) {
-  if (chatMode !== 'chat' || p.exited || !chatSkinEligible(p)) { p.questionTerm = false; p.questionSince = 0; return; }
+  if (chatMode !== 'chat' || p.exited || !chatSkinEligible(p)) { p.questionTerm = false; p.questionSince = 0; p.questionGoneSince = 0; return; }
   let text = '';
   try { text = chatSkinScreenText(p); } catch { return; }
-  const open = chatSkinAgentCursor(p) === null && CS_SELECT_FOOTER.test(text.split('\n').slice(-6).join('\n'));
+  const footer = CS_SELECT_FOOTER.test(chatSkinLiveTail(text, 8));
+  /* While the selection footer is up, a `❯ 1.` row is the dialog's own marker, not Claude Code's prompt box. */
+  const box = chatSkinAgentCursor(p) !== null && !(footer && /^❯\s*\d+[.)]/m.test(text));
+  const settled = !footer && box;
+  if (settled) { if (!p.questionGoneSince) p.questionGoneSince = now; } else p.questionGoneSince = 0;
+  const gone = settled && now - p.questionGoneSince >= CS_QUESTION_SETTLE_MS;
   const cs = p.chatSkin;
   if (p.questionTerm) {
-    if (p.view === 'chat') { p.questionTerm = false; p.questionHeld = open; return; }   // back to chat by hand: the operator's choice stands
-    if (!open) { p.questionTerm = false; p.questionSince = 0; chatSkinSetView(id, 'chat'); }
+    if (p.view === 'chat') { p.questionTerm = false; p.questionHeld = true; return; }   // back to chat by hand: the operator's choice stands for this dialog
+    if (gone) { p.questionTerm = false; p.questionHeld = false; p.questionSince = 0; chatSkinSetView(id, 'chat'); }
     return;
   }
-  if (!open) { p.questionSince = 0; p.questionHeld = false; return; }
-  if (p.view !== 'chat' || p.questionHeld || (cs && cs.promptKind)) { p.questionSince = 0; return; }
+  /* One switch per dialog: after a return by hand, nothing switches again until that dialog has really ended. */
+  if (p.questionHeld) { if (gone) p.questionHeld = false; p.questionSince = 0; return; }
+  const open = footer && !box;
+  if (!open) { p.questionSince = 0; return; }
+  if (p.view !== 'chat' || (cs && cs.promptKind)) { p.questionSince = 0; return; }
   if (!p.questionSince) { p.questionSince = now; return; }
   if (now - p.questionSince < 1200) return;
   p.questionSince = 0;
