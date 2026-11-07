@@ -9273,7 +9273,8 @@ function chatSkinBuild(id, p) {
     if (!node || !node.isConnected) return;
     cs.stick = false;
     cs.autoUntil = 0;
-    cs.log.scrollTo({ top: Math.max(0, chatSkinRowTop(cs.log, node) - 12), behavior: chatReducedMotion() ? 'auto' : 'smooth' });
+    /* Below the strip, not under it (round 3: under it, the strip at once named the prompt before, and that read as a miss). */
+    cs.log.scrollTo({ top: Math.max(0, chatSkinRowTop(cs.log, node) - chatSkinStickyClear(cs)), behavior: chatReducedMotion() ? 'auto' : 'smooth' });
     chatSkinPaintJump(cs);
   });
   log.addEventListener('wheel', (e) => { if (e.deltaY < 0) cs.autoUntil = 0; }, { passive: true });   // the operator reaching for the past takes the wheel back at once
@@ -9574,6 +9575,7 @@ function chatSkinLayout(p) {
   chatSkinControls(p);
   chatSkinPaintAlert(p);
   chatSkinPaintState(p);
+  if (typeof chatSkinStickySoon === 'function') chatSkinStickySoon(cs);   // a dialog opening or closing hides or brings back the strip
 }
 function chatSkinControls(p) {
   const cs = p.chatSkin;
@@ -10535,6 +10537,12 @@ function chatSkinStickyPick(rows, scrollTop) {
   if (pick < 0 || rows[pick].bottom > scrollTop) return -1;   // its bubble still shows
   return pick;
 }
+/* How far below the log's top a prompt lands when the strip takes you to it: the strip's own height and offset plus air. */
+function chatSkinStickyClear(cs) {
+  const strip = cs.stickyEl;
+  const h = strip && !strip.hidden ? strip.getBoundingClientRect().height + (strip.offsetTop || 0) : 0;
+  return Math.max(12, Math.round(h) + 12);
+}
 /* A row's top in the log's scroll coordinates, whatever its offset parent. */
 function chatSkinRowTop(log, node) {
   return node.getBoundingClientRect().top - log.getBoundingClientRect().top + log.scrollTop;
@@ -10546,6 +10554,8 @@ function chatSkinStickySoon(cs) {
 function chatSkinStickyPaint(cs) {
   const strip = cs.stickyEl;
   if (!strip) return;
+  /* A dialog owns the top of the conversation (round 3: the strip covered the question card). */
+  if (cs.promptKind || cs.lostPrompt) { cs.stickyNode = null; if (!strip.hidden) strip.hidden = true; return; }
   const log = cs.log;
   const nodes = [...log.querySelectorAll('.chat-row.who-user')].filter((n) => !n.hidden && n.getClientRects().length);
   const base = log.getBoundingClientRect().top - log.scrollTop;
@@ -11383,6 +11393,10 @@ function chatSkinPrompt(id, p, ev) {
   if (kind === cs.promptKind && question === cs.promptQ && chatSkinOptsSig(opts) === chatSkinOptsSig(cs.promptOpts)) { chatSkinPaintAlert(p); return; }   // announced already
   cs.promptKind = kind; cs.promptQ = question; cs.promptHead = header; cs.promptOpts = opts;
   cs.promptUsed = false; cs.promptTerm = false; cs.promptGen++;   // a new dialog is a new, enabled card, buttons first
+  /* A dialog that is recognised replaces the lost-prompt terminal (round 3): a question taller than the pane hid its top, the
+     prompt box vanished, chatSkinLostPrompt showed the live terminal, and the transcript-built card that came next sat on
+     top of it with the raw dialog still drawn below. */
+  if (kind) { cs.lostPrompt = false; cs.lostSince = 0; }
   cs.stalled = false;
   chatSkinLayout(p);
   const card = chatSkinCardOn(cs);
@@ -11929,7 +11943,8 @@ function chatSkinLostPrompt(id, p, now) {
     if (cs.lostPrompt) { cs.lostPrompt = false; chatSkinLayout(p); chatSkinFocus(p); }
     return;
   }
-  if (!cs.sawPrompt || cs.promptKind || chatSkinWorking(p) || p.exited) { cs.lostSince = 0; return; }
+  if (cs.promptKind) { cs.lostSince = 0; if (cs.lostPrompt) { cs.lostPrompt = false; chatSkinLayout(p); } return; }   // a dialog has its own card or strip
+  if (!cs.sawPrompt || chatSkinWorking(p) || p.exited) { cs.lostSince = 0; return; }
   if (!cs.lostSince) { cs.lostSince = now; return; }
   if (!cs.lostPrompt && now - cs.lostSince > 1500) {
     cs.lostPrompt = true;

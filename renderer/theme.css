@@ -2393,6 +2393,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 /* a message the bus typed: its sender above the bubble, in the cool link hue */
 .chat-from { display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin: 0 4px 3px; color: var(--chat-link); font-size: 11px; font-weight: 600; }
 .from-bus .chat-bubble { border-style: dashed; border-color: color-mix(in srgb, var(--chat-link) 45%, transparent); background: color-mix(in srgb, var(--chat-link) 9%, var(--surface)); color: var(--ink); font-style: italic; }
+.from-bus .chat-bubble::after { background: color-mix(in srgb, var(--chat-link) 9%, var(--surface)); }   /* the tail matches the bus bubble: it painted the operator's coral and leaked a wedge (round 3) */
 /* a skill loading wears its own mark in the cool hue, so it reads apart from the tools it then calls */
 .chat-tool[data-kind="skill"] .ct-kind { color: var(--chat-model-ink); }
 .chat-tool[data-kind="skill"] .ct-arg { color: var(--ink); }
