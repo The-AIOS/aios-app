@@ -745,5 +745,6 @@ test('0.15 menu tidy: each item once, and where it belongs', () => {
   assert.match(block('menu.view'), /menu\.chatView[\s\S]*menu\.toggleTerminals[\s\S]*menu\.toggleExplorer[\s\S]*menu\.togglePanel/, 'View holds the view toggles together');
   assert.doesNotMatch(block('menu.rituals'), /menu\.askAios/, 'Ask is not a ritual');
   assert.match(block('menu.agents'), /^label: t\('menu\.agents'\),\s*submenu: \[\s*\{ label: t\('menu\.askAios'\)/, 'Ask leads Agents');
-  assert.match(src, /help\.submenu\.push\(\{ type: 'separator' \}, \{ label: t\('menu\.checkUpdates'\)/, 'Windows and Linux: Check for Updates in Help');
+  assert.match(src, /help\.submenu\.push\(\{ type: 'separator' \}, \{ label: t\('menu\.checkUpdates'\)[^\n]*menu\.updateFramework/, 'Windows and Linux: both updates in Help');
+  assert.match(block('menu.aios'), /menu\.checkUpdates'\), click: \(\) => intent\('checkUpdates'\) \},\s*\{ label: t\('menu\.updateFramework'\)/, 'the two updates side by side');
 });

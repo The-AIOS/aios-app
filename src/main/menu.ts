@@ -62,11 +62,13 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
         { role: 'about', label: t('menu.about') },
         { type: 'separator' },
         { label: t('menu.settings'), accelerator: 'CmdOrCtrl+,', click: () => intent('settings') },
-        /* Check for Updates sits beside Settings, where macOS apps keep it (0.15 menu tidy); Windows and Linux have no app
-           menu, so there it is in Help. Set Up & Health Check lives in Help only: it was listed twice. */
-        { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') },
         { type: 'separator' },
+        /* The two updates, side by side and named for what they update (0.15 menu tidy: "Check for Updates" beside "Update
+           AIOS" read as the same thing). Windows and Linux have no app menu, so both are in Help there. Set Up & Health Check
+           lives in Help only: it was listed twice. */
+        { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') },
         { label: t('menu.updateFramework'), click: () => term('update', "claude '/aios:update'") },
+        { type: 'separator' },
         { label: t('menu.syncCompanies'), click: () => term('company-sync', "claude '/aios:company --sync-all'") },
         { type: 'separator' },
         {
@@ -273,9 +275,9 @@ export function installMenu(getWin: () => BrowserWindow | undefined): void {
   ];
   if (process.platform !== 'darwin') {
     template.shift(); // non-mac: fold app menu into defaults
-    /* …which took Check for Updates with it: on Windows and Linux it lives in Help, where those platforms keep it. */
+    /* …which took both update items with it: on Windows and Linux they live in Help, where those platforms keep them. */
     const help = template.find((m) => m.role === 'help');
-    if (help && Array.isArray(help.submenu)) help.submenu.push({ type: 'separator' }, { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') });
+    if (help && Array.isArray(help.submenu)) help.submenu.push({ type: 'separator' }, { label: t('menu.checkUpdates'), click: () => intent('checkUpdates') }, { label: t('menu.updateFramework'), click: () => term('update', "claude '/aios:update'") });
   }
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   void app; // (referenced for platform docs)
