@@ -16,7 +16,7 @@ const aios = fs.readFileSync('src/main/aios.ts', 'utf8');
 const css = fs.readFileSync('renderer/theme.css', 'utf8');
 
 test('the bus marks its spawns and reveals as background', () => {
-  assert.match(bus, /emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true(, \.\.\.where)? \}\)/);
+  assert.match(bus, /emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true(, \.\.\.where)?(, group: req\.group)? \}\)/);
   assert.match(bus, /emit\(win\(\), 'focusByName', \{ name: req\.name, background: true \}\)/);
 });
 
@@ -43,7 +43,7 @@ test('a background pane is sized, then the view is handed back in the same pass'
   const geom = create.indexOf('pushPtyGeom(id, p);');
   const back = create.indexOf('if (snap) { restoreFocus(snap, id); markActivity(id); }');
   assert.ok(geom > 0 && back > geom, 'restore after pushPtyGeom, never before');
-  assert.match(app, /case 'terminal':\n(\s+\/\/[^\n]*\n)?\s+await createPane\(\{ name: m\.name \|\| 'terminal', cmd: m\.cmd, (cwd: [^\n]*?, )?background: busBackground\(m\) \}\);/);
+  assert.match(app, /case 'terminal': \{?\n(\s+\/\/[^\n]*\n)?\s+(const id = )?await createPane\(\{ name: m\.name \|\| 'terminal', cmd: m\.cmd, (cwd: [^\n]*?, )?background: busBackground\(m\) \}\);/);
 });
 
 test('a bus send types in the background; the operator\'s own navigation still switches', () => {
