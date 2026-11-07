@@ -67,6 +67,29 @@ export interface BusRequest {
   advisorRung?: boolean;
   /* A contract-4 field that must be dead-lettered, naming the field and the value as written. */
   fieldError?: { field: string; value: string; reason: string };
+  /* spawn/resume, App only: the tab group the new session's tab joins, by name (created if absent).
+     Advisory: a value that cannot be used is DROPPED and noted, never a refusal — a worker outside its
+     group is still the right worker, unlike one in the wrong folder (cwd) or missing a folder (addDirs). */
+  group?: string;
+  /** Why a written `group` was dropped or cut, for the log. */
+  groupNote?: string;
+}
+
+/** The longest tab-group name, matching the group editor's own field (renderer tgEdit maxLength). */
+export const GROUP_MAX = 40;
+
+/**
+ * The `group` field, read leniently. Control and line-separator characters become spaces, runs of
+ * space collapse, and the name is cut to GROUP_MAX. Anything that is not a non-empty string is dropped
+ * with a note; absent is simply absent.
+ */
+export function parseGroup(raw: unknown): { group?: string; note?: string } {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'string') return { note: `group ignored: expected a name, got ${Array.isArray(raw) ? 'a list' : typeof raw}` };
+  const s = raw.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) return { note: 'group ignored: empty' };
+  if (s.length > GROUP_MAX) return { group: s.slice(0, GROUP_MAX).trim(), note: `group cut to ${GROUP_MAX} characters` };
+  return { group: s };
 }
 
 /** kebab-case handle — matches app.js:2568 + Glass's sanitizer exactly. */
@@ -141,7 +164,14 @@ export function parseRequest(raw: string): BusRequest | null {
     cwd: j.cwd === undefined || j.cwd === null ? undefined : (typeof j.cwd === 'string' ? j.cwd : JSON.stringify(j.cwd)),
     addDirs: j.addDirs === undefined || j.addDirs === null ? undefined : j.addDirs,
     ...contract4Of(j, action),
+    ...groupOf(j, action),
   };
+}
+
+function groupOf(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {
+  if (action !== 'spawn' && action !== 'resume') return {};
+  const g = parseGroup(j.group);
+  return { group: g.group, groupNote: g.note };
 }
 
 function contract4Of(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {

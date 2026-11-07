@@ -119,10 +119,10 @@ test('INVARIANT: the resume fallback goes through fallbackSpawnRequest, and both
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(src, /runSpawn\(win, heldPath, fallbackSpawnRequest\(req\)\)/, 'the fallback must carry the prompt into the spawn');
   assert.equal((src.match(/launchCwd\(heldPath, req\)/g) || []).length, 2, 'spawn and resume both resolve cwd');
-  assert.equal((src.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where \}/g) || []).length, 2,
+  assert.equal((src.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where(, group: req\.group)? \}/g) || []).length, 2,
     'both launches hand the validated cwd to the renderer');
   const mainSrc = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(mainSrc, /inAllowed\(opts\.cwd\) \|\| isBusCwdGranted\(opts\.cwd\)/, 'pty:spawn honours a bus-granted cwd');
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /case 'terminal':\s*\n\s*\/\/[^\n]*\n\s*await createPane\(\{[^}]*cwd: typeof m\.cwd === 'string'/, 'the renderer passes the cwd to the pane');
+  assert.match(app, /case 'terminal': \{?\s*\n\s*\/\/[^\n]*\n\s*(const id = )?await createPane\(\{[^}]*cwd: typeof m\.cwd === 'string'/, 'the renderer passes the cwd to the pane');
 });
