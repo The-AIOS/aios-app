@@ -5,7 +5,7 @@ import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
 import { createTranscriptTail, isSessionId } from './transcriptTail';
-import { createPromptMonitor, QUESTION_MAX, DESC_MAX, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
+import { createPromptMonitor, detectWithAsk, QUESTION_MAX, DESC_MAX, type AskQuestion, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
 import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker } from '../core/screenStream';
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
@@ -411,6 +411,9 @@ interface Skin {
   sender: Electron.WebContents; monitor: PromptMonitor; onGone: () => void; screenFed: boolean;
   /** Reads the reply being written off the screen snapshots (core/screenStream). Only fed while a transcript is followed. */
   stream: StreamTracker; following: boolean; send: (ev: Record<string, unknown>) => void;
+  /** The AskUserQuestion the transcript says is still open (its tool_use has no result yet), or null. The monitor
+   *  reads it so a question taller than the screen still becomes a card (core/tuiPrompt detectWithAsk). */
+  pendingAsk: { id: string; ask: AskQuestion[] } | null;
 }
 const skins = new Map<number, Skin>();
 const tail = createTranscriptTail();
@@ -463,7 +466,9 @@ ipcMain.handle('chatSkin:watch', async (e, paneId: number, sessionId: string | n
       skinTap?.(id, ev);
       if (!sender.isDestroyed()) sender.send('chatSkin:event', ev);
     };
+    const holder: { k?: Skin } = {};
     const monitor = createPromptMonitor({
+      detect: (text) => detectWithAsk(text, holder.k?.pendingAsk?.ask),
       onChange: (kind, hint, prompt) => send({ type: 'prompt', kind, ...(hint ? { hint } : {}), ...promptWire(prompt) }),
       /* the SAME dialog with its cursor moved: the keys of an unnumbered menu are relative to the cursor, so the card
          must adopt these. `refresh` tells the renderer this is not a new dialog (it must not re-enable a used card). */
@@ -471,16 +476,27 @@ ipcMain.handle('chatSkin:watch', async (e, paneId: number, sessionId: string | n
     });
     const onGone = (): void => { void endSkin(id, false); };
     sender.once('destroyed', onGone);             // a closed or reloaded window must not leave a watcher behind
-    k = { sender, monitor, onGone, screenFed: false, stream: createStreamTracker(), following: false, send };
+    k = { sender, monitor, onGone, screenFed: false, stream: createStreamTracker(), following: false, send, pendingAsk: null };
+    holder.k = k;
     skins.set(id, k);
     const seen = ptyTails.get(id);
     if (seen) monitor.push(seen);
   }
   k.following = transcript;
   k.stream.reset();                               // a new watch is a new transcript: a preview of the old one has nothing to be replaced by
+  k.pendingAsk = null;                            // and its open question belongs to the old one
   if (!transcript) return { ok: true, file: '' };
   const skin = k;
   return tail.watch(id, sessionId as string, (ev) => {
+    // the question a dialog may be asking: an AskUserQuestion still running is pending; its result (or a reset) ends it
+    if (ev.type === 'items') {
+      for (const it of ev.items) {
+        const t = it.tool;
+        if (!t || t.name !== 'AskUserQuestion') continue;
+        if (t.status === 'running' && t.ask) skin.pendingAsk = { id: t.id, ask: t.ask };
+        else if (skin.pendingAsk?.id === t.id) skin.pendingAsk = null;
+      }
+    } else if (ev.type === 'reset') skin.pendingAsk = null;
     // a finished tool or a new operator message proves the dialog that was open has been answered
     if (ev.type === 'items' && ev.items.some((it) => it.role === 'user' || (it.tool && it.tool.status !== 'running'))) skin.monitor.clear();
     /* The finished message replaces the preview: tell the renderer which transcript line IS the previewed text BEFORE

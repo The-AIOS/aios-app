@@ -29,6 +29,7 @@
  */
 
 import { summarizeTool } from './chatEvents';
+import { askQuestionsOf, type AskQuestion } from './tuiPrompt';
 
 // ── the contract with the renderer ──────────────────────────────────────────
 
@@ -46,6 +47,9 @@ export interface ChatItem {
      * escaped here, because escaping at the source would double-encode for a textContent consumer.
      */
     output?: string;
+    /** An AskUserQuestion's questions, as the model wrote them (bounded): what the dialog asks even when the
+     *  terminal cannot show all of it. Absent for every other tool, and when the input is not that shape. */
+    ask?: AskQuestion[];
     /** True when `output` was cut at TOOL_OUTPUT_MAX_CHARS / TOOL_OUTPUT_MAX_LINES. Absent otherwise. */
     outputTruncated?: boolean;
     /** The OPERATOR ran it, not Claude: a `! command` typed at the prompt, or the output a slash command printed. The
@@ -300,9 +304,10 @@ export function createTranscriptTracker(): TranscriptTracker {
         const toolId = str(b.id);
         const name = str(b.name) ?? 'tool';
         if (!toolId) return;
+        const ask = name === 'AskUserQuestion' ? askQuestionsOf(b.input) : undefined;
         const item: ChatItem = {
           uuid: toolId, role: 'tool',
-          tool: { id: toolId, name, summary: summarizeTool(name, b.input), status: 'running' },
+          tool: { id: toolId, name, summary: summarizeTool(name, b.input), status: 'running', ...(ask ? { ask } : {}) },
           ...(ts ? { ts } : {}),
         };
         running.set(toolId, item);

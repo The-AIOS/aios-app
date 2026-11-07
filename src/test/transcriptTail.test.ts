@@ -352,7 +352,7 @@ test('the watch is tied to the pty: fed by its output, ended by its exit, kill, 
   assert.match(main, /app\.on\('before-quit', \(\) => \{ tail\.unwatchAll\(\)/);
   // the pane id is the pty id: the id pty:spawn hands out is the one the skin map is keyed by
   assert.match(main, /const id = nextId\+\+;\n\s+ptys\.set\(id, p\);/);
-  assert.match(main, /k = \{ sender, monitor, onGone, screenFed: false, stream: createStreamTracker\(\), following: false, send \};\n\s+skins\.set\(id, k\)/);
+  assert.match(main, /k = \{ sender, monitor, onGone, screenFed: false, stream: createStreamTracker\(\), following: false, send, pendingAsk: null \};\n\s+holder\.k = k;\n\s+skins\.set\(id, k\)/);
 });
 
 test('a dialog is cleared only by proof from the transcript, not by assistant text', () => {
