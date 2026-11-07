@@ -681,6 +681,7 @@
   "menu.generateReport": "Δημιουργία αναφοράς…",
   "menu.updateFramework": "Ενημέρωση AIOS",
   "menu.syncCompanies": "Συγχρονισμός φακέλων εταιρειών",
+  "menu.claudeAccount": "Λογαριασμός Claude",
   "menu.loginClaude": "Σύνδεση στον Claude…",
   "menu.logout": "Αποσύνδεση από το Claude",
   "menu.plugins": "Marketplace",

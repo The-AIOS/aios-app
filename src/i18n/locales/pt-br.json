@@ -681,6 +681,7 @@
   "menu.generateReport": "Gerar um relatório…",
   "menu.updateFramework": "Atualizar o AIOS",
   "menu.syncCompanies": "Sincronizar pastas da empresa",
+  "menu.claudeAccount": "Conta do Claude",
   "menu.loginClaude": "Entrar no Claude…",
   "menu.logout": "Sair do Claude",
   "menu.plugins": "Marketplace",
