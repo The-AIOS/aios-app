@@ -64,7 +64,7 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
      rule; light overrides below, see the note there). Deliberately NO coral here: the operator's bubble is told apart by tone, side and
      label, and coral stays reserved for the send action. "Waiting on the operator" is the
      existing --st-input hue, which is exactly what a permission card is. ── */
-  --chat-user-bg: #cc3d2a;   /* the operator's message: SOLID coral with white text (0.15 round, after Muse). A deeper coral than the brand #ff5d4d, which carries white at only 3.0:1; this one carries it at 4.9:1 (WCAG AA). Coral as a fill now means: you, and the send button */
+  --chat-user-bg: #ff5d4d;   /* the operator's message: SOLID brand coral with white text (0.15 round 2, the operator's choice after seeing #cc3d2a). White on it is 3.0:1, below WCAG AA for body text; #cc3d2a is the readable fallback if it does not hold up */
   --chat-user-ink: #ffffff;
   --chat-reply-bg: color-mix(in srgb, var(--ink) 9%, var(--surface));   /* Claude's reply: a soft grey bubble, a step above the surface */
   --chat-user-line: var(--line);
@@ -753,7 +753,7 @@ body.light {
      resolved on the element that declares it: minted on :root they would carry the DARK --ink and
      --surface down into body.light as already-computed colours, and the pane would stay dark-tinted
      in the light theme. Re-declaring makes them resolve against this block's own --ink/--surface. */
-  --chat-user-bg: #cc3d2a;   /* light: the same solid coral, white text 4.9:1 */
+  --chat-user-bg: #ff5d4d;   /* light: the same solid brand coral */
   --chat-user-ink: #ffffff;
   --chat-reply-bg: color-mix(in srgb, var(--ink) 6.5%, var(--surface));   /* light: Claude's reply, soft grey */
   --chat-user-line: var(--line);
@@ -2269,13 +2269,14 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
            border: 1px solid var(--chat-composer-line); border-radius: 50%; background: var(--chat-composer-bg); color: var(--ink); box-shadow: var(--chat-pop); cursor: pointer; }
 .cs-jump:hover { background: var(--chat-row-hover); }
 /* The sticky prompt: the prompt the reply on screen answers, pinned over the top of the log while you scroll (0.15.0 round).
-   Absolute over the log, so nothing below it moves; one line, muted, the terminal's ❯ in front. */
+   Absolute over the log, so nothing below it moves; one line, the terminal's ❯ in front. Coral like your own bubble (round 2: a grey
+   strip disappeared into Claude's grey replies), so it reads as your prompt. */
 .chatskin .cs-sticky { position: absolute; top: 6px; left: max(16px, calc((100% - var(--cs-col)) / 2)); right: max(16px, calc((100% - var(--cs-col)) / 2));
   z-index: 2; display: block; box-sizing: border-box; max-width: none; margin: 0; padding: 5px 12px; border: 1px solid var(--chat-bar-line); border-radius: 10px;
-  background: var(--chat-tip-bg); color: var(--subtle); box-shadow: var(--chat-lift); font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left;
+  background: var(--chat-user-bg); color: var(--chat-user-ink); border-color: transparent; box-shadow: var(--chat-float); font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-.chatskin .cs-sticky::before { content: '❯ '; color: var(--faint); }
-.chatskin .cs-sticky:hover { color: var(--ink); background: var(--chat-pick-bg); }
+.chatskin .cs-sticky::before { content: '❯ '; color: color-mix(in srgb, var(--chat-user-ink) 70%, transparent); }
+.chatskin .cs-sticky:hover { filter: brightness(1.08); }
 .chatskin .cs-sticky[hidden] { display: none; }
 .cs-jump:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .cs-in { animation: none; } }
