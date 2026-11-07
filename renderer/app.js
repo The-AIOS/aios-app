@@ -5576,36 +5576,25 @@ async function batchResume() {
   if (chosen.alt) { void createPane({ name: 'resume', cmd: CLAUDE + ' --resume' }); return; }
   const picked = chosen.filter((c) => c.kind === 'sess').map((c) => c.r);
   if (!picked.length) { toast(t('resume.noneSelected')); return; }
-  /* NOT awaited: the rest of the sessions come up behind whatever the operator does next. */
-  void resumeInSequence(picked).catch((e) => console.error('[resume] sequence failed', e));
-  toast(t('resume.started', { n: picked.length }));
+  const ids = resumeAsTabs(picked);
+  if (!ids.length) return;
+  toast(ids.length > 1 ? t('resume.openedTabs', { n: ids.length }) : t('resume.started', { n: 1 }));
 }
 
-/* One pane per selection, each running its own `claude --resume <id>`, ONE AT A TIME: the next
-   starts when the previous is live in the registry or the cap runs out. This loop used to say
-   "sequential" while firing every createPane unawaited, so all the processes started in the same
-   second. Each one starts its own copy of every configured MCP server, and with seven resumed
-   together the heavier local servers missed the 30 s connect window in all seven; the same servers
-   connect in 3-5 s once the machine is quiet. Only the first takes the focus: the rest arrive
-   over a minute or more, and must not pull the operator out of the tab they are typing in. */
-async function resumeInSequence(picked) {
-  /* Said as it goes (0.15.0 round): one at a time takes seconds per session, and with nothing on screen the operator
-     read the wait as "not working". Each start says which one and how far along; the end says how it went. */
+/* Several picked sessions come back the way a relaunch brings them back (0.15.0 round, the operator's call: "reuse that
+   behavior"): as tabs whose names stay italic until opened, each resuming when it is opened, and only the FIRST now, so a
+   single resume still feels instant. It replaces a one-at-a-time start that made the operator watch an unexplained wait.
+   The reason that sequence existed still holds and is met better: each `claude --resume` starts its own copy of every
+   configured MCP server, and seven started in the same second missed their connect window in all seven. A lazy tab starts
+   nothing until it is opened, so they start one at a time, at the operator's pace, and the storm cannot happen.
+   Already-open sessions are skipped; materializeRestore also refuses a transcript that is live elsewhere. */
+function resumeAsTabs(picked) {
   const todo = picked.filter((r) => { const hit = byName(r.name || r.id.slice(0, 8)); return !(hit && !panes.get(hit[0]).exited); });
-  const n = todo.length;
-  let started = 0, live = 0, i = 0;
-  for (const r of todo) {
-    const nm = r.name || r.id.slice(0, 8);
-    i++;
-    if (started) await sleepMs(UNATTENDED_NEXT_MS);
-    if (n > 1) toast(t('resume.progress', { i, n, name: nm }));
-    const id = await createPane({ name: nm, cmd: `${CLAUDE} --resume ${shq(r.id)}`, background: started > 0 });
-    if (!id) continue;                                   // createPane said why
-    started++;
-    const up = await waitUntilLive(r.id, () => { const q = panes.get(id); return !!q && !q.exited; });
-    if (up) live++; else toast(t('unattended.notLive', { name: nm }));
-  }
-  if (n > 1) toast(live === n ? t('resume.allUp', { n }) : t('resume.someUp', { live, n }));
+  if (!todo.length) return [];
+  const ids = todo.map((r) => createRestoreTab({ sessionId: r.id, name: r.name || r.id.slice(0, 8), cwd: r.cwd || '' }));
+  void materializeRestore(ids[0]);
+  persistSessions();
+  return ids;
 }
 
 /* ═══ #28 — REOPEN LAST SESSIONS ═══════════════════════════════════════════════
