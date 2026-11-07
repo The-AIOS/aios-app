@@ -1210,7 +1210,7 @@
   "whatsnew.h5": "Assinado no Windows, mais estável em todo lugar",
   "whatsnew.b5": "O app e o instalador do Windows agora são assinados pela Pulsar Labs, e a varredura de sessões não trava mais a máquina nem abre um console. Ao retomar várias sessões, elas se abrem como abas que começam quando você as abre, e o modo não assistido instala sozinho uma atualização baixada quando nenhuma sessão está trabalhando ou esperando por você (ele interrompe o que ficar rodando numa aba de terminal comum).",
   "whatsnew.h6": "Clique numa notificação e chegue à sessão dela",
-  "whatsnew.b6": "Clicar no aviso de uma notificação abre a sessão que o enviou, sempre, mesmo quando chegam vários ao mesmo tempo. Uma pergunta longa demais para a tela agora chega como cartão no chat, e um /compact aparece uma vez só.",
+  "whatsnew.b6": "Clicar no aviso de uma notificação abre a sessão que o enviou, sempre, mesmo quando chegam vários ao mesmo tempo. Um /compact agora aparece uma vez só no chat, e uma pergunta que ocupa várias linhas chega inteira ao seu cartão.",
   "whatsnew.more": "Notas completas no GitHub →",
   "whatsnew.skipped": "Você também pulou {versions}. O que mudou está nas notas de cada versão.",
   "menu.whatsnew": "Novidades",

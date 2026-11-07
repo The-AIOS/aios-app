@@ -1210,7 +1210,7 @@
   "whatsnew.h5": "Signed on Windows, steadier everywhere",
   "whatsnew.b5": "The Windows app and installer are now signed by Pulsar Labs, and the session scan no longer freezes the machine or flashes a console. Resuming several sessions opens them as tabs that each start when you open them, and unattended mode installs a downloaded update on its own once no session is working or waiting for you (it stops anything left running in a plain terminal tab).",
   "whatsnew.h6": "Click a notification, land on its session",
-  "whatsnew.b6": "Clicking a notification banner opens the session that sent it, every time, even when several arrive at once. A question too long for the screen now arrives as a card in the chat, and a /compact shows once.",
+  "whatsnew.b6": "Clicking a notification banner opens the session that sent it, every time, even when several arrive at once. A /compact now shows once in the chat, and a wrapped question reaches its card whole.",
   "whatsnew.more": "Full release notes on GitHub →",
   "whatsnew.skipped": "You also skipped {versions}. What they changed is in the release notes.",
   "menu.whatsnew": "What's New",

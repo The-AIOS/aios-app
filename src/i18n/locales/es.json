@@ -1210,7 +1210,7 @@
   "whatsnew.h5": "Firmado en Windows, más estable en todos lados",
   "whatsnew.b5": "La app y el instalador de Windows ahora van firmados por Pulsar Labs, y el escaneo de sesiones ya no congela la máquina ni abre una consola. Al reanudar varias sesiones se abren como pestañas que arrancan cuando las abres, y el modo desatendido instala solo una actualización descargada cuando ninguna sesión está trabajando ni esperándote (detiene lo que quede corriendo en una pestaña de terminal normal).",
   "whatsnew.h6": "Haz clic en una notificación y llegas a su sesión",
-  "whatsnew.b6": "Al hacer clic en el aviso de una notificación se abre la sesión que lo envió, siempre, aunque lleguen varios a la vez. Una pregunta demasiado larga para la pantalla ahora llega como tarjeta en el chat, y un /compact aparece una sola vez.",
+  "whatsnew.b6": "Al hacer clic en el aviso de una notificación se abre la sesión que lo envió, siempre, aunque lleguen varios a la vez. Un /compact ahora aparece una sola vez en el chat, y una pregunta que ocupa varias líneas llega completa a su tarjeta.",
   "whatsnew.more": "Notas completas en GitHub →",
   "whatsnew.skipped": "También te saltaste {versions}. Lo que cambió está en las notas de cada versión.",
   "menu.whatsnew": "Novedades",
