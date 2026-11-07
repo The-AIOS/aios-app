@@ -2106,7 +2106,11 @@ ipcMain.handle('tab:menu', async (e, items: TabMenuRow[]) => new Promise<string 
 ipcMain.handle('shell:appVersion', () => app.getVersion());
 ipcMain.handle('caffeinate:state', () => caffeine.state());
 ipcMain.handle('caffeinate:toggle', () => caffeine.toggle());
-ipcMain.handle('caffeinate:lid', (_e, on: unknown, prompt: unknown) => caffeine.lidEnable(on === true, String(prompt ?? '')));
+ipcMain.handle('caffeinate:lid', (_e, mode: unknown, prompt: unknown) => {
+  /* 'always' | 'plugged' | 'off'; a boolean from an older renderer still means Always / Off. Anything else changes nothing. */
+  const m = mode === true ? 'always' : mode === false ? 'off' : mode === 'always' || mode === 'plugged' || mode === 'off' ? mode : null;
+  return m ? caffeine.lidEnable(m, String(prompt ?? '')) : caffeine.state();
+});
 ipcMain.handle('caffeinate:lidRemove', (_e, prompt: unknown) => caffeine.lidRemove(String(prompt ?? '')));
 ipcMain.handle('claude:config', () => aios.claudeConfig());
 ipcMain.handle('claude:outputStyles', () => aios.outputStyleOptions());

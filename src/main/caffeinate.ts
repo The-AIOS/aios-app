@@ -16,7 +16,7 @@
  * was how this works on Windows and Linux. Electron ships the cross-platform primitive, so there
  * is no per-OS command, no PowerShell `SetThreadExecutionState`, and no native addon.
  */
-import { powerSaveBlocker } from 'electron';
+import { powerSaveBlocker, powerMonitor } from 'electron';
 import { execFile } from 'child_process';
 import {
   BLOCKER_TYPE, anyBusy, sessionsAwaitingShells, shellStillCounts, desiredBlocker, caffeinateReason, nextOverride,
@@ -24,7 +24,7 @@ import {
 } from '../core/caffeinate';
 import * as aios from './aios';
 import * as lid from './lidAwake';
-import { desiredLidHold } from '../core/lidAwake';
+import { desiredLidHold, type LidMode } from '../core/lidAwake';
 
 export interface CaffeinateState {
   /** Is the blocker held RIGHT NOW — as Electron reports it, not as we intended. */
@@ -37,7 +37,7 @@ export interface CaffeinateState {
   /** True when we asked for a blocker and the platform did not give us one. See `honest()`. */
   unsupported: boolean;
   /** The lid-closed extension (macOS): setting, install state, and whether it is holding now. */
-  lid: lid.LidState & { enabled: boolean };
+  lid: lid.LidState & { enabled: boolean; mode: LidMode };
 }
 
 /* Session-scoped by design: an override says "not the usual rule, right now". Persisting it would
@@ -97,6 +97,11 @@ function held(): boolean {
   return id !== null && powerSaveBlocker.isStarted(id);
 }
 
+/** On battery right now? False when the platform cannot say (a desktop, or no power monitor). */
+function onBattery(): boolean {
+  try { return powerMonitor.isOnBatteryPower(); } catch { return false; }
+}
+
 /** Read the live session list and decide. The busy signal is READ, never re-derived. */
 function snapshot(): CaffeinateState {
   const mode = aios.shellSettings().caffeinate;
@@ -111,7 +116,7 @@ function snapshot(): CaffeinateState {
     /* We wanted it and Electron says we do not have it. On Linux without a session bus this is
        the normal state, and the button must not pretend otherwise. */
     unsupported: want && !held(),
-    lid: { ...lid.state(), enabled: aios.shellSettings().lidAwake },
+    lid: { ...lid.state(), enabled: aios.shellSettings().lidAwake !== 'off', mode: aios.shellSettings().lidAwake },
   };
 }
 
@@ -139,7 +144,7 @@ function apply(): CaffeinateState {
   const now = Date.now();
   if (want) lastWantedAt = now;
   void lid.sync(desiredLidHold({
-    platform: process.platform, enabled: aios.shellSettings().lidAwake, installed: lid.installed(),
+    platform: process.platform, mode: aios.shellSettings().lidAwake, onBattery: onBattery(), installed: lid.installed(),
     blockerWanted: want, lastWantedAt, now,
   }));
   const s = snapshot();
@@ -188,8 +193,12 @@ export function init(onState: (s: CaffeinateState) => void, tickMs: number): () 
   notify = onState;
   apply();
   const timer = setInterval(apply, tickMs);
+  /* "While plugged in" must let go the moment the cable comes out, not on the next tick. */
+  const onPower = (): void => { apply(); };
+  try { powerMonitor.on('on-ac', onPower); powerMonitor.on('on-battery', onPower); } catch { /* no power monitor */ }
   return () => {
     clearInterval(timer);
+    try { powerMonitor.removeListener('on-ac', onPower); powerMonitor.removeListener('on-battery', onPower); } catch { /* gone */ }
     /* Release on shutdown. The blocker dies with the process anyway — this is not what makes that
        true, and nothing may come to depend on it. It exists so a quit that lingers does not hold
        the machine awake while it does. */
@@ -201,19 +210,20 @@ export function init(onState: (s: CaffeinateState) => void, tickMs: number): () 
   };
 }
 
-/** Settings toggled the lid extension: install on first enable, then re-apply at once. */
-export async function lidEnable(on: boolean, prompt: string): Promise<CaffeinateState> {
-  if (on && !lid.installed()) {
+/** Settings chose a lid mode: install on the first choice that needs it (Always ↔ While plugged in
+ *  needs no reinstall), then re-apply at once. */
+export async function lidEnable(mode: LidMode, prompt: string): Promise<CaffeinateState> {
+  if (mode !== 'off' && !lid.installed()) {
     await lid.install(prompt);
-    if (!lid.installed()) return snapshot();   // cancelled or failed — the setting stays off
+    if (!lid.installed()) return snapshot();   // cancelled or failed — nothing changes
   }
-  aios.setShellSetting('lidAwake', on);
+  aios.setShellSetting('lidAwake', mode);
   return apply();
 }
 
 /** Settings → Remove: turn the extension off and delete everything the install put on disk. */
 export async function lidRemove(prompt: string): Promise<CaffeinateState> {
-  aios.setShellSetting('lidAwake', false);
+  aios.setShellSetting('lidAwake', 'off');
   await lid.uninstall(prompt);
   return apply();
 }

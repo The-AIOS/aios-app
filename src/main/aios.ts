@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
 import { routineRows, type RoutineRow } from '../core/routineHealth';
@@ -1404,7 +1405,7 @@ export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault
   return fresh ? 'chat' : 'terminal';
 }
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; chatBubble: string; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: LidMode; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; chatBubble: string; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1472,7 +1473,7 @@ export function shellSettings(): ShellSettings {
     /* Keep-awake with the lid closed (macOS). OFF unless the operator turns it on: unlike the
        blocker it needs a one-time administrator install, and a laptop that stays awake in a bag
        is a choice someone has to make, never a default. */
-    lidAwake: raw.lidAwake === true,
+    lidAwake: lidModeOf((raw as { lidAwake?: unknown }).lidAwake),   // 'always' | 'plugged' | 'off' (0.15.0); an old boolean still reads
     lidAsked: (raw as { lidAsked?: unknown }).lidAsked === true,   // the one-time lid question was answered
     /* The menu-bar icon (macOS). ON unless the operator turned it off: it only reads what the panel already
        shows, and an operator who never opens Settings is exactly the one who benefits from seeing a waiting
