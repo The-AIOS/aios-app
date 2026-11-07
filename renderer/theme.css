@@ -2274,7 +2274,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
    mistaken for one of your bubbles. */
 .chatskin .cs-sticky { position: absolute; top: 6px; left: max(16px, calc((100% - var(--cs-col)) / 2)); right: max(16px, calc((100% - var(--cs-col)) / 2));
   z-index: 2; display: block; box-sizing: border-box; max-width: none; margin: 0; padding: 5px 12px; border: 1px solid var(--chat-bar-line); border-radius: 10px;
-  background: color-mix(in srgb, var(--chat-user-bg) 76%, transparent); -webkit-backdrop-filter: blur(8px) saturate(1.2); backdrop-filter: blur(8px) saturate(1.2);
+  background: color-mix(in srgb, var(--chat-user-bg) 55%, transparent); -webkit-backdrop-filter: blur(10px) saturate(1.2); backdrop-filter: blur(10px) saturate(1.2);
   color: var(--chat-user-ink); border-color: color-mix(in srgb, var(--chat-user-ink) 18%, transparent); box-shadow: var(--chat-float); font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .chatskin .cs-sticky::before { content: '❯ '; color: color-mix(in srgb, var(--chat-user-ink) 70%, transparent); }
