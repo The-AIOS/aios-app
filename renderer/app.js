@@ -7907,7 +7907,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'mic'], [2, 'img'], [3, 'help'], [4, 'copy'], [5, 'inbox'], [6, 'sliders']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'sparkles'], [2, 'chat'], [3, 'panel'], [4, 'stack'], [5, 'shield'], [6, 'megaphone']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
