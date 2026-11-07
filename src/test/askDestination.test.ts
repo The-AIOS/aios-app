@@ -137,3 +137,68 @@ test('the destination strings exist in every locale', () => {
     assert.match(j['ask.sentAgent'], /\{name\}/, `${l}: says which session`);
   }
 });
+
+/* A tiny fake page, enough for AskDest.mount: elements with children, listeners, classList, hidden, focus. */
+type FakeEl = {
+  tag: string; className: string; hidden: boolean; textContent: string; value: string; children: FakeEl[]; type?: string;
+  placeholder?: string; title?: string; spellcheck?: boolean; autocomplete?: string; focused?: boolean;
+  classList: { add: (c: string) => void; remove: (c: string) => void };
+  listeners: Record<string, Array<(e: unknown) => void>>;
+  appendChild: (c: FakeEl) => FakeEl; append: (...c: FakeEl[]) => void; setAttribute: () => void;
+  addEventListener: (t: string, f: (e: unknown) => void) => void; focus: () => void; scrollIntoView: () => void;
+  fire: (t: string) => { defaultPrevented: boolean };
+};
+function fakeDocument(): { createElement: (t: string) => FakeEl } {
+  const make = (tag: string): FakeEl => {
+    const e: FakeEl = {
+      tag, className: '', hidden: false, value: '', children: [], listeners: {},
+      get textContent() { return this._t || ''; }, set textContent(v: string) { this._t = v; if (v === '') this.children = []; },
+      classList: { add: () => {}, remove: () => {} },
+      appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {},
+      addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }, focus() { this.focused = true; }, scrollIntoView() {},
+      fire(t) { const ev = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, key: '' }; for (const f of this.listeners[t] || []) f(ev); return ev; },
+    } as FakeEl & { _t?: string };
+    return e;
+  };
+  return { createElement: make };
+}
+const optionsOf = (list: FakeEl): FakeEl[] => list.children[1].children.filter((li) => li.className.startsWith('adest-it'));
+function mountPicker(src: string) {
+  const win: Record<string, unknown> = {};
+  const doc = fakeDocument();
+  new Function('window', 'document', src)(win, doc);
+  const chipHost = doc.createElement('span'), listHost = doc.createElement('div'), input = doc.createElement('input');
+  const changes: unknown[] = [];
+  const picker = (win.AskDest as { mount: (...a: unknown[]) => { dest: { kind: string; name: string }; open: () => void; isOpen: () => boolean } })
+    .mount(chipHost, listHost, { strings: { ...S, filter: 'f', waiting: 'w', agentTag: 'agent', sessionTag: 'session' }, load: () => ({ ...DATA }), returnFocus: input, onChange: (d: unknown) => changes.push(d) });
+  return { picker, list: listHost.children[0], input, changes };
+}
+
+test('0.15.0 round 3: choosing a destination on mousedown would close the list under the pointer; it is chosen on click', async () => {
+  const { picker, list, input, changes } = mountPicker(askdest);
+  picker.open();
+  await Promise.resolve(); await Promise.resolve();
+  const opt = optionsOf(list).find((li) => li.children[0].textContent === 'lawyer') ?? optionsOf(list)[optionsOf(list).length - 1];
+  const down = opt.fire('mousedown');
+  assert.equal(down.defaultPrevented, true, 'mousedown keeps the focus where it is');
+  assert.equal(picker.isOpen(), true, 'and does NOT close the list: the dialog must not shrink before the click lands');
+  opt.fire('click');
+  assert.equal(picker.isOpen(), false, 'the click chooses and closes the list');
+  assert.equal(changes.length, 1);
+  assert.equal(input.focused, true, 'focus goes back to the text field');
+  /* Control: the round-2 picker, which chose on mousedown, closes the list on the press itself. */
+  const old = askdest.replace(/li\.addEventListener\('mousedown', \(e\) => \{ e\.preventDefault\(\); \}\);\n\s*li\.addEventListener\('click', \(e\) => \{ e\.preventDefault\(\); e\.stopPropagation\(\); choose\(r\); \}\);/, "li.addEventListener('mousedown', (e) => { e.preventDefault(); choose(r); });");
+  assert.notEqual(old, askdest, 'control applied');
+  const r2 = mountPicker(old);
+  r2.picker.open();
+  await Promise.resolve(); await Promise.resolve();
+  optionsOf(r2.list)[0].fire('mousedown');
+  assert.equal(r2.picker.isOpen(), false, 'control: the old picker closed on mousedown, which is what let the click fall onto the backdrop');
+});
+
+test('0.15.0 round 3: the Ask dialog\'s backdrop cancels only a click that also started on it', () => {
+  const body = fn(app, 'inputModal');
+  assert.match(body, /wrap\.addEventListener\('mousedown', \(e\) => \{ downOnBackdrop = e\.target === wrap; \}\);/);
+  assert.match(body, /wrap\.addEventListener\('click', \(e\) => \{ if \(e\.target === wrap && downOnBackdrop\) done\(null\);/);
+  assert.doesNotMatch(body, /wrap\.addEventListener\('click', \(e\) => \{ if \(e\.target === wrap\) done\(null\); \}\);/);
+});

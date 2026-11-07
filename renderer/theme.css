@@ -2407,3 +2407,10 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
                box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent); }
 .chat-swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--sw); }
 .chat-swatch:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 3px; }
+/* Settings › Ask AIOS from any app: the key recorder (0.15.0 round 3). The button IS the field; while it listens it says so. */
+.qbrec { display: flex; align-items: center; gap: 8px; }
+.qbrec-key { min-width: 200px; text-align: left; cursor: pointer; font-family: var(--mono); letter-spacing: .02em; }
+.qbrec-key.rec { border-color: color-mix(in srgb, var(--ink) 45%, transparent); color: var(--subtle); font-family: inherit; letter-spacing: 0; }
+.qbrec-clear { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--subtle); font: inherit; font-size: 12px; cursor: pointer; }
+.qbrec-clear:hover { color: var(--ink); }
+.qbrec-clear[hidden] { display: none; }
