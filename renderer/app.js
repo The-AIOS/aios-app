@@ -10556,6 +10556,9 @@ function chatSkinStickyPaint(cs) {
   if (!strip) return;
   /* A dialog owns the top of the conversation (round 3: the strip covered the question card). */
   if (cs.promptKind || cs.lostPrompt) { cs.stickyNode = null; if (!strip.hidden) strip.hidden = true; return; }
+  /* Only once the operator has scrolled up (round 4): while the chat follows the bottom, a reply taller than the view
+     put its prompt above the top and showed the strip with no scrolling at all, in some sessions and not others. */
+  if (cs.stick) { cs.stickyNode = null; if (!strip.hidden) strip.hidden = true; return; }
   const log = cs.log;
   const nodes = [...log.querySelectorAll('.chat-row.who-user')].filter((n) => !n.hidden && n.getClientRects().length);
   const base = log.getBoundingClientRect().top - log.scrollTop;

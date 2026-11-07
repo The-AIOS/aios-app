@@ -4290,9 +4290,15 @@ test('round 3: the sticky prompt lands below the strip, hides while a dialog is 
   assert.equal(clear({ stickyEl: { hidden: true, offsetTop: 6, getBoundingClientRect: () => ({ height: 30 }) } }), 12, 'no strip: just air');
   const paint = fnOf('chatSkinStickyPaint');
   assert.match(paint, /if \(cs\.promptKind \|\| cs\.lostPrompt\) \{ cs\.stickyNode = null; if \(!strip\.hidden\) strip\.hidden = true; return; \}/);
+  assert.match(paint, /if \(cs\.stick\) \{ cs\.stickyNode = null; if \(!strip\.hidden\) strip\.hidden = true; return; \}/, 'round 4: never while the chat follows the bottom');
   const run = (cs: Record<string, unknown>) => { new Function('cs', paint.replace(/^function chatSkinStickyPaint\(cs\) \{/, '').replace(/\}\s*$/, ''))(cs); return cs; };
   const strip = { hidden: false, textContent: 'x' };
   assert.equal((run({ stickyEl: strip, promptKind: 'question' }).stickyEl as { hidden: boolean }).hidden, true, 'a card owns the top');
+  {
+    const s2 = { hidden: false, textContent: 'x' };
+    const r = run({ stickyEl: s2, stick: true, log: { querySelectorAll: () => { throw new Error('should not measure while following the tail'); } } });
+    assert.equal((r.stickyEl as { hidden: boolean }).hidden, true, 'following the bottom: no strip, without even measuring');
+  }
   assert.match(fnOf('chatSkinPrompt'), /if \(kind\) \{ cs\.lostPrompt = false; cs\.lostSince = 0; \}/);
   const lost = fnOf('chatSkinLostPrompt');
   assert.match(lost, /if \(cs\.promptKind\) \{ cs\.lostSince = 0; if \(cs\.lostPrompt\) \{ cs\.lostPrompt = false; chatSkinLayout\(p\); \} return; \}/);
