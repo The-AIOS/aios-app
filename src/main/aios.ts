@@ -2,6 +2,7 @@ import { freshness, parseLsRemote } from '../core/freshness';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
+import { identityRowsIn, choosePrimaryIdentity, type IdentityRow } from '../core/primaryIdentity';
 import { routineRows, type RoutineRow } from '../core/routineHealth';
 import { runDir, writePrivateFile } from './privateRun';
 import * as fs from 'fs';
@@ -276,22 +277,48 @@ export function personalization(): PersonalizationEvidence & { ok: boolean; miss
  * from an answer is unusable as evidence.
  */
 export function primaryNameRaw(): string {
+  return choosePrimaryIdentity(identityRows(), storedPrimaryIdentity()).name;
+}
+
+/** The Identity table's rows, in order (one per computer's primary when the vault spans several). */
+export function identityRows(): IdentityRow[] {
   const root = frameworkRoot();
-  if (root) {
-    try {
-      const lines = fs.readFileSync(path.join(root, 'USER.md'), 'utf8').split(/\r?\n/);
-      let inSection = false;
-      for (const line of lines) {
-        if (/^##\s+Identity/.test(line)) { inSection = true; continue; }
-        if (inSection && /^##\s/.test(line)) break;
-        if (inSection && line.startsWith('|')) {
-          const raw = (line.split('|')[1] ?? '').replace(/`/g, '').trim();
-          if (raw && raw !== 'Name' && !/^[ -]+$/.test(raw)) return raw;
-        }
-      }
-    } catch { /* fall through */ }
-  }
-  return '';
+  if (!root) return [];
+  try { return identityRowsIn(fs.readFileSync(path.join(root, 'USER.md'), 'utf8')); } catch { return []; }
+}
+
+/* THIS COMPUTER'S PRIMARY IDENTITY lives in ~/.aios/app.json, beside the framework path: machine-local
+   on purpose. The framework (and its .glass/shell.json) syncs across the operator's computers, so a
+   choice stored there would follow them from the laptop to the agent machine and both would launch
+   the same identity again, which is the bug this setting exists to fix. */
+function storedPrimaryIdentity(): string {
+  try {
+    const raw = JSON.parse(fs.readFileSync(appLocalPath(), 'utf8')) as { primaryIdentity?: unknown };
+    return typeof raw.primaryIdentity === 'string' ? raw.primaryIdentity.trim() : '';
+  } catch { return ''; }
+}
+
+/** Set (or clear, with '') this computer's primary identity. Only a name from the Identity table is stored. */
+export function setPrimaryIdentity(value: string): { ok: boolean; name: string; stale: boolean } {
+  const v = String(value || '').trim();
+  const rows = identityRows();
+  if (v && !rows.some((r) => r.name.toLowerCase() === v.toLowerCase())) return { ok: false, ...choosePrimaryIdentity(rows, storedPrimaryIdentity()) };
+  const p = appLocalPath();
+  let j: Record<string, unknown> = {};
+  try { j = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { /* first write */ }
+  if (v) j.primaryIdentity = v; else delete j.primaryIdentity;
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
+  fs.renameSync(tmp, p);
+  return { ok: true, ...choosePrimaryIdentity(rows, v) };
+}
+
+/** What Settings shows: the rows, the effective choice, and whether a stored choice went stale. */
+export function primaryIdentitySetting(): { rows: IdentityRow[]; name: string; stale: boolean; stored: string } {
+  const rows = identityRows();
+  const stored = storedPrimaryIdentity();
+  return { rows, stored, ...choosePrimaryIdentity(rows, stored) };
 }
 
 /** As above, with the shipped default applied — for display, where something must be shown. */

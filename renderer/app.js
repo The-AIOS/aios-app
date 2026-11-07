@@ -12321,7 +12321,46 @@ function openSettingsTab() {
       pulse.send({ type: 'recheck' });   // PanelHost re-posts state → launch button + greeting repaint
       toast(t('settings.primarySaved', { name: r.name }));
     });
-    row(wrap, t('settings.primaryName'), primIn, t('settings.primaryNameHint'));
+    const primRow = row(wrap, t('settings.primaryName'), primIn, t('settings.primaryNameHint'));
+    /* SEVERAL COMPUTERS, ONE VAULT. USER.md's Identity table keeps one row per computer's primary session
+       (the laptop's, the agent machine's), and the vault syncs, so the first row used to launch on every
+       machine. With two or more rows this computer picks its own; the choice is stored machine-locally
+       (~/.aios/app.json, never the synced framework). It replaces the rename field, which only ever
+       edited the first row. */
+    const identSel = document.createElement('select');
+    identSel.className = 'tinput';
+    identSel.dataset.setting = 'primaryIdentity';
+    const identRow = row(wrap, t('settings.primaryIdentity'), identSel, t('settings.primaryIdentityHint'));
+    identRow.hidden = true;
+    const identWarn = el('div', 'thint', '');
+    identWarn.style.color = 'var(--st-warn-ink)';
+    identWarn.hidden = true;
+    identRow.querySelector('.tlabel')?.appendChild(identWarn);
+    const paintIdentity = (st) => {
+      const many = !!(st && Array.isArray(st.rows) && st.rows.length >= 2);
+      identRow.hidden = !many;
+      primRow.hidden = many;
+      if (!many) return;
+      identSel.replaceChildren();
+      for (const r of st.rows) {
+        const o = document.createElement('option');
+        o.value = r.name;
+        o.textContent = r.role ? `${r.name} — ${r.role}` : r.name;
+        identSel.appendChild(o);
+      }
+      identSel.value = st.name;
+      identWarn.hidden = !st.stale;
+      identWarn.textContent = st.stale ? t('settings.primaryIdentityStale', { stored: st.stored, name: st.name }) : '';
+    };
+    void window.glassShell.primaryIdentity().then(paintIdentity).catch(() => {});
+    identSel.addEventListener('change', async () => {
+      const r = await window.glassShell.setPrimaryIdentity(identSel.value).catch(() => ({ ok: false }));
+      if (!r || !r.ok) { toast(t('settings.primaryFailed')); return; }
+      cfg.primary = r.name;
+      paintIdentity(await window.glassShell.primaryIdentity().catch(() => null));
+      pulse.send({ type: 'recheck' });   // PanelHost re-posts state → the Launch button repaints with this computer's identity
+      toast(t('settings.primarySaved', { name: r.name }));
+    });
 
     const langSel = document.createElement('select');
     langSel.className = 'tinput';
