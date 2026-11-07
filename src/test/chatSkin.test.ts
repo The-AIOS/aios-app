@@ -3704,7 +3704,7 @@ test("0.15 round: the operator's turn is a solid coral bubble with white text, C
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   const user = css.match(/--chat-user-bg: (#[0-9a-f]{6});/g) || [];
   assert.equal(user.length, 2, 'dark and light: a solid coral fill');
-  for (const u of user) assert.match(u, /#(ff5d4d|cc3d2a)/, 'solid coral: the brand #ff5d4d (operator\'s choice, round 2) or the readable #cc3d2a');
+  for (const u of user) assert.match(u, /#e5483a/, 'solid coral: #e5483a, white 3.95:1, between the brand #ff5d4d (3.0:1) and #cc3d2a (4.9:1)');
   assert.equal((css.match(/--chat-user-ink: #ffffff;/g) || []).length, 2, 'white text in both themes');
   assert.match(css, /\.who-user \.chat-bubble \{[^}]*background: var\(--chat-user-bg\); border: 0; color: var\(--chat-user-ink\);/);
   assert.equal((css.match(/--chat-reply-bg: color-mix\(in srgb, var\(--ink\) [0-9.]+%, var\(--surface\)\);/g) || []).length, 2, 'Claude\'s reply: neutral grey in both themes');
