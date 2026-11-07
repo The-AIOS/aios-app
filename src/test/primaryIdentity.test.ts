@@ -66,11 +66,21 @@ test('the choice is stored in ~/.aios/app.json (machine-local), not in the frame
 
 test('Settings shows the picker only with two or more identities, in place of the single-name rename field', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /const many = !!\(st && Array\.isArray\(st\.rows\) && st\.rows\.length >= 2\);\s*identRow\.hidden = !many;\s*primRow\.hidden = many;/);
+  assert.match(app, /const many = !!\(st && Array\.isArray\(st\.rows\) && st\.rows\.length >= 2\);\s*identRow\.hidden = !many;\s*\/\* The rename field stays/, 'the picker shows with 2+ rows; the rename field stays (review 2)');
   assert.match(app, /await window\.glassShell\.setPrimaryIdentity\(identSel\.value\)/);
   for (const l of ['en', 'es', 'pt-br', 'el']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
     for (const k of ['settings.primaryIdentity', 'settings.primaryIdentityHint', 'settings.primaryIdentityStale']) assert.ok(j[k], `${l}: ${k}`);
     assert.match(j['settings.primaryIdentityStale'], /\{stored\}[\s\S]*\{name\}/, `${l}: both placeholders`);
   }
+});
+
+test('0.15.0 review 2: the template\'s *example* rows are not identities, and the rename field stays beside the picker', async () => {
+  const { identityRowsIn } = await import('../core/primaryIdentity');
+  const md = ['## Identity', '', '| Name | Role | Greeting |', '|---|---|---|', '| *buddy* | *My main session* | hi |', '| *ops* | *Always-on* | hi |', ''].join('\n');
+  assert.deepEqual(identityRowsIn(md), [], 'an unedited template offers no picker');
+  const real = md.replace('| *buddy* | *My main session* | hi |', '| buddai | main | hi |').replace('| *ops* | *Always-on* | hi |', '| sarah | mini | hi |');
+  assert.deepEqual(identityRowsIn(real).map((r) => r.name), ['buddai', 'sarah']);
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.doesNotMatch(app, /primRow\.hidden = many;/, 'the rename field is no longer hidden when there are several rows');
 });

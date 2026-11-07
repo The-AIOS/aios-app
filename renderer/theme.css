@@ -2306,6 +2306,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chatskin .cs-sticky::before { content: '❯ '; color: color-mix(in srgb, var(--chat-user-ink) 70%, transparent); }
 .chatskin .cs-sticky:hover { filter: brightness(1.08); }
 .chatskin .cs-sticky[hidden] { display: none; }
+/* Light theme (0.15.0 review 2): see-through over a white page washes white text to ~2:1, so the strip is near solid there. */
+body.light .chatskin .cs-sticky { background: color-mix(in srgb, var(--chat-user-bg) 90%, transparent); }
 .cs-jump:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .cs-in { animation: none; } }
 

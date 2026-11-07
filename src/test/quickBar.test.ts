@@ -15,7 +15,7 @@ const NOW = 1793800000000;
 
 test('a message to a live session is an ordinary send, addressed to this surface', () => {
   const r = quickBarRequest({ kind: 'session', name: 'fama' }, '  ¿cómo vamos?  ', NOW);
-  assert.deepEqual(r, { ok: true, file: `quick-bar-fama-${NOW}.json`, body: { action: 'send', name: 'fama', prompt: '¿cómo vamos?', surface: 'app' } });
+  assert.deepEqual(r, { ok: true, file: `quick-bar-fama-${NOW}.json`, body: { action: 'send', name: 'fama', prompt: '¿cómo vamos?' } });   // unpinned: whichever surface hosts it delivers (review 2)
 });
 
 test('a message to a live session must say something', () => {
@@ -70,7 +70,9 @@ test('the request carries no `from` and no field the fulfillers own', () => {
     assert.ok(r.ok);
     assert.equal('from' in r.body, false);
     assert.equal(Object.keys(r.body).some((k) => k.startsWith('_')), false);
-    assert.equal(r.body.surface, 'app', 'addressed to this surface, so another surface never races for it');
+    /* A spawn is pinned to this surface, so another never races to start it; a send to a live session is not (0.15.0 review 2):
+       whichever surface hosts that session delivers it. */
+    assert.equal(r.body.surface, dest.kind === 'session' ? undefined : 'app');
     assert.match(r.file, /\.json$/, 'the bus only reads *.json');
   }
 });

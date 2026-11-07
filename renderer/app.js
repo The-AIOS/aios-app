@@ -11972,8 +11972,12 @@ function chatSkinQuestionTerm(id, p, now) {
   if (cs) { cs.lostPrompt = false; cs.lostSince = 0; cs.stalled = false; }
   p.questionTerm = true;
   if (!chatSkinSetView(id, 'term')) { p.questionTerm = false; return; }
-  toast(t('chat.skin.questionInTerm'));
-  setTimeout(() => { if (panes.get(id) === p) { try { p.term.focus(); } catch { /* gone */ } } }, 60);
+  toast(t('chat.skin.questionInTerm', { name: p.name || '' }));
+  /* Take the keyboard only if the operator is not typing somewhere else (0.15.0 review 2): with two sessions visible, a
+     focus steal would send the next keys into this dialog, answering it by accident. */
+  const ae = typeof document !== "undefined" ? document.activeElement : null;
+  const elsewhere = ae && ae !== (typeof document !== "undefined" ? document.body : null) && !(p.el && p.el.contains(ae)) && /^(INPUT|TEXTAREA)$|xterm-helper-textarea/.test(ae.tagName + ' ' + (ae.className || ''));
+  if (!elsewhere) setTimeout(() => { if (panes.get(id) === p) { try { p.term.focus(); } catch { /* gone */ } } }, 60);
 }
 /* A PANEL NOTHING RECOGNISED. Claude Code 2.1.314's /cost (also /status, /config, /usage, /stats) opens a full-screen Settings
    panel whose "Esc" footer falls below a short terminal's last row, so no detector sees it: the chat looked idle while
@@ -12339,7 +12343,7 @@ function openSettingsTab() {
     const paintIdentity = (st) => {
       const many = !!(st && Array.isArray(st.rows) && st.rows.length >= 2);
       identRow.hidden = !many;
-      primRow.hidden = many;
+      /* The rename field stays (0.15.0 review 2): it is still the one place to rename the first row in USER.md. */
       if (!many) return;
       identSel.replaceChildren();
       for (const r of st.rows) {

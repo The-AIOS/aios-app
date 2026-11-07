@@ -4433,3 +4433,16 @@ test('a question the chat cannot draw switches the tab to the terminal, and back
   assert.match(skin, /chatSkinFirstRun\(id, p\);\n\s*chatSkinQuestionTerm\(id, p, now\);/, 'runs on every tick, for every terminal pane');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok((JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>)['chat.skin.questionInTerm'], l);
 });
+
+test('0.15.0 review 2: the long-question switch never takes the keyboard from another pane, and names the session; the light pinned prompt is near solid', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = app.slice(app.indexOf('function chatSkinQuestionTerm('), app.indexOf('\n}\n', app.indexOf('function chatSkinQuestionTerm(')));
+  assert.match(fn, /toast\(t\('chat\.skin\.questionInTerm', \{ name: p\.name \|\| '' \}\)\);/);
+  assert.match(fn, /if \(!elsewhere\) setTimeout\(\(\) => \{ if \(panes\.get\(id\) === p\) \{ try \{ p\.term\.focus\(\); \}/, 'focus only when the operator is not typing elsewhere');
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
+    assert.match(j['chat.skin.questionInTerm'], /\{name\}/, `${l}: names the session`);
+  }
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.match(css, /body\.light \.chatskin \.cs-sticky \{ background: color-mix\(in srgb, var\(--chat-user-bg\) 90%, transparent\); \}/);
+});

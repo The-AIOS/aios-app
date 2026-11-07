@@ -30,6 +30,7 @@ export function identityRowsIn(text: string): IdentityRow[] {
     if ((c[0] ?? '').toLowerCase() === 'name') { const i = c.map((x) => x.toLowerCase()).indexOf('role'); roleCol = i > 0 ? i : 1; continue; }   // the header row, with or without a Role column
     const raw = c[0] ?? '';
     if (!raw || /^[ :-]+$/.test(raw)) continue;
+    if (/^[*_].*[*_]$/.test(raw)) continue;   // the template's *example* rows are not identities (0.15.0 review 2)
     if (!out.some((r) => r.name.toLowerCase() === raw.toLowerCase())) out.push({ name: raw, role: c[roleCol] ?? '' });
   }
   return out;

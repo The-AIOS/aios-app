@@ -41,7 +41,9 @@ export function quickBarRequest(dest: QuickBarDestination, rawText: string, now:
   const file = `quick-bar-${name}-${now}.json`;
   switch (dest.kind) {
     case 'session':
-      return { ok: true, file, body: { action: 'send', name, prompt: text, surface: 'app' } };
+      /* NOT pinned to this surface (0.15.0 review 2): the session may be open in Glass, and a send pinned to 'app' could only
+         end as a dead letter there. Whichever surface hosts the named session delivers it; a spawn stays pinned. */
+      return { ok: true, file, body: { action: 'send', name, prompt: text } };
     case 'agent': {
       /* The session may need a name other than the agent's: a spawn under a name that is already running is
          only revealed by the bus, and the text would be dropped. */
