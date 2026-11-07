@@ -427,96 +427,6 @@ export function detectTuiPrompt(screenText: string): TuiPrompt | null {
   return null;
 }
 
-// ── a question taller than the screen, read from the transcript ─────────────────────────────────
-
-/** One question of an AskUserQuestion call, as the model wrote it (tool_use input), bounded. */
-export interface AskQuestion {
-  question: string; header?: string; multiSelect: boolean;
-  options: Array<{ label: string; description?: string }>;
-}
-const ASK_MAX_QUESTIONS = 4;
-const ASK_MAX_OPTIONS = 12;
-
-/** The questions of an AskUserQuestion `tool_use.input`, or undefined when it is not that shape. */
-export function askQuestionsOf(input: unknown): AskQuestion[] | undefined {
-  const qs = input && typeof input === 'object' ? (input as { questions?: unknown }).questions : undefined;
-  if (!Array.isArray(qs)) return undefined;
-  const out: AskQuestion[] = [];
-  for (const q of qs.slice(0, ASK_MAX_QUESTIONS)) {
-    if (!q || typeof q !== 'object') return undefined;
-    const r = q as { question?: unknown; header?: unknown; multiSelect?: unknown; options?: unknown };
-    if (typeof r.question !== 'string' || !r.question.trim() || !Array.isArray(r.options)) return undefined;
-    const options: AskQuestion['options'] = [];
-    for (const o of r.options.slice(0, ASK_MAX_OPTIONS)) {
-      const label = o && typeof o === 'object' ? (o as { label?: unknown }).label : undefined;
-      if (typeof label !== 'string' || !label.trim()) return undefined;
-      const d = (o as { description?: unknown }).description;
-      options.push({ label: clipTo(label, 200), ...(typeof d === 'string' && d.trim() ? { description: clipTo(d, DESC_MAX) } : {}) });
-    }
-    if (!options.length) return undefined;
-    out.push({
-      question: clipTo(r.question, QUESTION_MAX), multiSelect: r.multiSelect === true, options,
-      ...(typeof r.header === 'string' && r.header.trim() ? { header: clip(r.header) } : {}),
-    });
-  }
-  return out.length ? out : undefined;
-}
-
-/** Labels compared the way the screen can show them: spacing folded, and a row the terminal wrapped
- *  only has its head, so one being the start of the other is a match. */
-const norm = (s: string): string => tidyLabel(s).toLowerCase();
-const sameLabel = (screen: string, model: string): boolean => {
-  const a = norm(screen); const b = norm(model);
-  return !!a && (a === b || b.startsWith(a) || a.startsWith(b));
-};
-const CHAT_ABOUT = /^Chat about this/i;
-
-/**
- * `detectTuiPrompt`, plus the case it cannot read: an AskUserQuestion whose question and described
- * options are taller than the screen. Its top (question, chips, option 1 and the cursor) has scrolled
- * away, so the visible rows are a tail of the list and the screen alone says nothing trustworthy.
- * The transcript holds the whole call: the pending `tool_use` (`ask`, the questions not yet answered)
- * carries every question and option. It is used only when (a) the screen did not already yield a
- * question card, (b) the TUI's own footer and its "Type something" / "Chat about this" rows are on
- * screen, and (c) exactly ONE question of the call matches every visible numbered row, so the card
- * can never show a question the dialog is not asking. Answering is unchanged: the digits (or, past
- * 9, arrows from a cursor that must then be visible) go to the pty as for any numbered dialog.
- */
-export function detectWithAsk(screenText: string, ask: readonly AskQuestion[] | null | undefined): TuiPrompt | null {
-  const r = detectTuiPrompt(screenText);
-  if (!ask || !ask.length || !screenText) return r;
-  if (r && r.kind === 'question' && r.options && r.question) return r;   // the screen read it whole: PR 130's path
-  const lines = cleanRows(screenText).filter((l) => l.trim() !== '').slice(-TAIL_LINES);
-  if (lines.length < 2 || !FOOTER.test(lines.slice(-2).join('\n'))) return r;
-  if (!/(Type something|Chat about this)/m.test(lines.join('\n'))) return r;
-  const visible: Array<{ n: number; label: string; cursor: boolean }> = [];
-  for (const l of lines) { const m = OPTION.exec(l); if (m) visible.push({ n: Number(m[2]), label: tidyLabel(m[3]), cursor: !!m[1] }); }
-  if (!visible.length) return r;
-  const fits = (q: AskQuestion): boolean => {
-    const k = q.options.length;
-    return visible.every((v) => (v.n >= 1 && v.n <= k) ? sameLabel(v.label, q.options[v.n - 1].label)
-      : v.n === k + 1 ? FREE_TEXT.test(v.label) : v.n === k + 2 ? CHAT_ABOUT.test(v.label) : false);
-  };
-  const matches = ask.filter(fits);
-  if (matches.length !== 1) return r;
-  const q = matches[0];
-  const base = { kind: 'question' as const, hint: clip(q.question), question: q.question, ...(q.header ? { header: q.header } : {}) };
-  // multi-select is answered with space and Enter over checkboxes: the card points at the terminal, as for the screen
-  if (q.multiSelect) return base;
-  const k = q.options.length;
-  const total = k + 2;
-  const cur = visible.find((v) => v.cursor)?.n;
-  if (total > 9 && cur === undefined) return base;   // a two-digit row needs arrows, and arrows need the cursor
-  const shown = (n: number): string | undefined => visible.find((v) => v.n === n)?.label;
-  const keyOf = (n: number, accept: boolean): string => n <= 9 ? String(n) : arrowKey((cur as number) - 1, n - 1, accept);
-  const options: TuiOption[] = q.options.map((o, i) => ({
-    n: i + 1, label: o.label, selected: cur === i + 1, key: keyOf(i + 1, true), ...(o.description ? { desc: o.description } : {}),
-  }));
-  options.push({ n: k + 1, label: shown(k + 1) ?? 'Type something.', selected: cur === k + 1, key: keyOf(k + 1, false), freeText: true });
-  options.push({ n: k + 2, label: shown(k + 2) ?? 'Chat about this', selected: cur === k + 2, key: keyOf(k + 2, true) });
-  return { ...base, options };
-}
-
 // ── a debounced watcher over the pty output ─────────────────────────────────
 
 export interface PromptMonitor {
@@ -531,9 +441,6 @@ export interface PromptMonitor {
   screen(text: string): void;
   /** The transcript moved on (a tool finished, the operator typed): whatever was asked is answered. */
   clear(): void;
-  /** Run the detector again on the screen already held (the detector's own inputs changed, e.g. a pending question
-   *  arrived from the transcript after the dialog was drawn: an idle dialog sends no more bytes to trigger it). */
-  recheck(): void;
   /** Stop timers; nothing is emitted afterwards. */
   dispose(): void;
 }
@@ -554,9 +461,6 @@ export interface PromptMonitorOptions {
   debounceMs?: number;
   /** Raw characters kept. ANSI-heavy redraws are ~3x their visible text, so this is a few KB of screen. */
   maxChars?: number;
-  /** The detector to run; `detectTuiPrompt` when absent. The chat view passes `detectWithAsk` bound to the
-   *  session's pending AskUserQuestion, so a question taller than the screen still becomes a card. */
-  detect?: (screenText: string) => TuiPrompt | null;
   /** Injected so a test needs no real clock. */
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (h: unknown) => void;
@@ -607,7 +511,7 @@ export function createPromptMonitor(o: PromptMonitorOptions): PromptMonitor {
   function evaluate(): void {
     timer = undefined;
     if (dead) return;
-    emit((o.detect ?? detectTuiPrompt)(buf));
+    emit(detectTuiPrompt(buf));
   }
 
   return {
@@ -620,11 +524,6 @@ export function createPromptMonitor(o: PromptMonitorOptions): PromptMonitor {
     screen(text: string): void {
       if (dead) return;
       buf = String(text ?? '').slice(-maxChars);
-      if (timer !== undefined) clearT(timer);
-      timer = setT(evaluate, debounceMs);
-    },
-    recheck(): void {
-      if (dead || !buf) return;
       if (timer !== undefined) clearT(timer);
       timer = setT(evaluate, debounceMs);
     },
@@ -644,8 +543,9 @@ export function createPromptMonitor(o: PromptMonitorOptions): PromptMonitor {
 
 /**
  * Does a batch of transcript items mean the open dialog was ANSWERED? A new operator message or a finished tool says so,
- * unless an AskUserQuestion still running comes after it in the same batch: then the dialog on screen IS that question
- * (the operator's message that led to it and the question can arrive together, after the dialog was drawn). Order matters.
+ * unless an AskUserQuestion still running comes after it in the same batch. (Claude Code 2.1.31x writes an
+ * AskUserQuestion to the transcript only once it is answered, so today that clause does not fire; it costs nothing and
+ * keeps the rule right for a CLI that writes the question when it asks it.)
  */
 export function answeredBy(items: ReadonlyArray<{ role?: string; tool?: { name?: string; status?: string } }>): boolean {
   let answered = false;
