@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
-import { detectTuiPrompt, detectWithAsk, askQuestionsOf, createPromptMonitor, type AskQuestion, type TuiPrompt } from '../core/tuiPrompt';
+import { detectTuiPrompt, detectWithAsk, askQuestionsOf, createPromptMonitor, answeredBy, type AskQuestion, type TuiPrompt } from '../core/tuiPrompt';
 import { createTranscriptTracker } from '../core/transcriptChat';
 
 const OPTIONS = [
@@ -149,4 +149,70 @@ test('the monitor runs the detector it is given', () => {
   const m2 = createPromptMonitor({ onChange: (kind) => plain.push(kind), setTimer: (fn) => { f2 = fn; return 1; }, clearTimer: () => { f2 = undefined; } });
   m2.screen('ASK'); f2?.();
   assert.deepEqual(plain, []);
+});
+
+/* 0.15.0 round 4: in a SHORT pane the card never came. The operator's message and the running AskUserQuestion reached the
+   transcript together, after the dialog was drawn: main read "an operator message" as "the dialog was answered" and cleared
+   it, and the question that arrived never re-ran the detector on the idle screen. */
+const SHORT_SCREEN = [
+  '    philosophy or a novel, and write down whatever ideas surface without trying to make them',
+  '    useful or turn them into a project.',
+  '  4. Move and reset',
+  '    A run, a long walk, or a workout, followed by a proper meal and an early night. The point is to',
+  "    let the week's noise drain out of your body so Saturday starts rested instead of recovering.",
+  '  5. Type something.',
+  '─'.repeat(80),
+  '❯ 6. Chat about this',
+  '',
+  'Enter to select · ↑/↓ to navigate · Esc to cancel',
+  '─'.repeat(64) + ' warm-puma ─',
+].join('\n');
+const FRIDAY: AskQuestion[] = [{ question: 'If you had a free Friday evening with no obligations, how would you most like to spend it?', header: 'Friday night', multiSelect: false,
+  options: [{ label: 'Deep build session', description: 'a' }, { label: 'Long dinner with people', description: 'b' }, { label: 'Read and think offline', description: 'c' }, { label: 'Move and reset', description: 'd' }] }];
+
+test('round 4: a message and the question it led to, arriving together, do not clear the dialog; a finished tool or a later message does', () => {
+  const user = { role: 'user' };
+  const ask = { tool: { name: 'AskUserQuestion', status: 'running' } };
+  const done = { tool: { name: 'Bash', status: 'done' } };
+  assert.equal(answeredBy([user, ask]), false, 'the message that led to the question: the dialog IS that question');
+  assert.equal(answeredBy([ask, user]), true, 'a message after the question answers it');
+  assert.equal(answeredBy([done]), true);
+  assert.equal(answeredBy([user]), true);
+  assert.equal(answeredBy([{ role: 'assistant' }]), false);
+  /* Negative control: the old rule ("any operator message or finished tool") clears in the failing case. */
+  const oldRule = (items: Array<{ role?: string; tool?: { status?: string } }>): boolean => items.some((it) => it.role === 'user' || (it.tool && it.tool.status !== 'running'));
+  assert.equal(oldRule([user, ask]), true, 'control: the old rule cleared the dialog the card was about to show');
+});
+
+test('round 4: a question arriving after its dialog was drawn re-reads the held screen, and the short pane gets the whole card', () => {
+  const timers: Array<() => void> = [];
+  let ask: AskQuestion[] | null = null;
+  const seen: Array<TuiPrompt | undefined> = [];
+  const m = createPromptMonitor({
+    detect: (text) => detectWithAsk(text, ask),
+    onChange: (_k, _h, p) => seen.push(p),
+    setTimer: (fn) => { timers.push(fn); return timers.length; },
+    clearTimer: () => {},
+  });
+  m.screen(SHORT_SCREEN);
+  timers.splice(0).forEach((f) => f());
+  assert.equal(seen.at(-1)?.options, undefined, 'without the question, the screen alone has no options to offer');
+  ask = FRIDAY;
+  m.recheck();
+  timers.splice(0).forEach((f) => f());
+  const p = seen.at(-1);
+  assert.equal(p?.question, FRIDAY[0].question, 'the full question');
+  assert.equal(p?.options?.length, 6, 'four options, Type something, Chat about this');
+  assert.equal(p?.options?.[0].desc, 'a', 'with their descriptions');
+  /* Control: no recheck, no card — the idle dialog sends nothing that would re-run the detector. */
+  const timers2: Array<() => void> = [];
+  const seen2: Array<TuiPrompt | undefined> = [];
+  let ask2: AskQuestion[] | null = null;
+  const m2 = createPromptMonitor({ detect: (text) => detectWithAsk(text, ask2), onChange: (_k, _h, q) => seen2.push(q), setTimer: (fn) => { timers2.push(fn); return 1; }, clearTimer: () => {} });
+  m2.screen(SHORT_SCREEN); timers2.splice(0).forEach((f) => f());
+  ask2 = FRIDAY;
+  assert.equal(seen2.at(-1)?.options, undefined, 'control: the question alone changes nothing until something re-reads the screen');
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  assert.match(main, /if \(ev\.type === 'items' && answeredBy\(ev\.items\)\) skin\.monitor\.clear\(\);/);
+  assert.match(main, /if \(\(skin\.pendingAsk\?\.id \?\? ''\) !== askBefore && skin\.pendingAsk\) skin\.monitor\.recheck\(\);/);
 });
