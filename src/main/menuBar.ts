@@ -6,8 +6,8 @@
  * the panel and the Dock badge, through the pure model in `core/menuBar`. It owns no timer and
  * reads no file of its own.
  *
- * The title and tooltip follow the model; the menu itself is built when the icon is clicked
- * (`popUpContextMenu`), so a state change never swaps a menu the operator has open.
+ * The title and tooltip follow the model; the menu is the tray's own (`setContextMenu`), rebuilt on
+ * change but never while it is open (menu-will-show / menu-will-close).
  */
 import { Menu, Tray, nativeImage } from 'electron';
 import * as path from 'path';
@@ -61,6 +61,9 @@ function sectionHeadersSupported(): boolean {
 export class MenuBar {
   private tray?: Tray;
   private model?: MenuBarModel;
+  /** The native menu is open: a rebuild now would close it under the pointer, so it waits for menu-will-close. */
+  private menuOpen = false;
+  private menuStale = false;
   private sessions: readonly MenuBarSession[] = [];
   private groups: MenuBarGroup[] = [];
 
@@ -82,11 +85,10 @@ export class MenuBar {
       return false;
     }
     this.tray.setToolTip('AIOS');
-    /* The menu is built when it opens, never swapped while it is open (0.15.0 review): with many sessions a state changes
-       every few seconds, and a setContextMenu at each change closed the menu under the operator's pointer. */
-    const open = (): void => { const tr = this.tray; if (tr && !tr.isDestroyed()) tr.popUpContextMenu(Menu.buildFromTemplate(this.template(this.model ?? menuBarModel([])))); };
-    this.tray.on('click', open);
-    this.tray.on('right-click', open);
+    /* THE NATIVE MENU, never swapped while open (0.15.0 hand test). popUpContextMenu from an inactive app dropped item clicks
+       on macOS (Quit, Settings, sessions did nothing; a second try sometimes worked), so the menu is the tray's own
+       (setContextMenu), which macOS dispatches reliably. The review's fix stays: a state change while the menu is open
+       waits for menu-will-close, so a busy fleet never closes it under the pointer. */
     this.model = undefined;
     this.render(menuBarModel([]));
     return true;
@@ -128,6 +130,22 @@ export class MenuBar {
     this.model = model;
     tray.setTitle(menuBarTitle(model));
     tray.setToolTip(model.waiting > 0 ? t('menuBar.tooltipWaiting', { n: model.waiting }) : 'AIOS');
+    this.installMenu();
+  }
+
+  /** Build and attach the native menu, unless it is open; then it is rebuilt the moment it closes. */
+  private installMenu(): void {
+    const tray = this.tray;
+    if (!tray || tray.isDestroyed()) return;
+    if (this.menuOpen) { this.menuStale = true; return; }
+    this.menuStale = false;
+    const menu = Menu.buildFromTemplate(this.template(this.model ?? menuBarModel([])));
+    menu.on('menu-will-show', () => { this.menuOpen = true; });
+    menu.on('menu-will-close', () => {
+      this.menuOpen = false;
+      if (this.menuStale) setTimeout(() => this.installMenu(), 0);   // after the click it closed for has run
+    });
+    tray.setContextMenu(menu);
   }
 
   private template(model: MenuBarModel): Electron.MenuItemConstructorOptions[] {

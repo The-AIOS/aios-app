@@ -101,9 +101,13 @@ test('the template image ships inside the package', () => {
 
 test('0.15.0 review: the menu is built when it opens, never swapped while open', () => {
   const src = fs.readFileSync('src/main/menuBar.ts', 'utf8');
-  assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\/|^\s*\*.*$/gm, ''), /setContextMenu\(/, 'no menu replaced on a state change');
-  assert.match(src, /tr\.popUpContextMenu\(Menu\.buildFromTemplate\(this\.template\(this\.model/, 'built from the current model at the click');
-  assert.match(src, /this\.tray\.on\('click', open\);/);
+  /* 0.15.0 hand test: popUpContextMenu from an inactive app dropped item clicks on macOS, so the menu is the tray's own
+     again; the review's fix holds by deferring a rebuild while the menu is open. */
+  assert.doesNotMatch(src, /popUpContextMenu\(/, 'no pop-up menu: its clicks were dropped');
+  assert.match(src, /if \(this\.menuOpen\) \{ this\.menuStale = true; return; \}/, 'never swapped while open');
+  assert.match(src, /menu\.on\('menu-will-show', \(\) => \{ this\.menuOpen = true; \}\);/);
+  assert.match(src, /if \(this\.menuStale\) setTimeout\(\(\) => this\.installMenu\(\), 0\);/, 'rebuilt once it closes');
+  assert.match(src, /tray\.setContextMenu\(menu\);/);
 });
 
 test('0.15.0 round: each session in the menu carries the sidebar\'s colour dot for its state, not a word', async () => {
