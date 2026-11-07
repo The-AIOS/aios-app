@@ -4319,13 +4319,15 @@ test('round 3: the sticky prompt lands below the strip, hides while a dialog is 
 test('a question the chat cannot draw switches the tab to the terminal, and back to chat when it is answered (0.15.0)', () => {
   const grab = (name: string): string => skin.slice(skin.indexOf('function ' + name), skin.indexOf('\n}\n', skin.indexOf('function ' + name)) + 2);
   const footerRe = /const CS_SELECT_FOOTER = (\/.*\/);/.exec(skin)![1];
+  const liveTail = /const chatSkinLiveTail = [^\n]*\n/.exec(skin)![0];
+  const settle = /const CS_QUESTION_SETTLE_MS = [^\n]*\n/.exec(skin)![0];
   const make = (body: string) => {
     let screen = '';
     const views: string[] = [];
     const toasts: string[] = [];
     const panes = new Map<number, unknown>();
     const run = new Function('chatMode', 'chatSkinEligible', 'chatSkinScreenText', 'chatSkinSetView', 'toast', 't', 'panes', 'setTimeout',
-      'const CS_SELECT_FOOTER = ' + footerRe + ';\n' + body + grab('chatSkinAgentCursor') + '; return chatSkinQuestionTerm;')(
+      'const CS_SELECT_FOOTER = ' + footerRe + ';\n' + liveTail + settle + body + grab('chatSkinAgentCursor') + '; return chatSkinQuestionTerm;')(
       'chat', () => true, () => screen,
       (_id: number, v: string) => { views.push(v); (panes.get(1) as Record<string, unknown>).view = v === 'chat' ? 'chat' : 'term'; return true; },
       (m: string) => toasts.push(m), (k: string) => k, panes, () => 0) as (id: number, p: unknown, now: number) => void;
@@ -4347,7 +4349,9 @@ test('a question the chat cannot draw switches the tab to the terminal, and back
   assert.deepEqual(h.views, ['term'], 'stays while the question is up');
   h.set(PROMPT);
   h.run(1, p, 4000);
-  assert.deepEqual(h.views, ['term', 'chat'], 'answered: back to chat');
+  assert.deepEqual(h.views, ['term'], 'the prompt box is back: wait for it to hold');
+  h.run(1, p, 5000);
+  assert.deepEqual(h.views, ['term', 'chat'], 'answered and settled: back to chat');
 
   // a dialog the chat already draws as a card: no switch
   const c = make(grab('chatSkinQuestionTerm'));
@@ -4385,6 +4389,47 @@ test('a question the chat cannot draw switches the tab to the terminal, and back
   e.set(['⏺ Press Esc to cancel a run.', PROMPT].join('\n'));
   e.run(1, w, 1000); e.run(1, w, 5000);
   assert.deepEqual(e.views, [], 'the prompt box is up: no dialog');
+  /* Round 5, the operator's report: "when i scroll it kinda goes back to chat view and glitches". The dialog's own selection
+     marker (❯ 1. …) moves on scroll and arrow keys and read as the prompt box; blank rows below the footer pushed it out of
+     a 6-row window. Either flipped the switch back to chat for a tick, then here again. */
+  const SELECTED = ['❯ 1. Deep build session', '     Put on headphones and build something small.', '  2. Long dinner with people', '─'.repeat(40),
+    '  6. Chat about this', '', 'Enter to select · ↑/↓ to navigate · Esc to cancel', '', '', '', '', '', '', ''].join('\n');   // the marker in column 0, as Claude Code draws it; blank rows below the footer
+  {
+    const cur = new Function('chatSkinScreenText', grab('chatSkinAgentCursor') + 'return chatSkinAgentCursor;')(() => SELECTED) as (p: unknown) => number | null;
+    assert.notEqual(cur({}), null, 'the fixture reproduces the trap: the selection marker reads as a prompt box');
+  }
+  const WORKING = ['⏺ Thinking about your answer…', '', '✻ Working… (3s)'].join('\n');
+  const flap = (body: string) => {
+    const f = make(body);
+    const x: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+    f.panes.set(1, x);
+    f.set(QUESTION); f.run(1, x, 1000); f.run(1, x, 2300);
+    for (let i = 0; i < 8; i++) { f.set(i % 2 ? QUESTION : SELECTED); f.run(1, x, 2600 + i * 300); }   // scrolling / arrow keys
+    return { f, x };
+  };
+  {
+    const g = make(grab('chatSkinQuestionTerm'));
+    const y: Record<string, unknown> = { view: 'chat', chatSkin: { promptKind: null } };
+    g.panes.set(1, y);
+    g.set(SELECTED); g.run(1, y, 1000); g.run(1, y, 2300);
+    assert.deepEqual(g.views, ['term'], 'the selected option on screen from the start still switches');
+  }
+  const ok = flap(grab('chatSkinQuestionTerm'));
+  assert.deepEqual(ok.f.views, ['term'], 'the selection marker and blank rows below the footer: still the terminal, no flap');
+  ok.f.set(WORKING); ok.f.run(1, ok.x, 6000); ok.f.run(1, ok.x, 8000);
+  assert.deepEqual(ok.f.views, ['term'], 'footer gone but the prompt box not back yet: stays');
+  ok.f.set(PROMPT); ok.f.run(1, ok.x, 9000); ok.f.run(1, ok.x, 9500);
+  assert.deepEqual(ok.f.views, ['term'], 'the box is back, not yet held for a second');
+  ok.f.set(QUESTION); ok.f.run(1, ok.x, 9700); ok.f.set(PROMPT); ok.f.run(1, ok.x, 10000); ok.f.run(1, ok.x, 10600);
+  assert.deepEqual(ok.f.views, ['term'], 'a dialog flicker restarts the wait');
+  ok.f.run(1, ok.x, 11000);
+  assert.deepEqual(ok.f.views, ['term', 'chat'], 'held for a second: back to chat, once');
+  /* Control: the round-4 rule (footer in the last 6 rows, leave the moment either signal drops) flaps on the same input. */
+  const old = grab('chatSkinQuestionTerm')
+    .replace('CS_SELECT_FOOTER.test(chatSkinLiveTail(text, 8))', "CS_SELECT_FOOTER.test(text.split('\\n').slice(-6).join('\\n'))")
+    .replace('const gone = settled && now - p.questionGoneSince >= CS_QUESTION_SETTLE_MS;', 'const gone = !footer || box;');
+  const bad = flap(old);
+  assert.ok(bad.f.views.length > 1 && bad.f.views.includes('chat'), `control: the old rule flaps (${bad.f.views.join(',')})`);
   assert.match(skin, /chatSkinFirstRun\(id, p\);\n\s*chatSkinQuestionTerm\(id, p, now\);/, 'runs on every tick, for every terminal pane');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok((JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>)['chat.skin.questionInTerm'], l);
 });
