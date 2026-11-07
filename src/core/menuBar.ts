@@ -28,18 +28,57 @@ export function sessionState(raw: string | undefined | null): SessionState {
 }
 
 export interface MenuBarSession { name: string; sessionId?: string; status: string }
-export interface MenuBarRow { name: string; id: string; state: SessionState }
-export interface MenuBarModel { rows: MenuBarRow[]; waiting: number }
+export interface MenuBarRow { name: string; id: string; state: SessionState; group: number }
+/** A tab group as the renderer reports it: its label, its palette colour name, its members' session names. */
+export interface MenuBarGroup { name: string; color: string; members: string[] }
+export interface MenuBarModel { rows: MenuBarRow[]; waiting: number; groups: { name: string; color: string }[] }
 
 /** Sessions that need the operator first, then working, then errors, then ready; by name within each. */
 const RANK: Record<SessionState, number> = { input: 0, busy: 1, error: 2, idle: 3 };
 
-export function menuBarModel(sessions: readonly MenuBarSession[]): MenuBarModel {
-  const rows = sessions
+/**
+ * Rows grouped like the App's tab groups (0.15.0 round 2): each group's sessions under it, in the groups' order, then the
+ * sessions in no group. Within a block, the operator's attention order: waiting, working, errors, ready. `group` is the
+ * index into `groups`, or -1. A group with no live session is left out, so the menu never shows an empty heading.
+ */
+export function menuBarModel(sessions: readonly MenuBarSession[], groupsIn: readonly MenuBarGroup[] = []): MenuBarModel {
+  const named = groupsIn.filter((g) => g && Array.isArray(g.members));
+  const groupOf = (name: string): number => named.findIndex((g) => g.members.includes(name));
+  const all = sessions
     .filter((s) => s && s.name)
-    .map((s) => ({ name: s.name, id: s.sessionId ?? '', state: sessionState(s.status) }))
-    .sort((a, b) => RANK[a.state] - RANK[b.state] || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  return { rows, waiting: rows.filter((r) => r.state === 'input').length };
+    .map((s) => ({ name: s.name, id: s.sessionId ?? '', state: sessionState(s.status), group: groupOf(s.name) }));
+  const used = [...new Set(all.map((r) => r.group).filter((g) => g >= 0))].sort((a, b) => a - b);
+  const remap = new Map(used.map((g, i) => [g, i]));
+  const rows = all
+    .map((r) => ({ ...r, group: r.group >= 0 ? remap.get(r.group)! : -1 }))
+    .sort((a, b) => (a.group < 0 ? 1e6 : a.group) - (b.group < 0 ? 1e6 : b.group)
+      || RANK[a.state] - RANK[b.state] || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const groups = used.map((g) => ({ name: String(named[g].name || ''), color: String(named[g].color || 'grey') }));
+  return { rows, waiting: rows.filter((r) => r.state === 'input').length, groups };
+}
+
+/**
+ * The tab-group palette as the menu's dots: the dark-theme `--tg-*` values in renderer/theme.css (Chrome's palette, the
+ * bright ones, legible on both macOS menus), pinned there by `menuBar.test.ts`. An unknown name falls back to grey.
+ */
+export const GROUP_DOT_COLOR: Record<string, string> = {
+  grey: '#dadce0', blue: '#8ab4f8', yellow: '#fdd663', green: '#81c995',
+  pink: '#ff8bcb', purple: '#c58af9', cyan: '#78d9ec', orange: '#fcad70',
+  coral: '#ff8a7d', indigo: '#a5adf6', lime: '#c5e478', brown: '#c8a887',
+};
+export function groupDotColor(name: string): string { return GROUP_DOT_COLOR[name] ?? GROUP_DOT_COLOR.grey; }
+
+/** What the renderer sends, cleaned: at most 40 groups of 200 names, strings only. Anything else is dropped. */
+export function sanitizeGroups(raw: unknown): MenuBarGroup[] {
+  if (!Array.isArray(raw)) return [];
+  const out: MenuBarGroup[] = [];
+  for (const g of raw.slice(0, 40)) {
+    if (!g || typeof g !== 'object') continue;
+    const o = g as Record<string, unknown>;
+    const members = Array.isArray(o.members) ? o.members.filter((m): m is string => typeof m === 'string' && !!m).slice(0, 200) : [];
+    out.push({ name: typeof o.name === 'string' ? o.name.slice(0, 80) : '', color: typeof o.color === 'string' ? o.color : 'grey', members });
+  }
+  return out;
 }
 
 /** The text beside the icon: the waiting count, or nothing. Never "0" — an empty title is the calm state. */

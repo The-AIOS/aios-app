@@ -122,10 +122,41 @@ test('0.15.0 round: each session in the menu carries the sidebar\'s colour dot f
   assert.equal(at(0, 0)[3], 0, 'the corner is transparent: a dot, not a square');
   assert.throws(() => dotBitmap('green', 12), 'a malformed colour is an error, not a black dot');
   const main = fs.readFileSync('src/main/menuBar.ts', 'utf8');
-  assert.match(main, /label: r\.name,\s*icon: stateDot\(r\.state\),/, 'the name, with the dot');
+  assert.match(main, /label: model\.groups\.length && r\.group >= 0 \? '   ' \+ r\.name : r\.name,[^\n]*\n\s*icon: stateDot\(r\.state\),/, 'the name, with the dot');
   assert.match(main, /toolTip: t\(STATE_KEY\[r\.state\]\)/, 'the state still in words on hover');
   assert.doesNotMatch(main, /label: `\$\{r\.name\} — /, 'no "— ready" text');
   const fn = main.slice(main.indexOf('function stateDot('), main.indexOf('\n}\n', main.indexOf('function stateDot(')));
   assert.doesNotMatch(fn, /setTemplateImage/, 'never a template image: macOS would drop the colour');
   assert.match(fn, /addRepresentation\(\{ scaleFactor: 2/, 'sharp on a Retina menu bar');
+});
+
+test('0.15.0 round 2: the menu lists sessions under their tab groups, in the group colour, with Ask AIOS at the top', async () => {
+  const { menuBarModel, sanitizeGroups, GROUP_DOT_COLOR, groupDotColor } = await import('../core/menuBar');
+  const sessions = [
+    { name: 'ana', status: 'idle' }, { name: 'bo', status: 'waiting' }, { name: 'cy', status: 'busy' }, { name: 'dee', status: 'idle' },
+  ];
+  const groups = [{ name: 'Empty', color: 'pink', members: ['ghost'] }, { name: 'Release', color: 'blue', members: ['cy', 'bo'] }];
+  const m = menuBarModel(sessions, groups);
+  assert.deepEqual(m.groups, [{ name: 'Release', color: 'blue' }], 'a group with no live session is left out');
+  assert.deepEqual(m.rows.map((r) => `${r.group}:${r.name}`), ['0:bo', '0:cy', '-1:ana', '-1:dee'], 'grouped first (waiting before working), then the rest');
+  assert.equal(m.waiting, 1);
+  assert.deepEqual(menuBarModel(sessions).groups, [], 'no groups reported: one flat list, as before');
+  /* Negative control: ignoring membership puts everything ungrouped. */
+  assert.notDeepEqual(menuBarModel(sessions, []).rows.map((r) => r.group), m.rows.map((r) => r.group));
+  assert.deepEqual(sanitizeGroups([{ name: 'A', color: 'green', members: ['x', 3, ''] }, 'junk', null]), [{ name: 'A', color: 'green', members: ['x'] }]);
+  assert.deepEqual(sanitizeGroups('nope'), []);
+  /* The group dots are the App's own tab-group palette (dark tokens), so a colour means the same in both places. */
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  const root = css.slice(0, css.indexOf('}', css.indexOf(':root')));
+  for (const [name, hex] of Object.entries(GROUP_DOT_COLOR)) {
+    const tok = (new RegExp(`--tg-${name}:\\s*(#[0-9a-f]{6})`, 'i').exec(root) || [])[1]?.toLowerCase();
+    assert.equal(hex, tok, `--tg-${name}`);
+  }
+  assert.equal(groupDotColor('nonsense'), GROUP_DOT_COLOR.grey);
+  const main = fs.readFileSync('src/main/menuBar.ts', 'utf8');
+  assert.match(main, /return \[\s*\{ label: t\('menuBar\.ask'\), click: \(\) => this\.hooks\.ask\(\) \},/, 'Ask AIOS… first in the menu');
+  assert.match(main, /icon: groupDot\(g\.color\), enabled: false/, 'a group heading in its colour');
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /function persistSessions\(\) \{\s*try \{ tgReportMenuBar\(\); \}/, 'the renderer reports its groups on every layout change');
+  assert.match(fs.readFileSync('src/main/main.ts', 'utf8'), /ipcMain\.on\('menuBar:groups', \(_e, raw: unknown\) => \{ menuBarGroups = sanitizeGroups\(raw\);/);
 });

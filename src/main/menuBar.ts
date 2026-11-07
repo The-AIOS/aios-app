@@ -12,12 +12,14 @@
 import { Menu, Tray, nativeImage } from 'electron';
 import * as path from 'path';
 import { t } from '../i18n';
-import { menuBarModel, menuBarTitle, sameModel, dotBitmap, STATE_DOT_COLOR, type MenuBarModel, type MenuBarSession, type SessionState } from '../core/menuBar';
+import { menuBarModel, menuBarTitle, sameModel, dotBitmap, STATE_DOT_COLOR, groupDotColor, type MenuBarModel, type MenuBarSession, type MenuBarGroup, type SessionState } from '../core/menuBar';
 
 export interface MenuBarHooks {
   /** Bring the App forward on one session — the same path a "needs you" banner click takes. */
   reveal(target: { name: string; sessionId?: string }): void;
   openApp(): void;
+  /** Ask AIOS from here: the floating Ask when it exists, else the App's own Ask panel. */
+  ask(): void;
   openSettings(): void;
   quit(): void;
 }
@@ -31,14 +33,16 @@ const STATE_KEY: Record<SessionState, string> = {
 
 /** One coloured dot per state, built once at 1x and 2x (12 pt). NOT a template image: macOS would recolour it. */
 const DOT_PT = 12;
-const dots = new Map<SessionState, Electron.NativeImage>();
-function stateDot(state: SessionState): Electron.NativeImage {
-  let img = dots.get(state);
+const dots = new Map<string, Electron.NativeImage>();
+function stateDot(state: SessionState): Electron.NativeImage { return colourDot(STATE_DOT_COLOR[state]); }
+/** A group heading's dot, in the group's own colour. */
+function groupDot(colour: string): Electron.NativeImage { return colourDot(groupDotColor(colour)); }
+function colourDot(hex: string): Electron.NativeImage {
+  let img = dots.get(hex);
   if (img) return img;
-  const hex = STATE_DOT_COLOR[state];
   img = nativeImage.createFromBitmap(Buffer.from(dotBitmap(hex, DOT_PT)), { width: DOT_PT, height: DOT_PT, scaleFactor: 1 });
   img.addRepresentation({ scaleFactor: 2, width: DOT_PT * 2, height: DOT_PT * 2, buffer: Buffer.from(dotBitmap(hex, DOT_PT * 2)) });
-  dots.set(state, img);
+  dots.set(hex, img);
   return img;
 }
 
@@ -50,6 +54,8 @@ export function iconPath(appRoot: string): string {
 export class MenuBar {
   private tray?: Tray;
   private model?: MenuBarModel;
+  private sessions: readonly MenuBarSession[] = [];
+  private groups: MenuBarGroup[] = [];
 
   constructor(private readonly hooks: MenuBarHooks, private readonly appRoot: string) {}
 
@@ -87,10 +93,18 @@ export class MenuBar {
 
   /** One observation from the 2 s pulse. Cheap when nothing changed. */
   update(sessions: readonly MenuBarSession[]): void {
+    this.sessions = sessions;
     if (!this.active) return;
-    const next = menuBarModel(sessions);
+    const next = menuBarModel(sessions, this.groups);
     if (sameModel(this.model, next)) return;
     this.render(next);
+  }
+
+  /** The App's tab groups, as the renderer last reported them (0.15.0 round 2). The next open shows them. */
+  setGroups(groups: MenuBarGroup[]): void {
+    this.groups = groups;
+    if (!this.active) return;
+    this.render(menuBarModel(this.sessions, groups));
   }
 
   /** Re-render with the current model — after a locale change, when the strings moved but the sessions did not. */
@@ -110,15 +124,28 @@ export class MenuBar {
   }
 
   private template(model: MenuBarModel): Electron.MenuItemConstructorOptions[] {
-    const rows: Electron.MenuItemConstructorOptions[] = model.rows.length
-      ? model.rows.map((r) => ({
-        label: r.name,
+    const rows: Electron.MenuItemConstructorOptions[] = [];
+    let last = -2;
+    for (const r of model.rows) {
+      /* A group's heading before its first session, in the group's colour; the sessions in no group after a separator. */
+      if (r.group !== last) {
+        if (r.group >= 0) {
+          const g = model.groups[r.group];
+          rows.push({ label: g.name || t('tg.unnamed', { color: t('tg.color.' + g.color) }), icon: groupDot(g.color), enabled: false });
+        } else if (last >= 0) rows.push({ type: 'separator' });
+        last = r.group;
+      }
+      rows.push({
+        label: model.groups.length && r.group >= 0 ? '   ' + r.name : r.name,   // indented under its group
         icon: stateDot(r.state),          // the sidebar's colour for this state, instead of "— ready" (0.15.0 round)
         toolTip: t(STATE_KEY[r.state]),   // the state still in words, on hover
         click: () => this.hooks.reveal({ name: r.name, sessionId: r.id || undefined }),
-      }))
-      : [{ label: t('menuBar.empty'), enabled: false }];
+      });
+    }
+    if (!rows.length) rows.push({ label: t('menuBar.empty'), enabled: false });
     return [
+      { label: t('menuBar.ask'), click: () => this.hooks.ask() },
+      { type: 'separator' },
       { label: t('menuBar.sessions'), enabled: false },
       ...rows,
       { type: 'separator' },

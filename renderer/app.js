@@ -5654,7 +5654,23 @@ function sessionsSnapshot() {
 }
 /* Computed NOW, written shortly after — so a burst of changes costs one write, and what is
    written is the state at the moment of the change, never the state mid-teardown. */
+/* The tab groups for the menu bar icon (0.15.0 round 2): each group's label, colour and members' session names, sent to
+   main when they change. Rides persistSessions, which every group, tab and rename change already calls. */
+let tgReportedJson = '';
+function tgReportMenuBar() {
+  if (!window.glassShell || !window.glassShell.menuBarGroups) return;
+  const groups = [];
+  for (const [gid, g] of tabGroups) {
+    const members = tgMembers(gid).map((id) => panes.get(id)).filter((p) => p && p.name && !p.exited).map((p) => p.name);
+    if (members.length) groups.push({ name: g.name || '', color: g.color, members });
+  }
+  const json = JSON.stringify(groups);
+  if (json === tgReportedJson) return;
+  tgReportedJson = json;
+  try { window.glassShell.menuBarGroups(groups); } catch { /* main not ready */ }
+}
 function persistSessions() {
+  try { tgReportMenuBar(); } catch { /* the menu bar never stops a save */ }
   if (restoreQuitting) return;
   try { restorePending = sessionsSnapshot(); } catch { return; }
   clearTimeout(restoreTimer);
@@ -7646,11 +7662,7 @@ window.glassShell.onIntent(async (m) => {
       if (hit) window.glassShell.ptyWrite(hit[0], '');
       return;
     }
-    case 'ask': {
-      const ask = await askWithChips();
-      if (ask) await launchAsk(ask);
-      return;
-    }
+    case 'ask': void onIntentAsk(); return;   // the menu bar's Ask AIOS… and the bus: destinations included
     case 'openFile':
       if (m.path) void openViewer(m.path);
       return;
@@ -14437,13 +14449,10 @@ async function askWithChips() {
   if (!v || !v.value) return null;
   return { intent: v.value, name: v.name, dest: v.dest || { kind: 'new' } };
 }
-/** The Ask picker's value ("kind:name") as a destination; anything unrecognised is a new session. */
-function askDestOf(value) {
-  const v = String(value || '');
-  const i = v.indexOf(':');
-  const kind = i > 0 ? v.slice(0, i) : 'new';
-  const name = i > 0 ? v.slice(i + 1) : '';
-  return (kind === 'session' || kind === 'agent') && name ? { kind, name } : { kind: 'new' };
+/** The picker's strings, shared by the Ask panel; main hands the floating bar the same keys (quickBar.ts). */
+function askDestStrings() {
+  return { newSession: t('ask.destNew'), sessions: t('ask.destSessions'), agents: t('ask.destAgents'), filter: t('quickBar.filter'),
+    hint: t('ask.destHint'), waiting: t('status.needsInput'), agentTag: t('ask.destAgentTag'), sessionTag: t('ask.destSessionTag') };
 }
 /** A session name that is safe on a command line and in the registry, whatever was typed. */
 function safeSessionName(raw, fallback) {
@@ -14575,29 +14584,27 @@ function inputModal(title, placeholder, chips, opts) {
       nameIn.addEventListener('input', () => { touched = true; });
     }
     /* opts.destField — WHERE the Ask goes: a new session (default, the name field above), a live session, or an
-       agent. Choosing anything but a new session hides the name field, which only names a new session. */
-    let destSel = null;
-    if (opts && opts.destField) {
-      const row = el('label', 'mname mdest');
+       agent. The picker is `AskDest` (renderer/askdest.js), the SAME one the floating Ask AIOS bar uses, so both doors look
+       and behave alike (0.15.0 round 2: a native <select> read as foreign to the App). Tab in the text opens it.
+       Choosing anything but a new session hides the name field, which only names a new session. */
+    let destPick = null;
+    if (opts && opts.destField && window.AskDest) {
+      const row = el('div', 'mname mdest');
       row.appendChild(el('span', 'mnamelbl', opts.destField.label));
-      destSel = document.createElement('select');
-      destSel.className = 'mnamein mdestsel';
-      destSel.appendChild(new Option(t('ask.destNew'), 'new:'));
-      row.appendChild(destSel);
+      const chipHost = el('span', 'mdestchip');
+      row.appendChild(chipHost);
+      row.appendChild(el('span', 'mdesthint', t('ask.destHint')));
+      const listHost = el('div', 'mdestlist');
       const nameRow = nameIn ? nameIn.closest('.mname') : null;
       (nameRow || wrap.querySelector('.mhint')).before(row);
-      destSel.addEventListener('change', () => { if (nameRow) nameRow.hidden = destSel.value !== 'new:'; });
-      void Promise.resolve(opts.destField.load()).then((d) => {
-        if (!document.contains(destSel)) return;
-        const group = (label, items, kind) => {
-          if (!items || !items.length) return;
-          const g = document.createElement('optgroup'); g.label = label;
-          for (const it of items) g.appendChild(new Option(it.waiting ? `${it.name} · ${t('status.needsInput')}` : it.name, `${kind}:${it.name}`));
-          destSel.appendChild(g);
-        };
-        group(t('ask.destSessions'), d && d.sessions, 'session');
-        group(t('ask.destAgents'), d && d.agents, 'agent');
+      row.after(listHost);
+      destPick = window.AskDest.mount(chipHost, listHost, {
+        strings: askDestStrings(),
+        load: opts.destField.load,
+        returnFocus: input,
+        onChange: (d) => { if (nameRow) nameRow.hidden = d.kind !== 'new'; },
       });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); destPick.open(); } });
     }
     /* opts.hint — one italic line above "Enter to run", with an optional link that leaves this dialog
        for somewhere better suited (Ask → Frequent Tasks for a job that recurs). */
@@ -14616,17 +14623,17 @@ function inputModal(title, placeholder, chips, opts) {
     const done = (val) => { wrap.remove(); resolve(val); };
     const submit = () => {
       const v = input.value.trim();
-      if (!nameIn && !destSel) { done(v); return; }
+      if (!nameIn && !destPick) { done(v); return; }
       const out = { value: v, name: nameIn ? nameIn.value.trim() : '' };
-      if (destSel) out.dest = askDestOf(destSel.value);
+      if (destPick) out.dest = destPick.dest.kind === 'new' ? { kind: 'new' } : { kind: destPick.dest.kind, name: destPick.dest.name };
       done(out);
     };
     // Enter resolves the (trimmed) string — '' is a valid "submit blank" (e.g. spawn → adj-animal
     // handle); only Escape / backdrop resolve null (cancel). Callers distinguish '' from null.
-    for (const f of [input, nameIn, destSel].filter(Boolean)) {
+    for (const f of [input, nameIn].filter(Boolean)) {
       f.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); submit(); }
-        else if (e.key === 'Escape') { e.preventDefault(); done(null); }
+        else if (e.key === 'Escape') { e.preventDefault(); if (destPick && destPick.isOpen()) destPick.close(); else done(null); }
       });
     }
     wrap.addEventListener('click', (e) => { if (e.target === wrap) done(null); });
