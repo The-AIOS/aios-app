@@ -531,6 +531,9 @@ export interface PromptMonitor {
   screen(text: string): void;
   /** The transcript moved on (a tool finished, the operator typed): whatever was asked is answered. */
   clear(): void;
+  /** Run the detector again on the screen already held (the detector's own inputs changed, e.g. a pending question
+   *  arrived from the transcript after the dialog was drawn: an idle dialog sends no more bytes to trigger it). */
+  recheck(): void;
   /** Stop timers; nothing is emitted afterwards. */
   dispose(): void;
 }
@@ -620,6 +623,11 @@ export function createPromptMonitor(o: PromptMonitorOptions): PromptMonitor {
       if (timer !== undefined) clearT(timer);
       timer = setT(evaluate, debounceMs);
     },
+    recheck(): void {
+      if (dead || !buf) return;
+      if (timer !== undefined) clearT(timer);
+      timer = setT(evaluate, debounceMs);
+    },
     clear(): void {
       if (dead) return;
       buf = '';
@@ -632,4 +640,18 @@ export function createPromptMonitor(o: PromptMonitorOptions): PromptMonitor {
       buf = '';
     },
   };
+}
+
+/**
+ * Does a batch of transcript items mean the open dialog was ANSWERED? A new operator message or a finished tool says so,
+ * unless an AskUserQuestion still running comes after it in the same batch: then the dialog on screen IS that question
+ * (the operator's message that led to it and the question can arrive together, after the dialog was drawn). Order matters.
+ */
+export function answeredBy(items: ReadonlyArray<{ role?: string; tool?: { name?: string; status?: string } }>): boolean {
+  let answered = false;
+  for (const it of items) {
+    if (it.tool && it.tool.name === 'AskUserQuestion' && it.tool.status === 'running') answered = false;
+    else if (it.role === 'user' || (it.tool && it.tool.status !== 'running')) answered = true;
+  }
+  return answered;
 }

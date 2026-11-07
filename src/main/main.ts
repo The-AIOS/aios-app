@@ -5,7 +5,7 @@ import { markQuitting, isQuitting, closeShouldHide } from './quitState';
 import { installWebPermissionPolicy } from './webPermissions';
 import { withDefaultLocale } from './termLocale';
 import { createTranscriptTail, isSessionId } from './transcriptTail';
-import { createPromptMonitor, detectWithAsk, QUESTION_MAX, DESC_MAX, type AskQuestion, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
+import { createPromptMonitor, detectWithAsk, answeredBy, QUESTION_MAX, DESC_MAX, type AskQuestion, type PromptMonitor, type TuiPrompt } from '../core/tuiPrompt';
 import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker } from '../core/screenStream';
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
@@ -490,6 +490,7 @@ ipcMain.handle('chatSkin:watch', async (e, paneId: number, sessionId: string | n
   const skin = k;
   return tail.watch(id, sessionId as string, (ev) => {
     // the question a dialog may be asking: an AskUserQuestion still running is pending; its result (or a reset) ends it
+    const askBefore = skin.pendingAsk?.id ?? '';
     if (ev.type === 'items') {
       for (const it of ev.items) {
         const t = it.tool;
@@ -498,8 +499,13 @@ ipcMain.handle('chatSkin:watch', async (e, paneId: number, sessionId: string | n
         else if (skin.pendingAsk?.id === t.id) skin.pendingAsk = null;
       }
     } else if (ev.type === 'reset') skin.pendingAsk = null;
-    // a finished tool or a new operator message proves the dialog that was open has been answered
-    if (ev.type === 'items' && ev.items.some((it) => it.role === 'user' || (it.tool && it.tool.status !== 'running'))) skin.monitor.clear();
+    /* A finished tool or a new operator message proves the dialog that was open has been answered — unless a question
+       still running comes after it in the same batch (0.15.0 round 4: the message and its question arrived together
+       after the dialog was drawn, and clearing it lost the card in a short pane). */
+    if (ev.type === 'items' && answeredBy(ev.items)) skin.monitor.clear();
+    /* The question arrived after its dialog was drawn: an idle dialog sends no more bytes, so read the held screen again
+       with the question in hand (a pane too short to show the question's top needs it). */
+    if ((skin.pendingAsk?.id ?? '') !== askBefore && skin.pendingAsk) skin.monitor.recheck();
     /* The finished message replaces the preview: tell the renderer which transcript line IS the previewed text BEFORE
        the items event, so it hands the preview's node to that item (same place, no second bubble, no jump). */
     if (ev.type === 'items') { const a = skin.stream.items(ev.items); if (a) skin.send({ ...a }); }
