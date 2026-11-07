@@ -1200,13 +1200,16 @@ function showMainWindow(): BrowserWindow | undefined {
   if (!w || w.isDestroyed()) return undefined;
   if (w.isMinimized()) w.restore();
   w.show(); w.focus();
+  /* From the menu bar, AIOS is not the active app: showing the window left it behind the app in front, so "Show AIOS"
+     took a second click (0.15.0 hand test). Activate the App itself. */
+  if (process.platform === 'darwin') { try { app.focus({ steal: true }); } catch { /* older Electron */ } }
   return w;
 }
 function syncMenuBar(): void {
   const want = MENU_BAR_ALLOWED() && aios.shellSettings().menuBar;
   if (!want) { menuBar?.disable(); return; }
   menuBar ??= new MenuBar({
-    reveal: (target) => host?.revealSession(target),
+    reveal: (target) => { showMainWindow(); host?.revealSession(target); },
     openApp: () => { showMainWindow(); },
     /* Ask AIOS from the menu bar: the floating Ask (the same one the optional global shortcut opens) when this platform
        has it, else the App's own Ask panel. */
@@ -1246,8 +1249,7 @@ function applyQuickBar(): void {
     reveal: (target) => {
       const w = mainWin;
       if (!w || w.isDestroyed()) return;
-      if (w.isMinimized()) w.restore();
-      w.show(); w.focus();
+      showMainWindow();
       if (!w.webContents.isDestroyed()) w.webContents.send('shell:intent', { name: target.name, id: '', kind: 'focusTerminal' });
     },
     log: (m) => appLog('quick-bar', m),

@@ -174,3 +174,10 @@ test('0.15.0 round 3: Ask AIOS and Show AIOS first, then the sessions, then Sett
     assert.equal(JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8'))['menuBar.open'], want2, l);
   }
 });
+
+test('Show AIOS from the menu bar activates the App itself, so one click is enough (0.15.0 hand test)', () => {
+  const main = fs.readFileSync('src/main/main.ts', 'utf8');
+  const fn = main.slice(main.indexOf('function showMainWindow('), main.indexOf('\n}\n', main.indexOf('function showMainWindow(')));
+  assert.match(fn, /if \(process\.platform === 'darwin'\) \{ try \{ app\.focus\(\{ steal: true \}\); \}/);
+  assert.match(main, /reveal: \(target\) => \{ showMainWindow\(\); host\?\.revealSession\(target\); \},/, 'a session clicked in the menu also brings the App forward');
+});
