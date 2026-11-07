@@ -126,3 +126,10 @@ test('the renderer scripts parse — a stray brace blanks the whole window, and 
     assert.doesNotThrow(() => new vm.Script(read(f), { filename: f }), `${f} has a syntax error`);
   }
 });
+
+test('the floating Ask never transforms the App\'s process type, so the App\'s own menu bar keeps working (0.15.0 hand test)', () => {
+  const src = fs.readFileSync('src/main/quickBar.ts', 'utf8');
+  const calls = src.match(/setVisibleOnAllWorkspaces\([^)]*\)/g) || [];
+  assert.ok(calls.length >= 1, 'the call exists');
+  for (const c of calls) assert.match(c, /skipTransformProcessType: true/, c);
+});

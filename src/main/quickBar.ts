@@ -145,7 +145,10 @@ export class QuickBar {
       },
     });
     win.setAlwaysOnTop(true, 'floating');
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    /* skipTransformProcessType (0.15.0 hand test): without it, macOS switches the WHOLE App's process type to show this
+       panel over full-screen apps, and the App's own menu bar (File, Edit, Help…) stopped responding after the first
+       open, from the shortcut or the menu bar's Ask item. The panel type already floats it over other apps. */
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     /* Click elsewhere and it goes away — the bar is a moment, not a window to manage. */
     win.on('blur', () => this.hide());
     win.on('closed', () => { this.win = undefined; });
