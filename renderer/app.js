@@ -11931,6 +11931,35 @@ function chatSkinFirstRun(id, p) {
     if (p.view !== 'chat') chatSkinSetView(id, 'chat');
   }
 }
+/* A QUESTION THE CHAT CANNOT DRAW (0.15.0, the operator's call). A question taller than a short pane loses its top rows: on
+   macOS Claude Code draws in the alternate screen, which keeps no scrollback, and the transcript only gets the question once
+   it is answered, so no card can be built. Rather than a raw terminal squeezed into the chat with a stall banner, the tab
+   switches to the real terminal, keyboard and all, and comes back to chat when the dialog is gone. Only when the switch was
+   automatic: an operator who goes back to chat by hand, or turns chat off, is never overridden. A dialog the chat already
+   draws as a card (cs.promptKind) never switches; the 1.2 s wait gives the card detector its turn first. */
+const CS_SELECT_FOOTER = /Enter to select\b|↑\/↓ to navigate|Esc to cancel/;
+function chatSkinQuestionTerm(id, p, now) {
+  if (chatMode !== 'chat' || p.exited || !chatSkinEligible(p)) { p.questionTerm = false; p.questionSince = 0; return; }
+  let text = '';
+  try { text = chatSkinScreenText(p); } catch { return; }
+  const open = chatSkinAgentCursor(p) === null && CS_SELECT_FOOTER.test(text.split('\n').slice(-6).join('\n'));
+  const cs = p.chatSkin;
+  if (p.questionTerm) {
+    if (p.view === 'chat') { p.questionTerm = false; p.questionHeld = open; return; }   // back to chat by hand: the operator's choice stands
+    if (!open) { p.questionTerm = false; p.questionSince = 0; chatSkinSetView(id, 'chat'); }
+    return;
+  }
+  if (!open) { p.questionSince = 0; p.questionHeld = false; return; }
+  if (p.view !== 'chat' || p.questionHeld || (cs && cs.promptKind)) { p.questionSince = 0; return; }
+  if (!p.questionSince) { p.questionSince = now; return; }
+  if (now - p.questionSince < 1200) return;
+  p.questionSince = 0;
+  if (cs) { cs.lostPrompt = false; cs.lostSince = 0; cs.stalled = false; }
+  p.questionTerm = true;
+  if (!chatSkinSetView(id, 'term')) { p.questionTerm = false; return; }
+  toast(t('chat.skin.questionInTerm'));
+  setTimeout(() => { if (panes.get(id) === p) { try { p.term.focus(); } catch { /* gone */ } } }, 60);
+}
 /* A PANEL NOTHING RECOGNISED. Claude Code 2.1.314's /cost (also /status, /config, /usage, /stats) opens a full-screen Settings
    panel whose "Esc" footer falls below a short terminal's last row, so no detector sees it: the chat looked idle while
    every key went into the panel (0.14.0 sweep). The general rule: Claude Code's prompt box gone for 1.5 s, while it is not
@@ -11961,6 +11990,7 @@ function chatSkinTick() {
   for (const [id, p] of panes) {
     if (p.kind !== 'term') continue;
     chatSkinFirstRun(id, p);
+    chatSkinQuestionTerm(id, p, now);
     /* Reconcile sessions learned by a path that does not call chatSkinSessionChanged itself
        (adoptUnidentified, or an assignment added later): idempotent, no DOM work when nothing moved. */
     const ok = chatSkinEligible(p);

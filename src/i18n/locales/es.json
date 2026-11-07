@@ -1363,6 +1363,7 @@
   "chat.skin.modeNowChat": "Las sesiones de Claude ahora se ven como chat",
   "chat.skin.modeNowTerminal": "Las sesiones de Claude ahora se ven como terminal",
   "chat.skin.showTerminal": "Mostrar terminal",
+  "chat.skin.questionInTerm": "Pregunta larga: respóndela en la terminal; el chat vuelve después",
   "chat.skin.notClaude": "Esta pestaña no está ejecutando Claude, así que no tiene vista de chat.",
   "chat.skin.working": "{name} está trabajando…",
   "chat.skin.stalled": "Hace rato que no aparece nada nuevo. Si {name} parece atascado, mira la terminal.",
