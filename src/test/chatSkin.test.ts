@@ -629,7 +629,7 @@ guarded('the chat font and size are chosen in Settings, in the same section as t
     return together
       && /chatPrefs\.family = chatFontSel\.value/.test(fontHandler) && /chatApplyPrefs\(\)/.test(fontHandler) && /setSetting\('chatFontFamily', chatPrefs\.family\)/.test(fontHandler)
       && /chatPrefs\.size = v/.test(sizeHandler) && /chatApplyPrefs\(\)/.test(sizeHandler) && /setSetting\('chatFontSize', v\)/.test(sizeHandler)
-      && /for \(const n of \[chatFontRow, chatSizeRow, chatSample\]\) n\.hidden = chatMode !== 'chat';/.test(st)   // only meaningful in Chat
+      && /for \(const n of \[chatFontRow, chatSizeRow, chatBubbleRow, chatSample\]\) n\.hidden = chatMode !== 'chat';/.test(st)   // only meaningful in Chat
       && /chatReadPrefs\(cfg\)/.test(st)   // seeded from the config this page was built from, not from whatever a chat view last read
       && /CHAT_FONTS\.map/.test(st) && /CHAT_SIZES\.map/.test(st);
   },
@@ -4252,4 +4252,31 @@ test('sticky prompt: over the log (no layout shift), never steals focus, a click
   assert.match(css, /\.chatskin \.cs-sticky \{ position: absolute; top: 6px;/);
   assert.match(css, /\.chatskin \.cs-sticky \{[^}]*text-overflow: ellipsis;/, 'one line');
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.skin.stickyJump"'), l);
+});
+
+test('0.15 round 3: your message colour — every swatch keeps white text at least as readable as the coral default, and only your bubble changes', () => {
+  const src = fs.readFileSync('renderer/app.js', 'utf8');
+  const block = src.slice(src.indexOf('const CHAT_BUBBLES = ['), src.indexOf('];', src.indexOf('const CHAT_BUBBLES = [')) + 2);
+  const bubbles = new Function(block + 'return CHAT_BUBBLES;')() as { id: string; bg: string }[];
+  const lum = (hex: string): number => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const onWhite = (hex: string): number => 1.05 / (lum(hex) + 0.05);
+  assert.equal(bubbles[0].id, 'coral', 'coral first: the default');
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  assert.ok(css.includes(`--chat-user-bg: ${bubbles[0].bg};`), 'the default swatch IS the theme\'s coral');
+  const floor = onWhite(bubbles[0].bg);
+  for (const b of bubbles) assert.ok(onWhite(b.bg) >= floor - 0.001, `${b.id} ${b.bg}: white text ${onWhite(b.bg).toFixed(2)}:1 must be ≥ the coral's ${floor.toFixed(2)}:1`);
+  assert.equal(new Set(bubbles.map((b) => b.bg)).size, bubbles.length, 'no two swatches the same colour');
+  /* Negative control: the tab-group yellow as-is (#e37400) fails the floor — the check can fail. */
+  assert.ok(onWhite('#e37400') < floor, 'control: an undeepened yellow is caught');
+  const style = src.slice(src.indexOf('function chatStyleSkin('), src.indexOf('\n}\n', src.indexOf('function chatStyleSkin(')));
+  assert.match(style, /if \(b\.id === 'coral'\) cs\.root\.style\.removeProperty\('--chat-user-bg'\);[^\n]*\n\s*else cs\.root\.style\.setProperty\('--chat-user-bg', b\.bg\);/, 'only the chat view, only your bubble\'s token');
+  assert.match(fs.readFileSync('src/main/main.ts', 'utf8'), /if \(key === 'chatBubble' && \(typeof value !== 'string' \|\| !\/\^\[a-z\]\{3,12\}\$\/\.test\(value\)\)\) return aios\.shellSettings\(\);/);
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
+    assert.ok(j['settings.chatBubble'] && j['settings.chatBubbleHint'], `${l}: the setting is named`);
+    for (const b of bubbles) assert.ok(j['tg.color.' + b.id], `${l}: tg.color.${b.id}`);
+  }
 });

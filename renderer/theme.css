@@ -2399,3 +2399,10 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 /* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
 .cc-box.bang, .cc-box.bang:focus-within { border-color: var(--chat-bang); }
 .cc-box.bang .chat-input { color: var(--chat-bang-ink); }
+
+/* Settings › Chat › Your message colour: one round swatch per hue, the chosen one ringed (0.15 round 3). */
+.chat-bubble-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.chat-swatch { width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0; background: var(--sw); cursor: pointer;
+               box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent); }
+.chat-swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--sw); }
+.chat-swatch:focus-visible { outline: 2px solid var(--chat-focus); outline-offset: 3px; }

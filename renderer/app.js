@@ -8339,7 +8339,16 @@ const CHAT_KEY_OK = /^(?:\x1b\[[AB]|\r|[0-9])+$/;
 const CHAT_KEY_CHUNK = /\x1b\[[0-9;]*[A-Za-z]|\r|[^\x1b\r]/g;
 /* One preference pair for every chat view: changing the font in one conversation changing it in
    the others is what "my chat font" means. Seeded from shellConfig on each entry. */
-const chatPrefs = { family: '', size: CHAT_DEFAULT_SIZE };
+const chatPrefs = { family: '', size: CHAT_DEFAULT_SIZE, bubble: 'coral' };
+/* The operator's message colour in the chat view (0.15 round 3): coral by default, or one of the tab-group hues, each
+   deepened until white text holds at least as well as on the coral (3.95:1). Only the operator's bubble and the sticky
+   prompt take it; the brand coral everywhere else is untouched. */
+const CHAT_BUBBLES = [
+  { id: 'coral', bg: '#e5483a' }, { id: 'grey', bg: '#5f6368' }, { id: 'blue', bg: '#1a73e8' }, { id: 'indigo', bg: '#4f5bd5' },
+  { id: 'purple', bg: '#9334e6' }, { id: 'pink', bg: '#d01884' }, { id: 'orange', bg: '#c26401' }, { id: 'yellow', bg: '#a07800' },
+  { id: 'lime', bg: '#4d7c0f' }, { id: 'green', bg: '#1e8e3e' }, { id: 'cyan', bg: '#007b83' }, { id: 'brown', bg: '#8a6343' },
+];
+const chatBubbleOf = (id) => CHAT_BUBBLES.find((b) => b.id === id) || CHAT_BUBBLES[0];
 
 /* Glyphs only the chat uses, added to the shared table so icon() stays the one way to draw them.
    Plain geometric strokes of our own (nothing taken from any brand's set). */
@@ -8700,10 +8709,14 @@ function chatApplyPrefs() {
 function chatStyleSkin(cs) {
   cs.root.style.setProperty('--chat-font', chatPrefs.family || 'inherit');   // '' = follow the app's own font
   cs.root.style.setProperty('--chat-size', String(chatPrefs.size));
+  const b = chatBubbleOf(chatPrefs.bubble);
+  if (b.id === 'coral') cs.root.style.removeProperty('--chat-user-bg');   // the theme's own coral
+  else cs.root.style.setProperty('--chat-user-bg', b.bg);
 }
 function chatReadPrefs(c) {
   if (!c) return;
   if (typeof c.chatFontFamily === 'string') chatPrefs.family = c.chatFontFamily;
+  if (typeof c.chatBubble === 'string') chatPrefs.bubble = chatBubbleOf(c.chatBubble).id;
   const n = Number(c.chatFontSize);
   if (Number.isFinite(n) && n >= 8 && n <= 40) chatPrefs.size = n;
 }
@@ -12447,12 +12460,33 @@ function openSettingsTab() {
     });
     const chatFontRow = row(wrap, t('settings.chatFont'), chatFontSel, t('settings.chatFontHint'));
     const chatSizeRow = row(wrap, t('settings.chatSize'), chatSizeSel, t('settings.chatSizeHint'));
+    /* Your message colour: one swatch per hue, the chosen one ringed. Applies at once to every open chat. */
+    const bubbleRow = el('div', 'chat-bubble-swatches');
+    bubbleRow.setAttribute('role', 'radiogroup');
+    const paintSwatches = () => { for (const b of bubbleRow.children) b.setAttribute('aria-checked', String(b.dataset.bubble === chatPrefs.bubble)); };
+    for (const b of CHAT_BUBBLES) {
+      const sw = document.createElement('button');
+      sw.type = 'button'; sw.className = 'chat-swatch'; sw.dataset.bubble = b.id; sw.setAttribute('role', 'radio');
+      sw.style.setProperty('--sw', b.bg);
+      const name = tgCap(t('tg.color.' + b.id));
+      sw.title = name; sw.setAttribute('aria-label', name);
+      sw.addEventListener('click', async () => {
+        chatPrefs.bubble = b.id;
+        paintSwatches();
+        chatApplyPrefs();
+        await window.glassShell.setSetting('chatBubble', b.id);
+        toast(t('settings.saved'));
+      });
+      bubbleRow.appendChild(sw);
+    }
+    paintSwatches();
+    const chatBubbleRow = row(wrap, t('settings.chatBubble'), bubbleRow, t('settings.chatBubbleHint'));
     wrap.appendChild(chatSample);
     const paintClaudeView = () => {
       if (!claudeViewSel.isConnected && claudeViewSel.dataset.painted) { chatModeSubs.delete(paintClaudeView); return; }   // the page was closed
       claudeViewSel.dataset.painted = '1';
       claudeViewSel.value = chatMode;
-      for (const n of [chatFontRow, chatSizeRow, chatSample]) n.hidden = chatMode !== 'chat';
+      for (const n of [chatFontRow, chatSizeRow, chatBubbleRow, chatSample]) n.hidden = chatMode !== 'chat';
     };
     chatModeSubs.add(paintClaudeView);
     paintClaudeView();

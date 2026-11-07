@@ -1404,7 +1404,7 @@ export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault
   return fresh ? 'chat' : 'terminal';
 }
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: boolean; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; chatBubble: string; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1442,6 +1442,8 @@ export function shellSettings(): ShellSettings {
     // conversation unreadable or the composer overflow
     chatFontFamily: typeof raw.chatFontFamily === 'string' ? raw.chatFontFamily.trim().slice(0, 200) : '',
     chatFontSize: Math.min(28, Math.max(10, Number(raw.chatFontSize) || 14)),
+    /* The operator's chat message colour: a palette id the renderer knows, 'coral' when unset or unknown. */
+    chatBubble: typeof (raw as { chatBubble?: unknown }).chatBubble === 'string' && /^[a-z]{3,12}$/.test((raw as { chatBubble: string }).chatBubble) ? (raw as { chatBubble: string }).chatBubble : 'coral',
     claudeView: normalizeClaudeView(raw, fresh),
     // interface scale, in the same "font size" language as the terminal's — 13 is 100%.
     // Applied as a real zoom factor (crisp text) rather than restyling every rule.
