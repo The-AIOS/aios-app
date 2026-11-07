@@ -16,11 +16,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  desiredLidHold, guardScript, sudoersRule, daemonPlist, installCommand, uninstallCommand,
+  desiredLidHold, lidModeOf, type LidMode, guardScript, sudoersRule, daemonPlist, installCommand, uninstallCommand,
   parseSleepDisabled, LID_GRACE_MS, LID_BATTERY_FLOOR, GUARD_PATH, SUDOERS_PATH, DAEMON_PATH,
 } from '../core/lidAwake';
 
-const base = { platform: 'darwin', enabled: true, installed: true, blockerWanted: false, lastWantedAt: 0, now: 1_000_000 };
+const base = { platform: 'darwin', mode: 'always' as LidMode, onBattery: false, installed: true, blockerWanted: false, lastWantedAt: 0, now: 1_000_000 };
 
 test('the lid hold follows the keep-awake decision', () => {
   assert.equal(desiredLidHold({ ...base, blockerWanted: true }), true);
@@ -30,7 +30,7 @@ test('the lid hold follows the keep-awake decision', () => {
 test('it is off unless it is macOS, enabled AND installed', () => {
   assert.equal(desiredLidHold({ ...base, blockerWanted: true, platform: 'linux' }), false);
   assert.equal(desiredLidHold({ ...base, blockerWanted: true, platform: 'win32' }), false);
-  assert.equal(desiredLidHold({ ...base, blockerWanted: true, enabled: false }), false);
+  assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'off' }), false);
   assert.equal(desiredLidHold({ ...base, blockerWanted: true, installed: false }), false,
     'without the guard there is nothing to run — and sudo -n must never be tried blind');
 });
@@ -250,4 +250,44 @@ test('review nit (#54): the guard holds only for ONE pid that the sudo caller ow
   r = run(['hold', String(process.pid), 'extra'], me);
   assert.equal(r.status, 2, 'one pid, nothing more'); assert.match(r.stderr, /exactly one pid/);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('0.15.0: three modes — Always holds on battery or AC, While plugged in only on AC, Off never', () => {
+  for (const onBattery of [false, true]) {
+    assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'always', onBattery }), true, `always, battery=${onBattery}`);
+    assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'off', onBattery }), false, `off, battery=${onBattery}`);
+    assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'plugged', onBattery, installed: false }), false, 'never without the guard');
+    assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'plugged', onBattery, platform: 'win32' }), false, 'macOS only');
+  }
+  assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'plugged', onBattery: false }), true, 'plugged in: holds');
+  assert.equal(desiredLidHold({ ...base, blockerWanted: true, mode: 'plugged', onBattery: true }), false, 'unplugged: lets go');
+  assert.equal(desiredLidHold({ ...base, mode: 'plugged', onBattery: true, lastWantedAt: base.now - 2_000 }), false, 'unplugged lets go even inside the grace');
+  /* Control: the rule without its battery check would hold on battery — the assertion above can fail. */
+  const noBatteryCheck = (i: Parameters<typeof desiredLidHold>[0]) => desiredLidHold({ ...i, onBattery: false });
+  assert.notEqual(noBatteryCheck({ ...base, blockerWanted: true, mode: 'plugged', onBattery: true }),
+    desiredLidHold({ ...base, blockerWanted: true, mode: 'plugged', onBattery: true }), 'control: ignoring the battery changes the answer');
+});
+
+test('0.15.0: the stored value — new strings, an old boolean, and the default', () => {
+  assert.equal(lidModeOf('always'), 'always');
+  assert.equal(lidModeOf('plugged'), 'plugged');
+  assert.equal(lidModeOf('off'), 'off');
+  assert.equal(lidModeOf(true), 'always', 'an older build\'s yes');
+  assert.equal(lidModeOf(false), 'off', 'an older build\'s explicit no stays no');
+  assert.equal(lidModeOf(undefined), 'always', 'the default (inert until the helper is installed)');
+  assert.equal(lidModeOf('sometimes'), 'always', 'garbage reads as the default, never as a third state');
+});
+
+test('0.15.0: the driver passes the power source and re-applies when it changes; Settings offers three modes', () => {
+  const c = fs.readFileSync('src/main/caffeinate.ts', 'utf8');
+  assert.match(c, /mode: aios\.shellSettings\(\)\.lidAwake, onBattery: onBattery\(\)/);
+  assert.match(c, /powerMonitor\.on\('on-ac', onPower\); powerMonitor\.on\('on-battery', onPower\);/);
+  assert.match(c, /export async function lidEnable\(mode: LidMode, prompt: string\)/);
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /\[t\('caffeinate\.lidOn'\), 'always'\], \[t\('caffeinate\.lidPlugged'\), 'plugged'\], \[t\('caffeinate\.lidOff'\), 'off'\]/);
+  assert.match(app, /caffeinateLid\('always', t\('caffeinate\.lidPrompt'\)\)/, 'the ask-once Yes means Always');
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
+    assert.ok(j['caffeinate.lidPlugged'], `${l}: While plugged in`);
+  }
 });

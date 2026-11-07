@@ -7153,12 +7153,12 @@ let caffState = null;
    it is ASKED ONCE, Yes preselected, the first time the operator turns the cup on. Yes → the helper
    is installed and the lid hold enabled; No → remembered, never asked again. Settings still has it. */
 async function maybeAskLid(st) {
-  if (!IS_MAC || !st || !st.on || (st.lid && (st.lid.enabled || st.lid.installed))) return;
+  if (!IS_MAC || !st || !st.on || (st.lid && st.lid.installed)) return;   // installed = already answered with a yes
   const cfg = await window.glassShell.shellConfig().catch(() => null);
-  if (!cfg || cfg.lidAsked || cfg.lidAwake) return;
+  if (!cfg || cfg.lidAsked || cfg.lidAwake === 'off' || cfg.lidAwake === false) return;   // an explicit Off is never re-asked
   await window.glassShell.setSetting('lidAsked', true);
-  if (!window.confirm(t('caffeinate.lidAsk'))) return;   // OK (the default button) = Yes
-  const res = await window.glassShell.caffeinateLid(true, t('caffeinate.lidPrompt')).catch(() => null);
+  if (!window.confirm(t('caffeinate.lidAsk'))) { await window.glassShell.caffeinateLid('off', '').catch(() => null); return; }   // OK (the default button) = Yes, Always; Cancel = Off
+  const res = await window.glassShell.caffeinateLid('always', t('caffeinate.lidPrompt')).catch(() => null);
   paintCaffeine(res);
   if (res && res.lid && res.lid.error && res.lid.error !== 'cancelled') toast(t('caffeinate.lidFailed') + ' ' + res.lid.error);
 }
@@ -12352,23 +12352,24 @@ function openSettingsTab() {
     if (window.glassShell.platform === 'darwin') {
       const lidSel = document.createElement('select');
       lidSel.className = 'tinput';
-      for (const [l, v] of [[t('caffeinate.lidOff'), 'off'], [t('caffeinate.lidOn'), 'on']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; lidSel.appendChild(o); }
-      lidSel.value = cfg.lidAwake === true ? 'on' : 'off';
+      for (const [l, v] of [[t('caffeinate.lidOn'), 'always'], [t('caffeinate.lidPlugged'), 'plugged'], [t('caffeinate.lidOff'), 'off']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; lidSel.appendChild(o); }
+      lidSel.value = 'off';   // painted from main's state below: a mode only shows once the helper is installed
       row(wrap, t('settings.lidAwake'), lidSel, t('settings.lidAwakeHint'));
       /* Remove undoes the install entirely (all three files) — offered whenever anything is
          installed, so trying the feature never leaves something behind the operator cannot see. */
       const lidRemove = el('button', 'vbtn', t('caffeinate.lidRemove'));
       const paintLid = (st) => {
         const l = st && st.lid;
-        lidSel.value = l && l.enabled && l.installed ? 'on' : 'off';
+        lidSel.value = l && l.installed && (l.mode === 'always' || l.mode === 'plugged') ? l.mode : 'off';   // no helper → no hold, whatever is stored
         lidRemove.hidden = !(l && l.installed);
       };
       lidSel.addEventListener('change', async () => {
-        const st = await window.glassShell.caffeinateLid(lidSel.value === 'on', t('caffeinate.lidPrompt'));
+        const want = lidSel.value;
+        const st = await window.glassShell.caffeinateLid(want, t('caffeinate.lidPrompt'));
         paintLid(st); paintCaffeine(st);
         /* Cancelled at the password prompt, or the install failed: the select snaps back to off
            and the reason is said, rather than showing "on" over a hold that cannot happen. */
-        if (lidSel.value === 'on') toast(t('settings.saved'));
+        if (lidSel.value === want) toast(t('settings.saved'));
         else if (st && st.lid && st.lid.error && st.lid.error !== 'cancelled') toast(t('caffeinate.lidFailed') + ' ' + st.lid.error);
       });
       lidRemove.addEventListener('click', async () => {
