@@ -74,3 +74,24 @@ test('the drop list covers every element that can run or embed code, and the all
   // inputs other than task checkboxes become text
   assert.match(fnBody(app, 'vaultSanitize'), /tag === 'INPUT' && \(child\.getAttribute\('type'\) \|\| ''\)\.toLowerCase\(\) !== 'checkbox'/);
 });
+
+/* Behaviour, not only source: vaultSafeUrl is pure, so it is RUN here. A source-pinned check passed on a copy of the patch
+   whose control-character range had been mangled in transit into a regex that does not even compile (a SyntaxError that
+   would have stopped the whole renderer from loading); running the function is what catches that class. */
+test('vaultSafeUrl, run: scriptable schemes are refused however they are disguised, ordinary links and images pass', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const i = app.indexOf('function vaultSafeUrl(');
+  const body = app.slice(i, app.indexOf('\n}\n', i) + 2);
+  const safe = new Function(body + 'return vaultSafeUrl;')() as (tag: string, name: string, v: string) => boolean;
+  for (const bad of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', ' javascript:alert(1)', 'java\nscript:alert(1)',
+    'java\tscript:x', '\u0000javascript:x', 'vbscript:x', 'data:text/html,<script>x</script>', 'file:///etc/passwd']) {
+    assert.equal(safe('A', 'href', bad), false, `href ${JSON.stringify(bad)} must be refused`);
+  }
+  assert.equal(safe('IMG', 'src', 'data:image/svg+xml;base64,PHN2Zz4='), false, 'svg data images can carry script');
+  assert.equal(safe('IMG', 'src', 'javascript:x'), false);
+  for (const ok of ['https://example.com', 'http://x.y/z', 'mailto:a@b.c', 'notes/other.md', '#heading', '../img/a.png']) {
+    assert.equal(safe('A', 'href', ok), true, `href ${JSON.stringify(ok)} must pass`);
+  }
+  assert.equal(safe('IMG', 'src', 'file:///Users/x/vault/a.png'), true, 'local images still render');
+  assert.equal(safe('IMG', 'src', 'data:image/png;base64,iVBORw0KGgo='), true);
+});
