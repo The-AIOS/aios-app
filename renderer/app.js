@@ -6284,7 +6284,11 @@ async function openViewer(p) {
       wrap.appendChild(pr);
     }
     const md = document.createElement('div');
-    md.innerHTML = marked.parse(src); // operator's own vault content
+    // NOT the operator's own words only: sessions write mails, web pages and attachments into the
+    // vault, so a note can carry markup nobody typed. marked passes raw HTML through, and this
+    // window holds the pty bridge — so the parsed note goes through vaultSanitize before it is
+    // adopted, never straight into innerHTML.
+    md.replaceChildren(vaultSanitize(marked.parse(src)));
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
@@ -6320,6 +6324,51 @@ async function openViewer(p) {
 
   paint();
   setActive(id);
+}
+
+/* Vault-note sanitizer. Same shape as chatSanitize (inert <template>, walk, rebuild), but a looser
+   tag list, because a note legitimately has task checkboxes, local images and wikilinks that the
+   chat never needs. What it guarantees: no element that can run or load code, no on* handler, no
+   attribute outside a short allowlist, and no link or image URL with a scriptable scheme. */
+const VAULT_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'FRAME', 'FRAMESET', 'OBJECT', 'EMBED', 'APPLET', 'LINK', 'META',
+  'BASE', 'FORM', 'TEMPLATE', 'SVG', 'MATH', 'NOSCRIPT', 'AUDIO', 'VIDEO', 'SOURCE', 'TRACK', 'PORTAL', 'BUTTON',
+  'SELECT', 'TEXTAREA', 'DIALOG']);
+const VAULT_TAGS = new Set(['P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'DEL', 'INS', 'MARK', 'SUB', 'SUP', 'SMALL',
+  'CODE', 'PRE', 'KBD', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'IMG', 'INPUT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR',
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'DIV', 'SPAN', 'DETAILS', 'SUMMARY', 'DL', 'DT', 'DD']);
+const VAULT_ATTRS = new Set(['href', 'src', 'alt', 'title', 'class', 'data-target', 'type', 'checked', 'disabled',
+  'align', 'colspan', 'rowspan', 'start', 'width', 'height', 'open']);
+function vaultSafeUrl(tag, name, value) {
+  const v = String(value).replace(/[\u0000-\u0020]+/g, '');   // "java\nscript:" and " javascript:" are still javascript:
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) return true;            // relative path or #anchor: resolved by the viewer
+  if (/^(https?|mailto):/i.test(v)) return true;
+  if (tag === 'IMG' && name === 'src') return /^(file:|data:image\/(png|jpe?g|gif|webp|bmp);)/i.test(v);
+  return false;                                                // javascript:, vbscript:, data:text/html, …
+}
+function vaultSanitize(html) {
+  const tpl = document.createElement('template');   // inert: no script runs and no image loads until adopted
+  tpl.innerHTML = html;
+  const walk = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === 3) continue;
+      if (child.nodeType !== 1) { child.remove(); continue; }
+      const tag = child.tagName.toUpperCase();   // SVG/MathML elements report lowercase tag names
+      if (VAULT_DROP.has(tag)) { child.remove(); continue; }
+      walk(child);
+      if (!VAULT_TAGS.has(tag) || (tag === 'INPUT' && (child.getAttribute('type') || '').toLowerCase() !== 'checkbox')) {
+        child.replaceWith(...child.childNodes);   // keep the words, lose the element
+        continue;
+      }
+      for (const a of [...child.attributes]) {
+        const name = a.name.toLowerCase();
+        if (!VAULT_ATTRS.has(name) || ((name === 'href' || name === 'src') && !vaultSafeUrl(tag, name, a.value))) {
+          child.removeAttribute(a.name);
+        }
+      }
+    }
+  };
+  walk(tpl.content);
+  return tpl.content;
 }
 
 /* ── explorer (git markers · live relist · auto-reveal · file icons · ctx menu) ─── */
