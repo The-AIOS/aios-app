@@ -37,6 +37,11 @@ export interface ChatItem {
   role: 'user' | 'assistant' | 'tool' | 'system';
   /** Raw markdown for assistant text; the renderer sanitises and renders it. */
   text?: string;
+  /**
+   * A system note that is Claude Code reporting a failed API call (overloaded, network, login, a model's safeguards
+   * refusing). Drawn as an error card, not the one-line pill (0.15.1: a multi-paragraph refusal became a giant pill).
+   */
+  error?: true;
   tool?: {
     id: string; name: string; summary: string; status: 'running' | 'ok' | 'error';
     /**
@@ -293,7 +298,10 @@ export function createTranscriptTracker(): TranscriptTracker {
     // They are not an answer: show them as a system note and let the turn end.
     if (synthetic) {
       const text = content.map((b) => (isObj(b) && b.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('').trim();
-      if (text && uuid) u.items.push({ uuid, role: 'system', text, ...(ts ? { ts } : {}) });
+      // Claude Code flags these records `isApiErrorMessage`; the text test covers a writer that ever drops the flag.
+      // Not anchored: "Please run /login · API Error: 401 …" is one of them.
+      const error = d.isApiErrorMessage === true || /\bAPI Error:/.test(text);
+      if (text && uuid) u.items.push({ uuid, role: 'system', text, ...(error ? { error: true as const } : {}), ...(ts ? { ts } : {}) });
       setTurn(false, u);
       return;
     }

@@ -217,6 +217,18 @@ test('API errors written as synthetic assistant messages are system notes and en
   assert.equal(r.usage, undefined, 'a synthetic message carries no real usage');
 });
 
+test('an API error is flagged for the error card: by Claude Code\'s flag, or by its text; other synthetic notes are not', () => {
+  const one = (text: string, extra: object = {}) => {
+    const t = createTranscriptTracker();
+    t.feed(userStr('go'));
+    return t.feed(asst({ type: 'text', text }, 'refusal', extra, '<synthetic>')).items[0];
+  };
+  assert.equal(one("API Error: Opus 5.5's safeguards flagged this session", { isApiErrorMessage: true }).error, true);
+  assert.equal(one('Please run /login · API Error: 401 OAuth access token has been revoked.').error, true, 'the prefix is not always first');
+  assert.equal(one('Something odd', { isApiErrorMessage: true }).error, true, 'the flag alone is enough');
+  assert.equal(one('No response requested.').error, undefined, 'control: a synthetic note that is not an error stays a pill');
+});
+
 test('usage: context tokens are input + cache of the latest assistant message, with its model', () => {
   const t = createTranscriptTracker();
   const a = t.feed(asst({ type: 'text', text: 'x' }, 'end_turn'));

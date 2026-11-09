@@ -4192,15 +4192,85 @@ guarded('the slash popup keeps Tab: its listener runs before the suggestion\'s, 
     const sug = s.indexOf('chatSkinSuggestTake(cs);\n  });');
     const head = s.lastIndexOf("input.addEventListener('keydown'", sug);
     const body = s.slice(head, sug);
-    return slash >= 0 && sug > 0 && slash < head && /input\.value !== ''/.test(body) && /!cs\.suggest/.test(body) && /e\.key !== 'Tab' \|\| e\.shiftKey/.test(body);
+    return slash >= 0 && sug > 0 && slash < head && /input\.value !== ''/.test(body) && /!cs\.suggest/.test(body) && /\(e\.key !== 'Tab' && e\.key !== 'ArrowRight'\) \|\| e\.shiftKey/.test(body);
   },
   (src) => {
     const line = "  input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });\n";
-    const sugStart = src.indexOf("  /* Tab on an empty box takes Claude Code's suggestion");
+    const sugStart = src.indexOf("  /* Tab or → on an empty box takes Claude Code's suggestion");
     const sugEnd = src.indexOf('chatSkinSuggestTake(cs);\n  });\n') + 'chatSkinSuggestTake(cs);\n  });\n'.length;
     const block = src.slice(sugStart, sugEnd);
     return src.replace(line, '').replace(block, block + line);   // the slash listener moved AFTER the suggestion's
   });
+
+/* 0.15.1 (#148): → takes the suggestion too, as in the terminal. Runs the REAL listener against fake key events; the control
+   restores the 0.15.0 Tab-only test, under which → must do nothing. */
+function sugListener(src: string): ((e: Record<string, unknown>) => void) & { taken: () => number } {
+  const s = slice(src);
+  const end = s.indexOf('chatSkinSuggestTake(cs);\n  });') + 'chatSkinSuggestTake(cs);\n  }'.length;
+  const head = s.lastIndexOf("input.addEventListener('keydown', ", end) + "input.addEventListener('keydown', ".length;
+  let n = 0;
+  const env = { input: { value: '' }, cs: { suggest: 'run the tests' } };
+  const fn = new Function('input', 'cs', 'chatSkinSuggestTake', 'return ' + s.slice(head, end) + ';')(env.input, env.cs, () => { n++; });
+  const run = (e: Record<string, unknown>) => {
+    env.input.value = String(e.value ?? ''); env.cs.suggest = String(e.suggest ?? 'run the tests');
+    fn({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {}, stopImmediatePropagation() {}, ...e });
+  };
+  return Object.assign(run, { taken: () => n });
+}
+guarded('→ on an empty box takes the suggestion, like Tab; with text, a modifier or no suggestion it is a plain arrow',
+  (src) => {
+    const takes = (e: Record<string, unknown>) => { const l = sugListener(src); l(e); return l.taken() === 1; };
+    return takes({ key: 'ArrowRight' }) && takes({ key: 'Tab' })
+      && !takes({ key: 'ArrowRight', value: 'mine' }) && !takes({ key: 'ArrowRight', suggest: '' })
+      && !takes({ key: 'ArrowRight', shiftKey: true }) && !takes({ key: 'ArrowRight', metaKey: true }) && !takes({ key: 'ArrowRight', altKey: true })
+      && !takes({ key: 'ArrowRight', isComposing: true }) && !takes({ key: 'ArrowLeft' });
+  },
+  (src) => src.replace("(e.key !== 'Tab' && e.key !== 'ArrowRight') || e.shiftKey", "e.key !== 'Tab' || e.shiftKey"));
+
+test('the suggestion hint names both keys, in every language', () => {
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const s = JSON.parse(read(`src/i18n/locales/${loc}.json`))['chat.suggest.placeholder'] as string;
+    assert.match(s, /Tab .*→/, loc);
+  }
+});
+
+/* 0.15.1 (#149): Claude Code's API errors are a card, not the centred pill. */
+function loadApiErrorParts(src: string): (text: string) => { message: string; refs: { label: string; value: string }[]; refusal: boolean } {
+  const s = slice(src);
+  const at = s.indexOf('function chatApiErrorParts(');
+  return new Function(s.slice(at, s.indexOf('\n}\n', at) + 2) + 'return chatApiErrorParts;')();
+}
+const SAFEGUARDS = "API Error: Opus 5.5's safeguards flagged this session (https://www.anthropic.com/legal/aup). Claude Code can't respond to your last message with Opus 5.5.\n\nDouble press esc to edit your last message, or try a different model with /model.\n\nDetails: `[cyber]`\n\nRequest ID: req_011Cgt5vzGrnVYsXCynmxCBp\n\nMessage ID: msg_011Cgt5vzxXqvng8rZSxXwxR";
+test('an API error splits into the message and the references support asks for', () => {
+  const parts = loadApiErrorParts(app)(SAFEGUARDS);
+  assert.equal(parts.refusal, true);
+  assert.ok(parts.message.startsWith("Opus 5.5's safeguards flagged"), 'the "API Error:" prefix is the card\'s headline, not body text');
+  assert.ok(parts.message.includes('/model'), 'what to do next stays in the message');
+  assert.ok(!/Request ID|Message ID|Details:/.test(parts.message), 'the references are not repeated in the message');
+  assert.deepEqual(parts.refs, [
+    { label: 'Details', value: '[cyber]' },
+    { label: 'Request ID', value: 'req_011Cgt5vzGrnVYsXCynmxCBp' },
+    { label: 'Message ID', value: 'msg_011Cgt5vzxXqvng8rZSxXwxR' },
+  ]);
+  const plain = loadApiErrorParts(app)('API Error: Server error mid-response. The response above may be incomplete.');
+  assert.equal(plain.refusal, false, 'control: an outage is not a refusal');
+  assert.deepEqual(plain.refs, []);
+});
+guarded('an item flagged as an API error is painted as the card; any other system note keeps the pill',
+  (src) => {
+    const up = fnBody(slice(src), 'chatSkinUpsert');
+    return /\} else if \(item\.error\) \{\n\s*if \(rec\.text !== text\) \{ chatSkinPaintApiError\(rec, text, cs\);/.test(up)
+      && /function chatSkinPaintApiError\(rec, text, cs\) \{[\s\S]*?rec\.node\.classList\.add\('err'\);[\s\S]*?chatRender\(msg, message\);/.test(slice(src));
+  },
+  (src) => src.replace('  } else if (item.error) {\n', '  } else if (false) {\n'));
+test('the error card is styled as a card in the column, never the pill, and has its strings', () => {
+  assert.match(css, /\.chat-note\.err \{[^}]*align-self: stretch;[^}]*text-align: left;[^}]*border-radius: 12px;/);
+  assert.match(css, /\.chat-note\.err\.refusal \{ --ce: var\(--st-warn\);/);
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const b = JSON.parse(read(`src/i18n/locales/${loc}.json`));
+    for (const k of ['chat.apiError.title', 'chat.apiError.refusal', 'chat.apiError.details']) assert.ok(b[k], `${loc}: ${k}`);
+  }
+});
 
 test('the suggestion repaints with the terminal and steps aside for a dictation or a dialog', () => {
   const tick = fnBody(skin, 'chatSkinTick');
