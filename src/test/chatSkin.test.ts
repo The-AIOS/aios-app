@@ -4304,6 +4304,36 @@ test('a long paste counts as unsent while Claude Code shows it as "[Pasted text 
   assert.ok(!re.test('my own words'), 'control: typed text is not a paste');
 });
 
+/* 0.15.1 round: Option+Enter breaks the line in the chat, as in the terminal. Runs the REAL Enter listener on fake events. */
+function enterListener(src: string) {
+  const s = slice(src);
+  const end = s.indexOf('    chatSkinSendNow(id, p);\n  });') + '    chatSkinSendNow(id, p);\n  }'.length;
+  const head = s.lastIndexOf("input.addEventListener('keydown', ", end) + "input.addEventListener('keydown', ".length;
+  return (e: Record<string, unknown>, value = 'ab', at = 1) => {
+    const sent: number[] = [];
+    const inputs: string[] = [];
+    const input = { value, selectionStart: at, selectionEnd: at,
+      setRangeText(t: string, a: number, b: number) { this.value = this.value.slice(0, a) + t + this.value.slice(b); this.selectionStart = this.selectionEnd = a + t.length; },
+      dispatchEvent(ev: { type: string }) { inputs.push(ev.type); return true; } };
+    const ev = { key: 'Enter', keyCode: 13, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, isComposing: false, prevented: false, preventDefault() { ev.prevented = true; }, ...e };
+    new Function('input', 'id', 'p', 'chatSkinSendNow', 'Event', 'return ' + s.slice(head, end) + ';')(input, 1, {}, () => sent.push(1), class { type: string; constructor(t: string) { this.type = t; } })(ev);
+    return { sent: sent.length, value: input.value, inputs, prevented: ev.prevented };
+  };
+}
+guarded('Option+Enter adds a new line in the chat box; Enter still sends; Shift+Enter is left to the textarea',
+  (src) => {
+    const run = enterListener(src);
+    const opt = run({ altKey: true });
+    const plain = run({});
+    const shift = run({ shiftKey: true });
+    const cmd = run({ altKey: true, metaKey: true });
+    return opt.sent === 0 && opt.value === 'a\nb' && opt.prevented && opt.inputs[0] === 'input'
+      && plain.sent === 1 && plain.value === 'ab'
+      && shift.sent === 0 && !shift.prevented
+      && cmd.sent === 1;
+  },
+  (src) => src.replace('    if (e.altKey && !e.metaKey && !e.ctrlKey) {\n', '    if (false) {\n'));
+
 test('the suggestion repaints with the terminal and steps aside for a dictation or a dialog', () => {
   const tick = fnBody(skin, 'chatSkinTick');
   assert.match(tick, /chatSkinControls\(p\);\n\s*chatSkinSuggestPaint\(p\);/, 'every tick, beside the controls');

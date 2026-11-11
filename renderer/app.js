@@ -9349,6 +9349,15 @@ function chatSkinBuild(id, p) {
     // Enter sends, Shift+Enter breaks the line. During IME composition Enter confirms the
     // candidate, so it must never send (keyCode 229 covers engines that clear isComposing early).
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    /* Option+Enter (Alt+Enter) breaks the line too, as it does in the terminal (0.15.1 round: "option enter works in terminal but
+       not in chat"). Inserted by hand: a textarea does not reliably insert one for Alt+Enter. The input event keeps the box's
+       height and the controls in step, exactly as typing does. */
+    if (e.altKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
     e.preventDefault();
     chatSkinSendNow(id, p);
   });
