@@ -6313,7 +6313,11 @@ async function openViewer(p) {
       wrap.appendChild(pr);
     }
     const md = document.createElement('div');
-    md.innerHTML = marked.parse(src); // operator's own vault content
+    // NOT the operator's own words only: sessions write mails, web pages and attachments into the
+    // vault, so a note can carry markup nobody typed. marked passes raw HTML through, and this
+    // window holds the pty bridge — so the parsed note goes through vaultSanitize before it is
+    // adopted, never straight into innerHTML.
+    md.replaceChildren(vaultSanitize(marked.parse(src)));
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
@@ -6349,6 +6353,108 @@ async function openViewer(p) {
 
   paint();
   setActive(id);
+}
+
+/* Vault-note sanitizer. Same shape as chatSanitize (inert <template>, walk, rebuild), but a looser
+   tag list, because a note legitimately has task checkboxes, local images and wikilinks that the
+   chat never needs. What it guarantees: no element that can run or load code, no on* handler, no
+   attribute outside a short allowlist, and no link or image URL with a scriptable scheme. */
+const VAULT_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'FRAME', 'FRAMESET', 'OBJECT', 'EMBED', 'APPLET', 'LINK', 'META',
+  'BASE', 'FORM', 'TEMPLATE', 'SVG', 'MATH', 'NOSCRIPT', 'AUDIO', 'VIDEO', 'SOURCE', 'TRACK', 'PORTAL', 'BUTTON',
+  'SELECT', 'TEXTAREA', 'DIALOG']);
+const VAULT_TAGS = new Set(['P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'DEL', 'INS', 'MARK', 'SUB', 'SUP', 'SMALL',
+  'CODE', 'PRE', 'KBD', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'IMG', 'INPUT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR',
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'DIV', 'SPAN', 'DETAILS', 'SUMMARY', 'DL', 'DT', 'DD']);
+const VAULT_ATTRS = new Set(['href', 'src', 'alt', 'title', 'class', 'data-target', 'type', 'checked', 'disabled',
+  'align', 'colspan', 'rowspan', 'start', 'width', 'height', 'open']);
+function vaultSafeUrl(tag, name, value) {
+  const v = String(value).replace(/[\u0000-\u0020]+/g, '');   // "java\nscript:" and " javascript:" are still javascript:
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) return true;            // relative path or #anchor: resolved by the viewer
+  if (/^(https?|mailto):/i.test(v)) return true;
+  if (tag === 'IMG' && name === 'src') return /^(file:|data:image\/(png|jpe?g|gif|webp|bmp);)/i.test(v);
+  return false;                                                // javascript:, vbscript:, data:text/html, …
+}
+/* What the reader SEES of what was taken out (0.15.1 round: a vanished embed or a broken image reads as a broken viewer).
+   Visible kinds become a chip that says what was not shown; invisible ones (script, style, meta…) are removed silently.
+   A chip never brings the content into this window, which also types into the operator's sessions:
+     · an embed with an https address can be opened in the BROWSER, outside the App;
+     · a remote image waits for a click (it is how a note tracks who read it, and when): Load puts it back as an image,
+       which cannot run code.
+   Chips are built here from the static icon table and textContent; the URL comes from the note, so it is shown as text
+   and used only through vaultSafeUrl-checked http(s). */
+const VAULT_CHIP = { IFRAME: 'embed', FRAME: 'embed', OBJECT: 'embed', EMBED: 'embed', APPLET: 'embed', PORTAL: 'embed',
+  VIDEO: 'media', AUDIO: 'media', SVG: 'drawing', MATH: 'drawing', FORM: 'form', BUTTON: 'form', SELECT: 'form',
+  TEXTAREA: 'form', DIALOG: 'form' };
+function vaultHttpUrl(el) {
+  for (const n of ['src', 'data', 'href']) {
+    const v = String(el.getAttribute(n) || '').trim();
+    if (/^https?:\/\//i.test(v)) return v;
+  }
+  const s = el.querySelector && el.querySelector('source[src]');
+  const v = s ? String(s.getAttribute('src') || '').trim() : '';
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+function vaultHost(url) { try { return new URL(url).host; } catch { return ''; } }
+function vaultChip(kind, url, onLoad) {
+  const chip = document.createElement('span');
+  chip.className = 'vblock';
+  chip.title = t('viewer.blocked.why');
+  const ic = document.createElement('span');
+  ic.className = 'vblock-ico';
+  ic.innerHTML = icon(kind === 'image' ? 'img' : 'shield', 12);
+  const host = url ? vaultHost(url) : '';
+  const words = document.createElement('span');
+  words.textContent = t('viewer.blocked.' + kind, { host: host || '?' });
+  chip.append(ic, words);
+  if (url && host) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'vblock-btn';
+    b.textContent = t(onLoad ? 'viewer.blocked.load' : 'viewer.blocked.open');
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (onLoad) onLoad(chip); else void window.glassShell.openExternal(url); });
+    chip.appendChild(b);
+  }
+  return chip;
+}
+function vaultSanitize(html) {
+  const tpl = document.createElement('template');   // inert: no script runs and no image loads until adopted
+  tpl.innerHTML = html;
+  const walk = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === 3) continue;
+      if (child.nodeType !== 1) { child.remove(); continue; }
+      const tag = child.tagName.toUpperCase();   // SVG/MathML elements report lowercase tag names
+      if (VAULT_DROP.has(tag)) {
+        if (VAULT_CHIP[tag]) child.replaceWith(vaultChip(VAULT_CHIP[tag], vaultHttpUrl(child)));
+        else child.remove();
+        continue;
+      }
+      walk(child);
+      if (!VAULT_TAGS.has(tag) || (tag === 'INPUT' && (child.getAttribute('type') || '').toLowerCase() !== 'checkbox')) {
+        child.replaceWith(...child.childNodes);   // keep the words, lose the element
+        continue;
+      }
+      for (const a of [...child.attributes]) {
+        const name = a.name.toLowerCase();
+        if (!VAULT_ATTRS.has(name) || ((name === 'href' || name === 'src') && !vaultSafeUrl(tag, name, a.value))) {
+          child.removeAttribute(a.name);
+        }
+      }
+      /* A remote image waits for a click; a local one (relative, file:, data:image) shows as before. */
+      if (tag === 'IMG' && /^https?:\/\//i.test(String(child.getAttribute('src') || '').trim())) {
+        const url = String(child.getAttribute('src')).trim();
+        const alt = child.getAttribute('alt') || '';
+        child.replaceWith(vaultChip('image', url, (chip) => {
+          const img = document.createElement('img');
+          img.alt = alt;
+          img.src = url;   // an image cannot run code; the click is consent to the request
+          chip.replaceWith(img);
+        }));
+      }
+    }
+  };
+  walk(tpl.content);
+  return tpl.content;
 }
 
 /* ── explorer (git markers · live relist · auto-reveal · file icons · ctx menu) ─── */

@@ -1606,5 +1606,13 @@
   "chat.mode.d.edits": "Αλλάζει αρχεία χωρίς να ρωτήσει",
   "chat.mode.d.plan": "Σχεδιάζει πρώτα, δεν αλλάζει τίποτα",
   "chat.mode.d.auto": "Ενεργεί μόνο του, με ελέγχους ασφαλείας",
-  "chat.mode.d.bypass": "Δεν ρωτάει ποτέ"
+  "chat.mode.d.bypass": "Δεν ρωτάει ποτέ",
+  "viewer.blocked.why": "Το AIOS δεν εκτελεί ενσωματωμένο περιεχόμενο από σημειώσεις: αυτό το παράθυρο γράφει και στις συνεδρίες σου.",
+  "viewer.blocked.embed": "Ενσωματωμένη σελίδα από {host} δεν εμφανίζεται",
+  "viewer.blocked.media": "Βίντεο ή ήχος από {host} δεν εμφανίζεται",
+  "viewer.blocked.drawing": "Το σχέδιο δεν εμφανίζεται",
+  "viewer.blocked.form": "Η φόρμα δεν εμφανίζεται",
+  "viewer.blocked.image": "Η εικόνα από {host} δεν φορτώθηκε",
+  "viewer.blocked.load": "Φόρτωση",
+  "viewer.blocked.open": "Άνοιγμα στον browser"
 }
