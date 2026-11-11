@@ -423,3 +423,11 @@ test('round 3: a slash command written twice under one promptId is one message (
   /* No promptId (older CLIs): nothing is merged on a guess. */
   assert.equal(byRole(feedAll([userStr('/compact'), userStr('<command-name>/compact</command-name>')]).items, 'user').length, 2);
 });
+
+test('#153: a paste Claude Code wrapped in <pasted_content> shows as what was pasted', () => {
+  const t = createTranscriptTracker();
+  const r = t.feed(userStr('look at this:\n\n<pasted_content id="5544">\nline one\nline two\n</pasted_content id="5544">\n'));
+  assert.deepEqual(r.items.map((i) => [i.role, i.text]), [['user', 'look at this:\n\nline one\nline two']]);
+  const plain = createTranscriptTracker().feed(userStr('no paste here <pasted_content> is just words'));
+  assert.equal(plain.items[0].text, 'no paste here <pasted_content> is just words', 'control: only the id form Claude Code writes is unwrapped');
+});

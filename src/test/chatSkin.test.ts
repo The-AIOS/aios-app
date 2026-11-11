@@ -123,7 +123,7 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && [...btm.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', 'k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))
       && /chatSkinPromptEmpty\(p\)\) return false;/.test(btm) && /if \(now !== c \+ step\) return false;/.test(btm)
   },
-  (src) => src.replace('submitToPty(id, text, () =>', "window.glassShell.ptyWrite(id, text + '\\r'); (() =>"));
+  (src) => src.split('submitToPty(id, text, () =>').join("window.glassShell.ptyWrite(id, text + '\\r'); (() =>"));
 
 guarded('slash commands are sent exactly like any other message (no filter, no special path)',
   (src) => {
@@ -4270,6 +4270,38 @@ test('the error card is styled as a card in the column, never the pill, and has 
     const b = JSON.parse(read(`src/i18n/locales/${loc}.json`));
     for (const k of ['chat.apiError.title', 'chat.apiError.refusal', 'chat.apiError.details']) assert.ok(b[k], `${loc}: ${k}`);
   }
+});
+
+/* 0.15.1 (#153): a long message typed raw lost its beginning in Claude Code; the chat now pastes it. Runs the REAL
+   submitToPty against a fake pty. */
+function loadSubmit(src: string): (text: string | unknown[], opts?: object) => string[] {
+  const at = src.indexOf('function submitToPty(');
+  const code = src.slice(at, src.indexOf('\n}\n', at) + 2);
+  return (text, opts) => {
+    const writes: string[] = [];
+    const win = { glassShell: { ptyWrite: (_id: number, d: string) => writes.push(d) } };
+    const timers: (() => void)[] = [];
+    new Function('window', 'setTimeout', code + 'return submitToPty;')(win, (f: () => void) => timers.push(f))(7, text, undefined, opts);
+    timers.forEach((f) => f());
+    return writes;
+  };
+}
+guarded('the chat pastes its message (bracketed) and types a slash command; ESC in the text cannot end the paste early',
+  (src) => {
+    const s = slice(src);
+    const send = fnBody(s, 'chatSkinSubmit');
+    const routed = /else if \(text\.startsWith\('\/'\)\) submitToPty\(id, text, /.test(send) && /\{ paste: true \}\);/.test(send);
+    const w = loadSubmit(src)('hello\x1b[201~ world', { paste: true });
+    const typed = loadSubmit(src)('/model haiku');
+    return routed && w[0] === '\x1b[200~hello[201~ world\x1b[201~' && w[1] === '\r' && typed[0] === '/model haiku' && typed[1] === '\r';
+  },
+  (src) => src.replace("if (opts && opts.paste && typeof text === 'string') text =", "if (false) text ="));
+test('a long paste counts as unsent while Claude Code shows it as "[Pasted text #1 …]"', () => {
+  const s = slice(app);
+  assert.match(fnBody(s, 'chatSkinSubmit'), /return d === sent \|\| CS_PASTE_DRAFT\.test\(d\);/);
+  const re = new Function(s.slice(s.indexOf('const CS_PASTE_DRAFT'), s.indexOf('\n', s.indexOf('const CS_PASTE_DRAFT'))) + '\nreturn CS_PASTE_DRAFT;')() as RegExp;
+  assert.ok(re.test('[Pasted text #1 +12 lines]'));
+  assert.ok(!re.test('my own words'), 'control: typed text is not a paste');
 });
 
 test('the suggestion repaints with the terminal and steps aside for a dictation or a dialog', () => {

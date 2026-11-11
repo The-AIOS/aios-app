@@ -4777,8 +4777,13 @@ function noteOperatorKeys(p, d) {
   }
 }
 
-function submitToPty(id, text, stillWaiting) {
+function submitToPty(id, text, stillWaiting, opts) {
   if (!text || (Array.isArray(text) && !text.length)) return;
+  /* `opts.paste`: the text goes in as a bracketed paste, the way a paste in the terminal arrives. Claude Code does not keep a
+     long burst of TYPED input intact: measured on 2.1.322, ~1.4 KB typed was recorded as its last 392 characters and 4.7 KB as
+     its last 609, whatever the Enter's delay; the same 4.7 KB pasted arrived whole, and a short paste is recorded as plain
+     text (0.15.1, #153). ESC is dropped from the text so nothing in it can end the paste early. */
+  if (opts && opts.paste && typeof text === 'string') text = '\x1b[200~' + text.replace(/\x1b/g, '') + '\x1b[201~';
   /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
      PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
   if (Array.isArray(text)) {
@@ -11741,6 +11746,7 @@ function chatSkinImageParts(text) {
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 }
+const CS_PASTE_DRAFT = /^\[Pasted text #\d+/;   // how Claude Code's box shows a long paste before it is sent
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
@@ -11751,7 +11757,10 @@ function chatSkinSubmit(id, p, text) {
   const sent = text.replace(/\s+/g, ' ').trim();
   const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
   if (imgParts) submitToPty(id, imgParts);
-  else submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  /* Typed for a slash command (a pasted "/name" would be a message, not a command); pasted otherwise, so a long message
+     arrives whole (#153). A long paste shows in Claude Code's box as "[Pasted text #1 …]", which counts as unsent too. */
+  else if (text.startsWith('/')) submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);
+  else submitToPty(id, text, () => { if (panes.get(id) !== p || p.exited || chatSkinWorking(p)) return false; const d = chatSkinPromptDraft(p); return d === sent || CS_PASTE_DRAFT.test(d); }, { paste: true });   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
   chatSkinControls(p);

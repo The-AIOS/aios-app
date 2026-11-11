@@ -149,8 +149,18 @@ function tagText(s: string, tag: string): string | undefined {
  *  - injected scaffolding (task notifications, caveats, reminders) → nothing;
  *  - anything else → the operator's message.
  */
+/**
+ * Claude Code records a long paste wrapped as `<pasted_content id="N">…</pasted_content id="N">`. The chat shows what the
+ * operator pasted, not the wrapper (0.15.1, #153: the chat now sends its text as a paste, so long messages carry it).
+ */
+const PASTE_OPEN = /\n?<pasted_content id="[^"]*">\n?/g;
+const PASTE_CLOSE = /\n?<\/pasted_content id="[^"]*">\n?/g;
+export function unwrapPastes(s: string): string {
+  return s.replace(PASTE_OPEN, '\n').replace(PASTE_CLOSE, '\n');
+}
+
 function userText(raw: string): { role: 'user' | 'system'; text: string; local?: true; bang?: 'input' | 'output' | 'error' } | undefined {
-  const s = raw.replace(REMINDER, '').trim();
+  const s = unwrapPastes(raw.replace(REMINDER, '')).trim();
   if (!s) return undefined;
   if (INTERRUPT.test(s)) return { role: 'system', text: s };
   const name = tagText(s, 'command-name');
