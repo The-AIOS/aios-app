@@ -61,8 +61,19 @@ test('the rows are dated: the verified Claude Code version is a real version str
     'the full reference must point at the official interactive-mode page');
 });
 
-test('Shift+Enter is not claimed as a newline — xterm delivers it as a plain Enter, so it sends', () => {
-  for (const a of accels) assert.ok(!/Shift\+Enter/.test(a), `${a} promises Shift+Enter, which sends in this terminal`);
+test('Shift+Enter is listed as a newline, and only because the pane really sends one for it', () => {
+  const nl = accels[labels.indexOf('shortcut.sessionNewline')];
+  assert.ok(nl && /^Shift\+Enter\b/.test(nl), `the newline row must lead with Shift+Enter, found ${nl}`);
+  // the promise is only true while the handler translates it: xterm alone sends a bare CR
+  assert.match(app, /const nl = shiftEnterSeq\(e\); if \(nl\) \{ e\.preventDefault\(\); window\.glassShell\.ptyWrite\(id, nl\)/,
+    'the sheet promises Shift+Enter is a newline, so the terminal key handler must send one for it');
+});
+
+test('no hint, in any locale, still says Shift+Enter sends in this terminal', () => {
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const h = String(LOC(l)['shortcuts.inSessionHint'] || '');
+    assert.ok(!h.includes('Shift+Enter'), `${l}: the hint still mentions Shift+Enter: ${h}`);
+  }
 });
 
 test('off macOS no row promises a plain Ctrl key the menu takes (CmdOrCtrl IS Ctrl there)', () => {

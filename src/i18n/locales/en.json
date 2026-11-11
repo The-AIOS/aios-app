@@ -1069,7 +1069,7 @@
   "shortcut.openPath": "Open a path printed in a terminal",
   "shortcut.none": "No shortcuts reported — the menu may not be installed yet",
   "shortcuts.inSession": "Inside a session (Claude Code)",
-  "shortcuts.inSessionHint": "Claude Code's own keys, verified against Claude Code {version}. Enter sends; so does Shift+Enter in this terminal.",
+  "shortcuts.inSessionHint": "Claude Code's own keys, verified against Claude Code {version}. Enter sends.",
   "shortcuts.inSessionDocs": "Full reference",
   "shortcut.sessionNewline": "Insert a newline without sending",
   "shortcut.sessionLineEdges": "Start / end of the line",

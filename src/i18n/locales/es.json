@@ -1069,7 +1069,7 @@
   "shortcut.openPath": "Abrir una ruta impresa en la terminal",
   "shortcut.none": "No se reportaron atajos — puede que el menú aún no esté instalado",
   "shortcuts.inSession": "Dentro de una sesión (Claude Code)",
-  "shortcuts.inSessionHint": "Son las teclas del propio Claude Code, verificadas contra Claude Code {version}. Enter envía; Shift+Enter también en esta terminal.",
+  "shortcuts.inSessionHint": "Son las teclas del propio Claude Code, verificadas contra Claude Code {version}. Enter envía.",
   "shortcuts.inSessionDocs": "Referencia completa",
   "shortcut.sessionNewline": "Insertar un salto de línea sin enviar",
   "shortcut.sessionLineEdges": "Inicio / fin de la línea",

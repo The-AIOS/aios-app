@@ -592,6 +592,18 @@ function optionComposedChar(e) {
   return k;
 }
 
+/* SHIFT+ENTER BREAKS THE LINE, IT DOES NOT SEND.
+   xterm encodes Shift+Enter exactly like Enter (a bare \r), so Claude Code cannot tell them apart
+   and submits: an operator reaching for the newline every chat box taught them sent half a prompt.
+   ESC CR is what ⌥↵ already sends here (macOptionIsMeta) and what Claude Code's /terminal-setup
+   installs for VS Code, so Claude Code reads it as "insert a newline". Applies to every terminal
+   pane, as VS Code's binding does; in a shell, plain Enter still runs the command. Not while an
+   IME is composing: there Enter confirms the composition. Returns the sequence, or null. */
+function shiftEnterSeq(e) {
+  if (e.key !== 'Enter' || !e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.isComposing) return null;
+  return '\x1b\r';
+}
+
 function attachRenderer(p) {
   if (!p || p.kind !== 'term' || !p.term) return;
   const canGl = !!(window.WebglAddon && window.WebglAddon.WebglAddon) && !NO_WEBGL;
@@ -4598,6 +4610,8 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
     /* Option types the character your keyboard makes, when it makes a plain one. */
     if (e.type === 'keydown') { const ch = optionComposedChar(e); if (ch) { e.preventDefault(); window.glassShell.ptyWrite(id, ch); return false; } }   // preventDefault: no second copy via keypress
+    /* Shift+Enter is a newline, not a send (see shiftEnterSeq). */
+    if (e.type === 'keydown') { const nl = shiftEnterSeq(e); if (nl) { e.preventDefault(); window.glassShell.ptyWrite(id, nl); return false; } }   // preventDefault: no second \r via keypress
     const clip = termClipboardKey(e, IS_MAC, term.hasSelection(), IS_LINUX);
     if (clip === 'copy') {
       // preventDefault so the keystroke stays handled: no ^C for the pty, and on Ctrl+Shift+C
@@ -8117,7 +8131,8 @@ const RENDERER_KEYS = [
    NOT listed on purpose: Ctrl+J, Ctrl+K and Ctrl+P. They are real Claude Code keys, but the pane's
    key handler swallows ⌘/Ctrl + k/p/j as app shortcuts before xterm sees them, so promising them
    here would be the sheet lying about the terminal it sits next to (sessionKeys.test.ts guards
-   that). Shift+Enter is not listed either: xterm delivers it as a plain Enter, so it SENDS.
+   that). Shift+Enter IS listed: xterm delivers it as a plain Enter, so the pane's key handler
+   sends ESC CR for it instead (shiftEnterSeq), the same newline ⌥↵ sends.
    OFF macOS CmdOrCtrl IS Ctrl, so every plain Ctrl+letter the menu holds (E, R, W among the rows
    here) never reaches the session there: those rows are macOnly. Image paste differs per
    platform, so it is two rows filtered by `os`. sessionKeys.test.ts derives the collision from
@@ -8125,7 +8140,7 @@ const RENDERER_KEYS = [
 const SESSION_KEYS_VERIFIED = '2.1.308';
 const SESSION_KEYS_DOCS = 'https://code.claude.com/docs/en/interactive-mode';
 const SESSION_KEYS = [
-  { label: 'shortcut.sessionNewline', accel: 'Option+Enter / \\+Enter' },
+  { label: 'shortcut.sessionNewline', accel: 'Shift+Enter / Option+Enter / \\+Enter' },
   { label: 'shortcut.sessionLineEdges', accel: 'Ctrl+A / Ctrl+E', macOnly: true },   // Ctrl+E is the menu's off macOS
   { label: 'shortcut.sessionLineEdgesMac', accel: '⌘← / ⌘→', macOnly: true },   // ptyWrite \x01 / \x05
   { label: 'shortcut.sessionWord', accel: 'Option+B / Option+F' },
