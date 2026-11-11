@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme, protocol, screen } from 'electron';
+import { fitToWorkArea } from '../core/windowFit';
 import { registerBoardScheme, installBoardProtocol, guardBoardNavigation, listBoards } from './boards';   // #91
 import { startHitServer, writeHostileBoard, judgeProbe, recordRequests, sleep, type HitServer, type HostileFixture } from './boardProbe';   // #91 smoke gate
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
@@ -146,11 +147,15 @@ function createWindow(): BrowserWindow {
   /* Resolved BEFORE the window exists, so neither the pre-paint background nor the first frame
      is dark on a light machine (the body class used to land only after an IPC round-trip). */
   const firstTheme = resolvedTheme(aios.shellSettings().theme, nativeTheme.shouldUseDarkColors);
+  /* Never larger than the screen it opens on (#144: a 1920 × 1200 laptop at 150% has ~1280 × 752 under the taskbar). */
+  let work: { width: number; height: number } | null = null;
+  try { work = screen.getPrimaryDisplay().workAreaSize; } catch { work = null; }
+  const size = fitToWorkArea({ width: 1360, height: 860 }, work, { width: 880, height: 560 });
   const win = new BrowserWindow({
     /* chat-shot: the viewport is exactly CHAT_SHOT_SIZE (useContentSize), and the minimum is lifted
        so a shot can ask for a narrow dock. */
-    width: CHAT_SHOT ? CHAT_SHOT_SIZE.width : 1360,
-    height: CHAT_SHOT ? CHAT_SHOT_SIZE.height : 860,
+    width: CHAT_SHOT ? CHAT_SHOT_SIZE.width : size.width,
+    height: CHAT_SHOT ? CHAT_SHOT_SIZE.height : size.height,
     useContentSize: CHAT_SHOT,
     minWidth: CHAT_SHOT ? 320 : 880,
     minHeight: CHAT_SHOT ? 320 : 560,
