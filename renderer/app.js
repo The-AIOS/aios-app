@@ -735,7 +735,14 @@ const CARD_ICONS = {
   pHealth: 'check',
   pConnectors: 'plug',
 };
-function cardIcon(key) { return CARD_ICONS[key] || (key.startsWith('pBoard-') ? 'layout' : 'star'); }   // #91: every board shares one glyph
+/* A board's card wears the icon its board.json names (#146), when the App has one by that name; otherwise the board glyph.
+   Only a name from ICONS is drawn, so a board can never bring its own markup into the panel. */
+function boardIconName(want) { return typeof want === 'string' && Object.prototype.hasOwnProperty.call(ICONS, want) ? want : 'layout'; }
+function cardIcon(key) {
+  if (CARD_ICONS[key]) return CARD_ICONS[key];
+  if (key.startsWith('pBoard-')) { let b = null; try { b = boardCards.get(decodeURIComponent(key.slice(7))); } catch { b = null; } return boardIconName(b && b.icon); }
+  return 'star';
+}
 
 function pulseTitle(card, key, text, count) {
   const ti = el('div', 'ptitle', text);
@@ -1280,9 +1287,10 @@ async function refreshBoards() {
     }
     if (b.url !== r.url) { b.url = r.url; b.frame.src = r.url; }   // a new mtime is a new URL
     // nothing about the card changed → leave it alone (a rebuilt title would steal keyboard focus every pass)
-    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
+    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', r.icon || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
     if (b.sig === sig) continue;
     b.sig = sig;
+    b.icon = r.icon || '';   // read by cardIcon when the title is drawn below
     const key = boardCardId(r.name);
     const stale = r.status === 'stale';
     b.card.classList.toggle('pstale', stale);
