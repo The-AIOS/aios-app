@@ -7936,7 +7936,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'chat'], [2, 'layout'], [3, 'sparkles'], [4, 'shield']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'chat'], [2, 'keyboard'], [3, 'sparkles'], [4, 'shield']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -10277,10 +10277,21 @@ function chatSkinHasReply(cs) {
 }
 /* Offer the suggestion in the chat box the way the terminal does: shown in place of the placeholder while the box is empty,
    Tab takes it into the box, Enter on the empty box sends it (chatSkinSendNow). Never over a dialog, a card or a dictation. */
+/* How long a suggestion stays after it stops being readable on the screen (0.15.1 round: it "comes and goes the first time
+   and then stays"). When a reply ends Claude Code redraws its prompt area, and Stop hooks draw a spinner there, so for a
+   moment the suggestion is not on screen and the box blinked empty. A held suggestion still goes AT ONCE when the operator
+   types, dictates, a dialog opens, or a message is sent (chatSkinSubmit clears it). */
+const CS_SUGGEST_HOLD_MS = 1500;
 function chatSkinSuggestPaint(p) {
   const cs = p && p.chatSkin;
   if (!cs || !cs.input) return;
-  const s = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '' && chatSkinHasReply(cs) ? chatSkinPromptSuggestion(p) : '';
+  const open = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '';
+  let s = open && chatSkinHasReply(cs) ? chatSkinPromptSuggestion(p) : '';
+  if (!s && open && cs.suggest) {
+    const now = Date.now();
+    if (!cs.suggestGoneAt) cs.suggestGoneAt = now;
+    if (now - cs.suggestGoneAt < CS_SUGGEST_HOLD_MS) { s = cs.suggest; setTimeout(() => chatSkinSuggestPaint(p), CS_SUGGEST_HOLD_MS); }
+  } else cs.suggestGoneAt = 0;
   const shown = s ? t('chat.suggest.placeholder', { text: s }) : (cs.placeholder0 || '');
   if (s === (cs.suggest || '') && (cs.recording || cs.input.placeholder === shown)) return;
   cs.suggest = s;
@@ -11784,6 +11795,7 @@ const CS_PASTE_DRAFT = /^\[Pasted text #\d+/;   // how Claude Code's box shows a
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
+  cs.suggest = ''; cs.suggestGoneAt = 0;   // a send ends the suggestion now: it is never held into the next turn
   cs.staleSpinner = '';   // a new turn: any spinner from here on is live
   cs.turnStartAt = Date.now();   // the working line's own clock (chatSkinWorkMeta)
   cs.workSince = cs.turnStartAt;   // a send starts a working stretch

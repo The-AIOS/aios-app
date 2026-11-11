@@ -4141,8 +4141,46 @@ test("0.15.0 review: Claude Code's static example is never offered, and nothing 
   const broken = loadSuggest(app.replace(`return /^Try ["“]/.test(said) ? '' : said;`, 'return said;'));
   assert.equal(broken.suggestion(suggestPane('', 'Try "fix lint errors"')), 'Try "fix lint errors"', 'control: without the filter the example leaks through');
   const paint = skinFn('chatSkinSuggestPaint');
-  assert.match(paint, /cs\.input\.value === '' && chatSkinHasReply\(cs\) \? chatSkinPromptSuggestion\(p\)/, 'a suggestion only after a finished reply');
+  assert.match(paint, /const open = !cs\.recording && !cs\.promptKind && !chatSkinCardOn\(cs\) && cs\.input\.value === '';\n\s+let s = open && chatSkinHasReply\(cs\) \? chatSkinPromptSuggestion\(p\)/, 'a suggestion only after a finished reply');
   assert.match(skinFn('chatSkinHasReply'), /querySelector\('\.chat-row\.who-claude'\)/);
+});
+
+/* 0.15.1 round: the suggestion "comes and goes the first time and then stays". Runs the REAL painter against a screen that
+   loses the suggestion for one frame, with a fake clock. */
+function suggestRun(src: string) {
+  const s = slice(src);
+  const hold = s.slice(s.indexOf('const CS_SUGGEST_HOLD_MS'), s.indexOf('\n', s.indexOf('const CS_SUGGEST_HOLD_MS')) + 1);
+  const at = s.indexOf('function chatSkinSuggestPaint(');
+  const fn = s.slice(at, s.indexOf('\n}\n', at) + 2);
+  let now = 1000;
+  let screen = '';
+  const shown: string[] = [];
+  const cs = { input: { value: '', placeholder: '' }, suggest: '', recording: false, promptKind: '' } as Record<string, unknown> & { input: { value: string; placeholder: string } };
+  const p = { chatSkin: cs };
+  const paint = new Function('chatSkinCardOn', 'chatSkinHasReply', 'chatSkinPromptSuggestion', 't', 'chatSkinPlaceholder', 'Date', 'setTimeout',
+    hold + fn + 'return chatSkinSuggestPaint;')(
+    () => false, () => true, () => screen, (_k: string, v: { text: string }) => 'S:' + v.text,
+    () => { cs.input.placeholder = cs.suggest ? 'S:' + cs.suggest : 'base'; shown.push(cs.input.placeholder); },
+    { now: () => now }, () => 0) as (p: unknown) => void;
+  return { cs, step(scr: string, ms = 100) { screen = scr; now += ms; paint(p); return cs.input.placeholder; } };
+}
+guarded('a suggestion that drops off the screen for a moment stays in the box; typing still clears it at once',
+  (src) => {
+    const r = suggestRun(src);
+    const a = r.step('run the tests');
+    const blink = r.step('');             // Claude Code redraws: one frame without it
+    const back = r.step('run the tests');
+    const r2 = suggestRun(src);
+    r2.step('run the tests'); r2.step('', 100);
+    const gone = r2.step('', 2000);      // really gone: cleared after the hold
+    const r3 = suggestRun(src);
+    r3.step('run the tests'); r3.cs.input.value = 'mine';
+    r3.step('');
+    return a === 'S:run the tests' && blink === 'S:run the tests' && back === 'S:run the tests' && gone === 'base' && r3.cs.suggest === '';
+  },
+  (src) => src.replace('if (now - cs.suggestGoneAt < CS_SUGGEST_HOLD_MS) {', 'if (false) {'));
+test('a send ends the suggestion at once, so a held one never shows during the next turn', () => {
+  assert.match(skinFn('chatSkinSubmit'), /cs\.suggest = ''; cs\.suggestGoneAt = 0;/);
 });
 
 test('Tab on an empty box takes the suggestion into it, cursor at the end', () => {
