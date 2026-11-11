@@ -65,7 +65,7 @@ test('Shift+Enter is listed as a newline, and only because the pane really sends
   const nl = accels[labels.indexOf('shortcut.sessionNewline')];
   assert.ok(nl && /^Shift\+Enter\b/.test(nl), `the newline row must lead with Shift+Enter, found ${nl}`);
   // the promise is only true while the handler translates it: xterm alone sends a bare CR
-  assert.match(app, /const nl = shiftEnterSeq\(e\); if \(nl\) \{ e\.preventDefault\(\); window\.glassShell\.ptyWrite\(id, nl\)/,
+  assert.match(app, /const nl = \(panes\.get\(id\) \|\| \{\}\)\.isSession \? shiftEnterSeq\(e\) : null; if \(nl\) \{ e\.preventDefault\(\); window\.glassShell\.ptyWrite\(id, nl\)/,
     'the sheet promises Shift+Enter is a newline, so the terminal key handler must send one for it');
 });
 

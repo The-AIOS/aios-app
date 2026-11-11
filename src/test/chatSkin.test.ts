@@ -4286,11 +4286,11 @@ function loadSubmit(src: string): (text: string | unknown[], opts?: object) => s
     return writes;
   };
 }
-guarded('the chat pastes its message (bracketed) and types a slash command; ESC in the text cannot end the paste early',
+guarded('the chat pastes its message (bracketed) and types a slash command or a "!" shell line; ESC in the text cannot end the paste early',
   (src) => {
     const s = slice(src);
     const send = fnBody(s, 'chatSkinSubmit');
-    const routed = /else if \(text\.startsWith\('\/'\)\) submitToPty\(id, text, /.test(send) && /\{ paste: true \}\);/.test(send);
+    const routed = /else if \(text\.startsWith\('\/'\) \|\| text\.startsWith\('!'\)\) submitToPty\(id, text, /.test(send) && /\{ paste: true \}\);/.test(send);
     const w = loadSubmit(src)('hello\x1b[201~ world', { paste: true });
     const typed = loadSubmit(src)('/model haiku');
     return routed && w[0] === '\x1b[200~hello[201~ world\x1b[201~' && w[1] === '\r' && typed[0] === '/model haiku' && typed[1] === '\r';

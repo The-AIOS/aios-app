@@ -53,11 +53,14 @@ const enterWorks = (js: string) => {
   const s = checkModalSrc(js);
   return /list\.addEventListener\('click', \(\) => \{ if \(wrap\.isConnected\) input\.focus\(\{ preventScroll: true \}\); \}\);/.test(s)
     && /it\.on = !it\.on; sel = idx; paint\(\); paintGo\(\);/.test(s)
-    && /if \(state\.some\(\(s\) => s\.on\) \|\| allowEmpty\) done\(chosen\(\)\);\n\s+else if \(it\) done\(\[it\.value\]\);/.test(s)
+    && /if \(enterPicksHighlighted && it && !state\.some\(\(s\) => s\.on\)\) \{ done\(\[it\.value\]\); return; \}\n\s+if \(state\.some\(\(s\) => s\.on\) \|\| allowEmpty\) done\(chosen\(\)\);/.test(s)
+    && /checkModal\(t\('resume\.title'\), items, \{\n\s+enterPicksHighlighted: true,/.test(js)
+    && (js.match(/enterPicksHighlighted: true/g) || []).length === 1   // Resume only: close-all must never close a session on a bare Enter
     && !/list\.addEventListener\('mousedown'/.test(s);   // cancelling mousedown would stop the scrollbar being dragged
 };
-test('after a click the filter box has the focus again, and Enter opens the highlighted row when nothing is ticked', () => {
+test('after a click the filter box has the focus again; in Resume only, Enter opens the highlighted row when nothing is ticked', () => {
   assert.ok(enterWorks(app));
   assert.equal(enterWorks(app.replace("list.addEventListener('click', () => { if (wrap.isConnected) input.focus({ preventScroll: true }); });", '')), false, 'control: no refocus');
-  assert.equal(enterWorks(app.replace('        else if (it) done([it.value]);', '')), false, 'control: Enter needs a tick again');
+  assert.equal(enterWorks(app.replace('    enterPicksHighlighted: true,\n', '')), false, 'control: Resume without the opt-in');
+  assert.equal(enterWorks(app + '\n{ enterPicksHighlighted: true, }'), false, 'control: a second picker opting in fails the Resume-only rule');
 });

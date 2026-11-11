@@ -4610,8 +4610,9 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
     /* Option types the character your keyboard makes, when it makes a plain one. */
     if (e.type === 'keydown') { const ch = optionComposedChar(e); if (ch) { e.preventDefault(); window.glassShell.ptyWrite(id, ch); return false; } }   // preventDefault: no second copy via keypress
-    /* Shift+Enter is a newline, not a send (see shiftEnterSeq). */
-    if (e.type === 'keydown') { const nl = shiftEnterSeq(e); if (nl) { e.preventDefault(); window.glassShell.ptyWrite(id, nl); return false; } }   // preventDefault: no second \r via keypress
+    /* Shift+Enter is a newline, not a send (see shiftEnterSeq) — in a Claude session only. A plain shell has no use for ESC CR:
+       bash rings the bell and the command does not run (0.15.1 review). */
+    if (e.type === 'keydown') { const nl = (panes.get(id) || {}).isSession ? shiftEnterSeq(e) : null; if (nl) { e.preventDefault(); window.glassShell.ptyWrite(id, nl); return false; } }   // preventDefault: no second \r via keypress
     const clip = termClipboardKey(e, IS_MAC, term.hasSelection(), IS_LINUX);
     if (clip === 'copy') {
       // preventDefault so the keystroke stays handled: no ^C for the pty, and on Ctrl+Shift+C
@@ -5600,6 +5601,7 @@ async function batchResume() {
     hay: [r.name, ...(r.was || []), r.proj, r.id].filter(Boolean).join(' '),   // an id can still be pasted in
   }));
   const chosen = await checkModal(t('resume.title'), items, {
+    enterPicksHighlighted: true,
     hint: t('resume.sub3', { named: data.named, unnamed: data.unnamed }),
     placeholder: t('resume.filter'),
     confirmLabel: t('resume.confirm'),
@@ -11772,9 +11774,10 @@ function chatSkinSubmit(id, p, text) {
   const sent = text.replace(/\s+/g, ' ').trim();
   const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
   if (imgParts) submitToPty(id, imgParts);
-  /* Typed for a slash command (a pasted "/name" would be a message, not a command); pasted otherwise, so a long message
+  /* Typed for a slash command or a "!" shell line (pasted, "/name" would be a message, not a command, and "!" might not enter
+     Claude Code's bash mode); pasted otherwise, so a long message
      arrives whole (#153). A long paste shows in Claude Code's box as "[Pasted text #1 …]", which counts as unsent too. */
-  else if (text.startsWith('/')) submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);
+  else if (text.startsWith('/') || text.startsWith('!')) submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);
   else submitToPty(id, text, () => { if (panes.get(id) !== p || p.exited || chatSkinWorking(p)) return false; const d = chatSkinPromptDraft(p); return d === sent || CS_PASTE_DRAFT.test(d); }, { paste: true });   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
@@ -13909,7 +13912,7 @@ async function addMarketplaceFlow() {
    and any other "pick several, then act" flow, so popups read the same everywhere.
    items: [{label, desc?, icon?, value, picked?, dot?}] → resolves an array of values
    (or null on cancel). */
-function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty, altAction, altInFoot } = {}) {
+function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty, altAction, altInFoot, enterPicksHighlighted } = {}) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
@@ -14041,8 +14044,11 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
            have done two different things from the same highlighted row. */
         const it = filtered[sel];
         if (it && it.act) { done([it.value]); return; }
+        /* Nothing ticked: a picker that opts in opens the highlighted row (#144, Resume: "pressing Enter does nothing"). Opt-in,
+           because for close-all, whose rows start ticked, unticking all and pressing Enter must not close the highlighted
+           session (0.15.1 review). Checked before allowEmpty, which Resume also sets. */
+        if (enterPicksHighlighted && it && !state.some((s) => s.on)) { done([it.value]); return; }
         if (state.some((s) => s.on) || allowEmpty) done(chosen());
-        else if (it) done([it.value]);   // nothing ticked: Enter opens the highlighted row (#144: "pressing Enter does nothing")
       }
       else if (e.key === 'Escape') { e.preventDefault(); done(null); }
     });

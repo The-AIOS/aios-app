@@ -38,11 +38,11 @@ test('only Enter: Shift with any other key types as before', () => {
   for (const k of ['A', 'Tab', 'ArrowUp', 'Backspace', ' ']) assert.equal(key(k, { shiftKey: true }), null, `Shift+${k}`);
 });
 
-test('wired into the terminal key handler on keydown, and the event is cancelled so no second CR follows', () => {
+test('wired into the terminal key handler on keydown, in a Claude session only (a plain shell keeps Enter as it was), and the event is cancelled so no second CR follows', () => {
   assert.match(app,
-    /if \(e\.type === 'keydown'\) \{ const nl = shiftEnterSeq\(e\); if \(nl\) \{ e\.preventDefault\(\); window\.glassShell\.ptyWrite\(id, nl\); return false; \} \}/);
+    /if \(e\.type === 'keydown'\) \{ const nl = \(panes\.get\(id\) \|\| \{\}\)\.isSession \? shiftEnterSeq\(e\) : null; if \(nl\) \{ e\.preventDefault\(\); window\.glassShell\.ptyWrite\(id, nl\); return false; \} \}/);
   const handler = app.indexOf('term.attachCustomKeyEventHandler((e) =>');
-  const wired = app.indexOf('const nl = shiftEnterSeq(e)');
+  const wired = app.indexOf('const nl = (panes.get(id) || {}).isSession ? shiftEnterSeq(e) : null');
   const metaBail = app.indexOf("if (e.type !== 'keydown' || !e.metaKey || e.altKey) return true;", handler);
   assert.ok(handler > 0 && wired > handler && wired < metaBail,
     'it must run inside the pane handler, before the ⌘ section returns everything else to xterm');
