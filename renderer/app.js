@@ -6396,7 +6396,7 @@ function vaultHttpUrl(el) {
   return /^https?:\/\//i.test(v) ? v : '';
 }
 function vaultHost(url) { try { return new URL(url).host; } catch { return ''; } }
-function vaultChip(kind, url, onLoad) {
+function vaultChip(kind, url, onLoad, name) {
   const chip = document.createElement('span');
   chip.className = 'vblock';
   chip.dataset.kind = kind;   // the note's banner counts images by it (vaultHeldBanner)
@@ -6406,9 +6406,9 @@ function vaultChip(kind, url, onLoad) {
   ic.innerHTML = icon(kind === 'image' ? 'img' : 'shield', 12);
   const host = url ? vaultHost(url) : '';
   const words = document.createElement('span');
-  words.textContent = t('viewer.blocked.' + kind, { host: host || '?' });
+  words.textContent = t('viewer.blocked.' + kind, { host: host || '?', name: name || '' });
   chip.append(ic, words);
-  if (url && host) {
+  if (url && host && kind !== 'failed') {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'vblock-btn';
@@ -6482,9 +6482,15 @@ function vaultSanitize(html) {
         child.replaceWith(vaultChip('image', url, (chip) => {
           const img = document.createElement('img');
           img.alt = alt;
+          // an image that does not arrive says so, instead of a broken-image box that reads as a broken viewer
+          img.addEventListener('error', () => { if (img.isConnected) img.replaceWith(vaultChip('failed', url)); }, { once: true });
           img.src = url;   // an image cannot run code; the click is consent to the request
           chip.replaceWith(img);
         }));
+      } else if (tag === 'IMG') {
+        // a local image that is not there: a chip naming it, not the browser's broken-image box
+        const name = String(child.getAttribute('src') || '').split(/[\\/]/).pop() || '';
+        child.addEventListener('error', () => { if (child.isConnected) child.replaceWith(vaultChip('missing', '', null, name)); }, { once: true });
       }
     }
   };

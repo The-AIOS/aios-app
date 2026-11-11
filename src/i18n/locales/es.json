@@ -1617,5 +1617,7 @@
   "viewer.blocked.open": "Abrir en el navegador",
   "viewer.held.title": "Parte del contenido de esta nota se retuvo ({n})",
   "viewer.held.why": "Las notas pueden traer cosas de correos, páginas web u otras personas. Una imagen de internet puede avisarle a quien la envió que abriste la nota, y una página incrustada puede ejecutar código en la ventana que escribe en tus sesiones. Por eso AIOS solo las muestra cuando tú lo decides.",
-  "viewer.held.showImages": "Mostrar imágenes ({n})"
+  "viewer.held.showImages": "Mostrar imágenes ({n})",
+  "viewer.blocked.failed": "No se pudo cargar la imagen de {host}",
+  "viewer.blocked.missing": "Imagen no encontrada: {name}"
 }

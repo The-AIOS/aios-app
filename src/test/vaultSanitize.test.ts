@@ -122,7 +122,7 @@ guarded('a chip never brings the content in: its only markup is the static icon,
   (src) => src.replace("words.textContent = t('viewer.blocked.' + kind", "words.innerHTML = t('viewer.blocked.' + kind"));
 
 guarded('a remote image waits for a click; a local one shows as before',
-  (src) => /if \(tag === 'IMG' && \/\^https\?:\\\/\\\/\/i\.test\(String\(child\.getAttribute\('src'\) \|\| ''\)\.trim\(\)\)\) \{[\s\S]{0,200}child\.replaceWith\(vaultChip\('image', url, \(chip\) => \{[\s\S]{0,200}img\.src = url;/.test(src),
+  (src) => /if \(tag === 'IMG' && \/\^https\?:\\\/\\\/\/i\.test\(String\(child\.getAttribute\('src'\) \|\| ''\)\.trim\(\)\)\) \{[\s\S]{0,200}child\.replaceWith\(vaultChip\('image', url, \(chip\) => \{[\s\S]{0,500}img\.src = url;/.test(src),
   (src) => src.replace("if (tag === 'IMG' && /^https?:\\/\\//i.test(", "if (false && /^https?:\\/\\//i.test("));
 
 test('every chip string exists in all four languages', () => {
@@ -143,5 +143,18 @@ test('the banner strings exist in all four languages', () => {
   for (const loc of ['en', 'es', 'pt-br', 'el']) {
     const b = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8'));
     for (const k of ['title', 'why', 'showImages']) assert.ok(b['viewer.held.' + k], `${loc}: ${k}`);
+  }
+});
+
+/* 0.15.1 round 3: an image that does not arrive (a remote one after Load, or a missing local file) says so in a chip. */
+guarded('an image that fails to load becomes a chip, not a broken-image box',
+  (src) => /img\.addEventListener\('error', \(\) => \{ if \(img\.isConnected\) img\.replaceWith\(vaultChip\('failed', url\)\); \}, \{ once: true \}\);/.test(src)
+    && /child\.addEventListener\('error', \(\) => \{ if \(child\.isConnected\) child\.replaceWith\(vaultChip\('missing', '', null, name\)\); \}, \{ once: true \}\);/.test(src)
+    && /if \(url && host && kind !== 'failed'\) \{/.test(src),
+  (src) => src.replace("img.addEventListener('error', () => { if (img.isConnected) img.replaceWith(vaultChip('failed', url)); }, { once: true });", ''));
+test('the failed and missing image strings exist in all four languages', () => {
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const b = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8'));
+    for (const k of ['failed', 'missing']) assert.ok(b['viewer.blocked.' + k], `${loc}: ${k}`);
   }
 });
