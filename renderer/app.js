@@ -6318,6 +6318,7 @@ async function openViewer(p) {
     // window holds the pty bridge — so the parsed note goes through vaultSanitize before it is
     // adopted, never straight into innerHTML.
     md.replaceChildren(vaultSanitize(marked.parse(src)));
+    vaultHeldBanner(md);
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
@@ -6398,6 +6399,7 @@ function vaultHost(url) { try { return new URL(url).host; } catch { return ''; }
 function vaultChip(kind, url, onLoad) {
   const chip = document.createElement('span');
   chip.className = 'vblock';
+  chip.dataset.kind = kind;   // the note's banner counts images by it (vaultHeldBanner)
   chip.title = t('viewer.blocked.why');
   const ic = document.createElement('span');
   ic.className = 'vblock-ico';
@@ -6415,6 +6417,39 @@ function vaultChip(kind, url, onLoad) {
     chip.appendChild(b);
   }
   return chip;
+}
+/* Above a note that had anything held back, one plain-language banner, the way a mail app says "images are hidden"
+   (0.15.1 round: a chip alone did not tell a non-technical reader WHY, or that nothing is broken). Show images loads every
+   held image of this note; embeds keep their own Open in browser. Built from the static icon table and textContent. */
+function vaultHeldBanner(md) {
+  const chips = [...md.querySelectorAll('.vblock')];
+  if (!chips.length) return;
+  const images = chips.filter((c) => c.dataset.kind === 'image' && c.querySelector('.vblock-btn'));
+  const bar = document.createElement('div');
+  bar.className = 'vheld';
+  const ic = document.createElement('span');
+  ic.className = 'vheld-ico';
+  ic.innerHTML = icon('shield', 16);
+  const text = document.createElement('div');
+  text.className = 'vheld-text';
+  const head = document.createElement('strong');
+  head.textContent = t('viewer.held.title', { n: chips.length });
+  const why = document.createElement('span');
+  why.textContent = t('viewer.held.why');
+  text.append(head, why);
+  bar.append(ic, text);
+  if (images.length) {
+    const show = document.createElement('button');
+    show.type = 'button';
+    show.className = 'vblock-btn';
+    show.textContent = t('viewer.held.showImages', { n: images.length });
+    show.addEventListener('click', () => {
+      for (const c of images) { const b = c.querySelector('.vblock-btn'); if (b && c.isConnected) b.click(); }
+      if (!md.querySelector('.vblock')) bar.remove(); else show.remove();
+    });
+    bar.appendChild(show);
+  }
+  md.prepend(bar);
 }
 function vaultSanitize(html) {
   const tpl = document.createElement('template');   // inert: no script runs and no image loads until adopted
@@ -10513,8 +10548,13 @@ function chatSkinVoiceLive(p, rec) {
   if (!cs.placeholder0) cs.placeholder0 = cs.input.placeholder;
   let heard = '';
   if (rec) { try { heard = chatSkinPromptBoxText(p); } catch { heard = ''; } }
+  const was = cs.input.classList.contains('listening');
   cs.input.classList.toggle('listening', !!rec);
-  cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;
+  /* Not listening: give the placeholder back only when a dictation just ended, and through chatSkinPlaceholder, which knows
+     about Claude Code's suggestion. This runs on every status-line redraw, and writing placeholder0 here each time wiped the
+     suggestion until the next tick: it blinked every few seconds, even untouched (0.15.1 round). */
+  if (rec) cs.input.placeholder = heard || t('chat.voice.listening');
+  else if (was) chatSkinPlaceholder(p);
   /* The box grows to the whole dictation. A placeholder does not size a textarea, so it is measured as if it were the value
      (set and cleared in the same tick: no input event, nothing sent) and the height follows (0.14.1 round: a long dictation
      was cut to its first line). With no dictation the box goes back to its own size. */
@@ -10730,8 +10770,18 @@ function chatSkinStickyPaint(cs) {
 }
 function chatSkinAutosize(cs) {
   if (cs.box) { cs.box.classList.toggle('bang', cs.input.value.startsWith('!')); cs.box.classList.toggle('has-text', cs.input.value !== ''); }   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
+  /* Shrinking to 'auto' to measure resets the box's scroll, so in a box taller than its ceiling a new line went out of sight:
+     the browser had scrolled to it, and the measuring threw it back (0.15.1 round). Keep the scroll, then bring the caret
+     into view again (setSelectionRange scrolls a focused textarea to it). */
+  const keep = cs.input.scrollTop;
   cs.input.style.height = 'auto';
   cs.input.style.height = Math.min(cs.input.scrollHeight, 220, Math.round(window.innerHeight * 0.4)) + 'px';   // grows with the text up to a ceiling, then scrolls
+  cs.input.scrollTop = keep;
+  if (document.activeElement === cs.input) {
+    const a = cs.input.selectionStart, b = cs.input.selectionEnd, dir = cs.input.selectionDirection;
+    if (b === cs.input.value.length) cs.input.scrollTop = cs.input.scrollHeight;   // typing at the end: the end is in view
+    else cs.input.setSelectionRange(a, b, dir);
+  }
 }
 /* ── slash commands: the popup over the composer ─────────────────────────────────────────────────────────
    Typing `/` at the very start of the box asks main (slashCommands:list) what to offer: the built-in commands,

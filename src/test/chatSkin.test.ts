@@ -4183,6 +4183,51 @@ test('a send ends the suggestion at once, so a held one never shows during the n
   assert.match(skinFn('chatSkinSubmit'), /cs\.suggest = ''; cs\.suggestGoneAt = 0;/);
 });
 
+/* 0.15.1 round 2: the blink was the voice mirror, run on every status-line redraw, writing the plain placeholder over the
+   suggestion. Runs the REAL chatSkinVoiceLive. */
+guarded('a status-line redraw while not dictating leaves the suggestion in the box; a dictation ending gives it back',
+  (src) => {
+    const s = slice(src);
+    const at = s.indexOf('function chatSkinVoiceLive(');
+    const fn = s.slice(at, s.indexOf('\n}\n', at) + 2);
+    let restored = 0;
+    const mk = (listening: boolean) => {
+      const cls = new Set(listening ? ['listening'] : []);
+      const cs = { placeholder0: 'Message x…', input: { value: '', placeholder: 'S:run the tests', style: {} as Record<string, string>, scrollHeight: 30,
+        classList: { contains: (c: string) => cls.has(c), toggle: (c: string, on: boolean) => { if (on) cls.add(c); else cls.delete(c); } } } };
+      return { p: { chatSkin: cs }, cs };
+    };
+    const live = new Function('chatSkinPromptBoxText', 't', 'chatSkinPlaceholder', 'chatSkinAutosize', 'window', fn + 'return chatSkinVoiceLive;')(
+      () => 'hello', (k: string) => k, () => { restored++; }, () => {}, { innerHeight: 900 }) as (p: unknown, rec: boolean) => void;
+    const idle = mk(false); live(idle.p, false);
+    const ended = mk(true); live(ended.p, false);
+    const rec = mk(false); live(rec.p, true);
+    return idle.cs.input.placeholder === 'S:run the tests' && restored === 1 && rec.cs.input.placeholder === 'hello';
+  },
+  (src) => src.replace("  if (rec) cs.input.placeholder = heard || t('chat.voice.listening');\n  else if (was) chatSkinPlaceholder(p);",
+    "  cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;"));
+
+/* 0.15.1 round 2: a new line in a box taller than its ceiling went out of sight. Runs the REAL chatSkinAutosize. */
+guarded('resizing the box keeps its scroll, and a caret at the end stays in view',
+  (src) => {
+    const s = slice(src);
+    const at = s.indexOf('function chatSkinAutosize(');
+    const fn = s.slice(at, s.indexOf('\n}\n', at) + 2);
+    const run = (caretAtEnd: boolean) => {
+      let sel: number[] = [];
+      const input = { value: 'x'.repeat(500), scrollTop: 400, scrollHeight: 900, selectionStart: caretAtEnd ? 500 : 100, selectionEnd: caretAtEnd ? 500 : 100,
+        selectionDirection: 'none', style: {} as Record<string, string>, setSelectionRange(a: number, b: number) { sel = [a, b]; } };
+      const st = input.style as Record<string, string>;
+      Object.defineProperty(st, 'height', { set(v: string) { if (v === 'auto') input.scrollTop = 0; }, get() { return ''; } });
+      const doc = { activeElement: input };
+      new Function('document', 'window', fn + 'return chatSkinAutosize;')(doc, { innerHeight: 900 })({ input, box: null });
+      return { top: input.scrollTop, sel };
+    };
+    const end = run(true), mid = run(false);
+    return end.top === 900 && mid.top === 400 && mid.sel[0] === 100;
+  },
+  (src) => src.replace('  cs.input.scrollTop = keep;\n', '').replace("    if (b === cs.input.value.length) cs.input.scrollTop = cs.input.scrollHeight;", '    if (false) {}'));
+
 test('Tab on an empty box takes the suggestion into it, cursor at the end', () => {
   const calls: string[] = [];
   const take = new Function('chatSkinAutosize', 'chatSkinControls', 'chatSkinPlaceholder', skinFn('chatSkinSuggestTake') + 'return chatSkinSuggestTake;')(

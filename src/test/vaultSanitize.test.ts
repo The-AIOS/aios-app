@@ -114,7 +114,7 @@ guarded('a chip never brings the content in: its only markup is the static icon,
   (src) => {
     const c = chipSrc(src);
     const inner = [...c.matchAll(/\.innerHTML = ([^;]+);/g)].map((m) => m[1]);
-    return inner.length === 1 && /^icon\(/.test(inner[0])
+    return inner.length >= 1 && inner.every((x) => /^icon\(/.test(x))
       && /if \(\/\^https\?:\\\/\\\/\/i\.test\(v\)\) return v;/.test(c)
       && /words\.textContent = t\('viewer\.blocked\.' \+ kind/.test(c)
       && /void window\.glassShell\.openExternal\(url\)/.test(c);
@@ -129,5 +129,19 @@ test('every chip string exists in all four languages', () => {
   for (const loc of ['en', 'es', 'pt-br', 'el']) {
     const b = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8'));
     for (const k of ['why', 'embed', 'media', 'drawing', 'form', 'image', 'load', 'open']) assert.ok(b['viewer.blocked.' + k], `${loc}: ${k}`);
+  }
+});
+
+/* 0.15.1 round 2: a note that had anything held back says so in plain words, once, at the top, like a mail app. */
+guarded('a note with held-back content gets one plain-language banner, with Show images when images were held',
+  (src) => /md\.replaceChildren\(vaultSanitize\(marked\.parse\(src\)\)\);\n\s+vaultHeldBanner\(md\);/.test(src)
+    && /const images = chips\.filter\(\(c\) => c\.dataset\.kind === 'image' && c\.querySelector\('\.vblock-btn'\)\);/.test(src)
+    && /chip\.dataset\.kind = kind;/.test(src)
+    && /head\.textContent = t\('viewer\.held\.title'/.test(src) && /why\.textContent = t\('viewer\.held\.why'\)/.test(src),
+  (src) => src.replace('    vaultHeldBanner(md);\n', ''));
+test('the banner strings exist in all four languages', () => {
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const b = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8'));
+    for (const k of ['title', 'why', 'showImages']) assert.ok(b['viewer.held.' + k], `${loc}: ${k}`);
   }
 });
