@@ -854,6 +854,11 @@ body.light .modal-wrap { background: rgba(0,0,0,.25); }
 .modal.confirm .vbtn.danger { color: var(--st-error-ink); border-color: color-mix(in srgb, var(--st-error) 40%, transparent); }
 .modal.confirm .vbtn.danger:hover { background: color-mix(in srgb, var(--st-error) 16%, transparent); }
 .plist { max-height: 320px; overflow-y: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+/* The tick-box picker fits the window (#144): never taller than what is below its top margin, and the LIST gives up the
+   height — the title, filter and button always stay on screen. 17vh is .modal-wrap's top padding. */
+.modal.mcheck { display: flex; flex-direction: column; max-height: calc(100vh - 17vh - 16px); box-sizing: border-box; }
+.modal.mcheck > * { flex-shrink: 0; }
+.modal.mcheck > .plist { flex: 0 1 auto; min-height: 64px; }
 .prow { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); font-size: 13px; }
 .prow.on { background: var(--surface-2); box-shadow: var(--edge); }
 .picon { display: inline-flex; color: var(--subtle); }

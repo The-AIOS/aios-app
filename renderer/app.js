@@ -13845,7 +13845,9 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
     claimModal(wrap, () => done(null));
-    wrap.innerHTML = `<div class="modal"><div class="mtitle"></div><div class="msub"></div>
+    /* .mcheck: the picker fits the window, whatever its height — the list scrolls and the title, filter and button stay
+       on screen (#144: on a 14-inch Windows laptop the "Resume selected" button sat below the bottom edge). */
+    wrap.innerHTML = `<div class="modal mcheck"><div class="mtitle"></div><div class="msub"></div>
       <input id="checkInput" /><div class="plist"></div>
       <div class="mfoot"><span class="mhint"></span><span class="mbtns"><button class="vbtn primary mgo"></button></span></div></div>`;
     wrap.querySelector('.mtitle').textContent = title;
@@ -13871,6 +13873,10 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
     const input = wrap.querySelector('#checkInput');
     input.placeholder = placeholder || t('modal.filterPlaceholder');
     const list = wrap.querySelector('.plist');
+    /* After a click in the list the focus goes back to the filter box: Enter and the arrows are read there, and a row is
+       not focusable, so the click left the focus on <body> and the next Enter went nowhere (#144). Given back on click
+       rather than kept by cancelling mousedown, which would also stop the list's scrollbar being dragged. */
+    list.addEventListener('click', () => { if (wrap.isConnected) input.focus({ preventScroll: true }); });
     const state = items.map((it) => ({ ...it, on: it.picked !== false }));
     let filtered = state, sel = 0;
     /* SCROLL TO LOAD MORE. The list rendered a fixed first 60, so with 209 named sessions the
@@ -13936,7 +13942,7 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
         const lb = document.createElement('span'); lb.className = 'plabel'; lb.textContent = it.label;
         r.appendChild(lb);
         if (it.desc) { const d = document.createElement('span'); d.className = 'pdesc'; d.textContent = it.desc; r.appendChild(d); }
-        r.addEventListener('click', () => { it.on = !it.on; paint(); paintGo(); });
+        r.addEventListener('click', () => { it.on = !it.on; sel = idx; paint(); paintGo(); });   // the clicked row is also the highlighted one, so Enter acts on what the hand just touched
         r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
         list.appendChild(r);
       });
@@ -13967,6 +13973,7 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
         const it = filtered[sel];
         if (it && it.act) { done([it.value]); return; }
         if (state.some((s) => s.on) || allowEmpty) done(chosen());
+        else if (it) done([it.value]);   // nothing ticked: Enter opens the highlighted row (#144: "pressing Enter does nothing")
       }
       else if (e.key === 'Escape') { e.preventDefault(); done(null); }
     });
