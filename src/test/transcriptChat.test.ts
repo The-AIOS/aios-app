@@ -217,6 +217,18 @@ test('API errors written as synthetic assistant messages are system notes and en
   assert.equal(r.usage, undefined, 'a synthetic message carries no real usage');
 });
 
+test('an API error is flagged for the error card: by Claude Code\'s flag, or by its text; other synthetic notes are not', () => {
+  const one = (text: string, extra: object = {}) => {
+    const t = createTranscriptTracker();
+    t.feed(userStr('go'));
+    return t.feed(asst({ type: 'text', text }, 'refusal', extra, '<synthetic>')).items[0];
+  };
+  assert.equal(one("API Error: Opus 5.5's safeguards flagged this session", { isApiErrorMessage: true }).error, true);
+  assert.equal(one('Please run /login · API Error: 401 OAuth access token has been revoked.').error, true, 'the prefix is not always first');
+  assert.equal(one('Something odd', { isApiErrorMessage: true }).error, true, 'the flag alone is enough');
+  assert.equal(one('No response requested.').error, undefined, 'control: a synthetic note that is not an error stays a pill');
+});
+
 test('usage: context tokens are input + cache of the latest assistant message, with its model', () => {
   const t = createTranscriptTracker();
   const a = t.feed(asst({ type: 'text', text: 'x' }, 'end_turn'));
@@ -410,4 +422,12 @@ test('round 3: a slash command written twice under one promptId is one message (
   assert.deepEqual(model.map((i) => i.text), ['/model opus']);
   /* No promptId (older CLIs): nothing is merged on a guess. */
   assert.equal(byRole(feedAll([userStr('/compact'), userStr('<command-name>/compact</command-name>')]).items, 'user').length, 2);
+});
+
+test('#153: a paste Claude Code wrapped in <pasted_content> shows as what was pasted', () => {
+  const t = createTranscriptTracker();
+  const r = t.feed(userStr('look at this:\n\n<pasted_content id="5544">\nline one\nline two\n</pasted_content id="5544">\n'));
+  assert.deepEqual(r.items.map((i) => [i.role, i.text]), [['user', 'look at this:\n\nline one\nline two']]);
+  const plain = createTranscriptTracker().feed(userStr('no paste here <pasted_content> is just words'));
+  assert.equal(plain.items[0].text, 'no paste here <pasted_content> is just words', 'control: only the id form Claude Code writes is unwrapped');
 });

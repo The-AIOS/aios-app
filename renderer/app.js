@@ -4777,8 +4777,13 @@ function noteOperatorKeys(p, d) {
   }
 }
 
-function submitToPty(id, text, stillWaiting) {
+function submitToPty(id, text, stillWaiting, opts) {
   if (!text || (Array.isArray(text) && !text.length)) return;
+  /* `opts.paste`: the text goes in as a bracketed paste, the way a paste in the terminal arrives. Claude Code does not keep a
+     long burst of TYPED input intact: measured on 2.1.322, ~1.4 KB typed was recorded as its last 392 characters and 4.7 KB as
+     its last 609, whatever the Enter's delay; the same 4.7 KB pasted arrived whole, and a short paste is recorded as plain
+     text (0.15.1, #153). ESC is dropped from the text so nothing in it can end the paste early. */
+  if (opts && opts.paste && typeof text === 'string') text = '\x1b[200~' + text.replace(/\x1b/g, '') + '\x1b[201~';
   /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
      PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
   if (Array.isArray(text)) {
@@ -9299,10 +9304,11 @@ function chatSkinBuild(id, p) {
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
-  /* Tab on an empty box takes Claude Code's suggestion into it, as Tab does in the terminal. AFTER the slash popup's listener,
-     which stops the event: with the popup open, Tab completes the command and never reaches this. */
+  /* Tab or → on an empty box takes Claude Code's suggestion into it, as both do in the terminal (0.15.1: → is the terminal
+     habit). AFTER the slash popup's listener, which stops the event: with the popup open, Tab completes the command and never
+     reaches this. → only ever acts on an EMPTY box, where it has no caret to move, so it never steals cursor movement. */
   input.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || input.value !== '' || !cs.suggest) return;
+    if ((e.key !== 'Tab' && e.key !== 'ArrowRight') || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || input.value !== '' || !cs.suggest) return;
     e.preventDefault(); e.stopImmediatePropagation();
     chatSkinSuggestTake(cs);
   });
@@ -11183,10 +11189,54 @@ function chatSkinUpsert(cs, item, animate, before) {
       x.argFresh = false;
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
+  } else if (item.error) {
+    if (rec.text !== text) { chatSkinPaintApiError(rec, text, cs); rec.text = text; }
+    rec.node.hidden = !text.trim();
   } else {
     rec.body.textContent = text.replace(/^\[(Request interrupted by user[^\]]*)\]$/, '$1');   // Claude Code's marker without its brackets (0.14.0 round)
     rec.node.hidden = !text.trim();
   }
+}
+/* Split Claude Code's API-error text into what the operator reads and what support asks for. The reference lines
+   ("Details: …", "Request ID: …", "Message ID: …") go under a fold with a copy button; everything else is the message,
+   rendered as markdown so its links open. Pure: tested in chatSkin.test.ts. */
+function chatApiErrorParts(text) {
+  const refs = [];
+  const body = [];
+  for (const line of String(text || '').split('\n')) {
+    const m = /^\s*(Details|Request ID|Message ID):\s*(.+?)\s*$/.exec(line);
+    if (m) refs.push({ label: m[1], value: m[2].replace(/^`(.*)`$/, '$1') }); else body.push(line);
+  }
+  const message = body.join('\n').trim().replace(/^API Error:\s*/, '');
+  return { message, refs, refusal: /safeguards flagged/i.test(text) };
+}
+/* An API error (0.15.1, #149): a left-aligned card in the column, not the centred pill a one-line note gets. A safeguards
+   refusal is amber (nothing broke; the model declined), every other failure red. Built as DOM; the message goes through
+   chatRender, the same sanitiser a reply does, and the references are textContent. */
+function chatSkinPaintApiError(rec, text, cs) {
+  const { message, refs, refusal } = chatApiErrorParts(text);
+  rec.node.classList.add('err');
+  rec.node.classList.toggle('refusal', refusal);
+  const head = el('div', 'cn-head');
+  head.append(csIcon('alert', 14), el('strong', '', t(refusal ? 'chat.apiError.refusal' : 'chat.apiError.title')));
+  const msg = el('div', 'chat-md cn-msg');
+  chatRender(msg, message);
+  chatLinkPaths(msg, cs);
+  const parts = [head, msg];
+  if (refs.length) {
+    const det = el('details', 'cn-refs');
+    const sum = el('summary', '', t('chat.apiError.details'));
+    const list = el('div', 'cn-ref-list');
+    for (const r of refs) { const line = el('div', 'cn-ref'); line.append(el('span', 'cn-ref-k', r.label), el('code', '', r.value)); list.appendChild(line); }
+    const copy = el('button', 'cm-copy');
+    copy.type = 'button';
+    const label = el('span', 'cm-copy-t', t('chat.code.copy'));
+    copy.append(csIcon('copy', 13), label);
+    copy.addEventListener('click', () => chatCopyTo(copy, label, refs.map((r) => r.label + ': ' + r.value).join('\n')));
+    det.append(sum, list, copy);
+    parts.push(det);
+  }
+  rec.node.replaceChildren(...parts);
 }
 /* ── the reply being written ─────────────────────────────────────────────────────────────────────────────────
    The transcript only records a message when it is complete, so a long answer would appear all at once at the end. Main
@@ -11696,6 +11746,7 @@ function chatSkinImageParts(text) {
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 }
+const CS_PASTE_DRAFT = /^\[Pasted text #\d+/;   // how Claude Code's box shows a long paste before it is sent
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
@@ -11706,7 +11757,10 @@ function chatSkinSubmit(id, p, text) {
   const sent = text.replace(/\s+/g, ' ').trim();
   const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
   if (imgParts) submitToPty(id, imgParts);
-  else submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  /* Typed for a slash command (a pasted "/name" would be a message, not a command); pasted otherwise, so a long message
+     arrives whole (#153). A long paste shows in Claude Code's box as "[Pasted text #1 …]", which counts as unsent too. */
+  else if (text.startsWith('/')) submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);
+  else submitToPty(id, text, () => { if (panes.get(id) !== p || p.exited || chatSkinWorking(p)) return false; const d = chatSkinPromptDraft(p); return d === sent || CS_PASTE_DRAFT.test(d); }, { paste: true });   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
   chatSkinControls(p);
