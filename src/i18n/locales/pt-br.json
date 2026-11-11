@@ -1609,5 +1609,13 @@
   "chat.mode.d.edits": "Edita arquivos sem perguntar",
   "chat.mode.d.plan": "Planeja primeiro, não muda nada",
   "chat.mode.d.auto": "Age sozinho, com verificações de segurança",
-  "chat.mode.d.bypass": "Nunca pergunta"
+  "chat.mode.d.bypass": "Nunca pergunta",
+  "viewer.blocked.why": "O AIOS não executa conteúdo incorporado em notas: esta janela também digita nas suas sessões.",
+  "viewer.blocked.embed": "Página incorporada de {host} não exibida",
+  "viewer.blocked.media": "Vídeo ou áudio de {host} não exibido",
+  "viewer.blocked.drawing": "Desenho não exibido",
+  "viewer.blocked.form": "Formulário não exibido",
+  "viewer.blocked.image": "Imagem de {host} não carregada",
+  "viewer.blocked.load": "Carregar",
+  "viewer.blocked.open": "Abrir no navegador"
 }

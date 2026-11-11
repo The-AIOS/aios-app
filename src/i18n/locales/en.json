@@ -1609,5 +1609,13 @@
   "chat.mode.d.edits": "Edits files without asking",
   "chat.mode.d.plan": "Plans first, changes nothing",
   "chat.mode.d.auto": "Acts on its own, with safety checks",
-  "chat.mode.d.bypass": "Never asks"
+  "chat.mode.d.bypass": "Never asks",
+  "viewer.blocked.why": "AIOS doesn't run embedded content from notes: this window also types into your sessions.",
+  "viewer.blocked.embed": "Embedded page from {host} not shown",
+  "viewer.blocked.media": "Video or audio from {host} not shown",
+  "viewer.blocked.drawing": "Drawing not shown",
+  "viewer.blocked.form": "Form not shown",
+  "viewer.blocked.image": "Image from {host} not loaded",
+  "viewer.blocked.load": "Load",
+  "viewer.blocked.open": "Open in browser"
 }

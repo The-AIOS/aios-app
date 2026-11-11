@@ -6345,6 +6345,48 @@ function vaultSafeUrl(tag, name, value) {
   if (tag === 'IMG' && name === 'src') return /^(file:|data:image\/(png|jpe?g|gif|webp|bmp);)/i.test(v);
   return false;                                                // javascript:, vbscript:, data:text/html, …
 }
+/* What the reader SEES of what was taken out (0.15.1 round: a vanished embed or a broken image reads as a broken viewer).
+   Visible kinds become a chip that says what was not shown; invisible ones (script, style, meta…) are removed silently.
+   A chip never brings the content into this window, which also types into the operator's sessions:
+     · an embed with an https address can be opened in the BROWSER, outside the App;
+     · a remote image waits for a click (it is how a note tracks who read it, and when): Load puts it back as an image,
+       which cannot run code.
+   Chips are built here from the static icon table and textContent; the URL comes from the note, so it is shown as text
+   and used only through vaultSafeUrl-checked http(s). */
+const VAULT_CHIP = { IFRAME: 'embed', FRAME: 'embed', OBJECT: 'embed', EMBED: 'embed', APPLET: 'embed', PORTAL: 'embed',
+  VIDEO: 'media', AUDIO: 'media', SVG: 'drawing', MATH: 'drawing', FORM: 'form', BUTTON: 'form', SELECT: 'form',
+  TEXTAREA: 'form', DIALOG: 'form' };
+function vaultHttpUrl(el) {
+  for (const n of ['src', 'data', 'href']) {
+    const v = String(el.getAttribute(n) || '').trim();
+    if (/^https?:\/\//i.test(v)) return v;
+  }
+  const s = el.querySelector && el.querySelector('source[src]');
+  const v = s ? String(s.getAttribute('src') || '').trim() : '';
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+function vaultHost(url) { try { return new URL(url).host; } catch { return ''; } }
+function vaultChip(kind, url, onLoad) {
+  const chip = document.createElement('span');
+  chip.className = 'vblock';
+  chip.title = t('viewer.blocked.why');
+  const ic = document.createElement('span');
+  ic.className = 'vblock-ico';
+  ic.innerHTML = icon(kind === 'image' ? 'img' : 'shield', 12);
+  const host = url ? vaultHost(url) : '';
+  const words = document.createElement('span');
+  words.textContent = t('viewer.blocked.' + kind, { host: host || '?' });
+  chip.append(ic, words);
+  if (url && host) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'vblock-btn';
+    b.textContent = t(onLoad ? 'viewer.blocked.load' : 'viewer.blocked.open');
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (onLoad) onLoad(chip); else void window.glassShell.openExternal(url); });
+    chip.appendChild(b);
+  }
+  return chip;
+}
 function vaultSanitize(html) {
   const tpl = document.createElement('template');   // inert: no script runs and no image loads until adopted
   tpl.innerHTML = html;
@@ -6353,7 +6395,11 @@ function vaultSanitize(html) {
       if (child.nodeType === 3) continue;
       if (child.nodeType !== 1) { child.remove(); continue; }
       const tag = child.tagName.toUpperCase();   // SVG/MathML elements report lowercase tag names
-      if (VAULT_DROP.has(tag)) { child.remove(); continue; }
+      if (VAULT_DROP.has(tag)) {
+        if (VAULT_CHIP[tag]) child.replaceWith(vaultChip(VAULT_CHIP[tag], vaultHttpUrl(child)));
+        else child.remove();
+        continue;
+      }
       walk(child);
       if (!VAULT_TAGS.has(tag) || (tag === 'INPUT' && (child.getAttribute('type') || '').toLowerCase() !== 'checkbox')) {
         child.replaceWith(...child.childNodes);   // keep the words, lose the element
@@ -6364,6 +6410,17 @@ function vaultSanitize(html) {
         if (!VAULT_ATTRS.has(name) || ((name === 'href' || name === 'src') && !vaultSafeUrl(tag, name, a.value))) {
           child.removeAttribute(a.name);
         }
+      }
+      /* A remote image waits for a click; a local one (relative, file:, data:image) shows as before. */
+      if (tag === 'IMG' && /^https?:\/\//i.test(String(child.getAttribute('src') || '').trim())) {
+        const url = String(child.getAttribute('src')).trim();
+        const alt = child.getAttribute('alt') || '';
+        child.replaceWith(vaultChip('image', url, (chip) => {
+          const img = document.createElement('img');
+          img.alt = alt;
+          img.src = url;   // an image cannot run code; the click is consent to the request
+          chip.replaceWith(img);
+        }));
       }
     }
   };

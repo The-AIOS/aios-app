@@ -45,7 +45,7 @@ guarded('vaultSanitize parses into an inert <template> and walks every element',
     const b = fnBody(src, 'vaultSanitize');
     return /document\.createElement\('template'\)/.test(b) && /VAULT_DROP\.has\(tag\)/.test(b) && /return tpl\.content/.test(b);
   },
-  (src) => src.replace("if (VAULT_DROP.has(tag)) { child.remove(); continue; }", ''));
+  (src) => src.replace('if (VAULT_DROP.has(tag)) {', 'if (false) {'));
 
 guarded('only allowlisted attributes survive (no on* handler, no style, no srcdoc)',
   (src) => {
@@ -94,4 +94,40 @@ test('vaultSafeUrl, run: scriptable schemes are refused however they are disguis
   }
   assert.equal(safe('IMG', 'src', 'file:///Users/x/vault/a.png'), true, 'local images still render');
   assert.equal(safe('IMG', 'src', 'data:image/png;base64,iVBORw0KGgo='), true);
+});
+
+/* 0.15.1 round: what was taken out is SAID, not silently gone, and remote images wait for a click. */
+const chipSrc = (src: string) => src.slice(src.indexOf('const VAULT_CHIP = {'), src.indexOf('function vaultSanitize('));
+guarded('a visible embed becomes a chip saying what was not shown; script, style and the like still vanish silently',
+  (src) => {
+    const c = chipSrc(src);
+    const kinds = /const VAULT_CHIP = \{([\s\S]*?)\};/.exec(c);
+    const tags = kinds ? [...kinds[1].matchAll(/([A-Z]+):/g)].map((m) => m[1]) : [];
+    const drop = /const VAULT_DROP = new Set\(\[([\s\S]*?)\]\);/.exec(src);
+    const dropTags = drop ? [...drop[1].matchAll(/'([A-Z]+)'/g)].map((m) => m[1]) : [];
+    return tags.length > 0 && tags.every((t) => dropTags.includes(t)) && !tags.includes('SCRIPT') && !tags.includes('STYLE')
+      && /if \(VAULT_CHIP\[tag\]\) child\.replaceWith\(vaultChip\(VAULT_CHIP\[tag\], vaultHttpUrl\(child\)\)\);\n\s+else child\.remove\(\);/.test(src);
+  },
+  (src) => src.replace('if (VAULT_CHIP[tag]) child.replaceWith(vaultChip(VAULT_CHIP[tag], vaultHttpUrl(child)));', 'if (VAULT_CHIP[tag]) child.replaceWith(child.cloneNode(true));'));
+
+guarded('a chip never brings the content in: its only markup is the static icon, the URL is text, and only http(s) is offered',
+  (src) => {
+    const c = chipSrc(src);
+    const inner = [...c.matchAll(/\.innerHTML = ([^;]+);/g)].map((m) => m[1]);
+    return inner.length === 1 && /^icon\(/.test(inner[0])
+      && /if \(\/\^https\?:\\\/\\\/\/i\.test\(v\)\) return v;/.test(c)
+      && /words\.textContent = t\('viewer\.blocked\.' \+ kind/.test(c)
+      && /void window\.glassShell\.openExternal\(url\)/.test(c);
+  },
+  (src) => src.replace("words.textContent = t('viewer.blocked.' + kind", "words.innerHTML = t('viewer.blocked.' + kind"));
+
+guarded('a remote image waits for a click; a local one shows as before',
+  (src) => /if \(tag === 'IMG' && \/\^https\?:\\\/\\\/\/i\.test\(String\(child\.getAttribute\('src'\) \|\| ''\)\.trim\(\)\)\) \{[\s\S]{0,200}child\.replaceWith\(vaultChip\('image', url, \(chip\) => \{[\s\S]{0,200}img\.src = url;/.test(src),
+  (src) => src.replace("if (tag === 'IMG' && /^https?:\\/\\//i.test(", "if (false && /^https?:\\/\\//i.test("));
+
+test('every chip string exists in all four languages', () => {
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const b = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8'));
+    for (const k of ['why', 'embed', 'media', 'drawing', 'form', 'image', 'load', 'open']) assert.ok(b['viewer.blocked.' + k], `${loc}: ${k}`);
+  }
 });
