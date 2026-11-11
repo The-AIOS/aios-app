@@ -51,6 +51,10 @@ npm run rebuild      # node-pty against this Electron version — once, and afte
 npm start
 ```
 
+Already have the AIOS App installed? Use `npm run start:isolated` instead of `npm start`: the copy you
+are working on then keeps its own settings folder, so it can run beside the installed App without
+the two fighting over the same settings or the single-instance lock.
+
 `npm run rebuild` is not optional. `node-pty` is a native module, and a mismatched ABI fails at
 terminal-spawn time rather than at install time — a confusing place to learn it.
 
