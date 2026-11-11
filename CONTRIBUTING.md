@@ -6,6 +6,9 @@ It is the single source for the rules that apply everywhere: the `custom/` rule,
 session must keep, commit format, CHANGELOG expectations, licensing and the no-personal-content
 discipline. This file adds only what is specific to the App.
 
+**New to the codebase?** [docs/MAP.md](docs/MAP.md) shows where each part of the App lives, how the
+tests work, and the words you'll meet, so you can go straight to the code an issue is about.
+
 ## Before you build
 
 - **Look for it first.** Search open and recently closed
