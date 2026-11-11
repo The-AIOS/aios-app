@@ -1069,7 +1069,7 @@
   "shortcut.openPath": "Άνοιγμα path από το terminal",
   "shortcut.none": "Δεν βρέθηκαν συντομεύσεις — το μενού μπορεί να μην έχει εγκατασταθεί ακόμα",
   "shortcuts.inSession": "Μέσα σε μια συνεδρία (Claude Code)",
-  "shortcuts.inSessionHint": "Τα πλήκτρα του ίδιου του Claude Code, ελεγμένα με το Claude Code {version}. Το Enter στέλνει· το ίδιο και το Shift+Enter σε αυτό το τερματικό.",
+  "shortcuts.inSessionHint": "Τα πλήκτρα του ίδιου του Claude Code, ελεγμένα με το Claude Code {version}. Το Enter στέλνει.",
   "shortcuts.inSessionDocs": "Πλήρης αναφορά",
   "shortcut.sessionNewline": "Νέα γραμμή χωρίς αποστολή",
   "shortcut.sessionLineEdges": "Αρχή / τέλος της γραμμής",
