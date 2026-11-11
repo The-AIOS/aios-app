@@ -37,6 +37,11 @@ export interface ChatItem {
   role: 'user' | 'assistant' | 'tool' | 'system';
   /** Raw markdown for assistant text; the renderer sanitises and renders it. */
   text?: string;
+  /**
+   * A system note that is Claude Code reporting a failed API call (overloaded, network, login, a model's safeguards
+   * refusing). Drawn as an error card, not the one-line pill (0.15.1: a multi-paragraph refusal became a giant pill).
+   */
+  error?: true;
   tool?: {
     id: string; name: string; summary: string; status: 'running' | 'ok' | 'error';
     /**
@@ -144,8 +149,18 @@ function tagText(s: string, tag: string): string | undefined {
  *  - injected scaffolding (task notifications, caveats, reminders) → nothing;
  *  - anything else → the operator's message.
  */
+/**
+ * Claude Code records a long paste wrapped as `<pasted_content id="N">…</pasted_content id="N">`. The chat shows what the
+ * operator pasted, not the wrapper (0.15.1, #153: the chat now sends its text as a paste, so long messages carry it).
+ */
+const PASTE_OPEN = /\n?<pasted_content id="[^"]*">\n?/g;
+const PASTE_CLOSE = /\n?<\/pasted_content id="[^"]*">\n?/g;
+export function unwrapPastes(s: string): string {
+  return s.replace(PASTE_OPEN, '\n').replace(PASTE_CLOSE, '\n');
+}
+
 function userText(raw: string): { role: 'user' | 'system'; text: string; local?: true; bang?: 'input' | 'output' | 'error' } | undefined {
-  const s = raw.replace(REMINDER, '').trim();
+  const s = unwrapPastes(raw.replace(REMINDER, '')).trim();
   if (!s) return undefined;
   if (INTERRUPT.test(s)) return { role: 'system', text: s };
   const name = tagText(s, 'command-name');
@@ -293,7 +308,10 @@ export function createTranscriptTracker(): TranscriptTracker {
     // They are not an answer: show them as a system note and let the turn end.
     if (synthetic) {
       const text = content.map((b) => (isObj(b) && b.type === 'text' && typeof b.text === 'string' ? b.text : '')).join('').trim();
-      if (text && uuid) u.items.push({ uuid, role: 'system', text, ...(ts ? { ts } : {}) });
+      // Claude Code flags these records `isApiErrorMessage`; the text test covers a writer that ever drops the flag.
+      // Not anchored: "Please run /login · API Error: 401 …" is one of them.
+      const error = d.isApiErrorMessage === true || /\bAPI Error:/.test(text);
+      if (text && uuid) u.items.push({ uuid, role: 'system', text, ...(error ? { error: true as const } : {}), ...(ts ? { ts } : {}) });
       setTurn(false, u);
       return;
     }

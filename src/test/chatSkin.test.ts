@@ -123,7 +123,7 @@ guarded('the composer submits through submitToPty, never by writing a CR itself'
       && [...btm.matchAll(/press\(([^)]*)\)/g)].map((m) => m[1]).every((k) => ["'\\x1b[B'", 'enter', 'k', "step > 0 ? '\\x1b[B' : '\\x1b[A'"].includes(k))
       && /chatSkinPromptEmpty\(p\)\) return false;/.test(btm) && /if \(now !== c \+ step\) return false;/.test(btm)
   },
-  (src) => src.replace('submitToPty(id, text, () =>', "window.glassShell.ptyWrite(id, text + '\\r'); (() =>"));
+  (src) => src.split('submitToPty(id, text, () =>').join("window.glassShell.ptyWrite(id, text + '\\r'); (() =>"));
 
 guarded('slash commands are sent exactly like any other message (no filter, no special path)',
   (src) => {
@@ -4141,9 +4141,92 @@ test("0.15.0 review: Claude Code's static example is never offered, and nothing 
   const broken = loadSuggest(app.replace(`return /^Try ["“]/.test(said) ? '' : said;`, 'return said;'));
   assert.equal(broken.suggestion(suggestPane('', 'Try "fix lint errors"')), 'Try "fix lint errors"', 'control: without the filter the example leaks through');
   const paint = skinFn('chatSkinSuggestPaint');
-  assert.match(paint, /cs\.input\.value === '' && chatSkinHasReply\(cs\) \? chatSkinPromptSuggestion\(p\)/, 'a suggestion only after a finished reply');
+  assert.match(paint, /const open = !cs\.recording && !cs\.promptKind && !chatSkinCardOn\(cs\) && cs\.input\.value === '';\n\s+let s = open && chatSkinHasReply\(cs\) \? chatSkinPromptSuggestion\(p\)/, 'a suggestion only after a finished reply');
   assert.match(skinFn('chatSkinHasReply'), /querySelector\('\.chat-row\.who-claude'\)/);
 });
+
+/* 0.15.1 round: the suggestion "comes and goes the first time and then stays". Runs the REAL painter against a screen that
+   loses the suggestion for one frame, with a fake clock. */
+function suggestRun(src: string) {
+  const s = slice(src);
+  const hold = s.slice(s.indexOf('const CS_SUGGEST_HOLD_MS'), s.indexOf('\n', s.indexOf('const CS_SUGGEST_HOLD_MS')) + 1);
+  const at = s.indexOf('function chatSkinSuggestPaint(');
+  const fn = s.slice(at, s.indexOf('\n}\n', at) + 2);
+  let now = 1000;
+  let screen = '';
+  const shown: string[] = [];
+  const cs = { input: { value: '', placeholder: '' }, suggest: '', recording: false, promptKind: '' } as Record<string, unknown> & { input: { value: string; placeholder: string } };
+  const p = { chatSkin: cs };
+  const paint = new Function('chatSkinCardOn', 'chatSkinHasReply', 'chatSkinPromptSuggestion', 't', 'chatSkinPlaceholder', 'Date', 'setTimeout',
+    hold + fn + 'return chatSkinSuggestPaint;')(
+    () => false, () => true, () => screen, (_k: string, v: { text: string }) => 'S:' + v.text,
+    () => { cs.input.placeholder = cs.suggest ? 'S:' + cs.suggest : 'base'; shown.push(cs.input.placeholder); },
+    { now: () => now }, () => 0) as (p: unknown) => void;
+  return { cs, step(scr: string, ms = 100) { screen = scr; now += ms; paint(p); return cs.input.placeholder; } };
+}
+guarded('a suggestion that drops off the screen for a moment stays in the box; typing still clears it at once',
+  (src) => {
+    const r = suggestRun(src);
+    const a = r.step('run the tests');
+    const blink = r.step('');             // Claude Code redraws: one frame without it
+    const back = r.step('run the tests');
+    const r2 = suggestRun(src);
+    r2.step('run the tests'); r2.step('', 100);
+    const gone = r2.step('', 2000);      // really gone: cleared after the hold
+    const r3 = suggestRun(src);
+    r3.step('run the tests'); r3.cs.input.value = 'mine';
+    r3.step('');
+    return a === 'S:run the tests' && blink === 'S:run the tests' && back === 'S:run the tests' && gone === 'base' && r3.cs.suggest === '';
+  },
+  (src) => src.replace('if (now - cs.suggestGoneAt < CS_SUGGEST_HOLD_MS) {', 'if (false) {'));
+test('a send ends the suggestion at once, so a held one never shows during the next turn', () => {
+  assert.match(skinFn('chatSkinSubmit'), /cs\.suggest = ''; cs\.suggestGoneAt = 0;/);
+});
+
+/* 0.15.1 round 2: the blink was the voice mirror, run on every status-line redraw, writing the plain placeholder over the
+   suggestion. Runs the REAL chatSkinVoiceLive. */
+guarded('a status-line redraw while not dictating leaves the suggestion in the box; a dictation ending gives it back',
+  (src) => {
+    const s = slice(src);
+    const at = s.indexOf('function chatSkinVoiceLive(');
+    const fn = s.slice(at, s.indexOf('\n}\n', at) + 2);
+    let restored = 0;
+    const mk = (listening: boolean) => {
+      const cls = new Set(listening ? ['listening'] : []);
+      const cs = { placeholder0: 'Message x…', input: { value: '', placeholder: 'S:run the tests', style: {} as Record<string, string>, scrollHeight: 30,
+        classList: { contains: (c: string) => cls.has(c), toggle: (c: string, on: boolean) => { if (on) cls.add(c); else cls.delete(c); } } } };
+      return { p: { chatSkin: cs }, cs };
+    };
+    const live = new Function('chatSkinPromptBoxText', 't', 'chatSkinPlaceholder', 'chatSkinAutosize', 'window', fn + 'return chatSkinVoiceLive;')(
+      () => 'hello', (k: string) => k, () => { restored++; }, () => {}, { innerHeight: 900 }) as (p: unknown, rec: boolean) => void;
+    const idle = mk(false); live(idle.p, false);
+    const ended = mk(true); live(ended.p, false);
+    const rec = mk(false); live(rec.p, true);
+    return idle.cs.input.placeholder === 'S:run the tests' && restored === 1 && rec.cs.input.placeholder === 'hello';
+  },
+  (src) => src.replace("  if (rec) cs.input.placeholder = heard || t('chat.voice.listening');\n  else if (was) chatSkinPlaceholder(p);",
+    "  cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;"));
+
+/* 0.15.1 round 2: a new line in a box taller than its ceiling went out of sight. Runs the REAL chatSkinAutosize. */
+guarded('resizing the box keeps its scroll, and a caret at the end stays in view',
+  (src) => {
+    const s = slice(src);
+    const at = s.indexOf('function chatSkinAutosize(');
+    const fn = s.slice(at, s.indexOf('\n}\n', at) + 2);
+    const run = (caretAtEnd: boolean) => {
+      let sel: number[] = [];
+      const input = { value: 'x'.repeat(500), scrollTop: 400, scrollHeight: 900, selectionStart: caretAtEnd ? 500 : 100, selectionEnd: caretAtEnd ? 500 : 100,
+        selectionDirection: 'none', style: {} as Record<string, string>, setSelectionRange(a: number, b: number) { sel = [a, b]; } };
+      const st = input.style as Record<string, string>;
+      Object.defineProperty(st, 'height', { set(v: string) { if (v === 'auto') input.scrollTop = 0; }, get() { return ''; } });
+      const doc = { activeElement: input };
+      new Function('document', 'window', fn + 'return chatSkinAutosize;')(doc, { innerHeight: 900 })({ input, box: null });
+      return { top: input.scrollTop, sel };
+    };
+    const end = run(true), mid = run(false);
+    return end.top === 900 && mid.top === 400 && mid.sel[0] === 100;
+  },
+  (src) => src.replace('  cs.input.scrollTop = keep;\n', '').replace("    if (b === cs.input.value.length) cs.input.scrollTop = cs.input.scrollHeight;", '    if (false) {}'));
 
 test('Tab on an empty box takes the suggestion into it, cursor at the end', () => {
   const calls: string[] = [];
@@ -4192,15 +4275,147 @@ guarded('the slash popup keeps Tab: its listener runs before the suggestion\'s, 
     const sug = s.indexOf('chatSkinSuggestTake(cs);\n  });');
     const head = s.lastIndexOf("input.addEventListener('keydown'", sug);
     const body = s.slice(head, sug);
-    return slash >= 0 && sug > 0 && slash < head && /input\.value !== ''/.test(body) && /!cs\.suggest/.test(body) && /e\.key !== 'Tab' \|\| e\.shiftKey/.test(body);
+    return slash >= 0 && sug > 0 && slash < head && /input\.value !== ''/.test(body) && /!cs\.suggest/.test(body) && /\(e\.key !== 'Tab' && e\.key !== 'ArrowRight'\) \|\| e\.shiftKey/.test(body);
   },
   (src) => {
     const line = "  input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });\n";
-    const sugStart = src.indexOf("  /* Tab on an empty box takes Claude Code's suggestion");
+    const sugStart = src.indexOf("  /* Tab or → on an empty box takes Claude Code's suggestion");
     const sugEnd = src.indexOf('chatSkinSuggestTake(cs);\n  });\n') + 'chatSkinSuggestTake(cs);\n  });\n'.length;
     const block = src.slice(sugStart, sugEnd);
     return src.replace(line, '').replace(block, block + line);   // the slash listener moved AFTER the suggestion's
   });
+
+/* 0.15.1 (#148): → takes the suggestion too, as in the terminal. Runs the REAL listener against fake key events; the control
+   restores the 0.15.0 Tab-only test, under which → must do nothing. */
+function sugListener(src: string): ((e: Record<string, unknown>) => void) & { taken: () => number } {
+  const s = slice(src);
+  const end = s.indexOf('chatSkinSuggestTake(cs);\n  });') + 'chatSkinSuggestTake(cs);\n  }'.length;
+  const head = s.lastIndexOf("input.addEventListener('keydown', ", end) + "input.addEventListener('keydown', ".length;
+  let n = 0;
+  const env = { input: { value: '' }, cs: { suggest: 'run the tests' } };
+  const fn = new Function('input', 'cs', 'chatSkinSuggestTake', 'return ' + s.slice(head, end) + ';')(env.input, env.cs, () => { n++; });
+  const run = (e: Record<string, unknown>) => {
+    env.input.value = String(e.value ?? ''); env.cs.suggest = String(e.suggest ?? 'run the tests');
+    fn({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, preventDefault() {}, stopImmediatePropagation() {}, ...e });
+  };
+  return Object.assign(run, { taken: () => n });
+}
+guarded('→ on an empty box takes the suggestion, like Tab; with text, a modifier or no suggestion it is a plain arrow',
+  (src) => {
+    const takes = (e: Record<string, unknown>) => { const l = sugListener(src); l(e); return l.taken() === 1; };
+    return takes({ key: 'ArrowRight' }) && takes({ key: 'Tab' })
+      && !takes({ key: 'ArrowRight', value: 'mine' }) && !takes({ key: 'ArrowRight', suggest: '' })
+      && !takes({ key: 'ArrowRight', shiftKey: true }) && !takes({ key: 'ArrowRight', metaKey: true }) && !takes({ key: 'ArrowRight', altKey: true })
+      && !takes({ key: 'ArrowRight', isComposing: true }) && !takes({ key: 'ArrowLeft' });
+  },
+  (src) => src.replace("(e.key !== 'Tab' && e.key !== 'ArrowRight') || e.shiftKey", "e.key !== 'Tab' || e.shiftKey"));
+
+test('the suggestion hint names both keys, in every language', () => {
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const s = JSON.parse(read(`src/i18n/locales/${loc}.json`))['chat.suggest.placeholder'] as string;
+    assert.match(s, /Tab .*→/, loc);
+  }
+});
+
+/* 0.15.1 (#149): Claude Code's API errors are a card, not the centred pill. */
+function loadApiErrorParts(src: string): (text: string) => { message: string; refs: { label: string; value: string }[]; refusal: boolean } {
+  const s = slice(src);
+  const at = s.indexOf('function chatApiErrorParts(');
+  return new Function(s.slice(at, s.indexOf('\n}\n', at) + 2) + 'return chatApiErrorParts;')();
+}
+const SAFEGUARDS = "API Error: Opus 5.5's safeguards flagged this session (https://www.anthropic.com/legal/aup). Claude Code can't respond to your last message with Opus 5.5.\n\nDouble press esc to edit your last message, or try a different model with /model.\n\nDetails: `[cyber]`\n\nRequest ID: req_011Cgt5vzGrnVYsXCynmxCBp\n\nMessage ID: msg_011Cgt5vzxXqvng8rZSxXwxR";
+test('an API error splits into the message and the references support asks for', () => {
+  const parts = loadApiErrorParts(app)(SAFEGUARDS);
+  assert.equal(parts.refusal, true);
+  assert.ok(parts.message.startsWith("Opus 5.5's safeguards flagged"), 'the "API Error:" prefix is the card\'s headline, not body text');
+  assert.ok(parts.message.includes('/model'), 'what to do next stays in the message');
+  assert.ok(!/Request ID|Message ID|Details:/.test(parts.message), 'the references are not repeated in the message');
+  assert.deepEqual(parts.refs, [
+    { label: 'Details', value: '[cyber]' },
+    { label: 'Request ID', value: 'req_011Cgt5vzGrnVYsXCynmxCBp' },
+    { label: 'Message ID', value: 'msg_011Cgt5vzxXqvng8rZSxXwxR' },
+  ]);
+  const plain = loadApiErrorParts(app)('API Error: Server error mid-response. The response above may be incomplete.');
+  assert.equal(plain.refusal, false, 'control: an outage is not a refusal');
+  assert.deepEqual(plain.refs, []);
+});
+guarded('an item flagged as an API error is painted as the card; any other system note keeps the pill',
+  (src) => {
+    const up = fnBody(slice(src), 'chatSkinUpsert');
+    return /\} else if \(item\.error\) \{\n\s*if \(rec\.text !== text\) \{ chatSkinPaintApiError\(rec, text, cs\);/.test(up)
+      && /function chatSkinPaintApiError\(rec, text, cs\) \{[\s\S]*?rec\.node\.classList\.add\('err'\);[\s\S]*?chatRender\(msg, message\);/.test(slice(src));
+  },
+  (src) => src.replace('  } else if (item.error) {\n', '  } else if (false) {\n'));
+test('the error card is styled as a card in the column, never the pill, and has its strings', () => {
+  assert.match(css, /\.chat-note\.err \{[^}]*align-self: stretch;[^}]*text-align: left;[^}]*border-radius: 12px;/);
+  assert.match(css, /\.chat-note\.err\.refusal \{ --ce: var\(--st-warn\);/);
+  for (const loc of ['en', 'es', 'pt-br', 'el']) {
+    const b = JSON.parse(read(`src/i18n/locales/${loc}.json`));
+    for (const k of ['chat.apiError.title', 'chat.apiError.refusal', 'chat.apiError.details']) assert.ok(b[k], `${loc}: ${k}`);
+  }
+});
+
+/* 0.15.1 (#153): a long message typed raw lost its beginning in Claude Code; the chat now pastes it. Runs the REAL
+   submitToPty against a fake pty. */
+function loadSubmit(src: string): (text: string | unknown[], opts?: object) => string[] {
+  const at = src.indexOf('function submitToPty(');
+  const code = src.slice(at, src.indexOf('\n}\n', at) + 2);
+  return (text, opts) => {
+    const writes: string[] = [];
+    const win = { glassShell: { ptyWrite: (_id: number, d: string) => writes.push(d) } };
+    const timers: (() => void)[] = [];
+    new Function('window', 'setTimeout', code + 'return submitToPty;')(win, (f: () => void) => timers.push(f))(7, text, undefined, opts);
+    timers.forEach((f) => f());
+    return writes;
+  };
+}
+guarded('the chat pastes its message (bracketed) and types a slash command or a "!" shell line; ESC in the text cannot end the paste early',
+  (src) => {
+    const s = slice(src);
+    const send = fnBody(s, 'chatSkinSubmit');
+    const routed = /else if \(text\.startsWith\('\/'\) \|\| text\.startsWith\('!'\)\) submitToPty\(id, text, /.test(send) && /\{ paste: true \}\);/.test(send);
+    const w = loadSubmit(src)('hello\x1b[201~ world', { paste: true });
+    const typed = loadSubmit(src)('/model haiku');
+    return routed && w[0] === '\x1b[200~hello[201~ world\x1b[201~' && w[1] === '\r' && typed[0] === '/model haiku' && typed[1] === '\r';
+  },
+  (src) => src.replace("if (opts && opts.paste && typeof text === 'string') text =", "if (false) text ="));
+test('a long paste counts as unsent while Claude Code shows it as "[Pasted text #1 …]"', () => {
+  const s = slice(app);
+  assert.match(fnBody(s, 'chatSkinSubmit'), /return d === sent \|\| CS_PASTE_DRAFT\.test\(d\);/);
+  const re = new Function(s.slice(s.indexOf('const CS_PASTE_DRAFT'), s.indexOf('\n', s.indexOf('const CS_PASTE_DRAFT'))) + '\nreturn CS_PASTE_DRAFT;')() as RegExp;
+  assert.ok(re.test('[Pasted text #1 +12 lines]'));
+  assert.ok(!re.test('my own words'), 'control: typed text is not a paste');
+});
+
+/* 0.15.1 round: Option+Enter breaks the line in the chat, as in the terminal. Runs the REAL Enter listener on fake events. */
+function enterListener(src: string) {
+  const s = slice(src);
+  const end = s.indexOf('    chatSkinSendNow(id, p);\n  });') + '    chatSkinSendNow(id, p);\n  }'.length;
+  const head = s.lastIndexOf("input.addEventListener('keydown', ", end) + "input.addEventListener('keydown', ".length;
+  return (e: Record<string, unknown>, value = 'ab', at = 1) => {
+    const sent: number[] = [];
+    const inputs: string[] = [];
+    const input = { value, selectionStart: at, selectionEnd: at,
+      setRangeText(t: string, a: number, b: number) { this.value = this.value.slice(0, a) + t + this.value.slice(b); this.selectionStart = this.selectionEnd = a + t.length; },
+      dispatchEvent(ev: { type: string }) { inputs.push(ev.type); return true; } };
+    const ev = { key: 'Enter', keyCode: 13, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, isComposing: false, prevented: false, preventDefault() { ev.prevented = true; }, ...e };
+    new Function('input', 'id', 'p', 'chatSkinSendNow', 'Event', 'return ' + s.slice(head, end) + ';')(input, 1, {}, () => sent.push(1), class { type: string; constructor(t: string) { this.type = t; } })(ev);
+    return { sent: sent.length, value: input.value, inputs, prevented: ev.prevented };
+  };
+}
+guarded('Option+Enter adds a new line in the chat box; Enter still sends; Shift+Enter is left to the textarea',
+  (src) => {
+    const run = enterListener(src);
+    const opt = run({ altKey: true });
+    const plain = run({});
+    const shift = run({ shiftKey: true });
+    const cmd = run({ altKey: true, metaKey: true });
+    return opt.sent === 0 && opt.value === 'a\nb' && opt.prevented && opt.inputs[0] === 'input'
+      && plain.sent === 1 && plain.value === 'ab'
+      && shift.sent === 0 && !shift.prevented
+      && cmd.sent === 1;
+  },
+  (src) => src.replace('    if (e.altKey && !e.metaKey && !e.ctrlKey) {\n', '    if (false) {\n'));
 
 test('the suggestion repaints with the terminal and steps aside for a dictation or a dialog', () => {
   const tick = fnBody(skin, 'chatSkinTick');

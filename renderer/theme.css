@@ -481,6 +481,17 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 :root { --edzoom: 1; }
 .mdview { max-width: calc(740px * var(--edzoom)); margin: 0 auto; padding: 28px 32px 80px; color: var(--ink); font-size: calc(14.5px * var(--edzoom)); line-height: 1.7; }
 .mdview h1, .mdview h2, .mdview h3, .mdview h4 { line-height: 1.3; color: var(--ink); }
+.mdview .vblock { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; margin: 2px 0; padding: 4px 6px 4px 9px; border: 1px dashed var(--line-strong);
+                  border-radius: 8px; background: var(--surface-2); color: var(--subtle); font-size: .86em; line-height: 1.4; vertical-align: middle; }
+.mdview .vheld { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 10px;
+                 background: var(--surface-2); font-size: .88em; line-height: 1.45; }
+.mdview .vheld-ico { display: inline-flex; flex: none; color: var(--accent-ink); }
+.mdview .vheld-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.mdview .vheld-text strong { color: var(--ink); }
+.mdview .vheld-text span { color: var(--subtle); }
+.mdview .vblock-ico { display: inline-flex; flex: none; color: var(--faint); }
+.mdview .vblock-btn { flex: none; cursor: pointer; font: inherit; color: var(--accent-ink); background: none; border: 1px solid var(--line-strong); border-radius: 6px; padding: 1px 8px; }
+.mdview .vblock-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .mdview h1 { font-size: 1.65em; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
 .mdview h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .22em; }
 .mdview a, .mdview .wikilink { color: var(--accent-ink); text-decoration: none; cursor: pointer; }
@@ -854,6 +865,11 @@ body.light .modal-wrap { background: rgba(0,0,0,.25); }
 .modal.confirm .vbtn.danger { color: var(--st-error-ink); border-color: color-mix(in srgb, var(--st-error) 40%, transparent); }
 .modal.confirm .vbtn.danger:hover { background: color-mix(in srgb, var(--st-error) 16%, transparent); }
 .plist { max-height: 320px; overflow-y: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+/* The tick-box picker fits the window (#144): never taller than what is below its top margin, and the LIST gives up the
+   height — the title, filter and button always stay on screen. 17vh is .modal-wrap's top padding. */
+.modal.mcheck { display: flex; flex-direction: column; max-height: calc(100vh - 17vh - 16px); box-sizing: border-box; }
+.modal.mcheck > * { flex-shrink: 0; }
+.modal.mcheck > .plist { flex: 0 1 auto; min-height: 64px; }
 .prow { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); font-size: 13px; }
 .prow.on { background: var(--surface-2); box-shadow: var(--edge); }
 .picon { display: inline-flex; color: var(--subtle); }
@@ -2209,6 +2225,19 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 /* A system note inside the conversation (an interruption, an API error, a local command's output): a small centred pill. */
 .chat-note { align-self: center; margin: var(--cs-m) 0; padding: 3px 12px; max-width: 100%; border-radius: 999px; background: var(--chat-out-bg); border: 1px solid var(--chat-claude-line);
              color: var(--subtle); font-size: .82em; text-align: center; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* An API error (0.15.1): a card in the column, left-aligned, never the pill. Red for a failure, amber for a safeguards refusal. */
+.chat-note.err { --ce: var(--st-error); --ce-ink: var(--st-error-ink); align-self: stretch; text-align: left; white-space: normal; border-radius: 12px; padding: 10px 14px 11px;
+                 font-size: .9em; color: var(--ink); background: color-mix(in srgb, var(--ce) 7%, var(--chat-out-bg)); border-color: color-mix(in srgb, var(--ce) 38%, transparent); }
+.chat-note.err.refusal { --ce: var(--st-warn); --ce-ink: var(--st-warn-ink); }
+.chat-note.err .cn-head { display: flex; align-items: center; gap: 7px; color: var(--ce-ink); margin-bottom: 4px; }
+.chat-note.err .cn-msg > :first-child { margin-top: 0; }
+.chat-note.err .cn-msg > :last-child { margin-bottom: 0; }
+.chat-note.err .cn-refs { margin-top: 8px; color: var(--subtle); font-size: .92em; }
+.chat-note.err .cn-refs summary { cursor: pointer; width: fit-content; }
+.chat-note.err .cn-ref-list { margin: 6px 0; display: grid; gap: 2px; }
+.chat-note.err .cn-ref { display: flex; gap: 8px; flex-wrap: wrap; }
+.chat-note.err .cn-ref-k { min-width: 84px; }
+.chat-note.err .cn-ref code { font-family: var(--mono, ui-monospace, monospace); overflow-wrap: anywhere; }
 /* ── connecting · waiting · empty · error: a card, centred while the log has nothing else ── */
 .cs-card { --sc: var(--faint); align-self: center; margin: auto; display: flex; flex-direction: column; align-items: center; max-width: 360px; padding: 8px 12px 48px; text-align: center; color: var(--ink); }   /* the bottom padding lifts it to the optical centre of the column; the ink is explicit because a card has no message around it to inherit from */
 .cs-card[data-kind="connecting"] { --sc: var(--st-busy); }

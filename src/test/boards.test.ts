@@ -198,3 +198,35 @@ test('the sample board in docs is a valid board: static, self-contained, served 
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+/* #146: board.json can pick the card's icon. A name passes through; anything else is ignored without an error line. */
+test('board.json icon: a plain name passes, a path, URL, markup or wrong type is ignored and is never an error', () => {
+  assert.equal(parseBoardJson('{"icon": "chart"}').icon, 'chart');
+  assert.equal(parseBoardJson('{"icon": " folderOpen "}').icon, 'folderOpen');
+  for (const bad of ['"../x.svg"', '"https://e.com/i.png"', '"<svg onload=x>"', '3', 'null', '""', '"a-b"']) {
+    const r = parseBoardJson(`{"icon": ${bad}}`);
+    assert.equal(r.icon, undefined, bad);
+    assert.equal(r.error, undefined, `${bad}: no error line for an icon`);
+  }
+  const rows = boardRows([{ name: 'gh', indexMtimeMs: 1, boardJson: '{"icon":"chart"}' }, { name: 'plain', indexMtimeMs: 1 }], 2);
+  assert.equal(rows[0].icon, 'chart');
+  assert.equal('icon' in rows[1], false, 'control: no board.json, no icon key');
+});
+
+test('board icon in the panel: a known name draws it, an unknown or missing one draws the board glyph', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const fn = (name: string) => { const i = app.indexOf('function ' + name + '('); return app.slice(i, app.indexOf('\n}', i) + 2).replace(/\n\}$/, '\n}\n'); };
+  const one = app.slice(app.indexOf('function boardIconName('), app.indexOf('\n', app.indexOf('function boardIconName(')) + 1);
+  const make = (icons: object, cards: Map<string, { icon?: string }>) =>
+    new Function('ICONS', 'CARD_ICONS', 'boardCards', one + fn('cardIcon') + 'return cardIcon;')(icons, {}, cards) as (k: string) => string;
+  const ICONS = { chart: '<path/>', layout: '<path/>', star: '<path/>' };
+  const cards = new Map([['gh status', { icon: 'chart' }], ['odd', { icon: 'nosuchicon' }], ['none', {}]]);
+  const cardIcon = make(ICONS, cards);
+  assert.equal(cardIcon('pBoard-' + encodeURIComponent('gh status')), 'chart');
+  assert.equal(cardIcon('pBoard-odd'), 'layout', 'unknown name');
+  assert.equal(cardIcon('pBoard-none'), 'layout', 'no icon');
+  assert.equal(cardIcon('pBoard-' + encodeURIComponent('constructor')), 'layout', 'not in the map');
+  const proto = make(ICONS, new Map([['p', { icon: 'toString' }]]));
+  assert.equal(proto('pBoard-p'), 'layout', 'control: an inherited property is not an icon');
+  assert.match(app, /JSON\.stringify\(\[r\.title, r\.status, r\.mtimeMs, r\.configError \|\| '', r\.icon \|\| '',/, 'a changed icon redraws the card');
+});

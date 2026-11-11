@@ -11,8 +11,11 @@ the boards, shows them, and knows nothing about what they mean.
   `index.html` is not a board. Folders starting with `.` are ignored.
 - **Static HTML only.** Scripts never run (see Isolation). Stylesheets, images and fonts may live
   next to `index.html` in the same folder.
-- **Optional `board.json`** in the same folder: `{ "title": "…", "valid_for": 3600 }`. `title`
-  replaces the folder name on the card; `valid_for` is in seconds (default 3600).
+- **Optional `board.json`** in the same folder: `{ "title": "…", "valid_for": 3600, "icon": "chart" }`. `title`
+  replaces the folder name on the card; `valid_for` is in seconds (default 3600); `icon` (App 0.15.1) names the card's
+  icon. Only a name from the App's own icon set is drawn; an unknown name, a wrong type or no key keeps the board glyph
+  (`layout`), with no error line. It is a name, never a path or URL. The names (from `ICONS` in `renderer/app.js`):
+  `aios`, `assistant`, `bolt`, `book`, `box`, `brain`, `building`, `calendar`, `chart`, `chat`, `check`, `chevD`, `chevL`, `chevR`, `cmdKey`, `coffee`, `coffeeOn`, `comfort`, `command`, `compact`, `compress`, `copy`, `design`, `docText`, `download`, `expand`, `explorer`, `file`, `folder`, `folderOpen`, `gear`, `guide`, `help`, `html`, `id`, `img`, `inbox`, `keyboard`, `layout`, `logout`, `md`, `megaphone`, `mic`, `moon`, `note`, `panel`, `plug`, `plus`, `robot`, `rocket`, `search`, `shield`, `skill`, `sliders`, `sparkles`, `spawn`, `speaker`, `stack`, `star`, `stop`, `sun`, `sync`, `term`, `trash`, `users`, `wrench`.
 - **Staleness is the writer's problem, drawn like Health:** when `index.html` is older than
   `valid_for`, the card's title dims and a line reads "no update since …".
 - **Re-render on change:** the card reloads its frame when `index.html`'s mtime changes, and only

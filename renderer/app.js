@@ -592,6 +592,18 @@ function optionComposedChar(e) {
   return k;
 }
 
+/* SHIFT+ENTER BREAKS THE LINE, IT DOES NOT SEND.
+   xterm encodes Shift+Enter exactly like Enter (a bare \r), so Claude Code cannot tell them apart
+   and submits: an operator reaching for the newline every chat box taught them sent half a prompt.
+   ESC CR is what ⌥↵ already sends here (macOptionIsMeta) and what Claude Code's /terminal-setup
+   installs for VS Code, so Claude Code reads it as "insert a newline". Applies to every terminal
+   pane, as VS Code's binding does; in a shell, plain Enter still runs the command. Not while an
+   IME is composing: there Enter confirms the composition. Returns the sequence, or null. */
+function shiftEnterSeq(e) {
+  if (e.key !== 'Enter' || !e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.isComposing) return null;
+  return '\x1b\r';
+}
+
 function attachRenderer(p) {
   if (!p || p.kind !== 'term' || !p.term) return;
   const canGl = !!(window.WebglAddon && window.WebglAddon.WebglAddon) && !NO_WEBGL;
@@ -735,7 +747,14 @@ const CARD_ICONS = {
   pHealth: 'check',
   pConnectors: 'plug',
 };
-function cardIcon(key) { return CARD_ICONS[key] || (key.startsWith('pBoard-') ? 'layout' : 'star'); }   // #91: every board shares one glyph
+/* A board's card wears the icon its board.json names (#146), when the App has one by that name; otherwise the board glyph.
+   Only a name from ICONS is drawn, so a board can never bring its own markup into the panel. */
+function boardIconName(want) { return typeof want === 'string' && Object.prototype.hasOwnProperty.call(ICONS, want) ? want : 'layout'; }
+function cardIcon(key) {
+  if (CARD_ICONS[key]) return CARD_ICONS[key];
+  if (key.startsWith('pBoard-')) { let b = null; try { b = boardCards.get(decodeURIComponent(key.slice(7))); } catch { b = null; } return boardIconName(b && b.icon); }
+  return 'star';
+}
 
 function pulseTitle(card, key, text, count) {
   const ti = el('div', 'ptitle', text);
@@ -1280,9 +1299,10 @@ async function refreshBoards() {
     }
     if (b.url !== r.url) { b.url = r.url; b.frame.src = r.url; }   // a new mtime is a new URL
     // nothing about the card changed → leave it alone (a rebuilt title would steal keyboard focus every pass)
-    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
+    const sig = JSON.stringify([r.title, r.status, r.mtimeMs, r.configError || '', r.icon || '', window.i18n && window.i18n.getLocale && window.i18n.getLocale()]);
     if (b.sig === sig) continue;
     b.sig = sig;
+    b.icon = r.icon || '';   // read by cardIcon when the title is drawn below
     const key = boardCardId(r.name);
     const stale = r.status === 'stale';
     b.card.classList.toggle('pstale', stale);
@@ -4598,6 +4618,9 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     if ((e.metaKey || e.ctrlKey) && ['k', 'p', 'j'].includes(e.key.toLowerCase())) return false; // app shortcuts win
     /* Option types the character your keyboard makes, when it makes a plain one. */
     if (e.type === 'keydown') { const ch = optionComposedChar(e); if (ch) { e.preventDefault(); window.glassShell.ptyWrite(id, ch); return false; } }   // preventDefault: no second copy via keypress
+    /* Shift+Enter is a newline, not a send (see shiftEnterSeq) — in a Claude session only. A plain shell has no use for ESC CR:
+       bash rings the bell and the command does not run (0.15.1 review). */
+    if (e.type === 'keydown') { const nl = (panes.get(id) || {}).isSession ? shiftEnterSeq(e) : null; if (nl) { e.preventDefault(); window.glassShell.ptyWrite(id, nl); return false; } }   // preventDefault: no second \r via keypress
     const clip = termClipboardKey(e, IS_MAC, term.hasSelection(), IS_LINUX);
     if (clip === 'copy') {
       // preventDefault so the keystroke stays handled: no ^C for the pty, and on Ctrl+Shift+C
@@ -4777,8 +4800,13 @@ function noteOperatorKeys(p, d) {
   }
 }
 
-function submitToPty(id, text, stillWaiting) {
+function submitToPty(id, text, stillWaiting, opts) {
   if (!text || (Array.isArray(text) && !text.length)) return;
+  /* `opts.paste`: the text goes in as a bracketed paste, the way a paste in the terminal arrives. Claude Code does not keep a
+     long burst of TYPED input intact: measured on 2.1.322, ~1.4 KB typed was recorded as its last 392 characters and 4.7 KB as
+     its last 609, whatever the Enter's delay; the same 4.7 KB pasted arrived whole, and a short paste is recorded as plain
+     text (0.15.1, #153). ESC is dropped from the text so nothing in it can end the paste early. */
+  if (opts && opts.paste && typeof text === 'string') text = '\x1b[200~' + text.replace(/\x1b/g, '') + '\x1b[201~';
   /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
      PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
   if (Array.isArray(text)) {
@@ -5581,6 +5609,7 @@ async function batchResume() {
     hay: [r.name, ...(r.was || []), r.proj, r.id].filter(Boolean).join(' '),   // an id can still be pasted in
   }));
   const chosen = await checkModal(t('resume.title'), items, {
+    enterPicksHighlighted: true,
     hint: t('resume.sub3', { named: data.named, unnamed: data.unnamed }),
     placeholder: t('resume.filter'),
     confirmLabel: t('resume.confirm'),
@@ -6284,7 +6313,12 @@ async function openViewer(p) {
       wrap.appendChild(pr);
     }
     const md = document.createElement('div');
-    md.innerHTML = marked.parse(src); // operator's own vault content
+    // NOT the operator's own words only: sessions write mails, web pages and attachments into the
+    // vault, so a note can carry markup nobody typed. marked passes raw HTML through, and this
+    // window holds the pty bridge — so the parsed note goes through vaultSanitize before it is
+    // adopted, never straight into innerHTML.
+    md.replaceChildren(vaultSanitize(marked.parse(src)));
+    vaultHeldBanner(md);
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
@@ -6320,6 +6354,148 @@ async function openViewer(p) {
 
   paint();
   setActive(id);
+}
+
+/* Vault-note sanitizer. Same shape as chatSanitize (inert <template>, walk, rebuild), but a looser
+   tag list, because a note legitimately has task checkboxes, local images and wikilinks that the
+   chat never needs. What it guarantees: no element that can run or load code, no on* handler, no
+   attribute outside a short allowlist, and no link or image URL with a scriptable scheme. */
+const VAULT_DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'FRAME', 'FRAMESET', 'OBJECT', 'EMBED', 'APPLET', 'LINK', 'META',
+  'BASE', 'FORM', 'TEMPLATE', 'SVG', 'MATH', 'NOSCRIPT', 'AUDIO', 'VIDEO', 'SOURCE', 'TRACK', 'PORTAL', 'BUTTON',
+  'SELECT', 'TEXTAREA', 'DIALOG']);
+const VAULT_TAGS = new Set(['P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'DEL', 'INS', 'MARK', 'SUB', 'SUP', 'SMALL',
+  'CODE', 'PRE', 'KBD', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'IMG', 'INPUT', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR',
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'DIV', 'SPAN', 'DETAILS', 'SUMMARY', 'DL', 'DT', 'DD']);
+const VAULT_ATTRS = new Set(['href', 'src', 'alt', 'title', 'class', 'data-target', 'type', 'checked', 'disabled',
+  'align', 'colspan', 'rowspan', 'start', 'width', 'height', 'open']);
+function vaultSafeUrl(tag, name, value) {
+  const v = String(value).replace(/[\u0000-\u0020]+/g, '');   // "java\nscript:" and " javascript:" are still javascript:
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) return true;            // relative path or #anchor: resolved by the viewer
+  if (/^(https?|mailto):/i.test(v)) return true;
+  if (tag === 'IMG' && name === 'src') return /^(file:|data:image\/(png|jpe?g|gif|webp|bmp);)/i.test(v);
+  return false;                                                // javascript:, vbscript:, data:text/html, …
+}
+/* What the reader SEES of what was taken out (0.15.1 round: a vanished embed or a broken image reads as a broken viewer).
+   Visible kinds become a chip that says what was not shown; invisible ones (script, style, meta…) are removed silently.
+   A chip never brings the content into this window, which also types into the operator's sessions:
+     · an embed with an https address can be opened in the BROWSER, outside the App;
+     · a remote image waits for a click (it is how a note tracks who read it, and when): Load puts it back as an image,
+       which cannot run code.
+   Chips are built here from the static icon table and textContent; the URL comes from the note, so it is shown as text
+   and used only through vaultSafeUrl-checked http(s). */
+const VAULT_CHIP = { IFRAME: 'embed', FRAME: 'embed', OBJECT: 'embed', EMBED: 'embed', APPLET: 'embed', PORTAL: 'embed',
+  VIDEO: 'media', AUDIO: 'media', SVG: 'drawing', MATH: 'drawing', FORM: 'form', BUTTON: 'form', SELECT: 'form',
+  TEXTAREA: 'form', DIALOG: 'form' };
+function vaultHttpUrl(el) {
+  for (const n of ['src', 'data', 'href']) {
+    const v = String(el.getAttribute(n) || '').trim();
+    if (/^https?:\/\//i.test(v)) return v;
+  }
+  const s = el.querySelector && el.querySelector('source[src]');
+  const v = s ? String(s.getAttribute('src') || '').trim() : '';
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+function vaultHost(url) { try { return new URL(url).host; } catch { return ''; } }
+function vaultChip(kind, url, onLoad, name) {
+  const chip = document.createElement('span');
+  chip.className = 'vblock';
+  chip.dataset.kind = kind;   // the note's banner counts images by it (vaultHeldBanner)
+  chip.title = t('viewer.blocked.why');
+  const ic = document.createElement('span');
+  ic.className = 'vblock-ico';
+  ic.innerHTML = icon(kind === 'image' ? 'img' : 'shield', 12);
+  const host = url ? vaultHost(url) : '';
+  const words = document.createElement('span');
+  words.textContent = t('viewer.blocked.' + kind, { host: host || '?', name: name || '' });
+  chip.append(ic, words);
+  if (url && host && kind !== 'failed') {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'vblock-btn';
+    b.textContent = t(onLoad ? 'viewer.blocked.load' : 'viewer.blocked.open');
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (onLoad) onLoad(chip); else void window.glassShell.openExternal(url); });
+    chip.appendChild(b);
+  }
+  return chip;
+}
+/* Above a note that had anything held back, one plain-language banner, the way a mail app says "images are hidden"
+   (0.15.1 round: a chip alone did not tell a non-technical reader WHY, or that nothing is broken). Show images loads every
+   held image of this note; embeds keep their own Open in browser. Built from the static icon table and textContent. */
+function vaultHeldBanner(md) {
+  const chips = [...md.querySelectorAll('.vblock')];
+  if (!chips.length) return;
+  const images = chips.filter((c) => c.dataset.kind === 'image' && c.querySelector('.vblock-btn'));
+  const bar = document.createElement('div');
+  bar.className = 'vheld';
+  const ic = document.createElement('span');
+  ic.className = 'vheld-ico';
+  ic.innerHTML = icon('shield', 16);
+  const text = document.createElement('div');
+  text.className = 'vheld-text';
+  const head = document.createElement('strong');
+  head.textContent = t('viewer.held.title', { n: chips.length });
+  const why = document.createElement('span');
+  why.textContent = t('viewer.held.why');
+  text.append(head, why);
+  bar.append(ic, text);
+  if (images.length) {
+    const show = document.createElement('button');
+    show.type = 'button';
+    show.className = 'vblock-btn';
+    show.textContent = t('viewer.held.showImages', { n: images.length });
+    show.addEventListener('click', () => {
+      for (const c of images) { const b = c.querySelector('.vblock-btn'); if (b && c.isConnected) b.click(); }
+      if (!md.querySelector('.vblock')) bar.remove(); else show.remove();
+    });
+    bar.appendChild(show);
+  }
+  md.prepend(bar);
+}
+function vaultSanitize(html) {
+  const tpl = document.createElement('template');   // inert: no script runs and no image loads until adopted
+  tpl.innerHTML = html;
+  const walk = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === 3) continue;
+      if (child.nodeType !== 1) { child.remove(); continue; }
+      const tag = child.tagName.toUpperCase();   // SVG/MathML elements report lowercase tag names
+      if (VAULT_DROP.has(tag)) {
+        if (VAULT_CHIP[tag]) child.replaceWith(vaultChip(VAULT_CHIP[tag], vaultHttpUrl(child)));
+        else child.remove();
+        continue;
+      }
+      walk(child);
+      if (!VAULT_TAGS.has(tag) || (tag === 'INPUT' && (child.getAttribute('type') || '').toLowerCase() !== 'checkbox')) {
+        child.replaceWith(...child.childNodes);   // keep the words, lose the element
+        continue;
+      }
+      for (const a of [...child.attributes]) {
+        const name = a.name.toLowerCase();
+        if (!VAULT_ATTRS.has(name) || ((name === 'href' || name === 'src') && !vaultSafeUrl(tag, name, a.value))) {
+          child.removeAttribute(a.name);
+        }
+      }
+      /* A remote image waits for a click; a local one (relative, file:, data:image) shows as before. */
+      if (tag === 'IMG' && /^https?:\/\//i.test(String(child.getAttribute('src') || '').trim())) {
+        const url = String(child.getAttribute('src')).trim();
+        const alt = child.getAttribute('alt') || '';
+        child.replaceWith(vaultChip('image', url, (chip) => {
+          const img = document.createElement('img');
+          img.alt = alt;
+          // an image that does not arrive says so, instead of a broken-image box that reads as a broken viewer
+          img.addEventListener('error', () => { if (img.isConnected) img.replaceWith(vaultChip('failed', url)); }, { once: true });
+          img.src = url;   // an image cannot run code; the click is consent to the request
+          chip.replaceWith(img);
+        }));
+      } else if (tag === 'IMG') {
+        // a local image that is not there: a chip naming it, not the browser's broken-image box
+        const name = String(child.getAttribute('src') || '').split(/[\\/]/).pop() || '';
+        child.addEventListener('error', () => { if (child.isConnected) child.replaceWith(vaultChip('missing', '', null, name)); }, { once: true });
+      }
+    }
+  };
+  walk(tpl.content);
+  return tpl.content;
 }
 
 /* ── explorer (git markers · live relist · auto-reveal · file icons · ctx menu) ─── */
@@ -7907,7 +8083,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'sparkles'], [2, 'chat'], [3, 'panel'], [4, 'stack'], [5, 'id'], [6, 'shield'], [7, 'megaphone']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'chat'], [2, 'keyboard'], [3, 'sparkles'], [4, 'shield']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -7952,7 +8128,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -8117,7 +8293,8 @@ const RENDERER_KEYS = [
    NOT listed on purpose: Ctrl+J, Ctrl+K and Ctrl+P. They are real Claude Code keys, but the pane's
    key handler swallows ⌘/Ctrl + k/p/j as app shortcuts before xterm sees them, so promising them
    here would be the sheet lying about the terminal it sits next to (sessionKeys.test.ts guards
-   that). Shift+Enter is not listed either: xterm delivers it as a plain Enter, so it SENDS.
+   that). Shift+Enter IS listed: xterm delivers it as a plain Enter, so the pane's key handler
+   sends ESC CR for it instead (shiftEnterSeq), the same newline ⌥↵ sends.
    OFF macOS CmdOrCtrl IS Ctrl, so every plain Ctrl+letter the menu holds (E, R, W among the rows
    here) never reaches the session there: those rows are macOnly. Image paste differs per
    platform, so it is two rows filtered by `os`. sessionKeys.test.ts derives the collision from
@@ -8125,7 +8302,7 @@ const RENDERER_KEYS = [
 const SESSION_KEYS_VERIFIED = '2.1.308';
 const SESSION_KEYS_DOCS = 'https://code.claude.com/docs/en/interactive-mode';
 const SESSION_KEYS = [
-  { label: 'shortcut.sessionNewline', accel: 'Option+Enter / \\+Enter' },
+  { label: 'shortcut.sessionNewline', accel: 'Shift+Enter / Option+Enter / \\+Enter' },
   { label: 'shortcut.sessionLineEdges', accel: 'Ctrl+A / Ctrl+E', macOnly: true },   // Ctrl+E is the menu's off macOS
   { label: 'shortcut.sessionLineEdgesMac', accel: '⌘← / ⌘→', macOnly: true },   // ptyWrite \x01 / \x05
   { label: 'shortcut.sessionWord', accel: 'Option+B / Option+F' },
@@ -9299,10 +9476,11 @@ function chatSkinBuild(id, p) {
      then sends it with a second Enter. */
   input.addEventListener('keydown', (e) => { if (chatSkinSlashKey(cs, e)) e.stopImmediatePropagation(); });
   input.addEventListener('keydown', (e) => { if (chatSkinHistKey(cs, e)) e.stopImmediatePropagation(); });
-  /* Tab on an empty box takes Claude Code's suggestion into it, as Tab does in the terminal. AFTER the slash popup's listener,
-     which stops the event: with the popup open, Tab completes the command and never reaches this. */
+  /* Tab or → on an empty box takes Claude Code's suggestion into it, as both do in the terminal (0.15.1: → is the terminal
+     habit). AFTER the slash popup's listener, which stops the event: with the popup open, Tab completes the command and never
+     reaches this. → only ever acts on an EMPTY box, where it has no caret to move, so it never steals cursor movement. */
   input.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || input.value !== '' || !cs.suggest) return;
+    if ((e.key !== 'Tab' && e.key !== 'ArrowRight') || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || input.value !== '' || !cs.suggest) return;
     e.preventDefault(); e.stopImmediatePropagation();
     chatSkinSuggestTake(cs);
   });
@@ -9318,6 +9496,15 @@ function chatSkinBuild(id, p) {
     // Enter sends, Shift+Enter breaks the line. During IME composition Enter confirms the
     // candidate, so it must never send (keyCode 229 covers engines that clear isComposing early).
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    /* Option+Enter (Alt+Enter) breaks the line too, as it does in the terminal (0.15.1 round: "option enter works in terminal but
+       not in chat"). Inserted by hand: a textarea does not reliably insert one for Alt+Enter. The input event keeps the box's
+       height and the controls in step, exactly as typing does. */
+    if (e.altKey && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
     e.preventDefault();
     chatSkinSendNow(id, p);
   });
@@ -10237,10 +10424,21 @@ function chatSkinHasReply(cs) {
 }
 /* Offer the suggestion in the chat box the way the terminal does: shown in place of the placeholder while the box is empty,
    Tab takes it into the box, Enter on the empty box sends it (chatSkinSendNow). Never over a dialog, a card or a dictation. */
+/* How long a suggestion stays after it stops being readable on the screen (0.15.1 round: it "comes and goes the first time
+   and then stays"). When a reply ends Claude Code redraws its prompt area, and Stop hooks draw a spinner there, so for a
+   moment the suggestion is not on screen and the box blinked empty. A held suggestion still goes AT ONCE when the operator
+   types, dictates, a dialog opens, or a message is sent (chatSkinSubmit clears it). */
+const CS_SUGGEST_HOLD_MS = 1500;
 function chatSkinSuggestPaint(p) {
   const cs = p && p.chatSkin;
   if (!cs || !cs.input) return;
-  const s = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '' && chatSkinHasReply(cs) ? chatSkinPromptSuggestion(p) : '';
+  const open = !cs.recording && !cs.promptKind && !chatSkinCardOn(cs) && cs.input.value === '';
+  let s = open && chatSkinHasReply(cs) ? chatSkinPromptSuggestion(p) : '';
+  if (!s && open && cs.suggest) {
+    const now = Date.now();
+    if (!cs.suggestGoneAt) cs.suggestGoneAt = now;
+    if (now - cs.suggestGoneAt < CS_SUGGEST_HOLD_MS) { s = cs.suggest; setTimeout(() => chatSkinSuggestPaint(p), CS_SUGGEST_HOLD_MS); }
+  } else cs.suggestGoneAt = 0;
   const shown = s ? t('chat.suggest.placeholder', { text: s }) : (cs.placeholder0 || '');
   if (s === (cs.suggest || '') && (cs.recording || cs.input.placeholder === shown)) return;
   cs.suggest = s;
@@ -10356,8 +10554,13 @@ function chatSkinVoiceLive(p, rec) {
   if (!cs.placeholder0) cs.placeholder0 = cs.input.placeholder;
   let heard = '';
   if (rec) { try { heard = chatSkinPromptBoxText(p); } catch { heard = ''; } }
+  const was = cs.input.classList.contains('listening');
   cs.input.classList.toggle('listening', !!rec);
-  cs.input.placeholder = rec ? (heard || t('chat.voice.listening')) : cs.placeholder0;
+  /* Not listening: give the placeholder back only when a dictation just ended, and through chatSkinPlaceholder, which knows
+     about Claude Code's suggestion. This runs on every status-line redraw, and writing placeholder0 here each time wiped the
+     suggestion until the next tick: it blinked every few seconds, even untouched (0.15.1 round). */
+  if (rec) cs.input.placeholder = heard || t('chat.voice.listening');
+  else if (was) chatSkinPlaceholder(p);
   /* The box grows to the whole dictation. A placeholder does not size a textarea, so it is measured as if it were the value
      (set and cleared in the same tick: no input event, nothing sent) and the height follows (0.14.1 round: a long dictation
      was cut to its first line). With no dictation the box goes back to its own size. */
@@ -10573,8 +10776,18 @@ function chatSkinStickyPaint(cs) {
 }
 function chatSkinAutosize(cs) {
   if (cs.box) { cs.box.classList.toggle('bang', cs.input.value.startsWith('!')); cs.box.classList.toggle('has-text', cs.input.value !== ''); }   // "!" runs a shell command: the box says so, in the terminal's bash-mode pink
+  /* Shrinking to 'auto' to measure resets the box's scroll, so in a box taller than its ceiling a new line went out of sight:
+     the browser had scrolled to it, and the measuring threw it back (0.15.1 round). Keep the scroll, then bring the caret
+     into view again (setSelectionRange scrolls a focused textarea to it). */
+  const keep = cs.input.scrollTop;
   cs.input.style.height = 'auto';
   cs.input.style.height = Math.min(cs.input.scrollHeight, 220, Math.round(window.innerHeight * 0.4)) + 'px';   // grows with the text up to a ceiling, then scrolls
+  cs.input.scrollTop = keep;
+  if (document.activeElement === cs.input) {
+    const a = cs.input.selectionStart, b = cs.input.selectionEnd, dir = cs.input.selectionDirection;
+    if (b === cs.input.value.length) cs.input.scrollTop = cs.input.scrollHeight;   // typing at the end: the end is in view
+    else cs.input.setSelectionRange(a, b, dir);
+  }
 }
 /* ── slash commands: the popup over the composer ─────────────────────────────────────────────────────────
    Typing `/` at the very start of the box asks main (slashCommands:list) what to offer: the built-in commands,
@@ -11183,10 +11396,54 @@ function chatSkinUpsert(cs, item, animate, before) {
       x.argFresh = false;
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
+  } else if (item.error) {
+    if (rec.text !== text) { chatSkinPaintApiError(rec, text, cs); rec.text = text; }
+    rec.node.hidden = !text.trim();
   } else {
     rec.body.textContent = text.replace(/^\[(Request interrupted by user[^\]]*)\]$/, '$1');   // Claude Code's marker without its brackets (0.14.0 round)
     rec.node.hidden = !text.trim();
   }
+}
+/* Split Claude Code's API-error text into what the operator reads and what support asks for. The reference lines
+   ("Details: …", "Request ID: …", "Message ID: …") go under a fold with a copy button; everything else is the message,
+   rendered as markdown so its links open. Pure: tested in chatSkin.test.ts. */
+function chatApiErrorParts(text) {
+  const refs = [];
+  const body = [];
+  for (const line of String(text || '').split('\n')) {
+    const m = /^\s*(Details|Request ID|Message ID):\s*(.+?)\s*$/.exec(line);
+    if (m) refs.push({ label: m[1], value: m[2].replace(/^`(.*)`$/, '$1') }); else body.push(line);
+  }
+  const message = body.join('\n').trim().replace(/^API Error:\s*/, '');
+  return { message, refs, refusal: /safeguards flagged/i.test(text) };
+}
+/* An API error (0.15.1, #149): a left-aligned card in the column, not the centred pill a one-line note gets. A safeguards
+   refusal is amber (nothing broke; the model declined), every other failure red. Built as DOM; the message goes through
+   chatRender, the same sanitiser a reply does, and the references are textContent. */
+function chatSkinPaintApiError(rec, text, cs) {
+  const { message, refs, refusal } = chatApiErrorParts(text);
+  rec.node.classList.add('err');
+  rec.node.classList.toggle('refusal', refusal);
+  const head = el('div', 'cn-head');
+  head.append(csIcon('alert', 14), el('strong', '', t(refusal ? 'chat.apiError.refusal' : 'chat.apiError.title')));
+  const msg = el('div', 'chat-md cn-msg');
+  chatRender(msg, message);
+  chatLinkPaths(msg, cs);
+  const parts = [head, msg];
+  if (refs.length) {
+    const det = el('details', 'cn-refs');
+    const sum = el('summary', '', t('chat.apiError.details'));
+    const list = el('div', 'cn-ref-list');
+    for (const r of refs) { const line = el('div', 'cn-ref'); line.append(el('span', 'cn-ref-k', r.label), el('code', '', r.value)); list.appendChild(line); }
+    const copy = el('button', 'cm-copy');
+    copy.type = 'button';
+    const label = el('span', 'cm-copy-t', t('chat.code.copy'));
+    copy.append(csIcon('copy', 13), label);
+    copy.addEventListener('click', () => chatCopyTo(copy, label, refs.map((r) => r.label + ': ' + r.value).join('\n')));
+    det.append(sum, list, copy);
+    parts.push(det);
+  }
+  rec.node.replaceChildren(...parts);
 }
 /* ── the reply being written ─────────────────────────────────────────────────────────────────────────────────
    The transcript only records a message when it is complete, so a long answer would appear all at once at the end. Main
@@ -11696,9 +11953,11 @@ function chatSkinImageParts(text) {
   if (last < text.length) parts.push(text.slice(last));
   return parts;
 }
+const CS_PASTE_DRAFT = /^\[Pasted text #\d+/;   // how Claude Code's box shows a long paste before it is sent
 function chatSkinSubmit(id, p, text) {
   const cs = p.chatSkin;
   cs.lastSubmitAt = Date.now();
+  cs.suggest = ''; cs.suggestGoneAt = 0;   // a send ends the suggestion now: it is never held into the next turn
   cs.staleSpinner = '';   // a new turn: any spinner from here on is live
   cs.turnStartAt = Date.now();   // the working line's own clock (chatSkinWorkMeta)
   cs.workSince = cs.turnStartAt;   // a send starts a working stretch
@@ -11706,7 +11965,11 @@ function chatSkinSubmit(id, p, text) {
   const sent = text.replace(/\s+/g, ' ').trim();
   const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
   if (imgParts) submitToPty(id, imgParts);
-  else submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
+  /* Typed for a slash command or a "!" shell line (pasted, "/name" would be a message, not a command, and "!" might not enter
+     Claude Code's bash mode); pasted otherwise, so a long message
+     arrives whole (#153). A long paste shows in Claude Code's box as "[Pasted text #1 …]", which counts as unsent too. */
+  else if (text.startsWith('/') || text.startsWith('!')) submitToPty(id, text, () => panes.get(id) === p && !p.exited && !chatSkinWorking(p) && chatSkinPromptDraft(p) === sent);
+  else submitToPty(id, text, () => { if (panes.get(id) !== p || p.exited || chatSkinWorking(p)) return false; const d = chatSkinPromptDraft(p); return d === sent || CS_PASTE_DRAFT.test(d); }, { paste: true });   // the one chokepoint: text, then CR as a separate write (slash commands go the same way)
   // /clear and /resume swap the session under this pty: look again shortly after, so the view follows it
   if (text.startsWith('/')) setTimeout(() => { if (panes.get(id) === p && p.view === 'chat') { p.chatSkin.idChecks = 0; chatSkinRecheckId(id, p); } }, 2500);
   chatSkinControls(p);
@@ -13840,12 +14103,14 @@ async function addMarketplaceFlow() {
    and any other "pick several, then act" flow, so popups read the same everywhere.
    items: [{label, desc?, icon?, value, picked?, dot?}] → resolves an array of values
    (or null on cancel). */
-function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty, altAction, altInFoot } = {}) {
+function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty, altAction, altInFoot, enterPicksHighlighted } = {}) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
     claimModal(wrap, () => done(null));
-    wrap.innerHTML = `<div class="modal"><div class="mtitle"></div><div class="msub"></div>
+    /* .mcheck: the picker fits the window, whatever its height — the list scrolls and the title, filter and button stay
+       on screen (#144: on a 14-inch Windows laptop the "Resume selected" button sat below the bottom edge). */
+    wrap.innerHTML = `<div class="modal mcheck"><div class="mtitle"></div><div class="msub"></div>
       <input id="checkInput" /><div class="plist"></div>
       <div class="mfoot"><span class="mhint"></span><span class="mbtns"><button class="vbtn primary mgo"></button></span></div></div>`;
     wrap.querySelector('.mtitle').textContent = title;
@@ -13871,6 +14136,10 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
     const input = wrap.querySelector('#checkInput');
     input.placeholder = placeholder || t('modal.filterPlaceholder');
     const list = wrap.querySelector('.plist');
+    /* After a click in the list the focus goes back to the filter box: Enter and the arrows are read there, and a row is
+       not focusable, so the click left the focus on <body> and the next Enter went nowhere (#144). Given back on click
+       rather than kept by cancelling mousedown, which would also stop the list's scrollbar being dragged. */
+    list.addEventListener('click', () => { if (wrap.isConnected) input.focus({ preventScroll: true }); });
     const state = items.map((it) => ({ ...it, on: it.picked !== false }));
     let filtered = state, sel = 0;
     /* SCROLL TO LOAD MORE. The list rendered a fixed first 60, so with 209 named sessions the
@@ -13936,7 +14205,7 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
         const lb = document.createElement('span'); lb.className = 'plabel'; lb.textContent = it.label;
         r.appendChild(lb);
         if (it.desc) { const d = document.createElement('span'); d.className = 'pdesc'; d.textContent = it.desc; r.appendChild(d); }
-        r.addEventListener('click', () => { it.on = !it.on; paint(); paintGo(); });
+        r.addEventListener('click', () => { it.on = !it.on; sel = idx; paint(); paintGo(); });   // the clicked row is also the highlighted one, so Enter acts on what the hand just touched
         r.addEventListener('mousemove', () => { if (sel !== idx) { sel = idx; HOVER_PAINT = true; try { paint(); } finally { HOVER_PAINT = false; } } });
         list.appendChild(r);
       });
@@ -13966,6 +14235,10 @@ function checkModal(title, items, { placeholder, hint, confirmLabel, allowEmpty,
            have done two different things from the same highlighted row. */
         const it = filtered[sel];
         if (it && it.act) { done([it.value]); return; }
+        /* Nothing ticked: a picker that opts in opens the highlighted row (#144, Resume: "pressing Enter does nothing"). Opt-in,
+           because for close-all, whose rows start ticked, unticking all and pressing Enter must not close the highlighted
+           session (0.15.1 review). Checked before allowEmpty, which Resume also sets. */
+        if (enterPicksHighlighted && it && !state.some((s) => s.on)) { done([it.value]); return; }
         if (state.some((s) => s.on) || allowEmpty) done(chosen());
       }
       else if (e.key === 'Escape') { e.preventDefault(); done(null); }
