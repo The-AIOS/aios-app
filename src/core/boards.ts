@@ -6,7 +6,7 @@
  *
  * Contract (docs/rfcs/sidebar-boards.md):
  *  · one folder per card; a folder without `index.html` is not a board; dot-folders are ignored.
- *  · optional `board.json`: { title?: string, valid_for?: seconds } — default title is the folder
+ *  · optional `board.json`: { title?: string, valid_for?: seconds, icon?: string } — default title is the folder
  *    name, default valid_for is one hour. A malformed board.json is reported on the card, never a
  *    reason to hide the board: a broken writer is news, as it is for Health.
  *  · stale = index.html older than valid_for → drawn like an overdue Health job.
@@ -66,15 +66,20 @@ export interface BoardRow {
   status: BoardStatus;
   /** board.json problem, shown on the card; the board still renders. */
   configError?: string;
+  /**
+   * The icon the card asks for (#146), a NAME, never a path or URL. Passed through as written: the renderer owns the icon
+   * set and falls back to the board glyph for a name it does not have, so the list lives in one place.
+   */
+  icon?: string;
 }
 
-/** board.json → { title, validForS } or an error. Unknown keys are ignored (room for later fields). */
-export function parseBoardJson(text: string): { title?: string; validForS?: number; error?: string } {
+/** board.json → { title, validForS, icon } or an error. Unknown keys are ignored (room for later fields). */
+export function parseBoardJson(text: string): { title?: string; validForS?: number; icon?: string; error?: string } {
   let rec: unknown;
   try { rec = JSON.parse(text); } catch (e) { return { error: `board.json: ${(e as Error).message}`.slice(0, 160) }; }
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return { error: 'board.json: not an object' };
   const r = rec as Record<string, unknown>;
-  const out: { title?: string; validForS?: number; error?: string } = {};
+  const out: { title?: string; validForS?: number; icon?: string; error?: string } = {};
   if ('title' in r) {
     if (typeof r.title === 'string' && r.title.trim()) out.title = r.title.trim().slice(0, 80);
     else out.error = 'board.json: title must be a non-empty string';
@@ -84,6 +89,9 @@ export function parseBoardJson(text: string): { title?: string; validForS?: numb
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) out.validForS = v;
     else out.error = 'board.json: valid_for must be a positive number of seconds';
   }
+  // icon (#146): a short name made of letters only. Anything else is ignored, never an error line: the card just keeps
+  // the board glyph. Never a path or URL, so the viewer's no-network, same-folder rules are untouched.
+  if (typeof r.icon === 'string' && /^[A-Za-z]{1,40}$/.test(r.icon.trim())) out.icon = r.icon.trim();
   return out;
 }
 
@@ -104,6 +112,7 @@ export function boardRows(entries: ReadonlyArray<BoardEntry>, now: number): Boar
     };
     const err = e.boardJsonError ?? cfg.error;
     if (err) row.configError = err;
+    if (cfg.icon) row.icon = cfg.icon;
     out.push(row);
   }
   return out;
