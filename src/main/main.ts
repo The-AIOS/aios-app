@@ -2684,6 +2684,8 @@ app.whenReady().then(() => {
       const msg = String((d && typeof d === 'object' && 'message' in d ? d.message : args[1]) ?? '');
       if (/Uncaught|is not a function|is not defined|TypeError|ReferenceError/.test(msg)
           && !/Content-Security-Policy/.test(msg)) rendererErrors.push(msg.slice(0, 200));
+      /* The window's own policy refused something (#162): a feature that silently stopped working. */
+      else if (msg.startsWith('aios-csp-violation ')) rendererErrors.push(msg.slice(0, 200));
     });
   }
   win.on('focus', () => { host?.refreshUpdateStatus(); host?.refreshStateIfChanged(); rewireForRoots(win); });

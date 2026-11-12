@@ -2,6 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<!-- Content Security Policy (issue 162): a second lock behind vaultSanitize / chatSanitize. If untrusted
+     HTML ever reaches this window unsanitized, an inline script, an on* handler or a javascript: URL
+     still does not run. It must stay the FIRST thing after the charset: a policy only governs what
+     comes after it. src/test/windowCsp.test.ts reads it and fails if scripts gain 'unsafe-inline'.
+       script-src 'self'          only the App's own files (renderer/, node_modules/); no inline, no eval
+       style-src 'unsafe-inline'  xterm writes <style> elements and the markup carries style="";
+                                  styles cannot run code, scripts are what this policy exists for
+       img-src file: data: http:  the viewer shows local images, data:image, and a remote image the
+                                  operator clicked to load
+       frame-src                  file: (PDF and HTML exports), aios-board: (sidebar boards),
+                                  http(s): (the in-app browser's <webview>)
+     A violation is logged as `aios-csp-violation`, which `npm run smoke` counts as an error. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: https: http:; font-src 'self' data:; connect-src 'self'; frame-src 'self' file: aios-board: https: http:; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
 <link rel="stylesheet" href="theme.css" />
 </head>
