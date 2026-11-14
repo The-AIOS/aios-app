@@ -49,6 +49,11 @@ body.unfocused .cs-in, body.unfocused .cs-in *, body.unfocused .tickline:not(.ou
   --st-warn-ink: var(--st-warn);
   --st-error-ink: #eb5458;   /* the error red as text: 4.43:1 on --surface-2 → 4.9; the fill keeps --st-error */
   --accent: #ff5d4d;
+  /* Agent colours (#109): one per bundle folder, the letter on them in --agent-ink. Deep enough for white text in both themes. */
+  --agent-ink: #ffffff;
+  --agent-sales: #b45309; --agent-strategy: #4f46e5; --agent-finance-legal: #0f766e; --agent-engineering: #1d4ed8;
+  --agent-communication: #7c3aed; --agent-personal: #be185d; --agent-commerce: #0e7490; --agent-custom: #475569;
+  --agent-x0: #4d7c0f; --agent-x1: #9333ea; --agent-x2: #a16207; --agent-x3: #155e75;
   --accent-soft: #ff7a6c;
   /* ── status vocabulary — single-hue tokens. NEVER coral: coral = action/identity only ── */
   --st-idle:  #3ec77a;   /* alive & ready (calm green) */
@@ -2234,11 +2239,17 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
             background: color-mix(in srgb, var(--st-testing) 6%, var(--chat-out-bg)); }
 .chat-hat .ch-head { display: flex; align-items: center; gap: 6px; color: var(--subtle); font-size: .82em; }
 .chat-hat .ch-head .cs-ico { color: var(--st-testing); }
-.chat-hat .ch-who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 9px; }
+.chat-hat .ch-who { display: flex; align-items: center; gap: 10px; margin: 6px 0 9px; }
+.chat-hat .ch-words { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
+.ch-av { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; background: var(--ag, var(--agent-custom));
+         color: var(--agent-ink); font-weight: 700; font-size: 11px; line-height: 1; transition: background-color .2s ease; }
+.ch-av.big { width: 30px; height: 30px; border-radius: 8px; font-size: 15px; }
 .chat-hat .ch-name { font-size: 1.02em; }
 .chat-hat .ch-why { color: var(--subtle); }
-.chat-hat .ch-purpose { margin: -5px 0 9px; color: var(--subtle); font-size: .88em; }
+.chat-hat .ch-purpose { margin: -4px 0 9px 40px; color: var(--subtle); font-size: .88em;
+                        display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }   /* a long description stays two lines; the full text is its tooltip */
 .chat-note.hat.in-bubble { margin: 0 0 8px; }
+.chat-hat .vbtn:hover:not(:disabled) { border-color: var(--st-testing); }   /* coral stays the send button's */
 .chat-hat .ch-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .chat-hat.answered .ch-acts .vbtn:not(.chosen) { color: var(--faint); }
 .chat-hat .ch-done { margin-top: 7px; color: var(--subtle); font-size: .85em; }
@@ -2246,7 +2257,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-note.hat .cs-ico { color: var(--st-testing); }
 .chat-note.hat.failed { color: var(--subtle); border-color: var(--chat-claude-line); }
 .chat-note.hat.failed .cs-ico { color: var(--faint); }
-.cb-hat .cs-ico { color: var(--st-testing); }
+.cb-hat .ch-av { width: 16px; height: 16px; font-size: 10px; border-radius: 4px; }
 
 .chat-note.err .cn-head { display: flex; align-items: center; gap: 7px; color: var(--ce-ink); margin-bottom: 4px; }
 .chat-note.err .cn-msg > :first-child { margin-top: 0; }

@@ -2245,7 +2245,7 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
    platform: the bus verifies delivery, holds while a session is busy and dead-letters what it cannot do. */
 ipcMain.handle('ask:destinations', () => ({
   sessions: aios.listOperatorSessions().map((s) => ({ name: s.name, waiting: isBlockedStatus(s.status) })),
-  agents: aios.discoverAgents().map((a) => ({ name: a.name, desc: a.description ?? '' })),
+  agents: aios.discoverAgents().map((a) => ({ name: a.name, desc: a.description ?? '', group: a.group })),   // group: the agent's bundle folder, its colour in the chat (#109)
 }));
 ipcMain.handle('ask:send', (_e, dest: QuickBarDestination, text: unknown) => writeAskRequest(dest, String(text ?? ''), {
   inboxDir,

@@ -4773,7 +4773,7 @@ test('the hat lines are read in Claude\'s text only: inside a tool result or the
 guarded('a hat line is drawn only for an agent that exists; any other name stays text (security review, aios#299)',
   (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && agents\.has\(hl\.suggest\.name\)/.test(up) && /const wearing = hl\.wearing && agents\.has\(hl\.wearing\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
     && /chatRender\(rec\.body, text\); rec\.text = text;/.test(up); },
-  (src) => src.replace("const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name) } : null;", 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
+  (src) => src.replace("const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name).desc } : null;", 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
 
 test('only whole lines count: an indented, quoted or listed copy is not the line', () => {
   const f = hatLinesFn(app);
@@ -4794,5 +4794,21 @@ test('a hat line never loads an agent or sends anything by itself: only a button
     assert.doesNotMatch(fnBody(app, fn), /chatSkinSendNow|chatSkinSubmit|submitToPty|ptyWrite|createPane|spawn/, fn);
   }
   assert.match(fnBody(app, 'chatSkinHatCard'), /addEventListener\('click', \(\) => chatSkinHatAnswer\(cs, card, key\)\)/);
+});
+
+test('each agent wears its bundle folder\'s colour; a company folder gets a stable one; coral is never an agent colour', () => {
+  const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s initial on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
+  assert.equal(key('finance-legal'), 'finance-legal');
+  assert.equal(key('custom'), 'custom');
+  assert.equal(key(''), 'custom');
+  assert.match(key('sovra'), /^x[0-3]$/);
+  assert.equal(key('sovra'), key('sovra'), 'the same folder, the same colour, every time');
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  for (const k of ['sales', 'strategy', 'finance-legal', 'engineering', 'communication', 'personal', 'commerce', 'custom', 'x0', 'x1', 'x2', 'x3']) {
+    const m = new RegExp(`--agent-${k}: (#[0-9a-f]{6});`).exec(css);
+    assert.ok(m, `--agent-${k} is defined`);
+    assert.notEqual(m![1].toLowerCase(), '#ff5d4d', 'never the accent');
+  }
+  assert.match(fnBody(app, 'chatHatAvatar'), /String\(name \|\| '\?'\)\.charAt\(0\)\.toUpperCase\(\)/, 'the initial, as text');
 });
 

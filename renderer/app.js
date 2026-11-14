@@ -9324,7 +9324,7 @@ function chatSkinBuild(id, p) {
   /* The hat the session wears (#109): shown once it has put an agent on, from the transcript. */
   const hatSeg = el('span', 'cb-where cb-hat');
   hatSeg.hidden = true;
-  hatSeg.append(csIcon('id', 12), el('span', 'cb-v', ''));
+  hatSeg.append(el('span', 'cb-v', ''));   // its avatar is added with the hat (chatSkinHatChip)
   idBox.append(hatSeg, modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
@@ -11533,8 +11533,27 @@ function chatHatSuggestion(text) {
 let chatHatAgentList = null;
 function chatHatAgents() {
   if (!chatHatAgentList) chatHatAgentList = Promise.resolve(window.glassShell.askDestinations ? window.glassShell.askDestinations() : null)
-    .then((d) => new Map(((d && d.agents) || []).map((a) => [a.name, String(a.desc || '')]))).catch(() => new Map());
+    .then((d) => new Map(((d && d.agents) || []).map((a) => [a.name, { desc: String(a.desc || ''), group: String(a.group || '') }]))).catch(() => new Map());
   return chatHatAgentList;
+}
+/* Each agent wears its bundle's colour, the way a team's people do (#109, from the deck's friendly terminal): the folder it
+   lives in under agents/ (sales, strategy, finance-legal, engineering, communication, personal, commerce, custom). A company's
+   own folders get one of four more, picked from the folder's name so it never changes. The colours are theme tokens. */
+const CHAT_HAT_BUNDLES = new Set(['sales', 'strategy', 'finance-legal', 'engineering', 'communication', 'personal', 'commerce', 'custom']);
+function chatHatColorKey(group) {
+  const g = String(group || '');
+  if (CHAT_HAT_BUNDLES.has(g)) return g;
+  if (!g) return 'custom';
+  let h = 0;
+  for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return 'x' + (h % 4);
+}
+/* The agent's initial on its colour. Drawn neutral, then coloured once the agent list is read. */
+function chatHatAvatar(name, size) {
+  const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
+  av.setAttribute('aria-hidden', 'true');
+  void chatHatAgents().then((agents) => { const a = agents.get(name); av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`); });
+  return av;
 }
 /** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
     "aios:agent <name>") or as the operator's own command card ("/aios:agent <name>"). Pure, for the tests. */
@@ -11569,9 +11588,11 @@ function chatSkinHatCard(rec, hs, cs) {
   const card = el('div', 'chat-hat');
   card.dataset.agent = hs.name;
   const head = el('div', 'ch-head');
-  head.append(csIcon('id', 14), el('span', 'ch-k', t('chat.hat.suggested')));
+  head.append(csIcon('robot', 14), el('span', 'ch-k', t('chat.hat.suggested')));
   const who = el('div', 'ch-who');
-  who.append(el('strong', 'ch-name', hs.name), el('span', 'ch-why', hs.why));
+  const words = el('div', 'ch-words');
+  words.append(el('strong', 'ch-name', hs.name), el('span', 'ch-why', hs.why));
+  who.append(chatHatAvatar(hs.name, 'big'), words);
   const purpose = el('div', 'ch-purpose');
   purpose.hidden = true;
   const acts = el('div', 'ch-acts');
@@ -11584,7 +11605,7 @@ function chatSkinHatCard(rec, hs, cs) {
   }
   const done = el('div', 'ch-done');
   done.hidden = true;
-  if (hs.purpose && hs.purpose !== hs.why) { purpose.textContent = hs.purpose; purpose.hidden = false; }
+  if (hs.purpose && hs.purpose !== hs.why) { purpose.textContent = hs.purpose; purpose.title = hs.purpose; purpose.hidden = false; }
   card.append(head, who, purpose, acts, done);
   rec.body.after(card);
   rec.hatCard = card;
@@ -11621,7 +11642,7 @@ function chatSkinPaintHatWorn(rec, item, cs) {
   const failed = info.status === 'error';
   rec.node.classList.add('hat');
   rec.node.classList.toggle('failed', failed);
-  rec.body.replaceChildren(csIcon('id', 13), el('span', '', t(failed ? 'chat.hat.wornFailed' : 'chat.hat.worn', { name: rec.hatWorn })));
+  rec.body.replaceChildren(chatHatAvatar(rec.hatWorn), el('span', '', t(failed ? 'chat.hat.wornFailed' : 'chat.hat.worn', { name: rec.hatWorn })));
   rec.node.hidden = false;
   if (!failed) chatSkinHatChip(cs, rec.hatWorn);
 }
@@ -11632,7 +11653,7 @@ function chatSkinHatWearing(rec, name, cs) {
   if (!name) return;
   if (cs.hat !== name) {
     const mark = el('div', 'chat-note hat in-bubble');
-    mark.append(csIcon('id', 13), el('span', '', t('chat.hat.worn', { name })));
+    mark.append(chatHatAvatar(name), el('span', '', t('chat.hat.worn', { name })));
     rec.body.before(mark);
     rec.hatMark = mark;
   }
@@ -11645,6 +11666,8 @@ function chatSkinHatChip(cs, name) {
   if (!seg) return;
   seg.hidden = !cs.hat;
   seg.querySelector('.cb-v').textContent = cs.hat;
+  const old = seg.querySelector('.ch-av');
+  if (cs.hat) { const av = chatHatAvatar(cs.hat); if (old) old.replaceWith(av); else seg.prepend(av); } else if (old) old.remove();
   seg.title = cs.hat ? t('chat.hat.chip', { name: cs.hat }) : '';
 }
 function chatSkinUpsert(cs, item, animate, before) {
@@ -11679,7 +11702,7 @@ function chatSkinUpsert(cs, item, animate, before) {
       if (hl.suggest || hl.wearing) {
         void chatHatAgents().then((agents) => {
           if (rec.text !== text || !rec.node.isConnected) return;   // the reply changed or left meanwhile
-          const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name) } : null;
+          const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name).desc } : null;
           const wearing = hl.wearing && agents.has(hl.wearing) ? hl.wearing : '';
           if (!hs && !wearing) return;
           chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);

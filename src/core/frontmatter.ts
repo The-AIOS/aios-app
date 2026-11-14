@@ -58,6 +58,10 @@ export function parseFrontmatter(content: string): Frontmatter {
   return fm;
 }
 
+/* A YAML scalar's quotes, and what they escape: inside single quotes a quote is written twice (`'an ingest''s'`), inside
+   double quotes as \". Anything else keeps the old lenient strip. (#109: an agent's purpose read "ingest''s" on its card.) */
 function stripQuotes(s: string): string {
+  if (s.length >= 2 && s[0] === "'" && s.endsWith("'")) return s.slice(1, -1).replace(/''/g, "'");
+  if (s.length >= 2 && s[0] === '"' && s.endsWith('"')) return s.slice(1, -1).replace(/\\"/g, '"');
   return s.replace(/^["']|["']$/g, '');
 }
