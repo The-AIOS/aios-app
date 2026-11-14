@@ -1507,7 +1507,7 @@ test('a narrow pane: two fixed steps (the account address, then the bars; the la
   assert.match(skin, /el\('span', 'cb-k', t\(short\)\)/, 'the label is the short form at every width');
   // no guessed width hides a segment whose size depends on its text (0.14.0 round: folder and branch hidden at 543px with room to spare)
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.(cb-dir|cb-branch|cb-effort)[^}]*display: none/);
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k'\];/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-hat \.cb-v', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k', '\.cb-hat'\];/);
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.cb-m \.cb-v[^}]*display: none/, 'nothing hides the numbers');
   assert.match(skinRules(css).find(([sel]) => sel === '.chat-bar .fit-cut')?.[1] ?? '', /display: none/);
   // run it: a stub bar that only fits once the folder and the branch are gone
@@ -1922,7 +1922,7 @@ test('the effort menu\'s look: a neutral popover with its own tokens, a tick on 
   assert.match(css, /\.cb-effort:hover:not\(:disabled\), \.cb-effort\[aria-expanded="true"\] \{ background-color: var\(--chat-row-hover\); \}/);
   assert.match(css, /\.cb-effort:focus-visible \{ outline: 2px solid var\(--chat-focus\)/);
   // the narrow-pane step is still there: measured now, the effort goes after the folder and the branch
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-effort'/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-hat \.cb-v', '\.cb-effort'/);
 });
 
 test('the slash popup wires: the box is a combobox over a listbox, input asks, send/hide/blocked close it, and the IPC is read-only with a leading-slash gate', () => {
@@ -3997,25 +3997,34 @@ test('a message sent during a turn shows at once as queued, and leaves when the 
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.queued"'), l);
 });
 
-test('an image path in a chat message is PASTED, so Claude Code attaches it as [Image #N]; the rest is typed (0.14.1 round)', () => {
+test('an image path in a chat message is PASTED, so Claude Code attaches it as [Image #N]; the text around it is pasted too (#155)', () => {
   const a = app.indexOf('const CHAT_IMAGE_EXT');
   const parts = new Function(app.slice(a, app.indexOf('\n}\n', app.indexOf('function chatSkinImageParts')) + 2) + 'return chatSkinImageParts;')() as (t: string) => unknown;
   assert.deepEqual(parts('what is wrong here? "/tmp/aios-chat-paste/paste-1-abc.png" '), ['what is wrong here? ', { paste: '/tmp/aios-chat-paste/paste-1-abc.png' }, ' '], 'the quoted path the chat box inserts');
   assert.deepEqual(parts('two: "/a b/x.PNG" and /c/y.jpg done'), ['two: ', { paste: '/a b/x.PNG' }, ' and ', { paste: '/c/y.jpg' }, ' done'], 'several, quoted or bare, any case');
   assert.equal(parts('no image /tmp/notes.md here'), null, 'control: a path to something else stays text');
   assert.equal(parts('see x.png'), null, 'control: a relative name stays text');
-  /* submitToPty with parts: strings typed, paths inside bracketed paste, then ONE Enter as its own write. */
-  const at = app.indexOf('function submitToPty(');
-  const writes: string[] = []; const timers: Array<() => void> = [];
-  const submit = new Function('window', 'setTimeout', app.slice(at, app.indexOf('\n}\n', at) + 2) + 'return submitToPty;')(
-    { glassShell: { ptyWrite: (_id: string, s: string) => writes.push(s) } }, (f: () => void) => { timers.push(f); return 0; }) as (id: string, t: unknown) => void;
-  submit('a', ['look ', { paste: '/tmp/s.png' }, ' thanks']);
-  assert.deepEqual(writes, ['look ', '\x1b[200~/tmp/s.png\x1b[201~', ' thanks'], 'typed, pasted, typed');
-  timers.forEach((f) => f());
-  assert.deepEqual(writes.slice(-1), ['\r'], 'then Enter, alone');
-  const sub = app.slice(app.indexOf('function chatSkinSubmit('), app.indexOf('function chatSkinSubmit(') + 1200);
-  assert.match(sub, /const imgParts = text\.startsWith\('\/'\) \? null : chatSkinImageParts\(text\);\s*if \(imgParts\) submitToPty\(id, imgParts\);/, 'the chat send uses it; a slash command never does');
+  /* submitToPty with parts: every part its own bracketed paste (no ESC inside), empty parts skipped, then ONE Enter. */
+  const writes = partWrites(app, ['look ', { paste: '/tmp/s.png' }, '', ' thanks\x1b[201~']);
+  assert.deepEqual(writes, ['\x1b[200~look \x1b[201~', '\x1b[200~/tmp/s.png\x1b[201~', '\x1b[200~ thanks[201~\x1b[201~', '\r'], 'pasted, pasted, pasted, then Enter alone');
+  const sub = app.slice(app.indexOf('function chatSkinSubmit('), app.indexOf('function chatSkinSubmit(') + 1600);
+  assert.match(sub, /const imgParts = text\.startsWith\('\/'\) \|\| text\.startsWith\('!'\) \? null : chatSkinImageParts\(text\);\s*if \(imgParts\) submitToPty\(id, imgParts\);/, 'the chat send uses it; a slash command or a "!" shell line never does');
 });
+
+/** Run the real submitToPty from `src` on a list of parts; return what it wrote to the pty, Enter last. */
+function partWrites(src: string, parts: unknown[]): string[] {
+  const at = src.indexOf('function submitToPty(');
+  const writes: string[] = []; const timers: Array<() => void> = [];
+  const submit = new Function('window', 'setTimeout', src.slice(at, src.indexOf('\n}\n', at) + 2) + 'return submitToPty;')(
+    { glassShell: { ptyWrite: (_id: string, s: string) => writes.push(s) } }, (f: () => void) => { timers.push(f); return 0; }) as (id: string, t: unknown) => void;
+  submit('a', parts);
+  timers.forEach((f) => f());
+  return writes;
+}
+
+guarded('a long message sent with an image arrives whole: the text parts are pasted, never typed (#155)',
+  (src) => { const w = partWrites(src, ['x'.repeat(1500), { paste: '/tmp/s.png' }]); return w[0] === '\x1b[200~' + 'x'.repeat(1500) + '\x1b[201~' && w.length === 3; },
+  (src) => src.replace("if (s) window.glassShell.ptyWrite(id, '\\x1b[200~' + s.replace(/\\x1b/g, '') + '\\x1b[201~');", "if (s) window.glassShell.ptyWrite(id, typeof part === 'string' ? s : '\\x1b[200~' + s + '\\x1b[201~');"));
 
 test('the mode row is not mirrored under the chat (the chip says it), and Shift+Tab in the chat box cycles the mode (0.14.1 round)', () => {
   const re = new Function(app.slice(app.indexOf('const CS_MODE_ROW'), app.indexOf('\n', app.indexOf('const CS_MODE_ROW')) + 1) + 'return CS_MODE_ROW;')() as RegExp;
@@ -4660,4 +4669,216 @@ test('0.15.0 review 2: the long-question switch never takes the keyboard from an
   }
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   assert.match(css, /body\.light \.chatskin \.cs-sticky \{ background: color-mix\(in srgb, var\(--chat-user-bg\) 90%, transparent\); \}/);
+});
+
+/* ── Hats (#109): the framework's hat lines (The-AIOS/aios#299), drawn as a card and a hat change ── */
+/* The pure parts, run from the real source: the line parser, the answer words, the colour key, and the ORDER plan that
+   decides every card, hat change and the chip from the column top to bottom. */
+const hatSrc = (src: string) => src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agents a hat line may name, checked'));
+const hatLinesFn = (src: string) => new Function(hatSrc(src) + '\nreturn chatHatLines;')() as
+  (t: string) => { suggest: { name: string; why: string } | null; wearing: string; opened: string; rest: string };
+const fnSrc = (src: string, name: string) => src.slice(src.indexOf(`function ${name}(`), src.indexOf('\n}\n', src.indexOf(`function ${name}(`)) + 3);
+type Row = { kind: 'user'; text: string; bus?: boolean } | { kind: 'worn'; name: string; failed?: boolean } | { kind: 'reply'; suggest?: string; wearing?: string; opened?: string };
+type Plan = { out: Array<{ card?: { state: string; key?: string; wasAuto?: boolean }; mark?: { kind: string; name: string }; opened?: { name: string; onCard: number | null }; wornHidden?: boolean }>; hat: string; open: number[] };
+const planFn = (src: string) => new Function(fnSrc(src, 'chatHatAnswerOf') + fnSrc(src, 'chatHatPlan') + '\nreturn chatHatPlan;')() as (rows: Row[]) => Plan;
+const plan = planFn(app);
+
+guarded('the suggestion line is read exactly as the framework writes it; malformed, quoted or translated copies stay text',
+  (src) => {
+    const f = hatLinesFn(src);
+    const line = 'Suggested agent: accountant (invoices and bookkeeping). Wear it here, or open it as its own session?';
+    const hit = f('This is bookkeeping work.\n\n' + line);
+    const bad = ['**' + line + '**', '`' + line + '`', '  ' + line, '> ' + line, '- ' + line,
+      'Suggested agent: Accountant (x). Wear it here, or open it as its own session?',
+      'Suggested agent: accountant, lawyer (money). Wear it here, or open it as its own session?',
+      'Suggested agent: accountant. Wear it here, or open it as its own session?',
+      'Suggested agent: accountant (). Wear it here, or open it as its own session?',
+      'Agente sugerido: accountant (facturas). ¿Usarlo aquí o abrirlo como su propia sesión?'];
+    return !!hit.suggest && hit.suggest.name === 'accountant' && hit.suggest.why === 'invoices and bookkeeping' && hit.rest === 'This is bookkeeping work.'
+      && !!f(line + '\r').suggest && bad.every((b) => f(b).suggest === null && f(b).rest === b.trim());
+  },
+  (src) => src.replace("const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \\((.{1,80})\\)\\. Wear it here, or open it as its own session\\?$/;", "const CHAT_HAT_LINE = /Suggested agent: (\\S+) \\((.*)\\)/i;"));
+
+guarded('"Wearing agent: <name>." and "Opened agent session: <name>." are read exactly; none is the hat off',
+  (src) => { const f = hatLinesFn(src);
+    return f('Wearing agent: accountant.').wearing === 'accountant' && f('Wearing agent: none.').wearing === 'none'
+      && f('Opened agent session: accountant-october.').opened === 'accountant-october'
+      && ['Wearing agent: Accountant.', 'Wearing agent: accountant', '**Wearing agent: accountant.**', 'Opened agent session: X.'].every((b) => !f(b).wearing && !f(b).opened); },
+  (src) => src.replace('const CHAT_HAT_WEARING = /^Wearing agent: ([a-z0-9][a-z0-9-]*)\\.$/;', 'const CHAT_HAT_WEARING = /Wearing agent: (\\S+?)\\.?$/i;'));
+
+test('the lines are read in Claude\'s text only: inside a tool result or the operator\'s message they stay what they are', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createTranscriptTracker } = require('../core/transcriptChat') as typeof import('../core/transcriptChat');
+  const f = hatLinesFn(app);
+  const line = 'Suggested agent: accountant (invoices and bookkeeping). Wear it here, or open it as its own session?';
+  const u = (content: unknown) => JSON.stringify({ type: 'user', uuid: 'u-' + Math.random(), timestamp: '2026-11-13T10:00:00Z', message: { role: 'user', content } });
+  const a = (content: unknown[], stop: string) => JSON.stringify({ type: 'assistant', uuid: 'a-' + Math.random(), timestamp: '2026-11-13T10:00:01Z', message: { id: 'm-' + Math.random(), role: 'assistant', content, stop_reason: stop, usage: { input_tokens: 1, output_tokens: 1 } } });
+  const items = createTranscriptTracker().feedAll([
+    u('can you help? ' + line),
+    a([{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/x/notes.md' } }], 'tool_use'),
+    u([{ type: 'tool_result', tool_use_id: 'tu1', content: line + '\nWearing agent: lawyer.' }]),
+    a([{ type: 'text', text: 'Bookkeeping work.\n\n' + line }], 'end_turn'),
+  ]).items;
+  const seen = items.filter((i) => i.role === 'assistant').map((i) => f(i.text || ''));
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].suggest?.name, 'accountant');
+  assert.ok((items.find((i) => i.role === 'user')?.text || '').includes(line), 'the operator\'s message keeps the line as text');
+  assert.ok((items.find((i) => i.role === 'tool')?.tool?.output || '').includes('Wearing agent: lawyer.'), 'the tool result keeps it as output');
+  assert.match(fnBody(app, 'chatSkinUpsert'), /if \(rec\.role === 'assistant'\) \{[\s\S]*chatSkinHatDraw\(rec, cs\)/, 'drawn in the assistant branch only');
+});
+
+test('answer words in any script: "sí", "ναι", "όχι" and "não" are words, "yesterday" and "nothing" are not', () => {
+  const a = new Function(fnSrc(app, 'chatHatAnswerOf') + '\nreturn chatHatAnswerOf;')() as (t: string) => string;
+  assert.deepEqual(['here', 'Yes!', 'sí', 'ναι', 'open', 'no', 'Not now', 'όχι', 'não', 'yesterday', 'nothing', 'what about taxes?'].map(a),
+    ['here', 'here', 'here', 'here', 'open', 'no', 'no', 'no', 'no', 'other', 'other', 'other']);
+});
+
+/* THE ORDER PLAN: the cases the review found, as whole columns. Each also runs against a deliberately broken plan. */
+const S = 'accountant';
+guarded('a reload or resume: a suggestion followed by the operator\'s answer comes back answered, never live',
+  (src) => { const r = planFn(src)([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'here' }]);
+    return r.out[0].card?.state === 'answered' && r.out[0].card?.key === 'here' && r.open.length === 0; },
+  (src) => src.replace('for (const j of open) out[j].card = { state: \'answered\', key, wasAuto: !!out[j].wasAuto };', ''));
+
+test('only the last unanswered card stays live; any message after a card answers it, so a card never reopens', () => {
+  const r = plan([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'no' }, { kind: 'reply', suggest: 'lawyer' }, { kind: 'user', text: 'yes' }]);
+  assert.equal(r.out[0].card?.state, 'answered');
+  assert.equal(r.out[2].card?.state, 'answered');
+  assert.deepEqual(r.open, []);
+  assert.doesNotMatch(fnBody(app, 'chatHatPlan') + fnBody(app, 'chatSkinHatRecompute'), /from-bus|r\.bus/, 'no message is set aside: a mislabelled one would reopen its card');
+});
+
+guarded('a card the AIOS put on closes when the hat changes under it (none, or another hat)',
+  (src) => { const p = planFn(src);
+    const a = p([{ kind: 'reply', suggest: S, wearing: S }, { kind: 'reply', wearing: 'none' }]);
+    const b = p([{ kind: 'reply', suggest: S, wearing: S }, { kind: 'worn', name: 'lawyer' }]);
+    const c = p([{ kind: 'reply', suggest: S, wearing: S }, { kind: 'reply', wearing: S }]);
+    return a.out[0].card?.state === 'closed' && b.out[0].card?.state === 'closed' && c.out[0].card?.state === 'auto'; },
+  (src) => src.replace("      closeAutos('');\n", ''));
+
+guarded('a hat line quoted inside a code block is not the line',
+  (src) => { const f = hatLinesFn(src);
+    const r = f('The skill writes:\n```\nWearing agent: accountant.\nSuggested agent: accountant (x). Wear it here, or open it as its own session?\n```');
+    return r.wearing === '' && r.suggest === null; },
+  (src) => src.replace('    if (fence) { keep.push(line); continue; }   // a line inside a code block is quoted, never the line itself\n', ''));
+
+guarded('the chip is the LAST hat in the column, in column order: a hat taken off stays off',
+  (src) => { const p = planFn(src);
+    return p([{ kind: 'reply', wearing: S }, { kind: 'reply', wearing: 'none' }]).hat === ''
+      && p([{ kind: 'reply', wearing: 'lawyer' }, { kind: 'worn', name: S }]).hat === S
+      && p([{ kind: 'worn', name: S }, { kind: 'reply', wearing: 'lawyer' }, { kind: 'reply', wearing: 'none' }, { kind: 'reply', wearing: 'explainer' }]).hat === 'explainer'; },
+  (src) => src.replace("      closeAutos('');\n      hat = '';", "      closeAutos('');"));
+
+/* The WALK that feeds the plan, run from the real source with a stand-in column: what it reads must be the column on screen,
+   whatever order the rows arrived in (scrolling up adds older rows above newer ones). */
+guarded('the walk reads the column in screen order, not arrival order: an older message added above answers nothing below it',
+  (src) => {
+    const recompute = new Function('chatHatPlan', 'chatSkinHatCardState', 'chatSkinHatChip', 'el', 't', 'csIcon', 'chatHatAvatar', 'panes', 'setActive', 'toast',
+      fnSrc(src, 'chatSkinHatRecompute') + '\nreturn chatSkinHatRecompute;');
+    const mkCard = () => ({ dataset: {} as Record<string, string>, state: '', querySelector: () => ({ hidden: true }) });
+    const node = () => ({ hidden: false, classList: { contains: () => false } });
+    const newCard = { role: 'assistant', node: node(), hat: { suggest: 'lawyer', wearing: '', opened: '' }, hatCard: mkCard() };
+    const oldCard = { role: 'assistant', node: node(), hat: { suggest: S, wearing: '', opened: '' }, hatCard: mkCard() };
+    const olderNo = { role: 'user', node: node(), text: 'no' };
+    const cs = { log: { querySelectorAll: () => [oldCard.node, olderNo.node, newCard.node] },   // the screen: old card, its answer, the new card
+      items: new Map<string, unknown>([['n', newCard], ['o', oldCard], ['u', olderNo]]) };          // arrival: the new card first, the older two loaded later
+    const run = recompute(planFn(src), (c: { state: string }, state: string) => { c.state = state; }, () => {}, () => ({}), () => '', () => ({}), () => ({}), new Map(), () => {}, () => {});
+    run(cs);
+    return oldCard.hatCard.state === 'answered' && newCard.hatCard.state === 'open';
+  },
+  (src) => src.replace("for (const node of cs.log.querySelectorAll('.chat-row, .chat-note')) {", 'for (const node of [...cs.items.values()].map((r) => r.node)) {'));
+
+test('a click still waiting to send survives a redraw, and cannot be sent twice', () => {
+  const a = fnBody(app, 'chatSkinHatAnswer'), r = fnBody(app, 'chatSkinHatRecompute');
+  assert.match(a, /if \(cs\.hatPending && cs\.hatPending\.has\(card\.dataset\.uuid\)\) return;/, 'a second click on the same card does nothing');
+  assert.match(a, /\(cs\.hatPending \|\| \(cs\.hatPending = new Map\(\)\)\)\.set\(card\.dataset\.uuid, key\)/, 'kept on the chat, not on the card a redraw replaces');
+  assert.match(r, /cs\.hatPending\.get\(c\.dataset\.uuid\)/);
+  assert.match(fnBody(app, 'chatHatAvatar'), /chatHatAgent\(name, true\)/, 'a colour never makes the list load again (which redraws)');
+});
+
+guarded('default mode: the hat going on right after its own suggestion makes the card "put on by your AIOS", with one notice',
+  (src) => { const p = planFn(src);
+    const a = p([{ kind: 'reply', suggest: S, wearing: S }]);
+    const b = p([{ kind: 'reply', suggest: S }, { kind: 'worn', name: S }, { kind: 'reply', wearing: S }]);
+    return a.out[0].card?.state === 'auto' && !a.out[0].mark && b.out[0].card?.state === 'auto' && b.out[1].wornHidden === true && !b.out[2].mark && b.hat === S; },
+  (src) => src.replace('const own = autoFor(r.wearing);', 'const own = false;'));
+
+test('ask mode then "here": the card is answered, and the hat change shows as its outcome', () => {
+  const r = plan([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'here' }, { kind: 'worn', name: S }, { kind: 'reply', wearing: S }]);
+  assert.equal(r.out[0].card?.state, 'answered');
+  assert.equal(r.out[2].wornHidden, false, 'the load call shows: there is no open card to say it');
+  assert.equal(r.out[3].mark, undefined, 'and the Wearing line does not repeat it');
+  assert.equal(r.hat, S);
+});
+
+test('a failed load shows and changes no hat; "none" with no hat on says nothing', () => {
+  const r = plan([{ kind: 'worn', name: S, failed: true }, { kind: 'reply', wearing: 'none' }]);
+  assert.equal(r.out[0].wornHidden, false);
+  assert.equal(r.out[1].mark, undefined);
+  assert.equal(r.hat, '');
+});
+
+guarded('"Opened agent session" goes on the latest card for its agent, or stands alone',
+  (src) => { const p = planFn(src);
+    const a = p([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'open' }, { kind: 'reply', opened: 'accountant-october', wearing: 'none' }]);
+    const b = p([{ kind: 'reply', opened: 'lawyer-acme' }]);
+    return a.out[2].opened?.onCard === 0 && b.out[0].opened?.onCard === null; },
+  (src) => src.replace("const j = [...cards].reverse().find((k) => n === rows[k].suggest || n.startsWith(rows[k].suggest + '-'));", 'const j = undefined;'));
+
+/* The wiring around the plan. */
+test('every hat draw goes through the agent list, read once; a name not in it stays text, and nothing waits on a lookup per name', () => {
+  const d = fnBody(app, 'chatSkinHatDraw');
+  assert.match(d, /if \(!chatHatAgentMap\) \{ void chatHatAgentsLoad\(\); return false; \}/);
+  assert.match(d, /const sa = hl\.suggest && chatHatAgent\(hl\.suggest\.name\);/);
+  assert.match(d, /if \(!sa && !wearing && !hl\.opened\) return false;/);
+  assert.doesNotMatch(d + fnBody(app, 'chatHatAgent'), /\.then\(/, 'no per-name promise in the draw');
+  assert.match(fnBody(app, 'chatSkinHatSoon'), /Promise\.resolve\(\)\.then\(\(\) => \{ cs\.hatQ = false; chatSkinHatRecompute\(cs\); \}\)/, 'decided after the batch lands');
+});
+
+test('nothing a hat line draws sends a word or opens a session; only a click does, never over a draft, never "here" on a hat already on', () => {
+  for (const fn of ['chatSkinHatDraw', 'chatSkinHatRecompute', 'chatHatPlan', 'chatSkinHatCardState', 'chatSkinHatChip', 'chatSkinPaintHatWorn']) {
+    assert.doesNotMatch(fnBody(app, fn), /chatSkinSendNow|chatSkinSubmit|submitToPty|ptyWrite|createPane|spawn/, fn);
+  }
+  const a = fnBody(app, 'chatSkinHatAnswer');
+  assert.match(a, /if \(cs\.input\.value\.trim\(\)\) \{ toast\(t\('chat\.hat\.boxBusy'\)\)/);
+  assert.match(a, /cs\.input\.value = key;\n\s*chatSkinSendNow\(id, p\);/);
+  assert.match(a, /if \(card\.dataset\.state === 'auto' && key === 'here'\) return;/);
+  assert.match(fnBody(app, 'chatSkinHatCardEl'), /for \(const key of \['here', 'open', 'no'\]\)/);
+});
+
+test('the reason and the purpose are text, never markup', () => {
+  const c = fnBody(app, 'chatSkinHatCardEl');
+  assert.match(c, /el\('span', 'ch-why', hs\.why\)/);
+  assert.match(c, /purpose\.textContent = hs\.purpose/);
+  assert.doesNotMatch(c + fnBody(app, 'chatSkinHatCardState') + fnBody(app, 'chatSkinHatRecompute'), /innerHTML|insertAdjacentHTML|chatRender\(/);
+});
+
+test('each agent wears its bundle folder\'s colour; a company folder gets a stable one; coral is never an agent colour', () => {
+  const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s initial on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
+  assert.equal(key('finance-legal'), 'finance-legal');
+  assert.equal(key(''), 'custom');
+  assert.match(key('sovra'), /^x[0-3]$/);
+  assert.equal(key('sovra'), key('sovra'));
+  const css = fs.readFileSync('renderer/theme.css', 'utf8');
+  for (const k of ['sales', 'strategy', 'finance-legal', 'engineering', 'communication', 'personal', 'commerce', 'custom', 'x0', 'x1', 'x2', 'x3']) {
+    const m = new RegExp(`--agent-${k}: (#[0-9a-f]{6});`).exec(css);
+    assert.ok(m, `--agent-${k}`);
+    assert.notEqual(m![1].toLowerCase(), '#ff5d4d');
+  }
+});
+
+test('the Skill call\'s summary carries its args, so the hat it loads can be named; loading is drawn as a hat change', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { summarizeTool } = require('../core/chatEvents') as { summarizeTool: (n: string, i: unknown) => string };
+  assert.equal(summarizeTool('Skill', { skill: 'aios:agent', args: 'accountant' }), 'aios:agent accountant');
+  const w = new Function(fnSrc(app, 'chatHatWorn') + '\nreturn chatHatWorn;')() as (i: { name: string; summary: string }) => string;
+  assert.equal(w({ name: 'Skill', summary: 'aios:agent accountant' }), 'accountant');
+  assert.equal(w({ name: '/aios:agent lawyer', summary: '' }), 'lawyer');
+  assert.equal(w({ name: 'Bash', summary: 'aios:agent accountant' }), '');
+  assert.match(fnBody(app, 'chatSkinUpsert'), /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/);
+});
+
+test('the chip never crowds the bar: its name is cut early, the whole chip last, and the bar is fitted again', () => {
+  assert.match(app, /const CHAT_BAR_CUT = \[[^\]]*'\.cb-hat \.cb-v'[^\]]*'\.cb-hat'\]/);
+  assert.match(fnBody(app, 'chatSkinHatChip'), /chatSkinFitSoon\(cs\.bar\);/);
 });

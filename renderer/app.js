@@ -16,6 +16,7 @@ const IS_LINUX = !!(window.glassShell && window.glassShell.platform === 'linux')
 /* macOS specifically, not "not Windows" — Linux is neither, and the one place this decides is
    whether a ⌘ can stand for "shortcuts". It cannot anywhere else. */
 const IS_MAC = !!(window.glassShell && window.glassShell.platform === 'darwin');
+/* The window's Content Security Policy violations are logged by renderer/csp-report.js, loaded first (#162). */
 /* WHAT A Ctrl+C / Ctrl+V KEYDOWN MEANS IN A TERMINAL, off macOS. Returns 'copy', 'paste', or
    null — null meaning "not ours": the key goes on exactly as before this existed.
    Windows Terminal and VS Code's terminal conventions, because that is what an operator on
@@ -4807,10 +4808,15 @@ function submitToPty(id, text, stillWaiting, opts) {
      its last 609, whatever the Enter's delay; the same 4.7 KB pasted arrived whole, and a short paste is recorded as plain
      text (0.15.1, #153). ESC is dropped from the text so nothing in it can end the paste early. */
   if (opts && opts.paste && typeof text === 'string') text = '\x1b[200~' + text.replace(/\x1b/g, '') + '\x1b[201~';
-  /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
-     PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
+  /* A list of parts, every one sent as its own bracketed paste: Claude Code turns a pasted image PATH into an attachment
+     ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). The text around the path is
+     pasted too: typed, a long one lost its beginning like any long typed burst (#155, measured on 2.1.322: ~1.5 KB of text
+     before an image arrived as its last 416 characters; pasted, whole, with the image still attached, one message). */
   if (Array.isArray(text)) {
-    for (const part of text) window.glassShell.ptyWrite(id, typeof part === 'string' ? part : '\x1b[200~' + part.paste + '\x1b[201~');
+    for (const part of text) {
+      const s = typeof part === 'string' ? part : part.paste;
+      if (s) window.glassShell.ptyWrite(id, '\x1b[200~' + s.replace(/\x1b/g, '') + '\x1b[201~');
+    }
     setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 500);   // after the paste is read: Claude Code loads the image before Enter can carry it
     return;
   }
@@ -4866,6 +4872,7 @@ async function requestClosePane(id) {
 function closePane(id) {
   const p = panes.get(id);
   if (!p) return;
+  if (p.flushSave) p.flushSave();   // a note's waiting autosave is saved, not dropped, when its tab closes (#159)
   const z = zoneOf(p);
   if (p.ro) { try { p.ro.disconnect(); } catch { /* already gone */ } }
   if (p.gl) { try { p.gl.dispose(); } catch { /* already gone */ } }
@@ -5437,6 +5444,31 @@ function lineTopIn(pre, n) {
   return rect.top - pre.getBoundingClientRect().top + pre.scrollTop;
 }
 
+/* Where a caret at `pos` in `oldText` belongs in `newText`, when the text changed around it (#159: an agent's write merged
+   into the open note). By line: lines before the first change keep their place; lines after the last change move with the
+   end; a caret inside the changed stretch follows its own line's text when that line still exists there, and otherwise goes
+   to the start of the change. The column within the line is kept (clamped). Pure, for the tests. */
+function mapCaret(oldText, newText, pos) {
+  const O = oldText.split('\n'), N = newText.split('\n');
+  let line = 0, acc = 0;
+  while (line < O.length - 1 && acc + O[line].length < pos) { acc += O[line].length + 1; line++; }
+  const col = pos - acc;
+  let pre = 0;
+  while (pre < O.length && pre < N.length && O[pre] === N[pre]) pre++;
+  let suf = 0;
+  while (suf < O.length - pre && suf < N.length - pre && O[O.length - 1 - suf] === N[N.length - 1 - suf]) suf++;
+  let to;
+  if (line < pre) to = line;
+  else if (line >= O.length - suf) to = line + (N.length - O.length);
+  else {
+    const hit = N.indexOf(O[line], pre);
+    to = hit >= 0 && hit < N.length - suf ? hit : pre;
+  }
+  to = Math.max(0, Math.min(to, N.length - 1));
+  let off = 0;
+  for (let k = 0; k < to; k++) off += N[k].length + 1;
+  return off + Math.min(col, N[to].length);
+}
 function buildCodeEditor(initial, lang, hooks, gitPath) {
   const wrap = el('div', 'codeedit');
   const pre = el('pre', 'codehl hljs');
@@ -5570,6 +5602,18 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
   hl();
   void refreshGutter();
   wrap.refreshGutter = refreshGutter;   // the viewer re-reads git after a save
+  wrap.value = () => ta.value;
+  /* Replace the text with what is on disk now (an agent's change merged in, #159), keeping the caret where it was relative to
+     the text around it (mapCaret: by line, so an agent's change above AND below the caret in one write still leaves it on
+     the operator's line). No input event. */
+  wrap.replaceText = (v) => {
+    const old = ta.value;
+    if (v === old) return;
+    const s0 = mapCaret(old, v, ta.selectionStart), s1 = mapCaret(old, v, ta.selectionEnd), top = ta.scrollTop;
+    ta.value = v; lastSeen = v;
+    ta.selectionStart = s0; ta.selectionEnd = s1; ta.scrollTop = top;
+    hl(); refreshGutter();
+  };
   wrap.stepChange = step;               // the header stepper drives the same path as ⌥↑/⌥↓
   return wrap;
 }
@@ -5732,6 +5776,9 @@ window.addEventListener('beforeunload', () => {
   clearTimeout(restoreTimer);
   if (restorePending) { try { localStorage.setItem(RESTORE_KEY, JSON.stringify(restorePending)); } catch { /* */ } }
   restoreQuitting = true;
+  /* Quitting with a note's autosave still waiting (#159): send it now. Best effort: the save is an IPC the window does not
+     wait for, which main handles before it quits in practice. */
+  for (const p of panes.values()) if (p.flushSave) { try { p.flushSave(true); } catch { /* gone */ } }
 });
 
 /** A tab for a session that has not been resumed yet — no pty until it is opened. */
@@ -6175,13 +6222,85 @@ async function openViewer(p) {
   let mode = renderable && OPENNOTESIN !== 'source' ? 'rendered' : 'source';
   let saveTimer = null;
   const setDirty = (on) => { paneObj.dirty = on; tab.classList.toggle('dirty', on); };
-  async function save(content, repaint) {
-    file.content = content;
-    const ok = await window.glassShell.fsWrite(file.path, content);
-    setDirty(!ok);
-    if (!ok) toast(t('viewer.saveFailed', { name }));
-    else if (repaint) paint();
+  /* SAVING AGAINST THE DISK (#159). Agents write to open notes all the time (the daily-note ledger, /close-session), and an
+     unconditional write put the editor's old copy back over their change. Two texts: `base` is what this note descends
+     from on disk; `file.content` is what the operator sees NOW, saved or not, and every mode paints from it (so switching
+     Rendered/Edit never drops an unsaved edit). Main decides each save against the disk (src/core/saveMerge.ts):
+     unchanged → mine, changed elsewhere → the merge of both, changed on the same lines → nothing written and the operator
+     chooses: keep my changes, or use the version on disk. Whichever version is not kept is saved beside the note as a new
+     file first, so nothing anyone wrote is lost. Saves run one at a time; line endings are main's business (the editor's
+     textarea speaks LF). `editorRef` is the Edit-mode editor while it is on screen. */
+  const toEditor = (v) => String(v).replace(/\r\n/g, '\n');
+  let base = file.content;
+  let editorRef = null;
+  let saveChain = Promise.resolve();
+  const shownNow = () => (editorRef ? editorRef.value() : file.content);
+  /* content null = whatever is on screen when this save's turn comes. */
+  const save = (content, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)).catch(() => null));
+  async function saveNow(content, prefer) {
+    if (paneObj.asking && !prefer) return null;   // a question is open: its answer saves what is on screen then
+    const r = await window.glassShell.fsSaveMerged(file.path, base, content, prefer).catch(() => null);
+    if (r && r.ok) {
+      if (shownNow() !== content) { base = content; return r; }   // typed since: what's on screen descends from what was sent; the next save merges the rest
+      base = file.content = r.content;
+      setDirty(false);
+      if (r.merged) { if (editorRef) editorRef.replaceText(toEditor(r.content)); else paint(); }   // the agent's lines in place, caret kept
+      return r;
+    }
+    if (r && r.conflict) { setDirty(true); void askConflict(); return r; }
+    setDirty(true);
+    toast(t('viewer.saveFailed', { name }));
+    return r;
   }
+  /* Both sides changed the same lines: nothing was written. The question waits for any other open dialog to close (it
+     never closes one the operator is typing in), and if another dialog takes over while it is open, it is asked again
+     afterwards rather than answered for them. Asked even if the tab was closed meanwhile: the answer still saves. Whichever
+     version is not kept is copied beside the note first (by main, in the same step, for "keep mine"). */
+  async function askConflict() {
+    if (paneObj.asking) return;
+    paneObj.asking = true;
+    let pick = null;
+    while (pick === null) {
+      while (document.querySelector('.modal-wrap')) await new Promise((r) => setTimeout(r, 400));
+      pick = await choiceModal(t('viewer.conflict.title', { name }), t('viewer.conflict.body'), [
+        { key: 'theirs', label: t('viewer.conflict.takeTheirs') },
+        { key: 'mine', label: t('viewer.conflict.keepMine') },
+      ]);
+    }
+    if (pick === 'theirs') {
+      const f = await window.glassShell.fsRead(file.path).catch(() => null);   // the disk as it is now
+      const disk = f && typeof f.content === 'string' ? f.content : null;
+      const copy = disk === null ? null : await window.glassShell.fsWriteConflictCopy(file.path, shownNow()).catch(() => null);
+      paneObj.asking = false;
+      if (!copy) { toast(t('viewer.saveFailed', { name })); return; }   // nothing decided; the tab stays unsaved and is saved on close
+      base = file.content = disk; setDirty(false);
+      if (editorRef) editorRef.replaceText(toEditor(disk)); else paint();
+      toast(t('viewer.conflict.keptMineCopy', { copy: xBase(copy) }));
+      return;
+    }
+    paneObj.asking = false;
+    const r = await save(null, 'mine');
+    if (r && r.ok && r.copy) toast(t('viewer.conflict.keptTheirsCopy', { copy: xBase(r.copy) }));
+  }
+  /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
+     leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
+  paneObj.onDiskMaybeChanged = async () => {
+    if (paneObj.dirty || paneObj.asking || !editable) return;
+    const f = await window.glassShell.fsRead(file.path).catch(() => null);
+    if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
+    base = file.content = f.content;
+    if (editorRef) editorRef.replaceText(toEditor(f.content)); else paint();
+  };
+  /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
+  paneObj.flushSave = (quitting) => {
+    if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (!quitting) { void save(null); return; }
+    /* Quitting: the window will not wait for the save chain, so send now, outside it. A question still open: keep the text on
+       screen beside the note, the note itself untouched. */
+    if (paneObj.asking) void window.glassShell.fsWriteConflictCopy(file.path, shownNow()).catch(() => null);
+    else void window.glassShell.fsSaveMerged(file.path, base, shownNow(), undefined, true).catch(() => null);   // a conflict keeps the text beside the note
+  };
 
   if (renderable && editable) {
     /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
@@ -6230,6 +6349,7 @@ async function openViewer(p) {
   head.appendChild(rev);
 
   function paint() {
+    editorRef = null;   // set again below when Edit mode builds its editor
     body.replaceChildren();
     body.classList.toggle('fill', mode === 'rendered' && (HTML_EXT.test(name) || PDF_EXT.test(name)));
     for (const old of head.querySelectorAll('.chgnav')) old.remove();   // one stepper at most: every switch to Edit added another (0.14.0 round)
@@ -6254,8 +6374,8 @@ async function openViewer(p) {
       const mk = (label, dir) => { const b2 = mkEl('button', 'chgbtn', label); b2.addEventListener('click', () => editor.stepChange?.(dir)); return b2; };
       chg.append(chgN, mk('‹', -1), mk('›', 1));
       chg.title = t('viewer.changesTip');
-      const editor = buildCodeEditor(file.content, langFor(name), {
-        onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },
+      const editor = buildCodeEditor(toEditor(file.content), langFor(name), {
+        onInput: (v) => { file.content = v; setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; void after(v); }, 700); },
         onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
         onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
@@ -6263,6 +6383,7 @@ async function openViewer(p) {
       }, file.path);
       head.appendChild(chg);
       body.appendChild(editor);
+      editorRef = editor;
       return;
     }
     if (IMG_EXT.test(name)) {
@@ -6335,7 +6456,10 @@ async function openViewer(p) {
           n++;
           return n === i ? a + (mark === ' ' ? 'x' : ' ') + b : m;
         });
-        void save(updated, true);
+        /* Counted against the text on screen (file.content), the same text this view was drawn from, so the box ticked
+           is the box clicked; shown at once, then saved against the disk like any edit. */
+        file.content = updated; setDirty(true); paint();
+        void save(updated);
       });
     });
     wrap.appendChild(md);
@@ -7108,7 +7232,13 @@ async function paintExplorer() {
 void paintExplorer();
 
 /* live: surface new/removed files in place + refresh git markers on any fs change */
-window.glassShell.onFsEvent((m) => { for (const d of (m.dirs || [])) void relistFolder(d); refreshGit(); });
+window.glassShell.onFsEvent((m) => {
+  for (const d of (m.dirs || [])) void relistFolder(d);
+  refreshGit();
+  /* An open note whose folder changed may have been written by an agent: the viewer reloads it if nothing is unsaved (#159). */
+  const dirs = new Set(m.dirs || []);
+  for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && dirs.has(xDirOf(p.path))) void p.onDiskMaybeChanged();
+});
 /* The framework or vault just appeared (or moved). The tree was built when neither existed, so it
    is not stale — it is empty, next to a vault full of files. Rebuild it rather than waiting for a
    file event inside roots we were never watching. */
@@ -8083,7 +8213,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'chat'], [2, 'keyboard'], [3, 'sparkles'], [4, 'shield']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'note'], [2, 'robot'], [3, 'chat'], [4, 'shield']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -8128,7 +8258,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -9085,7 +9215,7 @@ async function chatSkinWherePaint(cs) {
    4 characters or 40, so no fixed width can say when the folder must go (0.14.0 round: at 543px both fitted and were hidden
    anyway). The account's address and the labels-for-bars swap stay CSS steps, their sizes are fixed. The model and the three
    numbers are never cut. */
-const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-acct .cb-v', '.cb-effort', '.cb-mode .cb-v', '.cb-k'];   // the account's address is measured too (0.14.0 round: a fixed width hid it with room to spare)
+const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-acct .cb-v', '.cb-hat .cb-v', '.cb-effort', '.cb-mode .cb-v', '.cb-k', '.cb-hat'];   // the hat keeps its initial when its name goes (#109)   // the account's address is measured too (0.14.0 round: a fixed width hid it with room to spare)
 function chatSkinFitBar(bar) {
   if (!bar || !bar.isConnected) return;
   const id = bar.querySelector('.cb-id'), meters = bar.querySelector('.cb-meters');
@@ -9191,7 +9321,11 @@ function chatSkinBuild(id, p) {
   bgSeg.type = 'button';
   bgSeg.hidden = true;
   bgSeg.append(el('span', 'cb-bgico'), el('span', 'cb-v', ''), csIcon('chevUpDown', 12));   // the icon: a robot for agents, a terminal for shells (chatSkinBgPaint)
-  idBox.append(modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
+  /* The hat the session wears (#109): shown once it has put an agent on, from the transcript. */
+  const hatSeg = el('span', 'cb-where cb-hat');
+  hatSeg.hidden = true;
+  hatSeg.append(el('span', 'cb-v', ''));   // its avatar is added with the hat (chatSkinHatChip)
+  idBox.append(hatSeg, modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
   /* The effort menu. It cannot be a child of the bar (the bar clips what overflows it), so it floats over the end of the log like
@@ -9412,7 +9546,7 @@ function chatSkinBuild(id, p) {
   p.el.appendChild(root);
 
   const cs = {
-    id, pane: p, who: chatSkinWho(p), root, log, stickyEl, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    id, pane: p, who: chatSkinWho(p), root, log, stickyEl, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg, hatSeg,
     effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
     slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
     items: new Map(),            // transcript uuid -> { node, role, … }
@@ -11364,11 +11498,343 @@ function chatSkinBusLabel(rec, text) {
    panel, and Claude Code records it, so it came back as the operator's bubble and an empty "/tasks (no content)" card. The panel
    is in the terminal; the chat shows neither. */
 const CS_HIDDEN_CMD = /^\/tasks$/;
+/* HATS (#109). The framework's suggest-agent skill names the one agent that fits the work in one fixed line, never translated
+   (The-AIOS/aios#299). The chat view draws that line as a card with the three answers the skill takes: "here" (wear the hat
+   in this session), "open" (start the agent as its own session) or "no". When the session then loads the agent
+   (`/aios:agent <name>`, as a Skill call or typed), the column shows the hat change and the bar shows the hat it wears. */
+const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \((.{1,80})\)\. Wear it here, or open it as its own session\?$/;
+/* The session says it put a hat on, on a line of its own, at start or after a yes; the last one in a transcript is its current
+   hat, which is how a resumed session shows its hat again (The-AIOS/aios#299, second comment). */
+const CHAT_HAT_WEARING = /^Wearing agent: ([a-z0-9][a-z0-9-]*)\.$/;
+/* After "open", the session names the session it started for the agent (the spawn request's name). */
+const CHAT_HAT_OPENED = /^Opened agent session: ([a-z0-9][a-z0-9-]*)\.$/;
+/** The hat lines in a reply (Claude's own text only: tool output and the operator's messages are never read for them):
+    the suggestion if there is one, the hat it says it now wears, and the reply without those lines. Pure, for the tests. */
+function chatHatLines(text) {
+  const lines = String(text || '').split('\n');
+  let suggest = null, wearing = '', opened = '';
+  const keep = [];
+  let fence = false;
+  for (const line of lines) {
+    const whole = line.replace(/\r$/, '');   // whole lines only: an indented or quoted copy is not the line
+    if (/^\s*(```|~~~)/.test(whole)) { fence = !fence; keep.push(line); continue; }
+    if (fence) { keep.push(line); continue; }   // a line inside a code block is quoted, never the line itself
+    const s = CHAT_HAT_LINE.exec(whole);
+    if (s) { suggest = { name: s[1], why: s[2] }; continue; }
+    const w = CHAT_HAT_WEARING.exec(whole);
+    if (w) { wearing = w[1]; continue; }
+    const o = CHAT_HAT_OPENED.exec(whole);
+    if (o) { opened = o[1]; continue; }
+    keep.push(line);
+  }
+  return { suggest, wearing, opened, rest: keep.join('\n').trim() };
+}
+/** The suggestion in a reply, if it has one: the agent, why it fits, and the reply without that line. Pure, for the tests. */
+function chatHatSuggestion(text) {
+  const h = chatHatLines(text);
+  return h.suggest ? { name: h.suggest.name, why: h.suggest.why, rest: h.rest } : null;
+}
+/* The agents a hat line may name, checked by the framework's own rule: a file agents/…/<name>.md exists (security review,
+   The-AIOS/aios#299). Read ONCE into a map, so hat lines are drawn in the order they arrive: a reload replays a transcript in
+   one go, and a lookup per name landed out of order (a stale card came back live, the chip showed a hat already taken off).
+   Until the list is read, replies show as written; when it lands, every open chat draws its hat lines and recomputes. A name
+   that is not in the list stays text; a miss asks for the list again, at most every 20 s (an agent added mid-session). */
+let chatHatAgentMap = null;
+let chatHatAgentLoad = null;
+let chatHatAgentAt = 0;
+function chatHatAgentsLoad() {
+  if (chatHatAgentLoad) return chatHatAgentLoad;
+  chatHatAgentAt = Date.now();
+  chatHatAgentLoad = Promise.resolve(window.glassShell.hatAgents ? window.glassShell.hatAgents() : [])
+    .then((list) => new Map((Array.isArray(list) ? list : []).map((a) => [a.name, { desc: String(a.desc || ''), group: String(a.group || '') }])))
+    .catch(() => new Map())
+    .then((m) => { chatHatAgentMap = m; chatHatAgentLoad = null; for (const p of panes.values()) if (p.chatSkin) chatSkinHatRedraw(p.chatSkin); return m; });
+  return chatHatAgentLoad;
+}
+function chatHatAgent(name, quiet) {
+  if (!chatHatAgentMap) { if (!quiet) void chatHatAgentsLoad(); return null; }
+  const a = chatHatAgentMap.get(name);
+  if (!a && !quiet && Date.now() - chatHatAgentAt > 20000) void chatHatAgentsLoad();   // only a hat LINE's miss asks again, never a colour
+  return a || null;
+}
+/* Each agent wears its bundle's colour, the way a team's people do (#109, from the deck's friendly terminal): the folder it
+   lives in under agents/ (sales, strategy, finance-legal, engineering, communication, personal, commerce, custom). A company's
+   own folders get one of four more, picked from the folder's name so it never changes. The colours are theme tokens. */
+const CHAT_HAT_BUNDLES = new Set(['sales', 'strategy', 'finance-legal', 'engineering', 'communication', 'personal', 'commerce', 'custom']);
+function chatHatColorKey(group) {
+  const g = String(group || '');
+  if (CHAT_HAT_BUNDLES.has(g)) return g;
+  if (!g) return 'custom';
+  let h = 0;
+  for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return 'x' + (h % 4);
+}
+/* The agent's initial on its colour. */
+function chatHatAvatar(name, size) {
+  const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
+  av.setAttribute('aria-hidden', 'true');
+  const a = chatHatAgent(name, true);
+  av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`);
+  return av;
+}
+/** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
+    "aios:agent <name>") or as the operator's own command card ("/aios:agent <name>"). Pure, for the tests. */
+function chatHatWorn(info) {
+  const name = String((info && info.name) || ''), summary = String((info && info.summary) || '');
+  const m = name === 'Skill' ? /^(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(summary) : /^\/(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(name);
+  return m ? m[1] : '';
+}
+/** What an answer typed after a suggestion means, in the skill's words. Any script: "sí", "ναι" and "όχι" are words too. */
+function chatHatAnswerOf(text) {
+  const s = String(text || '').trim().toLowerCase();
+  const word = (re) => re.test(s);
+  if (word(/^(?:here|yes|sí|si|sim|ναι)(?![\p{L}\p{N}])/u)) return 'here';
+  if (word(/^open(?![\p{L}\p{N}])/u)) return 'open';
+  if (word(/^(?:no|not now|não|όχι)(?![\p{L}\p{N}])/u)) return 'no';
+  return 'other';
+}
+function chatSkinPaneIdOf(cs) { if (cs.id && panes.has(cs.id)) return cs.id; for (const [id, p] of panes) if (p.chatSkin === cs) return id; return null; }
+
+/* DRAWING a reply's hat lines (only once the agent list is read, and only for agents in it): the reply without those lines,
+   the card under it, and empty places for the hat change and the "opened" line. What each of them SAYS (answered or not, put
+   on by the AIOS, the hat change shown or not, the chip) is decided by chatSkinHatRecompute, from the whole column in order. */
+function chatSkinHatDraw(rec, cs) {
+  for (const k of ['hatCard', 'hatMark', 'hatOpenedEl']) if (rec[k]) { rec[k].remove(); rec[k] = null; }
+  rec.hat = null;
+  const hl = chatHatLines(rec.text || '');
+  if (!hl.suggest && !hl.wearing && !hl.opened) return false;
+  if (!chatHatAgentMap) { void chatHatAgentsLoad(); return false; }   // drawn when the list lands (chatSkinHatRedraw)
+  const sa = hl.suggest && chatHatAgent(hl.suggest.name);
+  const wearing = hl.wearing === 'none' || (hl.wearing && chatHatAgent(hl.wearing)) ? hl.wearing : '';
+  if (!sa && !wearing && !hl.opened) return false;   // names no agent that exists: the reply stays as written
+  rec.hat = { suggest: sa ? hl.suggest.name : '', wearing, opened: hl.opened };
+  chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
+  if (sa) rec.hatCard = chatSkinHatCardEl({ ...hl.suggest, purpose: sa.desc }, cs);
+  if (rec.hatCard) { rec.hatCard.dataset.uuid = rec.uuid || ''; rec.body.after(rec.hatCard); }
+  if (wearing) { rec.hatMark = el('div', 'chat-note hat in-bubble'); rec.hatMark.hidden = true; rec.body.before(rec.hatMark); }
+  if (hl.opened) { rec.hatOpenedEl = el('div', 'chat-note hat in-bubble'); rec.hatOpenedEl.hidden = true; rec.body.before(rec.hatOpenedEl); }
+  return true;
+}
+/* The list landed (or changed): draw every reply's hat lines again, then decide what they say. */
+function chatSkinHatRedraw(cs) {
+  for (const rec of cs.items.values()) if (rec.role === 'assistant' && rec.text && chatHatLines(rec.text).rest !== rec.text.trim()) {
+    if (!chatSkinHatDraw(rec, cs)) { chatRender(rec.body, rec.text); chatLinkPaths(rec.body, cs); }
+  }
+  for (const rec of cs.items.values()) if (rec.hatWorn) { const av = rec.body.querySelector('.ch-av'); if (av) av.replaceWith(chatHatAvatar(rec.hatWorn)); }   // its colour, now known
+  if (cs.hat) { cs.hat = ''; }   // the chip is drawn again with its colour
+  chatSkinHatSoon(cs);
+}
+/* The card for a suggestion: the agent's face, the reason, its purpose, and the skill's three answers. */
+function chatSkinHatCardEl(hs, cs) {
+  const card = el('div', 'chat-hat');
+  card.dataset.agent = hs.name;
+  const head = el('div', 'ch-head');
+  head.append(csIcon('robot', 14), el('span', 'ch-k', t('chat.hat.suggested')));
+  const who = el('div', 'ch-who');
+  const words = el('div', 'ch-words');
+  words.append(el('strong', 'ch-name', hs.name), el('span', 'ch-why', hs.why));
+  who.append(chatHatAvatar(hs.name, 'big'), words);
+  const purpose = el('div', 'ch-purpose');
+  purpose.hidden = true;
+  if (hs.purpose && hs.purpose !== hs.why) { purpose.textContent = hs.purpose; purpose.title = hs.purpose; purpose.hidden = false; }
+  const acts = el('div', 'ch-acts');
+  for (const key of ['here', 'open', 'no']) {
+    const b = el('button', 'vbtn', t('chat.hat.' + key));
+    b.type = 'button';
+    b.dataset.answer = key;
+    b.addEventListener('click', () => chatSkinHatAnswer(cs, card, key));
+    acts.appendChild(b);
+  }
+  const done = el('div', 'ch-done');
+  done.hidden = true;
+  const moved = el('div', 'ch-moved');
+  moved.hidden = true;
+  card.append(head, who, purpose, done, acts, moved);
+  return card;
+}
+/* A button: type the skill's word into the message box and send it, through the box's own path (it waits its turn if the
+   session is busy), never over a draft. Only a card that is still open takes a click. */
+function chatSkinHatAnswer(cs, card, key) {
+  if (card.dataset.state !== 'open' && card.dataset.state !== 'auto') return;
+  if (cs.hatPending && cs.hatPending.has(card.dataset.uuid)) return;   // already sent once
+  const id = chatSkinPaneIdOf(cs);
+  const p = id && panes.get(id);
+  if (!p || p.exited || !cs.input) return;
+  if (card.dataset.state === 'auto' && key === 'here') return;   // already on
+  if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing
+  cs.input.value = key;
+  chatSkinSendNow(id, p);
+  if (!cs.input.value) { (cs.hatPending || (cs.hatPending = new Map())).set(card.dataset.uuid, key); chatSkinHatSoon(cs); }   // it went (or is queued): shown as chosen until the message lands; kept on the chat, so a redraw keeps it too
+}
+/* A card's look for a state: 'open' (ask: three live answers), 'auto' (the session put it on by itself: a selected Wearing
+   it, then Open and Take it off), or answered with a key (all greyed, the chosen one marked, the outcome said). Built from
+   scratch each time, so the same column always draws the same way. */
+function chatSkinHatCardState(card, state, key) {
+  card.dataset.state = state;
+  card.classList.toggle('auto', state === 'auto' || state === 'closed' || (state === 'answered' && card.dataset.wasAuto === '1'));
+  card.classList.toggle('answered', state === 'answered' || state === 'closed');
+  const auto = card.classList.contains('auto');
+  const done = card.querySelector('.ch-done');
+  for (const b of card.querySelectorAll('.ch-acts button')) {
+    const a = b.dataset.answer;
+    b.classList.remove('chosen', 'state');
+    b.disabled = state === 'answered' || state === 'closed';
+    if (a === 'here') {
+      if (auto) { b.disabled = true; b.classList.add('chosen', 'state'); b.replaceChildren(csIcon('check', 12), document.createTextNode(' ' + t('chat.hat.wearing'))); }
+      else b.textContent = t('chat.hat.here');
+    }
+    if (a === 'no') b.textContent = t(auto ? 'chat.hat.takeOff' : 'chat.hat.no');
+    if (state === 'answered' && a === key) b.classList.add('chosen');
+  }
+  const say = state === 'auto' || state === 'closed' ? 'chat.hat.autoWorn'
+    : state === 'answered' ? (auto && key === 'no' ? 'chat.hat.chose.off' : auto && key !== 'open' ? 'chat.hat.autoWorn' : 'chat.hat.chose.' + key) : '';
+  done.textContent = say ? t(say, { name: card.dataset.agent }) : '';
+  done.hidden = !say;
+}
+function chatSkinHatSoon(cs) {
+  if (cs.hatQ) return;
+  cs.hatQ = true;
+  Promise.resolve().then(() => { cs.hatQ = false; chatSkinHatRecompute(cs); });   // after the batch that called it: a replay lands whole first
+}
+/* WHAT THE HAT LINES SAY, decided from the column top to bottom every time, never from the order events arrived in (a reload
+   replays history in one go, and scrolling up adds older rows above newer ones). Pure, so the tests can run a column:
+   rows, in column order, are { kind: 'user', text } | { kind: 'worn', name, failed } | { kind: 'reply', suggest, wearing,
+   opened }. Walking down:
+   - any message after a card answers every open card above it (a card only ever closes, never reopens);
+   - a card the AIOS put on closes when the hat changes under it;
+   - a hat going on ("Wearing agent", or /aios:agent as a call) right after its own suggestion, unanswered, makes that card
+     "put on by your AIOS" and needs no line of its own; otherwise it shows as the hat change, unless it is already on;
+   - "Wearing agent: none." takes the hat off (said only when one was on);
+   - "Opened agent session" goes on the latest card for that agent (its name starts with the agent's), or stands alone;
+   - the hat at the bottom is the chip.
+   Returns, per row index, what to draw, and the hat. */
+function chatHatPlan(rows) {
+  const out = rows.map(() => ({}));
+  let hat = '';
+  let open = [];
+  const cards = [];
+  const autoFor = (name) => {
+    for (let j = open.length - 1; j >= 0; j--) if (rows[open[j]].suggest === name) { out[open[j]].card = { state: 'auto' }; out[open[j]].wasAuto = true; return true; }
+    return false;
+  };
+  /* The hat changed under a card the AIOS put on: that card's choices are about a hat no longer on, so it closes. */
+  const closeAutos = (keep) => { open = open.filter((j) => { if (out[j].card && out[j].card.state === 'auto' && rows[j].suggest !== keep) { out[j].card = { state: 'closed' }; return false; } return true; }); };
+  rows.forEach((r, i) => {
+    if (r.kind === 'user') {
+      if (!String(r.text || '').trim()) return;   // any message after a card answers it: a card only ever closes, never reopens
+      const key = chatHatAnswerOf(r.text);
+      for (const j of open) out[j].card = { state: 'answered', key, wasAuto: !!out[j].wasAuto };
+      open = [];
+      return;
+    }
+    if (r.kind === 'worn') {
+      if (r.failed) { out[i].wornHidden = false; return; }
+      closeAutos(r.name);
+      out[i].wornHidden = autoFor(r.name);
+      hat = r.name;
+      return;
+    }
+    if (r.kind !== 'reply') return;
+    if (r.suggest) { out[i].card = { state: 'open' }; cards.push(i); open.push(i); }
+    if (r.wearing === 'none') {
+      if (hat) out[i].mark = { kind: 'off', name: hat };
+      closeAutos('');
+      hat = '';
+    } else if (r.wearing) {
+      closeAutos(r.wearing);
+      const own = autoFor(r.wearing);
+      if (!own && hat !== r.wearing) out[i].mark = { kind: 'on', name: r.wearing };
+      hat = r.wearing;
+    }
+    if (r.opened) {
+      const n = r.opened;
+      const j = [...cards].reverse().find((k) => n === rows[k].suggest || n.startsWith(rows[k].suggest + '-'));
+      out[i].opened = { name: n, onCard: j === undefined ? null : j };
+    }
+  });
+  return { out, hat, open };
+}
+/* Apply the plan to the column. A card answered by a click whose message has not landed yet shows the click. */
+function chatSkinHatRecompute(cs) {
+  if (!cs.log || !cs.items) return;
+  const byNode = new Map();
+  for (const rec of cs.items.values()) byNode.set(rec.node, rec);
+  const recs = [], rows = [];
+  for (const node of cs.log.querySelectorAll('.chat-row, .chat-note')) {
+    const rec = byNode.get(node);
+    if (!rec) continue;
+    if (rec.role === 'user' && !node.hidden) { recs.push(rec); rows.push({ kind: 'user', text: rec.text }); }
+    else if (rec.hatWorn) { recs.push(rec); rows.push({ kind: 'worn', name: rec.hatWorn, failed: !!rec.hatFailed }); }
+    else if (rec.role === 'assistant' && rec.hat) { recs.push(rec); rows.push({ kind: 'reply', ...rec.hat }); }
+  }
+  const plan = chatHatPlan(rows);
+  for (const rec of recs) if (rec.hatCard) rec.hatCard.querySelector('.ch-moved').hidden = true;   // said again below if it still holds
+  plan.out.forEach((o, i) => {
+    const rec = recs[i];
+    if (rec.hatWorn) { rec.node.hidden = !!o.wornHidden; return; }
+    if (rec.hatCard && o.card) {
+      const c = rec.hatCard;
+      if (o.wasAuto || (o.card.wasAuto)) c.dataset.wasAuto = '1'; else delete c.dataset.wasAuto;
+      if (o.card.state === 'answered' && cs.hatPending) cs.hatPending.delete(c.dataset.uuid);
+      chatSkinHatCardState(c, o.card.state, o.card.key);
+    }
+    if (rec.hatMark) {
+      const m = rec.hatMark;
+      m.hidden = !o.mark;
+      if (o.mark) { m.className = 'chat-note hat in-bubble' + (o.mark.kind === 'off' ? ' off' : ''); m.replaceChildren(chatHatAvatar(o.mark.name), el('span', '', t(o.mark.kind === 'off' ? 'chat.hat.off' : 'chat.hat.worn', { name: o.mark.name }))); }
+    }
+    if (rec.hatOpenedEl && o.opened) {
+      const name = o.opened.name;
+      const card = o.opened.onCard === null ? null : recs[o.opened.onCard].hatCard;
+      const host = card ? card.querySelector('.ch-moved') : rec.hatOpenedEl;
+      /* Drawn once per place and name: redrawing on every pass rebuilt the button and took the keyboard focus off it. */
+      if (host.dataset.goFor !== name) {
+        const go = el('button', 'vbtn', t('chat.hat.goTo'));
+        go.type = 'button';
+        go.addEventListener('click', () => {
+          const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && !p.exited && p.name === name);
+          if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));   // only switches to a tab that is open: never starts anything
+        });
+        if (card) host.replaceChildren(el('span', '', t('chat.hat.moved', { name })), go);
+        else host.replaceChildren(csIcon('robot', 13), el('span', '', t('chat.hat.openedNote', { name })), go);
+        host.dataset.goFor = name;
+      }
+      host.hidden = false;
+      if (card) rec.hatOpenedEl.hidden = true;
+    }
+  });
+  for (const i of plan.open) { const c = recs[i].hatCard; const k = c && cs.hatPending && cs.hatPending.get(c.dataset.uuid); if (k) chatSkinHatCardState(c, 'answered', k); }
+  chatSkinHatChip(cs, plan.hat);
+}
+/* The session put a hat on with /aios:agent: a line in the column (what it says, and whether it shows, is the recompute's). */
+function chatSkinPaintHatWorn(rec, item, cs) {
+  const failed = chatToolInfo(item).status === 'error';
+  rec.hatFailed = failed;
+  rec.node.classList.add('hat');
+  rec.node.classList.toggle('failed', failed);
+  rec.body.replaceChildren(chatHatAvatar(rec.hatWorn), el('span', '', t(failed ? 'chat.hat.wornFailed' : 'chat.hat.worn', { name: rec.hatWorn })));
+  chatSkinHatSoon(cs);
+}
+function chatSkinHatChip(cs, name) {
+  if (cs.hat === (name || '') && cs.hatSeg && cs.hatSeg.hidden === !cs.hat) return;
+  cs.hat = name || '';
+  const seg = cs.hatSeg;
+  if (!seg) return;
+  seg.hidden = !cs.hat;
+  seg.querySelector('.cb-v').textContent = cs.hat;
+  const old = seg.querySelector('.ch-av');
+  if (cs.hat) { const av = chatHatAvatar(cs.hat); if (old) old.replaceWith(av); else seg.prepend(av); } else if (old) old.remove();
+  seg.title = cs.hat ? t('chat.hat.chip', { name: cs.hat }) : '';
+  chatSkinFitSoon(cs.bar);   // the chip takes room: a narrow bar gives up its name first, keeping the initial
+}
 function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
   let rec = cs.items.get(item.uuid);
   if (!rec) {
-    rec = chatSkinMakeItem(item.role, cs);
+    /* Loading an agent (/aios:agent, as Claude's call or typed) is drawn as a hat change, not a tool card (#109). */
+    const worn = item.role === 'tool' ? chatHatWorn(chatToolInfo(item)) : '';
+    rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);
+    if (worn) rec.hatWorn = worn;
     rec.uuid = item.uuid;
     if (rec.role === 'tool') rec.node.csRec = rec;   // the column is regrouped from its nodes, which need to find their tool call again
     cs.items.set(item.uuid, rec);
@@ -11381,10 +11847,16 @@ function chatSkinUpsert(cs, item, animate, before) {
   const text = typeof item.text === 'string' ? item.text : '';
   if (rec.role !== 'user' && animate) cs.lastReplyAt = Date.now();   // news from Claude (not history being loaded): the last message has its answer
   if (rec.role === 'assistant') {
-    if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
+    if (rec.text !== text) {   // links only on the FINAL render: the provisional bubble below never gets them
+      chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs);
+      /* The hat lines become a card and a hat change (#109), for agents that exist; otherwise the reply stays as written. What
+         they say is decided by one pass over the whole column (chatSkinHatRecompute). Copy still copies the whole reply. */
+      if (chatSkinHatDraw(rec, cs) || rec.hadHat) chatSkinHatSoon(cs);
+      rec.hadHat = !!rec.hat;
+    }
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
-    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); if (cs.hatSeg) chatSkinHatSoon(cs); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
     rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
@@ -11396,6 +11868,8 @@ function chatSkinUpsert(cs, item, animate, before) {
       x.argFresh = false;
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
+  } else if (rec.hatWorn) {
+    chatSkinPaintHatWorn(rec, item, cs);
   } else if (item.error) {
     if (rec.text !== text) { chatSkinPaintApiError(rec, text, cs); rec.text = text; }
     rec.node.hidden = !text.trim();
@@ -11510,6 +11984,8 @@ function chatSkinStreamAdopt(cs, uuid) {
 function chatSkinResetView(p) {
   const cs = p.chatSkin;
   cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
+  if (cs.hatPending) cs.hatPending.clear();
+  cs.hat = ''; if (cs.hatSeg) cs.hatSeg.hidden = true;   // the hat is read again from the transcript, like everything else in the column
   cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end
   cs.log.replaceChildren(cs.stateEl, cs.workEl);
   cs.turnOpen = false; cs.stalled = false; cs.state = 'waiting'; cs.stick = true; cs.resetAt = Date.now();
@@ -11963,7 +12439,9 @@ function chatSkinSubmit(id, p, text) {
   cs.workSince = cs.turnStartAt;   // a send starts a working stretch
   cs.stick = true;
   const sent = text.replace(/\s+/g, ' ').trim();
-  const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
+  /* A slash command or a "!" shell line is typed whole, image path or not: a path in a shell line is an argument, not an
+     attachment. */
+  const imgParts = text.startsWith('/') || text.startsWith('!') ? null : chatSkinImageParts(text);
   if (imgParts) submitToPty(id, imgParts);
   /* Typed for a slash command or a "!" shell line (pasted, "/name" would be a message, not a command, and "!" might not enter
      Claude Code's bash mode); pasted otherwise, so a long message
@@ -14291,6 +14769,35 @@ function confirmModal(title, message, confirmLabel) {
     document.addEventListener('keydown', onKey, true);
     document.body.appendChild(wrap);
     cancel.focus();   // the safe option holds focus
+  });
+}
+
+/* A question with a few named answers, one button each, in the order given; the LAST one is the safe one: it holds focus and
+   Esc or a click outside picks it. Resolves the chosen key, or null when another dialog took its place (nobody answered). */
+function choiceModal(title, message, choices) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    const safe = choices[choices.length - 1].key;
+    claimModal(wrap, () => done(null));
+    wrap.innerHTML = `<div class="modal confirm"><div class="mtitle"></div><div class="mbody"></div><div class="macts"></div></div>`;
+    wrap.querySelector('.mtitle').textContent = title;
+    wrap.querySelector('.mbody').textContent = message || '';
+    const acts = wrap.querySelector('.macts');
+    const btns = choices.map((c, i) => {
+      const b = document.createElement('button');
+      b.className = 'vbtn' + (i === choices.length - 1 ? ' cancel' : '');
+      b.textContent = c.label;
+      b.addEventListener('click', () => done(c.key));
+      acts.appendChild(b);
+      return b;
+    });
+    const done = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(safe); } };
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(safe); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    btns[btns.length - 1].focus();
   });
 }
 

@@ -352,6 +352,59 @@ function discoverAgentsUncached(): Agent[] {
 }
 export const discoverAgents = ttlMemo(discoverAgentsUncached, 5000);
 
+/**
+ * The agent a hat line names (#109), by the framework's own rule: a file agents/**\/<name>.md exists (README and _-prefixed
+ * files are not agents; no frontmatter needed). Returns what the chat shows with it: its purpose (frontmatter description,
+ * else its agents/_index.md row) and its bundle folder (its colour). Null when there is no such agent, or the name is not
+ * an agent name. The name is checked before it touches a path.
+ */
+export function hatAgent(name: string, listed?: string[]): { name: string; desc: string; group: string } | null {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || name === 'none' || name === 'readme') return null;
+  const root = frameworkRoot();
+  if (!root) return null;
+  const base = path.join(root, 'agents');
+  let rels: string[] = listed ?? [];
+  if (!listed) { try { rels = fs.readdirSync(base, { recursive: true }) as string[]; } catch { return null; } }
+  const hits = rels.filter((r) => path.basename(r) === `${name}.md`);
+  const rel = hits.find((r) => r.split(/[\\/]/)[0] === 'custom') ?? hits[0];   // custom/ overrides a bundled agent of the same name, as the framework says
+  if (!rel) return null;
+  const filePath = path.join(base, rel);
+  let desc = '';
+  try { desc = parseFrontmatter(fs.readFileSync(filePath, 'utf8')).description ?? ''; } catch { /* no frontmatter */ }
+  if (!desc) {
+    for (const idx of [path.join(base, 'custom', '_index.md'), path.join(base, '_index.md')]) {
+      try {
+        const row = fs.readFileSync(idx, 'utf8').split('\n').find((l) => l.includes(`[[${name}]]`) || l.includes(`| ${name} |`) || l.includes(`\`${name}\``));
+        if (row) { const cells = row.split('|').map((c) => c.trim()).filter(Boolean); desc = cells.length > 1 ? cells[1] : ''; break; }   // | [[name]] | purpose | … |
+      } catch { /* no index */ }
+    }
+  }
+  const dir = path.basename(path.dirname(rel));
+  return { name, desc: desc.replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1').slice(0, 300), group: dir && dir !== '.' ? dir : 'agents' };
+}
+
+/**
+ * Every agent a hat line may name (#109), by the same rule as hatAgent: one entry per agent file, custom/ winning. The chat
+ * reads this once, so it can draw hat lines in the order they arrive instead of waiting on a lookup per name (a reload
+ * replays a transcript in one go, and per-name lookups landed out of order).
+ */
+export function hatAgents(): Array<{ name: string; desc: string; group: string }> {
+  const root = frameworkRoot();
+  if (!root) return [];
+  let rels: string[] = [];
+  try { rels = fs.readdirSync(path.join(root, 'agents'), { recursive: true }) as string[]; } catch { return []; }
+  const names = new Set<string>();
+  for (const r of rels) {
+    const b = path.basename(r);
+    if (!b.endsWith('.md') || b.startsWith('_')) continue;
+    const n = b.slice(0, -3);
+    if (/^[a-z0-9][a-z0-9-]*$/.test(n) && n !== 'none' && n !== 'readme') names.add(n);
+  }
+  const out: Array<{ name: string; desc: string; group: string }> = [];
+  for (const n of names) { const a = hatAgent(n, rels); if (a) out.push(a); }   // one directory read for all of them
+  return out;
+}
+
 export interface AiosCommand { name: string; description: string; argumentHint?: string; filePath: string; }
 
 function discoverCommandsUncached(): AiosCommand[] {

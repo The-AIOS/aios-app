@@ -207,7 +207,7 @@ export function summarizeTool(name: string, input: unknown): string {
     case 'Glob': case 'Grep': s = pick('pattern'); break;
     case 'WebFetch': s = pick('url'); break;
     case 'WebSearch': s = pick('query'); break;
-    case 'Skill': s = pick('skill'); break;
+    case 'Skill': { const k = pick('skill'), a = pick('args'); s = k && a ? `${k} ${a}` : k; break; }   // the args name WHICH agent /aios:agent loads (#109)
     case 'Agent': case 'Task': s = pick('description', 'prompt'); break;
     default: break;
   }
