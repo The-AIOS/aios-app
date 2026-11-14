@@ -1938,31 +1938,10 @@ ipcMain.handle('fs:write', (_e, relOrAbs: string, content: string) => {
     return true;
   } catch { return false; }
 });
-/* The viewer's save (#159): decided against the disk NOW, not the copy the editor read. `base` is the text the editor
-   started from; if an agent changed the note since, both changes are merged, or nothing is written and the renderer asks.
-   The plain fs:write stays for writers that own their file outright (the Designer) and for "keep my version". */
-ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string, prefer?: unknown) => {
-  const abs = resolveIn(relOrAbs);
-  if (!abs || typeof base !== 'string' || typeof mine !== 'string') return { ok: false };
-  let disk: string | null = null;
-  try { disk = fs.readFileSync(abs, 'utf8'); } catch { disk = null; }
-  const d = decideSave(base, mine, disk, prefer === 'mine' ? 'mine' : undefined);
-  if ('conflict' in d) return { ok: false, conflict: true, disk };
-  try {
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    const tmp = abs + '.glass-tmp';
-    fs.writeFileSync(tmp, d.write);
-    fs.renameSync(tmp, abs);
-    return { ok: true, content: d.write, merged: d.write !== mine };
-  } catch { return { ok: false }; }
-});
-/* A save conflict (#159): whichever version the operator does not keep is saved beside the note, as a NEW file named
+/* A save conflict's other version (#159), written beside the note as a NEW file named
    "<name> (conflict YYYY-MM-DD HH-MM)<ext>", so nothing anyone wrote is lost. Created exclusively ('wx'): it never
-   overwrites a file, a numbered name is tried instead. The App never deletes it; the operator does, when they have read it.
-   Returns the path written, or null. */
-ipcMain.handle('fs:writeConflictCopy', (_e, relOrAbs: string, content: string) => {
-  const abs = resolveIn(relOrAbs);
-  if (!abs || typeof content !== 'string') return null;
+   overwrites a file, a numbered name is tried instead. The App never deletes it; the operator does. Returns its path. */
+function writeConflictCopy(abs: string, content: string): string | null {
   const ext = path.extname(abs);
   const stem = abs.slice(0, abs.length - ext.length);
   const d = new Date();
@@ -1974,6 +1953,37 @@ ipcMain.handle('fs:writeConflictCopy', (_e, relOrAbs: string, content: string) =
     catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') return null; }
   }
   return null;
+}
+/* The viewer's save (#159): decided against the disk NOW, not the copy the editor read. `base` is the text the editor
+   started from; if an agent changed the note since, both changes are merged, or nothing is written and the renderer asks.
+   `prefer: 'mine'` is the operator's "Keep my changes": the disk's version is copied beside the note IN THIS SAME STEP,
+   from the very text the merge reads, so an agent write landing in between cannot fall between the copy and the note.
+   The plain fs:write stays for writers that own their file outright (the Designer). */
+ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string, prefer?: unknown) => {
+  const abs = resolveIn(relOrAbs);
+  if (!abs || typeof base !== 'string' || typeof mine !== 'string') return { ok: false };
+  let disk: string | null = null;
+  try { disk = fs.readFileSync(abs, 'utf8'); } catch { disk = null; }
+  const keepMine = prefer === 'mine';
+  const d = decideSave(base, mine, disk, keepMine ? 'mine' : undefined);
+  if ('conflict' in d) return { ok: false, conflict: true, disk };
+  let copy: string | null = null;
+  if (keepMine && disk !== null && disk !== base && disk !== d.write) {
+    copy = writeConflictCopy(abs, disk);
+    if (!copy) return { ok: false };   // no copy, no decision: nothing is overwritten
+  }
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const tmp = abs + '.glass-tmp';
+    fs.writeFileSync(tmp, d.write);
+    fs.renameSync(tmp, abs);
+    return { ok: true, content: d.write, merged: d.write !== mine, copy };
+  } catch { return { ok: false }; }
+});
+/* "Use the version on disk": the operator's own text is kept beside the note first. */
+ipcMain.handle('fs:writeConflictCopy', (_e, relOrAbs: string, content: string) => {
+  const abs = resolveIn(relOrAbs);
+  return abs && typeof content === 'string' ? writeConflictCopy(abs, content) : null;
 });
 // Designer: the app no longer writes framework infra — it reads the catalog so the
 // operator can borrow a bundled unit's shape or pick one of their OWN custom units to

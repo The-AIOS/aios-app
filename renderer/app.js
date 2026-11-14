@@ -5772,7 +5772,7 @@ window.addEventListener('beforeunload', () => {
   restoreQuitting = true;
   /* Quitting with a note's autosave still waiting (#159): send it now. Best effort: the save is an IPC the window does not
      wait for, which main handles before it quits in practice. */
-  for (const p of panes.values()) if (p.flushSave) { try { p.flushSave(); } catch { /* gone */ } }
+  for (const p of panes.values()) if (p.flushSave) { try { p.flushSave(true); } catch { /* gone */ } }
 });
 
 /** A tab for a session that has not been resumed yet — no pty until it is opened. */
@@ -6230,44 +6230,51 @@ async function openViewer(p) {
   let saveChain = Promise.resolve();
   const shownNow = () => (editorRef ? editorRef.value() : file.content);
   /* content null = whatever is on screen when this save's turn comes. */
-  const save = (content, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)));
+  const save = (content, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)).catch(() => null));
   async function saveNow(content, prefer) {
-    if (paneObj.asking && !prefer) return;   // a question is open: its answer saves what is on screen then
+    if (paneObj.asking && !prefer) return null;   // a question is open: its answer saves what is on screen then
     const r = await window.glassShell.fsSaveMerged(file.path, base, content, prefer).catch(() => null);
     if (r && r.ok) {
-      if (shownNow() !== content) { base = content; return; }   // typed since: what's on screen descends from what was sent; the next save merges the rest
+      if (shownNow() !== content) { base = content; return r; }   // typed since: what's on screen descends from what was sent; the next save merges the rest
       base = file.content = r.content;
       setDirty(false);
       if (r.merged) { if (editorRef) editorRef.replaceText(toEditor(r.content)); else paint(); }   // the agent's lines in place, caret kept
-      return;
+      return r;
     }
-    if (r && r.conflict) { setDirty(true); void askConflict(); return; }
+    if (r && r.conflict) { setDirty(true); void askConflict(); return r; }
     setDirty(true);
     toast(t('viewer.saveFailed', { name }));
+    return r;
   }
-  /* Both sides changed the same lines: nothing was written. Asked even if the tab was closed meanwhile (the answer still
-     saves). The version not kept goes beside the note first; if that copy cannot be written, nothing is decided. */
+  /* Both sides changed the same lines: nothing was written. The question waits for any other open dialog to close (it
+     never closes one the operator is typing in), and if another dialog takes over while it is open, it is asked again
+     afterwards rather than answered for them. Asked even if the tab was closed meanwhile: the answer still saves. Whichever
+     version is not kept is copied beside the note first (by main, in the same step, for "keep mine"). */
   async function askConflict() {
     if (paneObj.asking) return;
     paneObj.asking = true;
-    const pick = await choiceModal(t('viewer.conflict.title', { name }), t('viewer.conflict.body'), [
-      { key: 'theirs', label: t('viewer.conflict.takeTheirs') },
-      { key: 'mine', label: t('viewer.conflict.keepMine') },
-    ]);
-    const f = await window.glassShell.fsRead(file.path).catch(() => null);   // the disk as it is now, not as it was when asked
-    const disk = f && typeof f.content === 'string' ? f.content : null;
-    const mine = shownNow();
-    const copy = await window.glassShell.fsWriteConflictCopy(file.path, pick === 'theirs' ? mine : (disk ?? '')).catch(() => null);
-    paneObj.asking = false;
-    if (!copy || (pick === 'theirs' && disk === null)) { toast(t('viewer.saveFailed', { name })); return; }   // still dirty: the next save asks again
+    let pick = null;
+    while (pick === null) {
+      while (document.querySelector('.modal-wrap')) await new Promise((r) => setTimeout(r, 400));
+      pick = await choiceModal(t('viewer.conflict.title', { name }), t('viewer.conflict.body'), [
+        { key: 'theirs', label: t('viewer.conflict.takeTheirs') },
+        { key: 'mine', label: t('viewer.conflict.keepMine') },
+      ]);
+    }
     if (pick === 'theirs') {
+      const f = await window.glassShell.fsRead(file.path).catch(() => null);   // the disk as it is now
+      const disk = f && typeof f.content === 'string' ? f.content : null;
+      const copy = disk === null ? null : await window.glassShell.fsWriteConflictCopy(file.path, shownNow()).catch(() => null);
+      paneObj.asking = false;
+      if (!copy) { toast(t('viewer.saveFailed', { name })); return; }   // nothing decided; the tab stays unsaved and is saved on close
       base = file.content = disk; setDirty(false);
       if (editorRef) editorRef.replaceText(toEditor(disk)); else paint();
       toast(t('viewer.conflict.keptMineCopy', { copy: xBase(copy) }));
-    } else {
-      await save(null, 'mine');
-      toast(t('viewer.conflict.keptTheirsCopy', { copy: xBase(copy) }));
+      return;
     }
+    paneObj.asking = false;
+    const r = await save(null, 'mine');
+    if (r && r.ok && r.copy) toast(t('viewer.conflict.keptTheirsCopy', { copy: xBase(r.copy) }));
   }
   /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
      leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
@@ -6279,7 +6286,15 @@ async function openViewer(p) {
     if (editorRef) editorRef.replaceText(toEditor(f.content)); else paint();
   };
   /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
-  paneObj.flushSave = () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; void save(null); } };
+  paneObj.flushSave = (quitting) => {
+    if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (!quitting) { void save(null); return; }
+    /* Quitting: the window will not wait for the save chain, so send now, outside it. A question still open: keep the text on
+       screen beside the note, the note itself untouched. */
+    if (paneObj.asking) void window.glassShell.fsWriteConflictCopy(file.path, shownNow()).catch(() => null);
+    else void window.glassShell.fsSaveMerged(file.path, base, shownNow()).catch(() => null);
+  };
 
   if (renderable && editable) {
     /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
@@ -14404,13 +14419,13 @@ function confirmModal(title, message, confirmLabel) {
 }
 
 /* A question with a few named answers, one button each, in the order given; the LAST one is the safe one: it holds focus and
-   Esc or a click outside picks it. Resolves the chosen key. */
+   Esc or a click outside picks it. Resolves the chosen key, or null when another dialog took its place (nobody answered). */
 function choiceModal(title, message, choices) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
     const safe = choices[choices.length - 1].key;
-    claimModal(wrap, () => done(safe));
+    claimModal(wrap, () => done(null));
     wrap.innerHTML = `<div class="modal confirm"><div class="mtitle"></div><div class="mbody"></div><div class="macts"></div></div>`;
     wrap.querySelector('.mtitle').textContent = title;
     wrap.querySelector('.mbody').textContent = message || '';
