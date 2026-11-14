@@ -5570,6 +5570,20 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
   hl();
   void refreshGutter();
   wrap.refreshGutter = refreshGutter;   // the viewer re-reads git after a save
+  wrap.value = () => ta.value;
+  /* Replace the text with what is on disk now (an agent's change merged in, #159), keeping the caret where it was relative to
+     the text around it: a change above the caret moves it by the change's length, one below leaves it. No input event. */
+  wrap.replaceText = (v) => {
+    const old = ta.value;
+    if (v === old) return;
+    let pre = 0;
+    while (pre < old.length && pre < v.length && old[pre] === v[pre]) pre++;
+    const shift = (pos) => (pos <= pre ? pos : Math.max(pre, pos + v.length - old.length));
+    const s0 = shift(ta.selectionStart), s1 = shift(ta.selectionEnd), top = ta.scrollTop;
+    ta.value = v; lastSeen = v;
+    ta.selectionStart = s0; ta.selectionEnd = s1; ta.scrollTop = top;
+    hl(); refreshGutter();
+  };
   wrap.stepChange = step;               // the header stepper drives the same path as ⌥↑/⌥↓
   return wrap;
 }
@@ -6175,13 +6189,62 @@ async function openViewer(p) {
   let mode = renderable && OPENNOTESIN !== 'source' ? 'rendered' : 'source';
   let saveTimer = null;
   const setDirty = (on) => { paneObj.dirty = on; tab.classList.toggle('dirty', on); };
-  async function save(content, repaint) {
-    file.content = content;
-    const ok = await window.glassShell.fsWrite(file.path, content);
-    setDirty(!ok);
-    if (!ok) toast(t('viewer.saveFailed', { name }));
-    else if (repaint) paint();
+  /* SAVING AGAINST THE DISK (#159). Agents write to open notes all the time (the daily-note ledger, /close-session), and an
+     unconditional write put the editor's old copy back over their change. `base` is the text this editor descends from;
+     main decides each save against the disk now: unchanged → mine, changed elsewhere → the merge of both, changed on the
+     same lines → nothing written and the operator chooses. Saves run one at a time, so each starts from the last one's base.
+     `editorRef` is the Edit-mode editor while it is on screen. */
+  let base = file.content;
+  let editorRef = null;
+  let saveChain = Promise.resolve();
+  const save = (content, repaint, explicit) => (saveChain = saveChain.then(() => saveNow(content, repaint, explicit)));
+  async function saveNow(content, repaint, explicit) {
+    if (paneObj.conflict && !explicit) return;   // paused until the operator chooses (⌘S asks again)
+    paneObj.conflict = false;
+    const r = await window.glassShell.fsSaveMerged(file.path, base, content).catch(() => null);
+    if (r && r.ok) {
+      const typedSince = !!editorRef && editorRef.value() !== content;
+      file.content = r.content;
+      if (typedSince) base = content;   // the buffer still descends from what was sent; the next save merges the rest
+      else {
+        base = r.content;
+        if (r.merged && editorRef) editorRef.replaceText(r.content);   // show the agent's lines in place, caret kept
+        setDirty(false);
+      }
+      if (repaint || (r.merged && !editorRef)) paint();
+      return;
+    }
+    if (r && r.conflict) { paneObj.conflict = true; setDirty(true); void askConflict(content, r.disk); return; }
+    setDirty(true);
+    toast(t('viewer.saveFailed', { name }));
   }
+  /* Both sides changed the same lines: nothing was written. Keep mine (overwrite, on purpose), take the disk's, or decide
+     later (autosave stays paused; ⌘S asks again). */
+  async function askConflict(mine, disk) {
+    const pick = await choiceModal(t('viewer.conflict.title', { name }), t('viewer.conflict.body'), [
+      { key: 'mine', label: t('viewer.conflict.keepMine') },
+      { key: 'theirs', label: t('viewer.conflict.takeTheirs') },
+      { key: 'later', label: t('viewer.conflict.later') },
+    ]);
+    if (!paneObj.conflict || !panes.has(id)) return;
+    if (pick === 'mine') {
+      const ok = await window.glassShell.fsWrite(file.path, mine);
+      if (!ok) { toast(t('viewer.saveFailed', { name })); return; }
+      paneObj.conflict = false; base = file.content = mine; setDirty(editorRef ? editorRef.value() !== mine : false);
+    } else if (pick === 'theirs' && typeof disk === 'string') {
+      paneObj.conflict = false; base = file.content = disk; setDirty(false);
+      if (editorRef) editorRef.replaceText(disk); else paint();
+    } else toast(t('viewer.conflict.paused', { name, keys: /Mac/i.test(navigator.platform) ? '⌘S' : 'Ctrl+S' }));
+  }
+  /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
+     leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
+  paneObj.onDiskMaybeChanged = async () => {
+    if (paneObj.dirty || paneObj.conflict || !editable) return;
+    const f = await window.glassShell.fsRead(file.path).catch(() => null);
+    if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
+    base = file.content = f.content;
+    if (editorRef) editorRef.replaceText(f.content); else paint();
+  };
 
   if (renderable && editable) {
     /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
@@ -6230,13 +6293,14 @@ async function openViewer(p) {
   head.appendChild(rev);
 
   function paint() {
+    editorRef = null;   // set again below when Edit mode builds its editor
     body.replaceChildren();
     body.classList.toggle('fill', mode === 'rendered' && (HTML_EXT.test(name) || PDF_EXT.test(name)));
     for (const old of head.querySelectorAll('.chgnav')) old.remove();   // one stepper at most: every switch to Edit added another (0.14.0 round)
     if (mode === 'source') {
       // source IS the editor — now syntax-highlighted (code-editor style): autosaves
       // 700ms after you stop typing, on blur, and on ⌘S.
-      const after = (v) => save(v).then(() => { try { editor.refreshGutter?.(); } catch { /* gone */ } });
+      const after = (v, explicit) => save(v, false, explicit).then(() => { try { editor.refreshGutter?.(); } catch { /* gone */ } });
       /* The change stepper lives in the viewer header and only exists when the file HAS
          uncommitted changes — a "0 changes ‹ ›" control is noise on a clean file. */
       /* NOTE: `el` is SHADOWED in this function (line ~2122 declares a local <div> named el),
@@ -6256,13 +6320,14 @@ async function openViewer(p) {
       chg.title = t('viewer.changesTip');
       const editor = buildCodeEditor(file.content, langFor(name), {
         onInput: (v) => { setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },
-        onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
+        onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v, true); },   // ⌘S: also the way out of a paused conflict
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
         onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
         onStep: (i, n) => { chgN.textContent = i + '/' + n; },
       }, file.path);
       head.appendChild(chg);
       body.appendChild(editor);
+      editorRef = editor;
       return;
     }
     if (IMG_EXT.test(name)) {
@@ -7108,7 +7173,13 @@ async function paintExplorer() {
 void paintExplorer();
 
 /* live: surface new/removed files in place + refresh git markers on any fs change */
-window.glassShell.onFsEvent((m) => { for (const d of (m.dirs || [])) void relistFolder(d); refreshGit(); });
+window.glassShell.onFsEvent((m) => {
+  for (const d of (m.dirs || [])) void relistFolder(d);
+  refreshGit();
+  /* An open note whose folder changed may have been written by an agent: the viewer reloads it if nothing is unsaved (#159). */
+  const dirs = new Set(m.dirs || []);
+  for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && dirs.has(xDirOf(p.path))) void p.onDiskMaybeChanged();
+});
 /* The framework or vault just appeared (or moved). The tree was built when neither existed, so it
    is not stale — it is empty, next to a vault full of files. Rebuild it rather than waiting for a
    file event inside roots we were never watching. */
@@ -14291,6 +14362,35 @@ function confirmModal(title, message, confirmLabel) {
     document.addEventListener('keydown', onKey, true);
     document.body.appendChild(wrap);
     cancel.focus();   // the safe option holds focus
+  });
+}
+
+/* A question with a few named answers, one button each, in the order given; the LAST one is the safe one: it holds focus and
+   Esc or a click outside picks it. Resolves the chosen key. */
+function choiceModal(title, message, choices) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+    const safe = choices[choices.length - 1].key;
+    claimModal(wrap, () => done(safe));
+    wrap.innerHTML = `<div class="modal confirm"><div class="mtitle"></div><div class="mbody"></div><div class="macts"></div></div>`;
+    wrap.querySelector('.mtitle').textContent = title;
+    wrap.querySelector('.mbody').textContent = message || '';
+    const acts = wrap.querySelector('.macts');
+    const btns = choices.map((c, i) => {
+      const b = document.createElement('button');
+      b.className = 'vbtn' + (i === choices.length - 1 ? ' cancel' : '');
+      b.textContent = c.label;
+      b.addEventListener('click', () => done(c.key));
+      acts.appendChild(b);
+      return b;
+    });
+    const done = (v) => { wrap.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(safe); } };
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(safe); });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    btns[btns.length - 1].focus();
   });
 }
 

@@ -159,6 +159,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   busComposing: (name: string, composing: boolean): void => { ipcRenderer.send('bus:composing', { name, composing }); },
   vaultRoot: (): Promise<string | null> => ipcRenderer.invoke('shell:vaultRoot'),
   fsWrite: (p: string, content: string): Promise<boolean> => ipcRenderer.invoke('fs:write', p, content),
+  /** Save a note against the disk now (#159): merges an agent's change, or reports a conflict and writes nothing. */
+  fsSaveMerged: (p: string, base: string, mine: string): Promise<{ ok: boolean; conflict?: boolean; disk?: string | null; content?: string; merged?: boolean }> => ipcRenderer.invoke('fs:saveMerged', p, base, mine),
   setupCheck: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('setup:check'),
   // doctor: run a check's headless repair, then re-run the same check as proof
   doctorRepair: (id: string): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean } | null> => ipcRenderer.invoke('doctor:repair', id),
