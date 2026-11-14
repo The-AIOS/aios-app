@@ -52,6 +52,7 @@ function hunks(base: string[], other: string[]): Hunk[] | null {
   return out;
 }
 
+const startsWith = (a: string[], b: string[]): boolean => b.length <= a.length && b.every((l, k) => l === a[k]);
 const same = (x: Hunk, y: Hunk): boolean => x.start === y.start && x.end === y.end && x.lines.length === y.lines.length && x.lines.every((l, k) => l === y.lines[k]);
 
 /** Two hunks touch the same base lines (or insert at the same point): they cannot both be applied without a choice. */
@@ -62,8 +63,11 @@ function clash(x: Hunk, y: Hunk): boolean {
   return x.start < y.end && y.start < x.end;                                 // overlapping ranges
 }
 
-/** Three-way merge by lines. `ok: false` when both sides changed the same lines. */
-export function merge3(base: string, mine: string, theirs: string): { ok: true; text: string } | { ok: false } {
+/**
+ * Three-way merge by lines. `ok: false` when both sides changed the same lines, unless `prefer` is 'mine': then, on those
+ * lines only, mine wins and every other change from both sides is kept ("Keep my changes" in the conflict question).
+ */
+export function merge3(base: string, mine: string, theirs: string, prefer?: 'mine'): { ok: true; text: string } | { ok: false } {
   if (mine === theirs || theirs === base) return { ok: true, text: mine };
   if (mine === base) return { ok: true, text: theirs };
   const B = base.split('\n');
@@ -71,12 +75,18 @@ export function merge3(base: string, mine: string, theirs: string): { ok: true; 
   const ht = hunks(B, theirs.split('\n'));
   if (!hm || !ht) return { ok: false };
   const all: Hunk[] = [];
+  const mineHunks = hm.map((h) => ({ ...h, lines: [...h.lines] }));
   for (const h of ht) {
-    if (hm.some((x) => same(x, h))) continue;   // both sides made the identical change: apply it once (mine, below)
-    if (hm.some((x) => clash(x, h))) return { ok: false };
+    if (mineHunks.some((x) => same(x, h))) continue;   // both sides made the identical change: apply it once (mine, below)
+    /* Both inserted at one point, one insertion beginning with the other (the agent wrote "foo", the operator then typed
+       "foo" + "bar" in the reloaded text): the longer one holds both, so the shared lines are not written twice. */
+    const twin = mineHunks.find((x) => x.start === x.end && h.start === h.end && x.start === h.start);
+    if (twin && startsWith(twin.lines, h.lines)) continue;
+    if (twin && startsWith(h.lines, twin.lines)) { twin.lines = [...h.lines]; continue; }
+    if (mineHunks.some((x) => clash(x, h))) { if (prefer === 'mine') continue; return { ok: false }; }
     all.push(h);
   }
-  all.push(...hm);
+  all.push(...mineHunks);
   /* Apply in base order. At one point, an insertion goes before a range that starts there, and when both sides inserted
      there, the disk's lines come first (an agent appended, then the operator's own new line follows): the sort is stable
      and the disk's hunks were pushed first. */
@@ -93,10 +103,11 @@ export function merge3(base: string, mine: string, theirs: string): { ok: true; 
 
 /**
  * What to write, given the text the editor started from, the editor's text now, and the disk now.
- * `disk` null means the file is gone or unreadable: the editor's text is written, as before.
+ * `disk` null means the file is gone or unreadable: the editor's text is written, as before. `prefer: 'mine'` is the
+ * operator's answer to a conflict: their lines win where both changed, and the rest of the disk's changes are kept.
  */
-export function decideSave(base: string, mine: string, disk: string | null): SaveDecision {
+export function decideSave(base: string, mine: string, disk: string | null, prefer?: 'mine'): SaveDecision {
   if (disk === null || disk === base) return { write: mine };
-  const m = merge3(base, mine, disk);
+  const m = merge3(base, mine, disk, prefer);
   return m.ok ? { write: m.text } : { conflict: true };
 }

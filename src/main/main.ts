@@ -1941,12 +1941,12 @@ ipcMain.handle('fs:write', (_e, relOrAbs: string, content: string) => {
 /* The viewer's save (#159): decided against the disk NOW, not the copy the editor read. `base` is the text the editor
    started from; if an agent changed the note since, both changes are merged, or nothing is written and the renderer asks.
    The plain fs:write stays for writers that own their file outright (the Designer) and for "keep my version". */
-ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string) => {
+ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string, prefer?: unknown) => {
   const abs = resolveIn(relOrAbs);
   if (!abs || typeof base !== 'string' || typeof mine !== 'string') return { ok: false };
   let disk: string | null = null;
   try { disk = fs.readFileSync(abs, 'utf8'); } catch { disk = null; }
-  const d = decideSave(base, mine, disk);
+  const d = decideSave(base, mine, disk, prefer === 'mine' ? 'mine' : undefined);
   if ('conflict' in d) return { ok: false, conflict: true, disk };
   try {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -1955,6 +1955,14 @@ ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: strin
     fs.renameSync(tmp, abs);
     return { ok: true, content: d.write, merged: d.write !== mine };
   } catch { return { ok: false }; }
+});
+/* While a save conflict waits for the operator (#159), the viewer keeps their edits in a side copy beside the note,
+   "<name> (unsaved edits).<ext>", so closing the tab or quitting loses nothing. This removes that copy once they have
+   chosen, and nothing else: any other name is refused. */
+ipcMain.handle('fs:removeSideCopy', (_e, relOrAbs: string) => {
+  const abs = resolveIn(relOrAbs);
+  if (!abs || !/ \(unsaved edits\)(\.[^.\\/]+)?$/.test(path.basename(abs))) return false;
+  try { fs.unlinkSync(abs); return true; } catch { return false; }
 });
 // Designer: the app no longer writes framework infra — it reads the catalog so the
 // operator can borrow a bundled unit's shape or pick one of their OWN custom units to
