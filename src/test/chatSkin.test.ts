@@ -4672,10 +4672,11 @@ test('0.15.0 review 2: the long-question switch never takes the keyboard from an
 });
 
 /* ── Hats (#109): the suggest-agent line from The-AIOS/aios#299, drawn as a card; putting the agent on, as a hat change ── */
-const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')) + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf };')() as {
+const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')) + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf, chatHatReadOf };')() as {
   chatHatSuggestion: (t: string) => { name: string; why: string; rest: string } | null;
   chatHatWorn: (i: { name: string; summary: string }) => string;
   chatHatAnswerOf: (t: string) => string;
+  chatHatReadOf: (i: { name: string; summary: string }) => string;
 };
 guarded('the suggestion line is read exactly as the framework writes it, and nothing like it passes for one',
   (src) => {
@@ -4710,7 +4711,7 @@ guarded('a reply with the line shows the card in place of the line; loading the 
   (src) => {
     const up = fnBody(src, 'chatSkinUpsert');
     return /const hs = chatHatSuggestion\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up)
-      && /const worn = item\.role === 'tool' \? chatHatWorn\(chatToolInfo\(item\)\) : '';/.test(up) && /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/.test(up)
+      && /const worn = info0 \? \(chatHatWorn\(info0\) \|\|/.test(up) && /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/.test(up)
       && /\} else if \(rec\.hatWorn\) \{\n\s*chatSkinPaintHatWorn\(rec, item, cs\);/.test(up);
   },
   (src) => src.replace("rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);", 'rec = chatSkinMakeItem(item.role, cs);'));
@@ -4718,4 +4719,16 @@ guarded('a reply with the line shows the card in place of the line; loading the 
 guarded('an answer button never sends over a draft in the box, and goes through the box\'s own send path',
   (src) => { const f = fnBody(src, 'chatSkinHatAnswer'); return /if \(cs\.input\.value\.trim\(\)\) \{ toast\(t\('chat\.hat\.boxBusy'\)\)/.test(f) && /chatSkinSendNow\(id, p\);/.test(f) && !/submitToPty|ptyWrite/.test(f); },
   (src) => src.replace("  if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing\n", ''));
+
+guarded('a session that puts the hat on by reading the agent\'s file counts too, but only right after "here" to that agent',
+  (src) => {
+    const { chatHatReadOf: r } = hatFns(src);
+    const up = fnBody(src, 'chatSkinUpsert');
+    return r({ name: 'Read', summary: '/Users/op/aios/agents/aios/finance-legal/accountant.md' }) === 'accountant'
+      && r({ name: 'Read', summary: 'C:\\aios\\agents\\custom\\lawyer.md' }) === 'lawyer'
+      && r({ name: 'Read', summary: '/Users/op/aios/agents/_index.md' }) === ''
+      && r({ name: 'Read', summary: '/Users/op/notes/accountant.md' }) === ''
+      && /\(cs\.hatWanted && chatHatReadOf\(info0\) === cs\.hatWanted \? cs\.hatWanted : ''\)/.test(up);
+  },
+  (src) => src.replace("(cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')", "(chatHatReadOf(info0))"));
 

@@ -11519,6 +11519,13 @@ function chatHatWorn(info) {
   const m = name === 'Skill' ? /^(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(summary) : /^\/(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(name);
   return m ? m[1] : '';
 }
+/** The agent whose file a Read opened (`.../agents/<bundle>/<name>.md`), or ''. A session can put a hat on by reading its file
+    instead of running /aios:agent; that counts only right after the operator said "here" to that very agent. Pure. */
+function chatHatReadOf(info) {
+  if (!info || info.name !== 'Read') return '';
+  const m = /[\\/]agents[\\/](?:[^\\/]+[\\/])*([a-z0-9][a-z0-9-]*)\.md$/.exec(String(info.summary || ''));
+  return m && m[1] !== '_index' ? m[1] : '';
+}
 /** What an answer typed after a suggestion means, in the skill's words. */
 function chatHatAnswerOf(text) {
   const s = String(text || '').trim().toLowerCase();
@@ -11564,9 +11571,10 @@ function chatSkinHatAnswer(cs, card, key) {
   if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing
   cs.input.value = key;
   chatSkinSendNow(id, p);
-  if (!cs.input.value) chatSkinHatMark(card, key);   // the box emptied: it went (or is queued)
+  if (!cs.input.value) chatSkinHatMark(card, key, cs);   // the box emptied: it went (or is queued)
 }
-function chatSkinHatMark(card, key) {
+function chatSkinHatMark(card, key, cs) {
+  if (cs) cs.hatWanted = key === 'here' ? card.dataset.agent : '';
   card.classList.add('answered');
   for (const b of card.querySelectorAll('button')) { b.disabled = true; b.classList.toggle('chosen', b.dataset.answer === key); }
   const done = card.querySelector('.ch-done');
@@ -11577,7 +11585,7 @@ function chatSkinHatMark(card, key) {
 function chatSkinHatSettle(cs, text) {
   if (!cs.hatOpen || !cs.hatOpen.size) return;
   const key = chatHatAnswerOf(text);
-  for (const rec of cs.hatOpen) if (rec.hatCard && !rec.hatCard.classList.contains('answered')) chatSkinHatMark(rec.hatCard, key);
+  for (const rec of cs.hatOpen) if (rec.hatCard && !rec.hatCard.classList.contains('answered')) chatSkinHatMark(rec.hatCard, key, cs);
   cs.hatOpen.clear();
 }
 /* The session put the hat on: a line in the column, and the bar's hat chip. A failed load says so and changes nothing. */
@@ -11602,7 +11610,11 @@ function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
   let rec = cs.items.get(item.uuid);
   if (!rec) {
-    const worn = item.role === 'tool' ? chatHatWorn(chatToolInfo(item)) : '';   // loading an agent is drawn as a hat change, not a tool card (#109)
+    /* Loading an agent is drawn as a hat change, not a tool card (#109): /aios:agent always; reading the agent's file only when
+       the operator just said "here" to that agent. */
+    const info0 = item.role === 'tool' ? chatToolInfo(item) : null;
+    const worn = info0 ? (chatHatWorn(info0) || (cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')) : '';
+    if (worn) cs.hatWanted = '';
     rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);
     if (worn) rec.hatWorn = worn;
     rec.uuid = item.uuid;
@@ -11753,6 +11765,7 @@ function chatSkinResetView(p) {
   const cs = p.chatSkin;
   cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
   if (cs.hatOpen) cs.hatOpen.clear();
+  cs.hatWanted = '';
   cs.hat = ''; if (cs.hatSeg) cs.hatSeg.hidden = true;   // the hat is read again from the transcript, like everything else in the column
   cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end
   cs.log.replaceChildren(cs.stateEl, cs.workEl);
