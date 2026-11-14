@@ -1212,7 +1212,7 @@
   "whatsnew.h1": "Tus cambios y los de tus agentes, ambos se conservan",
   "whatsnew.b1": "Si un agente escribía en una nota que tenías abierta, tu siguiente guardado volvía a poner tu copia anterior encima de su cambio. Ahora cada guardado revisa el archivo primero, y los cambios en líneas distintas se combinan. Si ambos cambiaron la misma línea, AIOS te pregunta cuál conservar y guarda la otra junto a la nota. Sin nada pendiente, una nota abierta se actualiza en su lugar mientras los agentes escriben.",
   "whatsnew.h2": "El agente correcto, sugerido cuando encaja",
-  "whatsnew.b2": "Cuando lo que pides encaja con uno de tus agentes, como facturas para tu contador, la sesión te lo sugiere en una tarjeta: usarlo aquí, abrirlo como su propia sesión o ahora no. Si dices que sí, el chat muestra el cambio de sombrero y la barra muestra el que lleva la sesión. Actualiza también tu framework para que tus sesiones sepan sugerir.",
+  "whatsnew.b2": "Cuando lo que pides encaja con uno de tus agentes, como facturas para tu contador, tu sesión se pone el sombrero de ese agente y sigue trabajando, y una tarjeta te lo dice: ábrelo mejor como su propia sesión, o quítaselo. ¿Prefieres que te pregunte primero? Indícalo en INTENT.md y la tarjeta te preguntará. Actualiza también tu framework para que tus sesiones sepan hacerlo.",
   "whatsnew.h3": "Un mensaje largo con una captura llega completo",
   "whatsnew.b3": "La 0.15.1 hizo que los mensajes largos pegados llegaran completos. Si los enviabas junto con una captura, el texto aún podía perder su inicio. Ahora el texto y la imagen llegan juntos a Claude, completos.",
   "whatsnew.h4": "Un segundo candado en la ventana de la App",

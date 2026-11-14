@@ -1212,7 +1212,7 @@
   "whatsnew.h1": "Your edits and your agents' edits, both kept",
   "whatsnew.b1": "If an agent wrote to a note you had open, your next save used to put your old copy back over its change. Now each save checks the file first, and changes on different lines are merged. If you both changed the same line, AIOS asks which to keep and saves the other beside the note. With nothing unsaved, an open note updates in place as agents write to it.",
   "whatsnew.h2": "The right agent, suggested when it fits",
-  "whatsnew.b2": "When what you ask fits one of your agents, like invoices for your accountant, the session suggests it in a card: wear it here, open it as its own session, or not now. Say yes and the chat shows the hat change, and the bar shows the hat the session is wearing. Update your framework too, so your sessions know how to suggest.",
+  "whatsnew.b2": "When what you ask fits one of your agents, like invoices for your accountant, your session puts that agent's hat on and keeps going, and a card tells you so: open it as its own session instead, or take it off. Prefer to be asked first? Say so in INTENT.md and the card asks instead. Update your framework too, so your sessions know how.",
   "whatsnew.h3": "A long message with a screenshot arrives whole",
   "whatsnew.b3": "0.15.1 made long pasted messages arrive in full. Sent together with a screenshot, the text could still lose its beginning. Now the text and the image reach Claude together, all of it.",
   "whatsnew.h4": "A second lock on the App window",

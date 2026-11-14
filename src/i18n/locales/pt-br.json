@@ -1212,7 +1212,7 @@
   "whatsnew.h1": "Suas edições e as dos seus agentes, as duas mantidas",
   "whatsnew.b1": "Se um agente escrevia em uma nota que você tinha aberta, o seu próximo salvamento colocava a sua cópia antiga por cima da mudança dele. Agora cada salvamento confere o arquivo antes, e mudanças em linhas diferentes são combinadas. Se vocês dois mudaram a mesma linha, o AIOS pergunta qual manter e salva a outra ao lado da nota. Sem nada pendente, uma nota aberta se atualiza no lugar enquanto os agentes escrevem.",
   "whatsnew.h2": "O agente certo, sugerido quando faz sentido",
-  "whatsnew.b2": "Quando o que você pede combina com um dos seus agentes, como notas fiscais para o seu contador, a sessão sugere em um cartão: usar aqui, abrir como sessão própria ou agora não. Se você disser sim, o chat mostra a troca de chapéu e a barra mostra o chapéu que a sessão está usando. Atualize também o seu framework para que suas sessões saibam sugerir.",
+  "whatsnew.b2": "Quando o que você pede combina com um dos seus agentes, como notas fiscais para o seu contador, sua sessão põe o chapéu desse agente e segue trabalhando, e um cartão avisa: abra como sessão própria, ou tire. Prefere que pergunte antes? Diga isso no INTENT.md e o cartão vai perguntar. Atualize também o seu framework para que suas sessões saibam fazer isso.",
   "whatsnew.h3": "Uma mensagem longa com captura de tela chega inteira",
   "whatsnew.b3": "A 0.15.1 fez as mensagens longas coladas chegarem inteiras. Enviado junto com uma captura de tela, o texto ainda podia perder o começo. Agora o texto e a imagem chegam juntos ao Claude, por completo.",
   "whatsnew.h4": "Uma segunda tranca na janela do App",
