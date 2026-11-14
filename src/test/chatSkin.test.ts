@@ -1507,7 +1507,7 @@ test('a narrow pane: two fixed steps (the account address, then the bars; the la
   assert.match(skin, /el\('span', 'cb-k', t\(short\)\)/, 'the label is the short form at every width');
   // no guessed width hides a segment whose size depends on its text (0.14.0 round: folder and branch hidden at 543px with room to spare)
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.(cb-dir|cb-branch|cb-effort)[^}]*display: none/);
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k'\];/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-hat \.cb-v', '\.cb-effort', '\.cb-mode \.cb-v', '\.cb-k', '\.cb-hat'\];/);
   assert.doesNotMatch(css, /@container[^{]*\{[^}]*\.cb-m \.cb-v[^}]*display: none/, 'nothing hides the numbers');
   assert.match(skinRules(css).find(([sel]) => sel === '.chat-bar .fit-cut')?.[1] ?? '', /display: none/);
   // run it: a stub bar that only fits once the folder and the branch are gone
@@ -1922,7 +1922,7 @@ test('the effort menu\'s look: a neutral popover with its own tokens, a tick on 
   assert.match(css, /\.cb-effort:hover:not\(:disabled\), \.cb-effort\[aria-expanded="true"\] \{ background-color: var\(--chat-row-hover\); \}/);
   assert.match(css, /\.cb-effort:focus-visible \{ outline: 2px solid var\(--chat-focus\)/);
   // the narrow-pane step is still there: measured now, the effort goes after the folder and the branch
-  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-effort'/);
+  assert.match(skin, /const CHAT_BAR_CUT = \['\.cb-dir', '\.cb-branch', '\.cb-acct \.cb-v', '\.cb-hat \.cb-v', '\.cb-effort'/);
 });
 
 test('the slash popup wires: the box is a combobox over a listbox, input asks, send/hide/blocked close it, and the IPC is read-only with a leading-slash gate', () => {
@@ -4857,4 +4857,11 @@ guarded('"Opened agent session: <name>." says where "open" sent the work: the ag
     return f('Opened agent session: accountant-october-invoices.').opened === 'accountant-october-invoices' && f('Opened agent session: Accountant.').opened === ''
       && /name\.startsWith\(c\.dataset\.agent \+ '-'\)/.test(o) && /if \(hit\) setActive\(hit\[0\]\); else toast/.test(o) && !/createPane|chatSkinSendNow|submitToPty|spawn/.test(o); },
   (src) => src.replace("if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));", "createPane({ name });"));
+
+test('the default mode shows one notice, not two, and the chip never crowds the bar', () => {
+  const w = fnBody(app, 'chatSkinPaintHatWorn');
+  assert.match(w, /if \(card\) \{ chatSkinHatAuto\(card\); rec\.node\.hidden = true; \}/, 'the load call\'s line hides when the unanswered card says it');
+  assert.match(app, /const CHAT_BAR_CUT = \[[^\]]*'\.cb-hat \.cb-v'/, 'the hat\'s name is cut before the effort and the mode');
+  assert.match(fnBody(app, 'chatSkinHatChip'), /chatSkinFitSoon\(cs\.bar\);/, 'the bar is fitted again when the chip changes');
+});
 

@@ -9215,7 +9215,7 @@ async function chatSkinWherePaint(cs) {
    4 characters or 40, so no fixed width can say when the folder must go (0.14.0 round: at 543px both fitted and were hidden
    anyway). The account's address and the labels-for-bars swap stay CSS steps, their sizes are fixed. The model and the three
    numbers are never cut. */
-const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-acct .cb-v', '.cb-effort', '.cb-mode .cb-v', '.cb-k'];   // the account's address is measured too (0.14.0 round: a fixed width hid it with room to spare)
+const CHAT_BAR_CUT = ['.cb-dir', '.cb-branch', '.cb-acct .cb-v', '.cb-hat .cb-v', '.cb-effort', '.cb-mode .cb-v', '.cb-k', '.cb-hat'];   // the hat keeps its initial when its name goes (#109)   // the account's address is measured too (0.14.0 round: a fixed width hid it with room to spare)
 function chatSkinFitBar(bar) {
   if (!bar || !bar.isConnected) return;
   const id = bar.querySelector('.cb-id'), meters = bar.querySelector('.cb-meters');
@@ -11662,6 +11662,10 @@ function chatSkinPaintHatWorn(rec, item, cs) {
   rec.node.classList.toggle('failed', failed);
   rec.body.replaceChildren(chatHatAvatar(rec.hatWorn), el('span', '', t(failed ? 'chat.hat.wornFailed' : 'chat.hat.worn', { name: rec.hatWorn })));
   rec.node.hidden = false;
+  /* The session put on the hat it just suggested, with no answer yet (the default): its card says so, so this line would
+     say it twice. */
+  const card = !failed && cs.hatOpen ? [...cs.hatOpen].map((r) => r.hatCard).find((c) => c && c.dataset.agent === rec.hatWorn && !c.classList.contains('answered')) : null;
+  if (card) { chatSkinHatAuto(card); rec.node.hidden = true; }
   if (!failed) chatSkinHatChip(cs, rec.hatWorn);
 }
 /* "Wearing agent: <name>." in a reply: the hat change, shown in the bubble unless the column already showed this very hat
@@ -11726,6 +11730,7 @@ function chatSkinHatChip(cs, name) {
   const old = seg.querySelector('.ch-av');
   if (cs.hat) { const av = chatHatAvatar(cs.hat); if (old) old.replaceWith(av); else seg.prepend(av); } else if (old) old.remove();
   seg.title = cs.hat ? t('chat.hat.chip', { name: cs.hat }) : '';
+  chatSkinFitSoon(cs.bar);   // the chip takes room: a narrow bar gives up its name first, keeping the initial
 }
 function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
