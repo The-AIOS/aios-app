@@ -4672,7 +4672,7 @@ test('0.15.0 review 2: the long-question switch never takes the keyboard from an
 });
 
 /* ── Hats (#109): the suggest-agent line from The-AIOS/aios#299, drawn as a card; putting the agent on, as a hat change ── */
-const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')).replace(/let chatHatAgentList[\s\S]*?\n\}\n/, '') + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf, chatHatReadOf };')() as {
+const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')).replace(/const chatHatAgentCache[\s\S]*?\n\}\n/, '') + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf, chatHatReadOf };')() as {
   chatHatSuggestion: (t: string) => { name: string; why: string; rest: string } | null;
   chatHatWorn: (i: { name: string; summary: string }) => string;
   chatHatAnswerOf: (t: string) => string;
@@ -4733,7 +4733,7 @@ guarded('a session that puts the hat on by reading the agent\'s file counts too,
   (src) => src.replace("(cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')", "(chatHatReadOf(info0))"));
 
 /* Fixtures for the framework's two hat lines (The-AIOS/aios#299): read only in Claude's own text. */
-const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agents that exist in the framework')) + '\nreturn chatHatLines;')() as
+const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agent a hat line names, checked')) + '\nreturn chatHatLines;')() as
   (t: string) => { suggest: { name: string; why: string } | null; wearing: string; rest: string };
 guarded('"Wearing agent: <name>." is the hat a session says it put on; a malformed line is just text',
   (src) => {
@@ -4771,9 +4771,9 @@ test('the hat lines are read in Claude\'s text only: inside a tool result or the
 });
 
 guarded('a hat line is drawn only for an agent that exists; any other name stays text (security review, aios#299)',
-  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && agents\.has\(hl\.suggest\.name\)/.test(up) && /const wearing = hl\.wearing && \(hl\.wearing === 'none' \|\| agents\.has\(hl\.wearing\)\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
+  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && sa \?/.test(up) && /const wearing = hl\.wearing === 'none' \|\| \(hl\.wearing && wa\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
     && /chatRender\(rec\.body, text\); rec\.text = text;/.test(up); },
-  (src) => src.replace("const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name).desc } : null;", 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
+  (src) => src.replace('const hs = hl.suggest && sa ? { ...hl.suggest, purpose: sa.desc } : null;', 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
 
 test('only whole lines count: an indented, quoted or listed copy is not the line', () => {
   const f = hatLinesFn(app);
@@ -4819,6 +4819,36 @@ guarded('a hat the session put on by itself turns its card into "your AIOS put i
 
 guarded('"Wearing agent: none." takes the hat off: the chip goes, and a reply that says so is not mistaken for an agent called none',
   (src) => { const w = fnBody(src, 'chatSkinHatWearing'), up = fnBody(src, 'chatSkinUpsert');
-    return /if \(name === 'none'\) \{[\s\S]*chatSkinHatChip\(cs, ''\);\s*return;/.test(w) && /hl\.wearing === 'none' \|\| agents\.has\(hl\.wearing\)/.test(up) && hatLinesFn(src)('Wearing agent: none.').wearing === 'none'; },
-  (src) => src.replace("hl.wearing === 'none' || agents.has(hl.wearing)", 'agents.has(hl.wearing)'));
+    return /if \(name === 'none'\) \{[\s\S]*chatSkinHatChip\(cs, ''\);\s*return;/.test(w) && /hl\.wearing === 'none' \|\| \(hl\.wearing && wa\)/.test(up) && hatLinesFn(src)('Wearing agent: none.').wearing === 'none'; },
+  (src) => src.replace("hl.wearing === 'none' || (hl.wearing && wa)", '(hl.wearing && wa)'));
+
+/* The rest of the framework's test list (aios#299 contract, point 9). */
+test('malformed suggestion lines stay text: two agents, no reason, backticks, an empty reason', () => {
+  const f = hatLinesFn(app);
+  for (const bad of [
+    'Suggested agent: accountant, lawyer (money and contracts). Wear it here, or open it as its own session?',
+    'Suggested agent: accountant. Wear it here, or open it as its own session?',
+    '`Suggested agent: accountant (invoices). Wear it here, or open it as its own session?`',
+    'Suggested agent: accountant (). Wear it here, or open it as its own session?',
+    'Suggested agent: accountant (invoices). Wear it here or open it as its own session?',
+  ]) assert.equal(f(bad).suggest, null, bad);
+});
+
+test('after a resume the hat is the LAST Wearing line in the transcript, and resuming loads nothing', () => {
+  const lines = ['Wearing agent: lawyer.', 'Wearing agent: accountant.', 'Wearing agent: none.', 'Wearing agent: explainer.'];
+  const f = hatLinesFn(app);
+  let hat = '';
+  for (const l of lines) { const w = f(l).wearing; if (w) hat = w === 'none' ? '' : w; }   // the order the column replays them in
+  assert.equal(hat, 'explainer', 'the last, not the first');
+  const w = fnBody(app, 'chatSkinHatWearing');
+  assert.match(w, /chatSkinHatChip\(cs, name\);/, 'each wearing line moves the chip, so replay order decides');
+  assert.doesNotMatch(w + fnBody(app, 'chatSkinHatChip'), /chatSkinSendNow|submitToPty|createPane|aios:agent/, 'a replayed line only paints');
+});
+
+test('a button types exactly its word into the box and sends it, nothing else', () => {
+  const a = fnBody(app, 'chatSkinHatAnswer');
+  assert.match(a, /cs\.input\.value = key;\n\s*chatSkinSendNow\(id, p\);/);
+  const keys = /for \(const key of \['here', 'open', 'no'\]\)/.exec(fnBody(app, 'chatSkinHatCard'));
+  assert.ok(keys, 'the three words are the skill\'s');
+});
 

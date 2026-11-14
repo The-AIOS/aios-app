@@ -352,6 +352,35 @@ function discoverAgentsUncached(): Agent[] {
 }
 export const discoverAgents = ttlMemo(discoverAgentsUncached, 5000);
 
+/**
+ * The agent a hat line names (#109), by the framework's own rule: a file agents/**\/<name>.md exists (README and _-prefixed
+ * files are not agents; no frontmatter needed). Returns what the chat shows with it: its purpose (frontmatter description,
+ * else its agents/_index.md row) and its bundle folder (its colour). Null when there is no such agent, or the name is not
+ * an agent name. The name is checked before it touches a path.
+ */
+export function hatAgent(name: string): { name: string; desc: string; group: string } | null {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || name === 'none' || name === 'readme') return null;
+  const root = frameworkRoot();
+  if (!root) return null;
+  const base = path.join(root, 'agents');
+  let rels: string[] = [];
+  try { rels = fs.readdirSync(base, { recursive: true }) as string[]; } catch { return null; }
+  const rel = rels.find((r) => path.basename(r) === `${name}.md`);
+  if (!rel) return null;
+  const filePath = path.join(base, rel);
+  let desc = '';
+  try { desc = parseFrontmatter(fs.readFileSync(filePath, 'utf8')).description ?? ''; } catch { /* no frontmatter */ }
+  if (!desc) {
+    for (const idx of [path.join(base, 'custom', '_index.md'), path.join(base, '_index.md')]) {
+      try {
+        const row = fs.readFileSync(idx, 'utf8').split('\n').find((l) => l.includes(`[[${name}]]`) || l.includes(`| ${name} |`) || l.includes(`\`${name}\``));
+        if (row) { const cells = row.split('|').map((c) => c.trim()).filter(Boolean); desc = cells.length > 1 ? cells[1] : ''; break; }   // | [[name]] | purpose | … |
+      } catch { /* no index */ }
+    }
+  }
+  return { name, desc: desc.replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1').slice(0, 300), group: path.basename(path.dirname(rel)) || 'agents' };
+}
+
 export interface AiosCommand { name: string; description: string; argumentHint?: string; filePath: string; }
 
 function discoverCommandsUncached(): AiosCommand[] {

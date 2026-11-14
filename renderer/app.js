@@ -11527,14 +11527,12 @@ function chatHatSuggestion(text) {
   const h = chatHatLines(text);
   return h.suggest ? { name: h.suggest.name, why: h.suggest.why, rest: h.rest } : null;
 }
-/* The agents that exist in the framework (each with what it is for, the descriptions the Ask panel lists), read once and
-   shared. A line naming an agent that is not here is not drawn at all (security review, The-AIOS/aios#299): it stays text.
-   If the list cannot be read, nothing is drawn. */
-let chatHatAgentList = null;
-function chatHatAgents() {
-  if (!chatHatAgentList) chatHatAgentList = Promise.resolve(window.glassShell.askDestinations ? window.glassShell.askDestinations() : null)
-    .then((d) => new Map(((d && d.agents) || []).map((a) => [a.name, { desc: String(a.desc || ''), group: String(a.group || '') }]))).catch(() => new Map());
-  return chatHatAgentList;
+/* The agent a hat line names, checked by the framework's own rule: a file agents/…/<name>.md exists (security review, The-AIOS/aios#299).
+   A line naming anything else is not drawn: it stays text. If the check cannot run, nothing is drawn. Asked once per name. */
+const chatHatAgentCache = new Map();
+function chatHatAgent(name) {
+  if (!chatHatAgentCache.has(name)) chatHatAgentCache.set(name, Promise.resolve(window.glassShell.hatAgent ? window.glassShell.hatAgent(name) : null).catch(() => null));
+  return chatHatAgentCache.get(name);
 }
 /* Each agent wears its bundle's colour, the way a team's people do (#109, from the deck's friendly terminal): the folder it
    lives in under agents/ (sales, strategy, finance-legal, engineering, communication, personal, commerce, custom). A company's
@@ -11552,7 +11550,7 @@ function chatHatColorKey(group) {
 function chatHatAvatar(name, size) {
   const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
   av.setAttribute('aria-hidden', 'true');
-  void chatHatAgents().then((agents) => { const a = agents.get(name); av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`); });
+  void chatHatAgent(name).then((a) => av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`));
   return av;
 }
 /** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
@@ -11727,10 +11725,10 @@ function chatSkinUpsert(cs, item, animate, before) {
       const hl = chatHatLines(text);
       chatSkinHatCard(rec, null, cs); chatSkinHatWearing(rec, '', cs);
       if (hl.suggest || hl.wearing) {
-        void chatHatAgents().then((agents) => {
+        void Promise.all([hl.suggest ? chatHatAgent(hl.suggest.name) : null, hl.wearing && hl.wearing !== 'none' ? chatHatAgent(hl.wearing) : null]).then(([sa, wa]) => {
           if (rec.text !== text || !rec.node.isConnected) return;   // the reply changed or left meanwhile
-          const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name).desc } : null;
-          const wearing = hl.wearing && (hl.wearing === 'none' || agents.has(hl.wearing)) ? hl.wearing : '';   // 'none': the hat came off (no agent is named none)
+          const hs = hl.suggest && sa ? { ...hl.suggest, purpose: sa.desc } : null;
+          const wearing = hl.wearing === 'none' || (hl.wearing && wa) ? hl.wearing : '';   // 'none': the hat came off (no agent is named none)
           if (!hs && !wearing) return;
           chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
           chatSkinHatCard(rec, hs, cs);

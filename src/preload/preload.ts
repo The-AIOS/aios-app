@@ -109,6 +109,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   menuBarGroups: (groups: unknown): void => ipcRenderer.send('menuBar:groups', groups),
   /* Ask panel destinations (a live session, an agent) — the same inbox request the quick bar writes. */
   askDestinations: () => ipcRenderer.invoke('ask:destinations'),
+  /** The agent a hat line names, if a file agents/**\/<name>.md exists: its purpose and bundle folder (#109). */
+  hatAgent: (name: string): Promise<{ name: string; desc: string; group: string } | null> => ipcRenderer.invoke('hat:agent', name),
   askSend: (dest: { kind: string; name: string }, text: string) => ipcRenderer.invoke('ask:send', dest, text),
   // vault-scoped fs for explorer + viewers
   fsList: (rel: string): Promise<{ name: string; dir: boolean; path: string; mtime: number }[]> => ipcRenderer.invoke('fs:list', rel),
