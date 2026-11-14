@@ -4710,7 +4710,7 @@ test('the Skill call\'s one-line summary carries its args, so the hat it loads c
 guarded('a reply with the line shows the card in place of the line; loading the agent is a hat change, not a tool card',
   (src) => {
     const up = fnBody(src, 'chatSkinUpsert');
-    return /const hs = chatHatSuggestion\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up)
+    return /const hl = chatHatLines\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up) && /chatSkinHatWearing\(rec, hl\.wearing, cs\);/.test(up)
       && /const worn = info0 \? \(chatHatWorn\(info0\) \|\|/.test(up) && /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/.test(up)
       && /\} else if \(rec\.hatWorn\) \{\n\s*chatSkinPaintHatWorn\(rec, item, cs\);/.test(up);
   },
@@ -4731,4 +4731,42 @@ guarded('a session that puts the hat on by reading the agent\'s file counts too,
       && /\(cs\.hatWanted && chatHatReadOf\(info0\) === cs\.hatWanted \? cs\.hatWanted : ''\)/.test(up);
   },
   (src) => src.replace("(cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')", "(chatHatReadOf(info0))"));
+
+/* Fixtures for the framework's two hat lines (The-AIOS/aios#299): read only in Claude's own text. */
+const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* What each agent is for')) + '\nreturn chatHatLines;')() as
+  (t: string) => { suggest: { name: string; why: string } | null; wearing: string; rest: string };
+guarded('"Wearing agent: <name>." is the hat a session says it put on; a malformed line is just text',
+  (src) => {
+    const f = hatLinesFn(src);
+    const ok = f('Loaded the brief.\nWearing agent: accountant.\nLet me start.');
+    const bad = ['Wearing agent: Accountant.', 'Wearing agent: accountant', 'wearing agent: accountant.', '**Wearing agent: accountant.**', 'Llevo el agente: accountant.'];
+    return ok.wearing === 'accountant' && ok.rest === 'Loaded the brief.\nLet me start.' && ok.suggest === null
+      && bad.every((b) => f(b).wearing === '' && f(b).rest === b);
+  },
+  (src) => src.replace('const CHAT_HAT_WEARING = /^Wearing agent: ([a-z0-9][a-z0-9-]*)\\.$/;', 'const CHAT_HAT_WEARING = /Wearing agent: (\\S+?)\\.?$/i;'));
+
+test('the hat lines are read in Claude\'s text only: inside a tool result or the operator\'s message they stay what they are', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createTranscriptTracker } = require('../core/transcriptChat') as typeof import('../core/transcriptChat');
+  const f = hatLinesFn(app);
+  const line = 'Suggested agent: accountant (invoices and bookkeeping). Wear it here, or open it as its own session?';
+  const u = (content: unknown) => JSON.stringify({ type: 'user', uuid: 'u-' + Math.random(), timestamp: '2026-11-13T10:00:00Z', message: { role: 'user', content } });
+  const a = (content: unknown[], stop: string) => JSON.stringify({ type: 'assistant', uuid: 'a-' + Math.random(), timestamp: '2026-11-13T10:00:01Z', message: { id: 'm-' + Math.random(), role: 'assistant', content, stop_reason: stop, usage: { input_tokens: 1, output_tokens: 1 } } });
+  const items = createTranscriptTracker().feedAll([
+    u('can you help? ' + line),                                                                   // the operator pasted it
+    a([{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/x/notes.md' } }], 'tool_use'),
+    u([{ type: 'tool_result', tool_use_id: 'tu1', content: line + '\nWearing agent: lawyer.' }]),  // a file that quotes them
+    a([{ type: 'text', text: 'Bookkeeping work.\n\n' + line }], 'end_turn'),                     // Claude's own suggestion
+  ]).items;
+  const seen = items.map((i) => (i.role === 'assistant' ? f(i.text || '') : null)).filter(Boolean) as ReturnType<typeof f>[];
+  assert.equal(seen.length, 1, 'one reply of Claude\'s');
+  assert.equal(seen[0].suggest?.name, 'accountant');
+  const user = items.find((i) => i.role === 'user');
+  assert.ok(user && (user.text || '').includes(line), 'the operator\'s message keeps the line as text');
+  const tool = items.find((i) => i.role === 'tool');
+  assert.ok(tool && tool.tool && (tool.tool.output || '').includes('Wearing agent: lawyer.'), 'the tool result keeps it as output');
+  const up = fnBody(app, 'chatSkinUpsert');
+  assert.match(up, /if \(rec\.role === 'assistant'\) \{[\s\S]*const hl = chatHatLines\(text\);/, 'read in the assistant branch');
+  assert.doesNotMatch(up.slice(up.indexOf("} else if (rec.role === 'user')")), /chatHatLines|chatHatSuggestion/, 'never in the user or tool branches');
+});
 

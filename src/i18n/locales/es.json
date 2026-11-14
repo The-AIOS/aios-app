@@ -1321,7 +1321,7 @@
   "chat.hat.suggested": "Agente sugerido",
   "chat.hat.here": "Usarlo aquí",
   "chat.hat.open": "Abrirlo como su propia sesión",
-  "chat.hat.no": "Ahora no",
+  "chat.hat.no": "No",
   "chat.hat.chose.here": "Elegiste usar {name} aquí.",
   "chat.hat.chose.open": "Elegiste abrir {name} como su propia sesión.",
   "chat.hat.chose.no": "Seguiste sin {name}.",

@@ -11503,14 +11503,35 @@ const CS_HIDDEN_CMD = /^\/tasks$/;
    in this session), "open" (start the agent as its own session) or "no". When the session then loads the agent
    (`/aios:agent <name>`, as a Skill call or typed), the column shows the hat change and the bar shows the hat it wears. */
 const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \((.{1,80})\)\. Wear it here, or open it as its own session\?$/;
+/* The session says it put a hat on, on a line of its own, at start or after a yes; the last one in a transcript is its current
+   hat, which is how a resumed session shows its hat again (The-AIOS/aios#299, second comment). */
+const CHAT_HAT_WEARING = /^Wearing agent: ([a-z0-9][a-z0-9-]*)\.$/;
+/** The hat lines in a reply (Claude's own text only: tool output and the operator's messages are never read for them):
+    the suggestion if there is one, the hat it says it now wears, and the reply without those lines. Pure, for the tests. */
+function chatHatLines(text) {
+  const lines = String(text || '').split('\n');
+  let suggest = null, wearing = '';
+  const keep = [];
+  for (const line of lines) {
+    const s = CHAT_HAT_LINE.exec(line.trim());
+    if (s) { suggest = { name: s[1], why: s[2] }; continue; }
+    const w = CHAT_HAT_WEARING.exec(line.trim());
+    if (w) { wearing = w[1]; continue; }
+    keep.push(line);
+  }
+  return { suggest, wearing, rest: keep.join('\n').trim() };
+}
 /** The suggestion in a reply, if it has one: the agent, why it fits, and the reply without that line. Pure, for the tests. */
 function chatHatSuggestion(text) {
-  const lines = String(text || '').split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = CHAT_HAT_LINE.exec(lines[i].trim());
-    if (m) return { name: m[1], why: m[2], rest: lines.slice(0, i).concat(lines.slice(i + 1)).join('\n').trim() };
-  }
-  return null;
+  const h = chatHatLines(text);
+  return h.suggest ? { name: h.suggest.name, why: h.suggest.why, rest: h.rest } : null;
+}
+/* What each agent is for, from the framework (the descriptions the Ask panel lists), fetched once and shared. */
+let chatHatPurposes = null;
+function chatHatPurpose(name) {
+  if (!chatHatPurposes) chatHatPurposes = Promise.resolve(window.glassShell.askDestinations ? window.glassShell.askDestinations() : null)
+    .then((d) => new Map(((d && d.agents) || []).map((a) => [a.name, String(a.desc || '')]))).catch(() => new Map());
+  return chatHatPurposes.then((m) => m.get(name) || '');
 }
 /** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
     "aios:agent <name>") or as the operator's own command card ("/aios:agent <name>"). Pure, for the tests. */
@@ -11548,6 +11569,9 @@ function chatSkinHatCard(rec, hs, cs) {
   head.append(csIcon('id', 14), el('span', 'ch-k', t('chat.hat.suggested')));
   const who = el('div', 'ch-who');
   who.append(el('strong', 'ch-name', hs.name), el('span', 'ch-why', hs.why));
+  const purpose = el('div', 'ch-purpose');
+  purpose.hidden = true;
+  void chatHatPurpose(hs.name).then((d) => { if (d && d !== hs.why) { purpose.textContent = d; purpose.hidden = false; } });
   const acts = el('div', 'ch-acts');
   for (const key of ['here', 'open', 'no']) {
     const b = el('button', 'vbtn', t('chat.hat.' + key));
@@ -11558,7 +11582,7 @@ function chatSkinHatCard(rec, hs, cs) {
   }
   const done = el('div', 'ch-done');
   done.hidden = true;
-  card.append(head, who, acts, done);
+  card.append(head, who, purpose, acts, done);
   rec.body.after(card);
   rec.hatCard = card;
   (cs.hatOpen || (cs.hatOpen = new Set())).add(rec);
@@ -11598,6 +11622,20 @@ function chatSkinPaintHatWorn(rec, item, cs) {
   rec.node.hidden = false;
   if (!failed) chatSkinHatChip(cs, rec.hatWorn);
 }
+/* "Wearing agent: <name>." in a reply: the hat change, shown in the bubble unless the column already showed this very hat
+   going on (its /aios:agent call came just before), and the bar's chip either way. */
+function chatSkinHatWearing(rec, name, cs) {
+  if (rec.hatMark) { rec.hatMark.remove(); rec.hatMark = null; }
+  if (!name) return;
+  if (cs.hat !== name) {
+    const mark = el('div', 'chat-note hat in-bubble');
+    mark.append(csIcon('id', 13), el('span', '', t('chat.hat.worn', { name })));
+    rec.body.before(mark);
+    rec.hatMark = mark;
+  }
+  cs.hatWanted = '';
+  chatSkinHatChip(cs, name);
+}
 function chatSkinHatChip(cs, name) {
   cs.hat = name || '';
   const seg = cs.hatSeg;
@@ -11630,9 +11668,11 @@ function chatSkinUpsert(cs, item, animate, before) {
   if (rec.role !== 'user' && animate) cs.lastReplyAt = Date.now();   // news from Claude (not history being loaded): the last message has its answer
   if (rec.role === 'assistant') {
     if (rec.text !== text) {   // links only on the FINAL render: the provisional bubble below never gets them
-      const hs = chatHatSuggestion(text);   // a hat suggestion's fixed line becomes its card (#109); copy still copies the whole reply
-      chatRender(rec.body, hs ? hs.rest : text); rec.text = text; chatLinkPaths(rec.body, cs);
+      const hl = chatHatLines(text);   // the hat lines become a card and a hat change (#109); copy still copies the whole reply
+      const hs = hl.suggest ? { ...hl.suggest, rest: hl.rest } : null;
+      chatRender(rec.body, hs || hl.wearing ? hl.rest : text); rec.text = text; chatLinkPaths(rec.body, cs);
       chatSkinHatCard(rec, hs, cs);
+      chatSkinHatWearing(rec, hl.wearing, cs);
     }
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {

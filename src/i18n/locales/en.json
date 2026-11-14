@@ -1321,7 +1321,7 @@
   "chat.hat.suggested": "Suggested agent",
   "chat.hat.here": "Wear it here",
   "chat.hat.open": "Open as its own session",
-  "chat.hat.no": "Not now",
+  "chat.hat.no": "No",
   "chat.hat.chose.here": "You chose to wear {name} here.",
   "chat.hat.chose.open": "You chose to open {name} as its own session.",
   "chat.hat.chose.no": "You went on without {name}.",

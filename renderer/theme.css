@@ -2237,6 +2237,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-hat .ch-who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 9px; }
 .chat-hat .ch-name { font-size: 1.02em; }
 .chat-hat .ch-why { color: var(--subtle); }
+.chat-hat .ch-purpose { margin: -5px 0 9px; color: var(--subtle); font-size: .88em; }
+.chat-note.hat.in-bubble { margin: 0 0 8px; }
 .chat-hat .ch-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .chat-hat.answered .ch-acts .vbtn:not(.chosen) { color: var(--faint); }
 .chat-hat .ch-done { margin-top: 7px; color: var(--subtle); font-size: .85em; }
