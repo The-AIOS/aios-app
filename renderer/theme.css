@@ -2252,6 +2252,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-hat .vbtn:hover:not(:disabled) { border-color: var(--st-testing); }   /* coral stays the send button's */
 .chat-hat .ch-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .chat-hat.answered .ch-acts .vbtn:not(.chosen) { color: var(--faint); }
+.chat-hat.auto .ch-done { margin: 0 0 9px; }
 .chat-hat .ch-done { margin-top: 7px; color: var(--subtle); font-size: .85em; }
 .chat-note.hat { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); border-color: color-mix(in srgb, var(--st-testing) 40%, transparent); }
 .chat-note.hat .cs-ico { color: var(--st-testing); }

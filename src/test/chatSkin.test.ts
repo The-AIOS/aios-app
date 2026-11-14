@@ -4812,3 +4812,8 @@ test('each agent wears its bundle folder\'s colour; a company folder gets a stab
   assert.match(fnBody(app, 'chatHatAvatar'), /String\(name \|\| '\?'\)\.charAt\(0\)\.toUpperCase\(\)/, 'the initial, as text');
 });
 
+guarded('a hat the session put on by itself turns its card into "your AIOS put it on", with open and take-it-off still offered',
+  (src) => { const w = fnBody(src, 'chatSkinHatWearing'), a = fnBody(src, 'chatSkinHatAuto');
+    return /r\.hatCard\.dataset\.agent === name\) chatSkinHatAuto\(r\.hatCard\)/.test(w) && /here\.hidden = true;/.test(a) && /no\.textContent = t\('chat\.hat\.takeOff'\)/.test(a) && !/chatSkinSendNow|submitToPty|ptyWrite/.test(a); },
+  (src) => src.replace("if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);", ''));
+

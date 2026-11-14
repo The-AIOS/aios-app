@@ -11623,11 +11623,26 @@ function chatSkinHatAnswer(cs, card, key) {
 }
 function chatSkinHatMark(card, key, cs) {
   if (cs) cs.hatWanted = key === 'here' ? card.dataset.agent : '';
+  const auto = card.classList.contains('auto');
   card.classList.add('answered');
   for (const b of card.querySelectorAll('button')) { b.disabled = true; b.classList.toggle('chosen', b.dataset.answer === key); }
   const done = card.querySelector('.ch-done');
-  done.textContent = t('chat.hat.chose.' + key, { name: card.dataset.agent });
+  done.textContent = t(auto && key === 'no' ? 'chat.hat.chose.off' : auto && key !== 'open' ? 'chat.hat.autoWorn' : 'chat.hat.chose.' + key, { name: card.dataset.agent });
   done.hidden = false;
+}
+/* The session put the suggested hat on by itself and kept going (the default unless INTENT.md says to ask): the card says
+   so, and offers what is still a choice, handing the rest to its own session or taking the hat off. */
+function chatSkinHatAuto(card) {
+  if (card.classList.contains('auto') || card.classList.contains('answered')) return;
+  card.classList.add('auto');
+  const here = card.querySelector('button[data-answer="here"]');
+  if (here) here.hidden = true;
+  const no = card.querySelector('button[data-answer="no"]');
+  if (no) no.textContent = t('chat.hat.takeOff');
+  const done = card.querySelector('.ch-done');
+  done.textContent = t('chat.hat.autoWorn', { name: card.dataset.agent });
+  done.hidden = false;
+  card.insertBefore(done, card.querySelector('.ch-acts'));   // the news first, then what is still a choice
 }
 /* The operator said something after the suggestion: it is answered, by a button or in their own words. */
 function chatSkinHatSettle(cs, text) {
@@ -11651,13 +11666,14 @@ function chatSkinPaintHatWorn(rec, item, cs) {
 function chatSkinHatWearing(rec, name, cs) {
   if (rec.hatMark) { rec.hatMark.remove(); rec.hatMark = null; }
   if (!name) return;
-  if (cs.hat !== name) {
+  if (cs.hat !== name && !(rec.hatCard && rec.hatCard.dataset.agent === name)) {   // its own card already says so
     const mark = el('div', 'chat-note hat in-bubble');
     mark.append(chatHatAvatar(name), el('span', '', t('chat.hat.worn', { name })));
     rec.body.before(mark);
     rec.hatMark = mark;
   }
   cs.hatWanted = '';
+  if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);   // it went on without a yes
   chatSkinHatChip(cs, name);
 }
 function chatSkinHatChip(cs, name) {
