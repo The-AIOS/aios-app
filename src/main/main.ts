@@ -1956,13 +1956,24 @@ ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: strin
     return { ok: true, content: d.write, merged: d.write !== mine };
   } catch { return { ok: false }; }
 });
-/* While a save conflict waits for the operator (#159), the viewer keeps their edits in a side copy beside the note,
-   "<name> (unsaved edits).<ext>", so closing the tab or quitting loses nothing. This removes that copy once they have
-   chosen, and nothing else: any other name is refused. */
-ipcMain.handle('fs:removeSideCopy', (_e, relOrAbs: string) => {
+/* A save conflict (#159): whichever version the operator does not keep is saved beside the note, as a NEW file named
+   "<name> (conflict YYYY-MM-DD HH-MM)<ext>", so nothing anyone wrote is lost. Created exclusively ('wx'): it never
+   overwrites a file, a numbered name is tried instead. The App never deletes it; the operator does, when they have read it.
+   Returns the path written, or null. */
+ipcMain.handle('fs:writeConflictCopy', (_e, relOrAbs: string, content: string) => {
   const abs = resolveIn(relOrAbs);
-  if (!abs || !/ \(unsaved edits\)(\.[^.\\/]+)?$/.test(path.basename(abs))) return false;
-  try { fs.unlinkSync(abs); return true; } catch { return false; }
+  if (!abs || typeof content !== 'string') return null;
+  const ext = path.extname(abs);
+  const stem = abs.slice(0, abs.length - ext.length);
+  const d = new Date();
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}-${p2(d.getMinutes())}`;
+  for (let n = 1; n <= 50; n++) {
+    const target = `${stem} (conflict ${stamp}${n > 1 ? ' ' + n : ''})${ext}`;
+    try { fs.writeFileSync(target, content, { flag: 'wx' }); return target; }
+    catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') return null; }
+  }
+  return null;
 });
 // Designer: the app no longer writes framework infra — it reads the catalog so the
 // operator can borrow a bundled unit's shape or pick one of their OWN custom units to

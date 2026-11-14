@@ -52,7 +52,11 @@ function hunks(base: string[], other: string[]): Hunk[] | null {
   return out;
 }
 
-const startsWith = (a: string[], b: string[]): boolean => b.length <= a.length && b.every((l, k) => l === a[k]);
+/** `b` appears in `a` as one unbroken run of lines. */
+const holds = (a: string[], b: string[]): boolean => {
+  for (let i = 0; i + b.length <= a.length; i++) if (b.every((l, k) => l === a[i + k])) return true;
+  return false;
+};
 const same = (x: Hunk, y: Hunk): boolean => x.start === y.start && x.end === y.end && x.lines.length === y.lines.length && x.lines.every((l, k) => l === y.lines[k]);
 
 /** Two hunks touch the same base lines (or insert at the same point): they cannot both be applied without a choice. */
@@ -78,11 +82,11 @@ export function merge3(base: string, mine: string, theirs: string, prefer?: 'min
   const mineHunks = hm.map((h) => ({ ...h, lines: [...h.lines] }));
   for (const h of ht) {
     if (mineHunks.some((x) => same(x, h))) continue;   // both sides made the identical change: apply it once (mine, below)
-    /* Both inserted at one point, one insertion beginning with the other (the agent wrote "foo", the operator then typed
-       "foo" + "bar" in the reloaded text): the longer one holds both, so the shared lines are not written twice. */
+    /* Both inserted at one point and one insertion holds the other (the agent wrote "foo"; the operator, on the reloaded
+       text, typed a line above or below it): the larger one already has both, so the shared lines are not written twice. */
     const twin = mineHunks.find((x) => x.start === x.end && h.start === h.end && x.start === h.start);
-    if (twin && startsWith(twin.lines, h.lines)) continue;
-    if (twin && startsWith(h.lines, twin.lines)) { twin.lines = [...h.lines]; continue; }
+    if (twin && holds(twin.lines, h.lines)) continue;
+    if (twin && holds(h.lines, twin.lines)) { twin.lines = [...h.lines]; continue; }
     if (mineHunks.some((x) => clash(x, h))) { if (prefer === 'mine') continue; return { ok: false }; }
     all.push(h);
   }
@@ -101,13 +105,23 @@ export function merge3(base: string, mine: string, theirs: string, prefer?: 'min
   return { ok: true, text: out.join('\n') };
 }
 
+/** LF throughout. The editor's textarea speaks LF whatever the file holds, so every comparison is made in LF. */
+const lf = (t: string): string => t.replace(/\r\n/g, '\n');
+/** The file uses CRLF on every line (a note written on Windows): what is written back keeps it. Mixed or LF: LF. */
+const allCrlf = (t: string): boolean => /\r\n/.test(t) && !/(^|[^\r])\n/.test(t);
+
 /**
- * What to write, given the text the editor started from, the editor's text now, and the disk now.
- * `disk` null means the file is gone or unreadable: the editor's text is written, as before. `prefer: 'mine'` is the
- * operator's answer to a conflict: their lines win where both changed, and the rest of the disk's changes are kept.
+ * What to write, given the text the editor started from, the editor's text now, and the disk now. Compared and merged in
+ * LF; written back in CRLF only when the disk's note is CRLF throughout (a mixed note is saved in LF, as the editor
+ * always did). `disk` null means the file is gone or unreadable: the editor's text is written, as before. `prefer:
+ * 'mine'` is the operator's answer to a conflict: their lines win where both changed (the viewer first saves the disk's
+ * version beside the note, so nothing is lost).
  */
 export function decideSave(base: string, mine: string, disk: string | null, prefer?: 'mine'): SaveDecision {
-  if (disk === null || disk === base) return { write: mine };
-  const m = merge3(base, mine, disk, prefer);
-  return m.ok ? { write: m.text } : { conflict: true };
+  if (disk === null) return { write: mine };
+  const out = (t: string): string => (allCrlf(disk) ? t.replace(/\n/g, '\r\n') : t);
+  const b = lf(base), m = lf(mine), d = lf(disk);
+  if (d === b) return { write: out(m) };
+  const r = merge3(b, m, d, prefer);
+  return r.ok ? { write: out(r.text) } : { conflict: true };
 }
