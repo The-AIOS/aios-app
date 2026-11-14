@@ -11506,11 +11506,13 @@ const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \((.{1,80})\)\. We
 /* The session says it put a hat on, on a line of its own, at start or after a yes; the last one in a transcript is its current
    hat, which is how a resumed session shows its hat again (The-AIOS/aios#299, second comment). */
 const CHAT_HAT_WEARING = /^Wearing agent: ([a-z0-9][a-z0-9-]*)\.$/;
+/* After "open", the session names the session it started for the agent (the spawn request's name). */
+const CHAT_HAT_OPENED = /^Opened agent session: ([a-z0-9][a-z0-9-]*)\.$/;
 /** The hat lines in a reply (Claude's own text only: tool output and the operator's messages are never read for them):
     the suggestion if there is one, the hat it says it now wears, and the reply without those lines. Pure, for the tests. */
 function chatHatLines(text) {
   const lines = String(text || '').split('\n');
-  let suggest = null, wearing = '';
+  let suggest = null, wearing = '', opened = '';
   const keep = [];
   for (const line of lines) {
     const whole = line.replace(/\r$/, '');   // whole lines only: an indented or quoted copy is not the line
@@ -11518,9 +11520,11 @@ function chatHatLines(text) {
     if (s) { suggest = { name: s[1], why: s[2] }; continue; }
     const w = CHAT_HAT_WEARING.exec(whole);
     if (w) { wearing = w[1]; continue; }
+    const o = CHAT_HAT_OPENED.exec(whole);
+    if (o) { opened = o[1]; continue; }
     keep.push(line);
   }
-  return { suggest, wearing, rest: keep.join('\n').trim() };
+  return { suggest, wearing, opened, rest: keep.join('\n').trim() };
 }
 /** The suggestion in a reply, if it has one: the agent, why it fits, and the reply without that line. Pure, for the tests. */
 function chatHatSuggestion(text) {
@@ -11608,6 +11612,7 @@ function chatSkinHatCard(rec, hs, cs) {
   rec.body.after(card);
   rec.hatCard = card;
   (cs.hatOpen || (cs.hatOpen = new Set())).add(rec);
+  (cs.hatCards || (cs.hatCards = [])).push(card);
 }
 function chatSkinHatAnswer(cs, card, key) {
   if (card.classList.contains('answered')) return;
@@ -11685,6 +11690,33 @@ function chatSkinHatWearing(rec, name, cs) {
   if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);   // it went on without a yes
   chatSkinHatChip(cs, name);
 }
+/* "Opened agent session: <name>." — after "open", the session says which session it started (<agent>-<subject>). The latest
+   card for that agent says where the work went, with a button to that tab; with no card, the reply carries the note. Going
+   there only shows a tab that is already open: it never starts anything. */
+function chatSkinHatOpened(rec, name, cs) {
+  if (rec.hatOpenedEl) { rec.hatOpenedEl.remove(); rec.hatOpenedEl = null; }
+  if (!name) return;
+  const go = el('button', 'vbtn', t('chat.hat.goTo'));
+  go.type = 'button';
+  go.addEventListener('click', () => {
+    const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && !p.exited && p.name === name);
+    if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));
+  });
+  const card = [...(cs.hatCards || [])].reverse().find((c) => c.isConnected && (name === c.dataset.agent || name.startsWith(c.dataset.agent + '-')));
+  const line = el('div', 'ch-moved');
+  line.append(el('span', '', t(card ? 'chat.hat.moved' : 'chat.hat.openedNote', { name })), go);
+  if (card) {
+    for (const old of card.querySelectorAll('.ch-moved')) old.remove();
+    card.appendChild(line);
+  } else {
+    const note = el('div', 'chat-note hat in-bubble');
+    note.append(csIcon('robot', 13), line);
+    rec.body.before(note);
+    rec.hatOpenedEl = note;
+    return;
+  }
+  rec.hatOpenedEl = line;
+}
 function chatSkinHatChip(cs, name) {
   cs.hat = name || '';
   const seg = cs.hatSeg;
@@ -11723,16 +11755,17 @@ function chatSkinUpsert(cs, item, animate, before) {
       /* The hat lines become a card and a hat change (#109), but only once the agent they name is checked to exist: until
          then, and for a name that is not an agent, the reply shows as written. Copy still copies the whole reply. */
       const hl = chatHatLines(text);
-      chatSkinHatCard(rec, null, cs); chatSkinHatWearing(rec, '', cs);
-      if (hl.suggest || hl.wearing) {
+      chatSkinHatCard(rec, null, cs); chatSkinHatWearing(rec, '', cs); chatSkinHatOpened(rec, '', cs);
+      if (hl.suggest || hl.wearing || hl.opened) {
         void Promise.all([hl.suggest ? chatHatAgent(hl.suggest.name) : null, hl.wearing && hl.wearing !== 'none' ? chatHatAgent(hl.wearing) : null]).then(([sa, wa]) => {
           if (rec.text !== text || !rec.node.isConnected) return;   // the reply changed or left meanwhile
           const hs = hl.suggest && sa ? { ...hl.suggest, purpose: sa.desc } : null;
           const wearing = hl.wearing === 'none' || (hl.wearing && wa) ? hl.wearing : '';   // 'none': the hat came off (no agent is named none)
-          if (!hs && !wearing) return;
+          if (!hs && !wearing && !hl.opened) return;
           chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
           chatSkinHatCard(rec, hs, cs);
           chatSkinHatWearing(rec, wearing, cs);
+          chatSkinHatOpened(rec, hl.opened, cs);   // a session name, not an agent: nothing to check, it only names a tab
         });
       }
     }
@@ -11867,6 +11900,7 @@ function chatSkinResetView(p) {
   const cs = p.chatSkin;
   cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
   if (cs.hatOpen) cs.hatOpen.clear();
+  cs.hatCards = [];
   cs.hatWanted = '';
   cs.hat = ''; if (cs.hatSeg) cs.hatSeg.hidden = true;   // the hat is read again from the transcript, like everything else in the column
   cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end

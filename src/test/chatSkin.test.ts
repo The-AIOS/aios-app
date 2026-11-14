@@ -4734,7 +4734,7 @@ guarded('a session that puts the hat on by reading the agent\'s file counts too,
 
 /* Fixtures for the framework's two hat lines (The-AIOS/aios#299): read only in Claude's own text. */
 const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agent a hat line names, checked')) + '\nreturn chatHatLines;')() as
-  (t: string) => { suggest: { name: string; why: string } | null; wearing: string; rest: string };
+  (t: string) => { suggest: { name: string; why: string } | null; wearing: string; opened: string; rest: string };
 guarded('"Wearing agent: <name>." is the hat a session says it put on; a malformed line is just text',
   (src) => {
     const f = hatLinesFn(src);
@@ -4771,7 +4771,7 @@ test('the hat lines are read in Claude\'s text only: inside a tool result or the
 });
 
 guarded('a hat line is drawn only for an agent that exists; any other name stays text (security review, aios#299)',
-  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && sa \?/.test(up) && /const wearing = hl\.wearing === 'none' \|\| \(hl\.wearing && wa\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
+  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && sa \?/.test(up) && /const wearing = hl\.wearing === 'none' \|\| \(hl\.wearing && wa\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing && !hl\.opened\) return;/.test(up)
     && /chatRender\(rec\.body, text\); rec\.text = text;/.test(up); },
   (src) => src.replace('const hs = hl.suggest && sa ? { ...hl.suggest, purpose: sa.desc } : null;', 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
 
@@ -4851,4 +4851,10 @@ test('a button types exactly its word into the box and sends it, nothing else', 
   const keys = /for \(const key of \['here', 'open', 'no'\]\)/.exec(fnBody(app, 'chatSkinHatCard'));
   assert.ok(keys, 'the three words are the skill\'s');
 });
+
+guarded('"Opened agent session: <name>." says where "open" sent the work: the agent\'s card gets the tab\'s name and a button that only switches to it',
+  (src) => { const f = hatLinesFn(src); const o = fnBody(src, 'chatSkinHatOpened');
+    return f('Opened agent session: accountant-october-invoices.').opened === 'accountant-october-invoices' && f('Opened agent session: Accountant.').opened === ''
+      && /name\.startsWith\(c\.dataset\.agent \+ '-'\)/.test(o) && /if \(hit\) setActive\(hit\[0\]\); else toast/.test(o) && !/createPane|chatSkinSendNow|submitToPty|spawn/.test(o); },
+  (src) => src.replace("if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));", "createPane({ name });"));
 
