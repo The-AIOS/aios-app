@@ -100,21 +100,36 @@ guarded('the viewer saves through fs:saveMerged with its base, never with a plai
   (s) => s.replace('window.glassShell.fsSaveMerged(file.path, base, content, prefer)', 'window.glassShell.fsWrite(file.path, content)'));
 
 guarded('a conflict copy is a NEW file: created exclusively, never over an existing one, and never deleted by the App (second pass #1)', main,
-  (s) => { const h = handlerOf(s, 'fs:writeConflictCopy'); return /writeFileSync\(target, content, \{ flag: 'wx' \}\)/.test(h) && /code !== 'EEXIST'/.test(h) && !/unlinkSync|rmSync|removeSideCopy/.test(s.slice(s.indexOf("ipcMain.handle('fs:saveMerged'"), s.indexOf("ipcMain.handle('fs:writeConflictCopy'") + 2000)); },
+  (s) => { const h = s.slice(s.indexOf('function writeConflictCopy('), s.indexOf('\n}\n', s.indexOf('function writeConflictCopy('))); return /writeFileSync\(target, content, \{ flag: 'wx' \}\)/.test(h) && /code !== 'EEXIST'/.test(h) && !/unlinkSync|rmSync|removeSideCopy/.test(s.slice(s.indexOf("ipcMain.handle('fs:saveMerged'"), s.indexOf("ipcMain.handle('fs:writeConflictCopy'") + 2000)); },
   (s) => s.replace("fs.writeFileSync(target, content, { flag: 'wx' })", 'fs.writeFileSync(target, content)'));
 
-guarded('whichever answer, the version not kept is written beside the note BEFORE anything is decided (second pass #3)', app,
-  (s) => { const a = ask(s); const cp = a.indexOf('fsWriteConflictCopy(file.path, pick === \'theirs\' ? mine : (disk ?? \'\'))'); const gate = a.indexOf('if (!copy ||'); const keep = a.indexOf("await save(null, 'mine')"); const theirs = a.indexOf('base = file.content = disk'); return cp > 0 && cp < gate && gate < keep && gate < theirs; },
-  (s) => s.replace("    if (!copy || (pick === 'theirs' && disk === null)) { toast(t('viewer.saveFailed', { name })); return; }   // still dirty: the next save asks again\n", ''));
+guarded('"keep mine": main copies the disk\'s version beside the note in the same step, before writing, and a failed copy writes nothing (third pass #5)', main,
+  (s) => { const h = handlerOf(s, 'fs:saveMerged'); const cp = h.indexOf('copy = writeConflictCopy(abs, disk);'), stop = h.indexOf('if (!copy) return { ok: false };'), write = h.indexOf('writeFileSync(tmp'); return cp > 0 && cp < stop && stop < write; },
+  (s) => s.replace("    if (!copy) return { ok: false };   // no copy, no decision: nothing is overwritten\n", ''));
+
+guarded('"use the disk": the operator\'s text is copied beside the note before the screen takes the disk\'s version', app,
+  (s) => { const a = ask(s); const cp = a.indexOf('fsWriteConflictCopy(file.path, shownNow())'), gate = a.indexOf('if (!copy) {'), take = a.indexOf('base = file.content = disk'); return cp > 0 && cp < gate && gate < take; },
+  (s) => s.replace("      if (!copy) { toast(t('viewer.saveFailed', { name })); return; }   // nothing decided; the tab stays unsaved and is saved on close\n", ''));
+
+guarded('the conflict question never answers itself: another dialog taking over means "ask again later", and it waits for open dialogs (third pass #3)', app,
+  (s) => { const c = s.slice(s.indexOf('function choiceModal('), s.indexOf('function choiceModal(') + 700); const a = ask(s); return /claimModal\(wrap, \(\) => done\(null\)\);/.test(c) && /while \(pick === null\)/.test(a) && /while \(document\.querySelector\('\.modal-wrap'\)\)/.test(a); },
+  (s) => s.replace('const safe = choices[choices.length - 1].key;\n    claimModal(wrap, () => done(null));', 'const safe = choices[choices.length - 1].key;\n    claimModal(wrap, () => done(safe));'));
+
+test('"keep mine" on a note too big to diff writes mine instead of asking forever (third pass #1)', () => {
+  const big = (k: string) => Array.from({ length: 2500 }, (_, i) => `${k}${i}`).join('\n');
+  assert.deepEqual(decideSave(big('a'), big('b'), big('c')), { conflict: true }, 'without a choice: ask');
+  assert.deepEqual(decideSave(big('a'), big('b'), big('c'), 'mine'), { write: big('b') }, 'with "keep mine": mine (the disk is in the copy)');
+});
 
 guarded('every mode paints from the text on screen, so switching Rendered/Edit never drops an unsaved edit (review #1, #3)', app,
   (s) => /buildCodeEditor\(toEditor\(file\.content\)/.test(s) && /onInput: \(v\) => \{ file\.content = v;/.test(s),
   (s) => s.replace('onInput: (v) => { file.content = v;', 'onInput: (v) => {'));
 
-guarded('closing the tab or quitting saves a waiting autosave instead of dropping it (second pass #2)', app,
-  (s) => /if \(p\.flushSave\) p\.flushSave\(\);/.test(s.slice(s.indexOf('function closePane('), s.indexOf('function closePane(') + 400))
-    && /for \(const p of panes\.values\(\)\) if \(p\.flushSave\)/.test(s) && /saveTimer = setTimeout\(\(\) => \{ saveTimer = null; void after\(v\); \}, 700\)/.test(s),
-  (s) => s.replace("  if (p.flushSave) p.flushSave();   // a note's waiting autosave", "  // a note's waiting autosave"));
+const flushOf = (src: string) => src.slice(src.indexOf('paneObj.flushSave = (quitting) => {'), src.indexOf('\n  };\n', src.indexOf('paneObj.flushSave = (quitting) => {')));
+guarded('closing the tab or quitting saves an unsaved note, timer or not, and a quit sends it outside the queue (third pass #2, #4)', app,
+  (s) => { const f = flushOf(s); return /if \(!saveTimer && !paneObj\.dirty\) return;/.test(f) && /else void window\.glassShell\.fsSaveMerged\(file\.path, base, shownNow\(\)\)/.test(f)
+    && /if \(p\.flushSave\) p\.flushSave\(\);/.test(s.slice(s.indexOf('function closePane('), s.indexOf('function closePane(') + 400)) && /p\.flushSave\(true\)/.test(s); },
+  (s) => s.replace('if (!saveTimer && !paneObj.dirty) return;', 'if (!saveTimer) return;'));
 
 guarded('an open note that changed on disk reloads only when nothing is unsaved and no question is open', app,
   (s) => /paneObj\.onDiskMaybeChanged = async \(\) => \{\n\s*if \(paneObj\.dirty \|\| paneObj\.asking/.test(s) && /p\.onDiskMaybeChanged\(\)/.test(s),

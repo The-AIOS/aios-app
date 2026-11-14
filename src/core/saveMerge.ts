@@ -77,7 +77,7 @@ export function merge3(base: string, mine: string, theirs: string, prefer?: 'min
   const B = base.split('\n');
   const hm = hunks(B, mine.split('\n'));
   const ht = hunks(B, theirs.split('\n'));
-  if (!hm || !ht) return { ok: false };
+  if (!hm || !ht) return prefer === 'mine' ? { ok: true, text: mine } : { ok: false };   // too big to diff: on "keep mine", mine (the disk's version is in the conflict copy)
   const all: Hunk[] = [];
   const mineHunks = hm.map((h) => ({ ...h, lines: [...h.lines] }));
   for (const h of ht) {
