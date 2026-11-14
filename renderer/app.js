@@ -4872,6 +4872,7 @@ async function requestClosePane(id) {
 function closePane(id) {
   const p = panes.get(id);
   if (!p) return;
+  if (p.flushSave) p.flushSave();   // a note's waiting autosave is saved, not dropped, when its tab closes (#159)
   const z = zoneOf(p);
   if (p.ro) { try { p.ro.disconnect(); } catch { /* already gone */ } }
   if (p.gl) { try { p.gl.dispose(); } catch { /* already gone */ } }
@@ -5775,6 +5776,9 @@ window.addEventListener('beforeunload', () => {
   clearTimeout(restoreTimer);
   if (restorePending) { try { localStorage.setItem(RESTORE_KEY, JSON.stringify(restorePending)); } catch { /* */ } }
   restoreQuitting = true;
+  /* Quitting with a note's autosave still waiting (#159): send it now. Best effort: the save is an IPC the window does not
+     wait for, which main handles before it quits in practice. */
+  for (const p of panes.values()) if (p.flushSave) { try { p.flushSave(); } catch { /* gone */ } }
 });
 
 /** A tab for a session that has not been resumed yet — no pty until it is opened. */
@@ -6219,76 +6223,69 @@ async function openViewer(p) {
   let saveTimer = null;
   const setDirty = (on) => { paneObj.dirty = on; tab.classList.toggle('dirty', on); };
   /* SAVING AGAINST THE DISK (#159). Agents write to open notes all the time (the daily-note ledger, /close-session), and an
-     unconditional write put the editor's old copy back over their change. Three texts, all in the file's own line endings:
-     `base` is what this note descends from on disk; `file.content` is what the operator sees NOW, saved or not, and every
-     mode paints from it (so switching Rendered/Edit never drops an unsaved edit); and the disk. Main decides each save
-     against the disk: unchanged → mine, changed elsewhere → the merge of both, changed on the same lines → nothing written
-     and the operator chooses. Saves run one at a time. While a choice waits, autosave writes a side copy
-     ("<name> (unsaved edits).md") so closing the tab or quitting loses nothing; it is removed once the operator has chosen.
-     `editorRef` is the Edit-mode editor while it is on screen; its textarea speaks LF, so a CRLF note is converted at the
-     edge (toDisk / toEditor). */
-  const eol = typeof file.content === 'string' && /\r\n/.test(file.content) ? '\r\n' : '\n';
-  const toDisk = (v) => (eol === '\n' ? v : v.replace(/\r?\n/g, '\r\n'));
+     unconditional write put the editor's old copy back over their change. Two texts: `base` is what this note descends
+     from on disk; `file.content` is what the operator sees NOW, saved or not, and every mode paints from it (so switching
+     Rendered/Edit never drops an unsaved edit). Main decides each save against the disk (src/core/saveMerge.ts):
+     unchanged → mine, changed elsewhere → the merge of both, changed on the same lines → nothing written and the operator
+     chooses: keep my changes, or use the version on disk. Whichever version is not kept is saved beside the note as a new
+     file first, so nothing anyone wrote is lost. Saves run one at a time; line endings are main's business (the editor's
+     textarea speaks LF). `editorRef` is the Edit-mode editor while it is on screen. */
   const toEditor = (v) => String(v).replace(/\r\n/g, '\n');
   let base = file.content;
   let editorRef = null;
   let saveChain = Promise.resolve();
-  let sideWritten = false;
-  const sideCopy = () => { const m = /(\.[^.\\/]+)$/.exec(file.path); return m ? file.path.slice(0, -m[1].length) + ' (unsaved edits)' + m[1] : file.path + ' (unsaved edits)'; };
-  const keepSideCopy = async (text) => { if (await window.glassShell.fsWrite(sideCopy(), text).catch(() => false)) sideWritten = true; };
-  const dropSideCopy = () => { if (sideWritten) { sideWritten = false; void window.glassShell.fsRemoveSideCopy(sideCopy()).catch(() => false); } };
-  const shownNow = () => (editorRef ? toDisk(editorRef.value()) : file.content);
+  const shownNow = () => (editorRef ? editorRef.value() : file.content);
   /* content null = whatever is on screen when this save's turn comes. */
-  const save = (content, explicit, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, explicit, prefer)));
-  async function saveNow(content, explicit, prefer) {
-    if (paneObj.conflict && !explicit) { await keepSideCopy(content); return; }   // paused until the operator chooses (⌘S asks again)
-    paneObj.conflict = false;
+  const save = (content, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)));
+  async function saveNow(content, prefer) {
+    if (paneObj.asking && !prefer) return;   // a question is open: its answer saves what is on screen then
     const r = await window.glassShell.fsSaveMerged(file.path, base, content, prefer).catch(() => null);
     if (r && r.ok) {
-      dropSideCopy();
       if (shownNow() !== content) { base = content; return; }   // typed since: what's on screen descends from what was sent; the next save merges the rest
       base = file.content = r.content;
       setDirty(false);
       if (r.merged) { if (editorRef) editorRef.replaceText(toEditor(r.content)); else paint(); }   // the agent's lines in place, caret kept
       return;
     }
-    if (r && r.conflict) { paneObj.conflict = true; setDirty(true); void askConflict(r.disk); return; }
+    if (r && r.conflict) { setDirty(true); void askConflict(); return; }
     setDirty(true);
     toast(t('viewer.saveFailed', { name }));
   }
-  /* Both sides changed the same lines: nothing was written. Keep my changes (mine win on those lines; every other change,
-     the agent's included, stays), use the version on disk, or decide later (autosave goes to the side copy; ⌘S asks again). */
-  async function askConflict(disk) {
+  /* Both sides changed the same lines: nothing was written. Asked even if the tab was closed meanwhile (the answer still
+     saves). The version not kept goes beside the note first; if that copy cannot be written, nothing is decided. */
+  async function askConflict() {
     if (paneObj.asking) return;
     paneObj.asking = true;
     const pick = await choiceModal(t('viewer.conflict.title', { name }), t('viewer.conflict.body'), [
-      { key: 'mine', label: t('viewer.conflict.keepMine') },
       { key: 'theirs', label: t('viewer.conflict.takeTheirs') },
-      { key: 'later', label: t('viewer.conflict.later') },
+      { key: 'mine', label: t('viewer.conflict.keepMine') },
     ]);
+    const f = await window.glassShell.fsRead(file.path).catch(() => null);   // the disk as it is now, not as it was when asked
+    const disk = f && typeof f.content === 'string' ? f.content : null;
+    const mine = shownNow();
+    const copy = await window.glassShell.fsWriteConflictCopy(file.path, pick === 'theirs' ? mine : (disk ?? '')).catch(() => null);
     paneObj.asking = false;
-    if (!paneObj.conflict || !panes.has(id)) return;
-    if (pick === 'mine') { await save(null, true, 'mine'); return; }
+    if (!copy || (pick === 'theirs' && disk === null)) { toast(t('viewer.saveFailed', { name })); return; }   // still dirty: the next save asks again
     if (pick === 'theirs') {
-      const f = await window.glassShell.fsRead(file.path).catch(() => null);   // the disk as it is now, not as it was when asked
-      const d = f && typeof f.content === 'string' ? f.content : disk;
-      if (typeof d !== 'string') return;
-      paneObj.conflict = false; base = file.content = d; setDirty(false); dropSideCopy();
-      if (editorRef) editorRef.replaceText(toEditor(d)); else paint();
-      return;
+      base = file.content = disk; setDirty(false);
+      if (editorRef) editorRef.replaceText(toEditor(disk)); else paint();
+      toast(t('viewer.conflict.keptMineCopy', { copy: xBase(copy) }));
+    } else {
+      await save(null, 'mine');
+      toast(t('viewer.conflict.keptTheirsCopy', { copy: xBase(copy) }));
     }
-    await keepSideCopy(shownNow());
-    toast(t('viewer.conflict.paused', { name, copy: xBase(sideCopy()), keys: /Mac/i.test(navigator.platform) ? '⌘S' : 'Ctrl+S' }));
   }
   /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
      leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
   paneObj.onDiskMaybeChanged = async () => {
-    if (paneObj.dirty || paneObj.conflict || !editable) return;
+    if (paneObj.dirty || paneObj.asking || !editable) return;
     const f = await window.glassShell.fsRead(file.path).catch(() => null);
     if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
     base = file.content = f.content;
     if (editorRef) editorRef.replaceText(toEditor(f.content)); else paint();
   };
+  /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
+  paneObj.flushSave = () => { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; void save(null); } };
 
   if (renderable && editable) {
     /* Rendered | Edit as ONE two-way switch, the same control as Chat | Terminal (0.14.0 round): an eye and a pencil on a
@@ -6344,7 +6341,7 @@ async function openViewer(p) {
     if (mode === 'source') {
       // source IS the editor — now syntax-highlighted (code-editor style): autosaves
       // 700ms after you stop typing, on blur, and on ⌘S.
-      const after = (v, explicit) => save(toDisk(v), explicit).then(() => { try { editor.refreshGutter?.(); } catch { /* gone */ } });
+      const after = (v) => save(v).then(() => { try { editor.refreshGutter?.(); } catch { /* gone */ } });
       /* The change stepper lives in the viewer header and only exists when the file HAS
          uncommitted changes — a "0 changes ‹ ›" control is noise on a clean file. */
       /* NOTE: `el` is SHADOWED in this function (line ~2122 declares a local <div> named el),
@@ -6363,8 +6360,8 @@ async function openViewer(p) {
       chg.append(chgN, mk('‹', -1), mk('›', 1));
       chg.title = t('viewer.changesTip');
       const editor = buildCodeEditor(toEditor(file.content), langFor(name), {
-        onInput: (v) => { file.content = toDisk(v); setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => void after(v), 700); },
-        onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v, true); },   // ⌘S: also the way out of a paused conflict
+        onInput: (v) => { file.content = v; setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; void after(v); }, 700); },
+        onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
         onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
         onStep: (i, n) => { chgN.textContent = i + '/' + n; },

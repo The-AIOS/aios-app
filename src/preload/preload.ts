@@ -161,8 +161,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   fsWrite: (p: string, content: string): Promise<boolean> => ipcRenderer.invoke('fs:write', p, content),
   /** Save a note against the disk now (#159): merges an agent's change, or reports a conflict and writes nothing. */
   fsSaveMerged: (p: string, base: string, mine: string, prefer?: 'mine'): Promise<{ ok: boolean; conflict?: boolean; disk?: string | null; content?: string; merged?: boolean }> => ipcRenderer.invoke('fs:saveMerged', p, base, mine, prefer),
-  /** Remove a conflict's side copy ("<name> (unsaved edits).<ext>") once the operator has chosen; any other name is refused. */
-  fsRemoveSideCopy: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:removeSideCopy', p),
+  /** A save conflict's other version, written beside the note as a new file that never overwrites anything (#159). */
+  fsWriteConflictCopy: (p: string, content: string): Promise<string | null> => ipcRenderer.invoke('fs:writeConflictCopy', p, content),
   setupCheck: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('setup:check'),
   // doctor: run a check's headless repair, then re-run the same check as proof
   doctorRepair: (id: string): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean } | null> => ipcRenderer.invoke('doctor:repair', id),

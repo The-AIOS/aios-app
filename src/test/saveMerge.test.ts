@@ -58,12 +58,15 @@ test('both inserted at the same point: both kept, the disk\'s lines first', () =
   assert.ok(r.ok && r.text.indexOf('agent line') < r.text.indexOf('my new line') && r.text.includes('my new line'));
 });
 
-test('edits at both ends of a note merge, and line endings are kept as they were', () => {
+test('line endings: compared in LF, written back CRLF only when the note is CRLF throughout (review #6, second pass #4)', () => {
   const crlf = note.split('\n').join('\r\n');
-  const mine = crlf.replace('# 2026-11-13', '# Friday');
-  const disk = crlf + '\r\nappended';
-  const r = merge3(crlf, mine, disk);
-  assert.ok(r.ok && r.text === mine + '\r\nappended');
+  const editor = note.replace('# 2026-11-13', '# Friday');                   // the textarea speaks LF
+  const d1 = decideSave(crlf, editor, crlf + 'appended\r\n');
+  assert.ok('write' in d1 && d1.write === editor.split('\n').join('\r\n') + 'appended\r\n', 'a CRLF note stays CRLF, and an LF editor text is no conflict');
+  const mixed = 'a\r\nb\nc\r\n';
+  assert.deepEqual(decideSave(mixed, 'a\nB\nc\n', mixed), { write: 'a\nB\nc\n' }, 'a mixed note is saved in LF, as the editor always did');
+  const d2 = decideSave(crlf, editor, note + 'x\n');                         // an agent rewrote it as LF
+  assert.ok('write' in d2 && !d2.write.includes('\r'), 'the disk is LF now: so is what is written');
 });
 
 test('notes too different to diff cheaply ask instead of guessing', () => {
@@ -75,8 +78,9 @@ test('notes too different to diff cheaply ask instead of guessing', () => {
 /* The wiring: main decides before it writes, and the viewer's save goes through it. */
 const main = fs.readFileSync('src/main/main.ts', 'utf8');
 const app = fs.readFileSync('renderer/app.js', 'utf8');
-const handler = (src: string) => src.slice(src.indexOf("ipcMain.handle('fs:saveMerged'"), src.indexOf('\n});\n', src.indexOf("ipcMain.handle('fs:saveMerged'")));
+const handlerOf = (src: string, ch: string) => src.slice(src.indexOf(`ipcMain.handle('${ch}'`), src.indexOf('\n});\n', src.indexOf(`ipcMain.handle('${ch}'`)));
 const viewerSave = (src: string) => src.slice(src.indexOf('async function saveNow('), src.indexOf('\n  }\n', src.indexOf('async function saveNow(')));
+const ask = (src: string) => src.slice(src.indexOf('async function askConflict('), src.indexOf('\n  }\n', src.indexOf('async function askConflict(')));
 
 function guarded(name: string, src: string, check: (s: string) => boolean, breakIt: (s: string) => string): void {
   test(name, () => {
@@ -88,28 +92,33 @@ function guarded(name: string, src: string, check: (s: string) => boolean, break
 }
 
 guarded('main reads the disk and decides BEFORE writing; a conflict writes nothing', main,
-  (s) => { const h = handler(s); const read = h.indexOf('readFileSync(abs'), dec = h.indexOf('decideSave(base, mine, disk'), conf = h.indexOf("if ('conflict' in d) return"), write = h.indexOf('writeFileSync(tmp'); return read > 0 && read < dec && dec < conf && conf < write; },
+  (s) => { const h = handlerOf(s, 'fs:saveMerged'); const read = h.indexOf('readFileSync(abs'), dec = h.indexOf('decideSave(base, mine, disk'), conf = h.indexOf("if ('conflict' in d) return"), write = h.indexOf('writeFileSync(tmp'); return read > 0 && read < dec && dec < conf && conf < write; },
   (s) => s.replace("if ('conflict' in d) return { ok: false, conflict: true, disk };", ''));
 
 guarded('the viewer saves through fs:saveMerged with its base, never with a plain write to the note', app,
-  (s) => { const v = viewerSave(s); return /fsSaveMerged\(file\.path, base, content, prefer\)/.test(v) && !/fsWrite\(file\.path/.test(v); },
+  (s) => { const v = viewerSave(s); return /fsSaveMerged\(file\.path, base, content, prefer\)/.test(v) && !/fsWrite\(/.test(v) && !/fsWrite\(/.test(ask(s)); },
   (s) => s.replace('window.glassShell.fsSaveMerged(file.path, base, content, prefer)', 'window.glassShell.fsWrite(file.path, content)'));
 
-guarded('while a conflict is open, autosave writes only the side copy, never the note; ⌘S tries the note again', app,
-  (s) => /if \(paneObj\.conflict && !explicit\) \{ await keepSideCopy\(content\); return; \}/.test(viewerSave(s)),
-  (s) => s.replace('if (paneObj.conflict && !explicit) { await keepSideCopy(content); return; }', ''));
+guarded('a conflict copy is a NEW file: created exclusively, never over an existing one, and never deleted by the App (second pass #1)', main,
+  (s) => { const h = handlerOf(s, 'fs:writeConflictCopy'); return /writeFileSync\(target, content, \{ flag: 'wx' \}\)/.test(h) && /code !== 'EEXIST'/.test(h) && !/unlinkSync|rmSync|removeSideCopy/.test(s.slice(s.indexOf("ipcMain.handle('fs:saveMerged'"), s.indexOf("ipcMain.handle('fs:writeConflictCopy'") + 2000)); },
+  (s) => s.replace("fs.writeFileSync(target, content, { flag: 'wx' })", 'fs.writeFileSync(target, content)'));
+
+guarded('whichever answer, the version not kept is written beside the note BEFORE anything is decided (second pass #3)', app,
+  (s) => { const a = ask(s); const cp = a.indexOf('fsWriteConflictCopy(file.path, pick === \'theirs\' ? mine : (disk ?? \'\'))'); const gate = a.indexOf('if (!copy ||'); const keep = a.indexOf("await save(null, 'mine')"); const theirs = a.indexOf('base = file.content = disk'); return cp > 0 && cp < gate && gate < keep && gate < theirs; },
+  (s) => s.replace("    if (!copy || (pick === 'theirs' && disk === null)) { toast(t('viewer.saveFailed', { name })); return; }   // still dirty: the next save asks again\n", ''));
 
 guarded('every mode paints from the text on screen, so switching Rendered/Edit never drops an unsaved edit (review #1, #3)', app,
-  (s) => /buildCodeEditor\(toEditor\(file\.content\)/.test(s) && /onInput: \(v\) => \{ file\.content = toDisk\(v\);/.test(s),
-  (s) => s.replace('onInput: (v) => { file.content = toDisk(v);', 'onInput: (v) => {'));
+  (s) => /buildCodeEditor\(toEditor\(file\.content\)/.test(s) && /onInput: \(v\) => \{ file\.content = v;/.test(s),
+  (s) => s.replace('onInput: (v) => { file.content = v;', 'onInput: (v) => {'));
 
-guarded('a CRLF note is saved in CRLF: the editor\'s LF text is converted back before it is compared or written (review #6)', app,
-  (s) => /const after = \(v, explicit\) => save\(toDisk\(v\), explicit\)/.test(s) && /const shownNow = \(\) => \(editorRef \? toDisk\(editorRef\.value\(\)\) : file\.content\);/.test(s),
-  (s) => s.replace('save(toDisk(v), explicit)', 'save(v, explicit)'));
+guarded('closing the tab or quitting saves a waiting autosave instead of dropping it (second pass #2)', app,
+  (s) => /if \(p\.flushSave\) p\.flushSave\(\);/.test(s.slice(s.indexOf('function closePane('), s.indexOf('function closePane(') + 400))
+    && /for \(const p of panes\.values\(\)\) if \(p\.flushSave\)/.test(s) && /saveTimer = setTimeout\(\(\) => \{ saveTimer = null; void after\(v\); \}, 700\)/.test(s),
+  (s) => s.replace("  if (p.flushSave) p.flushSave();   // a note's waiting autosave", "  // a note's waiting autosave"));
 
-guarded('an open note that changed on disk reloads only when nothing is unsaved', app,
-  (s) => /paneObj\.onDiskMaybeChanged = async \(\) => \{\n\s*if \(paneObj\.dirty \|\| paneObj\.conflict/.test(s) && /p\.onDiskMaybeChanged\(\)/.test(s),
-  (s) => s.replace('if (paneObj.dirty || paneObj.conflict || !editable) return;', 'if (!editable) return;'));
+guarded('an open note that changed on disk reloads only when nothing is unsaved and no question is open', app,
+  (s) => /paneObj\.onDiskMaybeChanged = async \(\) => \{\n\s*if \(paneObj\.dirty \|\| paneObj\.asking/.test(s) && /p\.onDiskMaybeChanged\(\)/.test(s),
+  (s) => s.replace('if (paneObj.dirty || paneObj.asking || !editable) return;', 'if (!editable) return;'));
 
 test('a checkbox ticked in Rendered mode is counted on the text on screen and saves through the same path', () => {
   const box = app.slice(app.indexOf('// live task checkboxes'), app.indexOf('wrap.appendChild(md);', app.indexOf('// live task checkboxes')));
@@ -118,18 +127,18 @@ test('a checkbox ticked in Rendered mode is counted on the text on screen and sa
   assert.doesNotMatch(box, /fsWrite\(/);
 });
 
-test('"Keep my changes" keeps the agent\'s other changes: mine win only on the clashing lines (review #4)', () => {
+test('"Keep my changes": mine win on the clashing lines, the agent\'s other changes stay (review #4)', () => {
   const mine = note.replace('ship 0.15.2', 'ship 0.15.2 MINE');
   const disk = note.replace('ship 0.15.2', 'ship 0.15.2 THEIRS') + 'agent appended\n';
   assert.deepEqual(decideSave(note, mine, disk), { conflict: true }, 'without a choice, it asks');
   const d = decideSave(note, mine, disk, 'mine');
   assert.ok('write' in d && d.write.includes('ship 0.15.2 MINE') && !d.write.includes('THEIRS') && d.write.includes('agent appended'));
   assert.ok(!agentLineSurvives((b, m) => ({ write: m })), 'negative control: a plain overwrite drops the agent\'s lines');
-  assert.match(viewerSave(app) + app.slice(app.indexOf('async function askConflict('), app.indexOf('async function askConflict(') + 900), /if \(pick === 'mine'\) \{ await save\(null, true, 'mine'\); return; \}/, 'the dialog\'s answer goes through the same merge, not fsWrite');
 });
 
-test('both inserted at one point, one beginning with the other: the shared lines are written once (review #7)', () => {
-  assert.deepEqual(merge3('x\n', 'x\nfoo\nbar\n', 'x\nfoo\n'), { ok: true, text: 'x\nfoo\nbar\n' });
+test('both inserted at one point and one holds the other: the shared lines are written once (review #7, second pass #7)', () => {
+  assert.deepEqual(merge3('x\n', 'x\nfoo\nbar\n', 'x\nfoo\n'), { ok: true, text: 'x\nfoo\nbar\n' }, 'typed below the agent\'s line');
+  assert.deepEqual(merge3('a\nz\n', 'a\nmine\nfoo\nz\n', 'a\nfoo\nz\n'), { ok: true, text: 'a\nmine\nfoo\nz\n' }, 'typed ABOVE the agent\'s line');
   assert.deepEqual(merge3('x\n', 'x\nfoo\n', 'x\nfoo\nbar\n'), { ok: true, text: 'x\nfoo\nbar\n' });
   assert.deepEqual(merge3('x\n', 'x\nmine\n', 'x\nagent\n'), { ok: true, text: 'x\nagent\nmine\n' }, 'unrelated insertions: both, the disk\'s first');
 });
@@ -146,11 +155,3 @@ guarded('the caret stays on the operator\'s line when an agent changes text abov
     return neu.slice(to - 7, to) === 'my line' && mapCaret(old, neu, 3) === 3 && mapCaret('a\nb\n', 'a\nb\nc\n', 3) === 3;
   },
   (s) => s.replace("  else {\n    const hit = N.indexOf(O[line], pre);\n    to = hit >= 0 && hit < N.length - suf ? hit : pre;\n  }", '  else to = line + (N.length - O.length);'));
-
-test('the side copy\'s remover deletes only a side copy, never a note', () => {
-  const h = main.slice(main.indexOf("ipcMain.handle('fs:removeSideCopy'"), main.indexOf('\n});\n', main.indexOf("ipcMain.handle('fs:removeSideCopy'")));
-  const re = new RegExp(/test\(path\.basename\(abs\)\)/.test(h) ? / \(unsaved edits\)(\.[^.\\/]+)?$/ : /^$/);
-  assert.ok(re.test('2026-11-13 (unsaved edits).md') && !re.test('2026-11-13.md') && !re.test('unsaved edits.md'));
-  assert.match(h, /if \(!abs \|\| !\/ \\\(unsaved edits\\\)/, 'the name is checked before unlink');
-  assert.ok(h.indexOf('unlinkSync') > h.indexOf('(unsaved edits'));
-});
