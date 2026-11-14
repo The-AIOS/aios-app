@@ -4813,10 +4813,15 @@ function submitToPty(id, text, stillWaiting, opts) {
      its last 609, whatever the Enter's delay; the same 4.7 KB pasted arrived whole, and a short paste is recorded as plain
      text (0.15.1, #153). ESC is dropped from the text so nothing in it can end the paste early. */
   if (opts && opts.paste && typeof text === 'string') text = '\x1b[200~' + text.replace(/\x1b/g, '') + '\x1b[201~';
-  /* A list of parts: plain strings are typed, `{ paste }` parts go in as a bracketed paste. Claude Code turns a pasted image
-     PATH into an attachment ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). */
+  /* A list of parts, every one sent as its own bracketed paste: Claude Code turns a pasted image PATH into an attachment
+     ("[Image #1]") and leaves a typed one as text (measured, Claude Code 2.1.316 in a pty). The text around the path is
+     pasted too: typed, a long one lost its beginning like any long typed burst (#155, measured on 2.1.322: ~1.5 KB of text
+     before an image arrived as its last 416 characters; pasted, whole, with the image still attached, one message). */
   if (Array.isArray(text)) {
-    for (const part of text) window.glassShell.ptyWrite(id, typeof part === 'string' ? part : '\x1b[200~' + part.paste + '\x1b[201~');
+    for (const part of text) {
+      const s = typeof part === 'string' ? part : part.paste;
+      if (s) window.glassShell.ptyWrite(id, '\x1b[200~' + s.replace(/\x1b/g, '') + '\x1b[201~');
+    }
     setTimeout(() => window.glassShell.ptyWrite(id, '\r'), 500);   // after the paste is read: Claude Code loads the image before Enter can carry it
     return;
   }
@@ -11969,7 +11974,9 @@ function chatSkinSubmit(id, p, text) {
   cs.workSince = cs.turnStartAt;   // a send starts a working stretch
   cs.stick = true;
   const sent = text.replace(/\s+/g, ' ').trim();
-  const imgParts = text.startsWith('/') ? null : chatSkinImageParts(text);
+  /* A slash command or a "!" shell line is typed whole, image path or not: a path in a shell line is an argument, not an
+     attachment. */
+  const imgParts = text.startsWith('/') || text.startsWith('!') ? null : chatSkinImageParts(text);
   if (imgParts) submitToPty(id, imgParts);
   /* Typed for a slash command or a "!" shell line (pasted, "/name" would be a message, not a command, and "!" might not enter
      Claude Code's bash mode); pasted otherwise, so a long message
