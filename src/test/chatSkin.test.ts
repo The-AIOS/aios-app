@@ -4670,3 +4670,52 @@ test('0.15.0 review 2: the long-question switch never takes the keyboard from an
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   assert.match(css, /body\.light \.chatskin \.cs-sticky \{ background: color-mix\(in srgb, var\(--chat-user-bg\) 90%, transparent\); \}/);
 });
+
+/* ── Hats (#109): the suggest-agent line from The-AIOS/aios#299, drawn as a card; putting the agent on, as a hat change ── */
+const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')) + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf };')() as {
+  chatHatSuggestion: (t: string) => { name: string; why: string; rest: string } | null;
+  chatHatWorn: (i: { name: string; summary: string }) => string;
+  chatHatAnswerOf: (t: string) => string;
+};
+guarded('the suggestion line is read exactly as the framework writes it, and nothing like it passes for one',
+  (src) => {
+    const { chatHatSuggestion: f } = hatFns(src);
+    const reply = 'This is bookkeeping work.\n\nSuggested agent: accountant (invoices and bookkeeping). Wear it here, or open it as its own session?';
+    const hit = f(reply);
+    return !!hit && hit.name === 'accountant' && hit.why === 'invoices and bookkeeping' && hit.rest === 'This is bookkeeping work.'
+      && f('**Suggested agent: accountant (invoices). Wear it here, or open it as its own session?**') === null      // bold: not the line
+      && f('Agente sugerido: accountant (facturas). ¿Usarlo aquí o abrirlo como su propia sesión?') === null       // translated: not the line
+      && f('Suggested agent: Accountant (x). Wear it here, or open it as its own session?') === null               // names are lowercase
+      && f('We could use the accountant agent here.') === null;
+  },
+  (src) => src.replace("const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \\((.{1,80})\\)\\. Wear it here, or open it as its own session\\?$/;", "const CHAT_HAT_LINE = /Suggested agent: (\\S+) \\((.*)\\)/i;"));
+
+test('putting an agent on is recognised from Claude\'s Skill call and from the operator\'s typed command; the answer words map to the skill\'s', () => {
+  const { chatHatWorn: w, chatHatAnswerOf: a } = hatFns(app);
+  assert.equal(w({ name: 'Skill', summary: 'aios:agent accountant' }), 'accountant');
+  assert.equal(w({ name: '/aios:agent lawyer', summary: '' }), 'lawyer');
+  assert.equal(w({ name: 'Skill', summary: 'aios:today' }), '', 'another command is not a hat');
+  assert.equal(w({ name: 'Bash', summary: 'aios:agent accountant' }), '', 'only the Skill call or the typed command');
+  assert.deepEqual(['here', 'yes', 'open', 'no', 'Not now', 'what about taxes?'].map(a), ['here', 'here', 'open', 'no', 'no', 'other']);
+});
+
+test('the Skill call\'s one-line summary carries its args, so the hat it loads can be named', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { summarizeTool } = require('../core/chatEvents') as { summarizeTool: (n: string, i: unknown) => string };
+  assert.equal(summarizeTool('Skill', { skill: 'aios:agent', args: 'accountant' }), 'aios:agent accountant');
+  assert.equal(summarizeTool('Skill', { skill: 'aios:today' }), 'aios:today');
+});
+
+guarded('a reply with the line shows the card in place of the line; loading the agent is a hat change, not a tool card',
+  (src) => {
+    const up = fnBody(src, 'chatSkinUpsert');
+    return /const hs = chatHatSuggestion\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up)
+      && /const worn = item\.role === 'tool' \? chatHatWorn\(chatToolInfo\(item\)\) : '';/.test(up) && /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/.test(up)
+      && /\} else if \(rec\.hatWorn\) \{\n\s*chatSkinPaintHatWorn\(rec, item, cs\);/.test(up);
+  },
+  (src) => src.replace("rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);", 'rec = chatSkinMakeItem(item.role, cs);'));
+
+guarded('an answer button never sends over a draft in the box, and goes through the box\'s own send path',
+  (src) => { const f = fnBody(src, 'chatSkinHatAnswer'); return /if \(cs\.input\.value\.trim\(\)\) \{ toast\(t\('chat\.hat\.boxBusy'\)\)/.test(f) && /chatSkinSendNow\(id, p\);/.test(f) && !/submitToPty|ptyWrite/.test(f); },
+  (src) => src.replace("  if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing\n", ''));
+

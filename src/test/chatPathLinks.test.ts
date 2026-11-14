@@ -455,7 +455,7 @@ guardedApp('the linking runs AFTER chatSanitize and chatDecorate, and chatRender
     const upsert = fnBody(s, 'chatSkinUpsert');
     return render.indexOf('chatSanitize(') > 0 && render.indexOf('chatSanitize(') < render.indexOf('chatDecorate(frag)')
       && !/chatLinkPaths/.test(render)
-      && /chatRender\(rec\.body, text\); rec\.text = text; chatLinkPaths\(rec\.body, cs\)/.test(upsert);
+      && /chatRender\(rec\.body, (?:text|hs \? hs\.rest : text)\); rec\.text = text; chatLinkPaths\(rec\.body, cs\)/.test(upsert);
   },
   (src) => src.replace('chatDecorate(frag);\n  target.replaceChildren(frag);', 'chatDecorate(frag);\n  chatLinkPaths(frag);\n  target.replaceChildren(frag);'));
 

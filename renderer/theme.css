@@ -2229,6 +2229,23 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-note.err { --ce: var(--st-error); --ce-ink: var(--st-error-ink); align-self: stretch; text-align: left; white-space: normal; border-radius: 12px; padding: 10px 14px 11px;
                  font-size: .9em; color: var(--ink); background: color-mix(in srgb, var(--ce) 7%, var(--chat-out-bg)); border-color: color-mix(in srgb, var(--ce) 38%, transparent); }
 .chat-note.err.refusal { --ce: var(--st-warn); --ce-ink: var(--st-warn-ink); }
+/* Hats (#109), in the effort's violet (coral stays the send button's): a suggested agent is a card under the reply; putting it on is a line in the column, and a chip in the bar. */
+.chat-hat { margin-top: 10px; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--st-testing) 40%, transparent);
+            background: color-mix(in srgb, var(--st-testing) 6%, var(--chat-out-bg)); }
+.chat-hat .ch-head { display: flex; align-items: center; gap: 6px; color: var(--subtle); font-size: .82em; }
+.chat-hat .ch-head .cs-ico { color: var(--st-testing); }
+.chat-hat .ch-who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 9px; }
+.chat-hat .ch-name { font-size: 1.02em; }
+.chat-hat .ch-why { color: var(--subtle); }
+.chat-hat .ch-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-hat.answered .ch-acts .vbtn:not(.chosen) { color: var(--faint); }
+.chat-hat .ch-done { margin-top: 7px; color: var(--subtle); font-size: .85em; }
+.chat-note.hat { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); border-color: color-mix(in srgb, var(--st-testing) 40%, transparent); }
+.chat-note.hat .cs-ico { color: var(--st-testing); }
+.chat-note.hat.failed { color: var(--subtle); border-color: var(--chat-claude-line); }
+.chat-note.hat.failed .cs-ico { color: var(--faint); }
+.cb-hat .cs-ico { color: var(--st-testing); }
+
 .chat-note.err .cn-head { display: flex; align-items: center; gap: 7px; color: var(--ce-ink); margin-bottom: 4px; }
 .chat-note.err .cn-msg > :first-child { margin-top: 0; }
 .chat-note.err .cn-msg > :last-child { margin-bottom: 0; }

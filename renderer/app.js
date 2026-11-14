@@ -9321,7 +9321,11 @@ function chatSkinBuild(id, p) {
   bgSeg.type = 'button';
   bgSeg.hidden = true;
   bgSeg.append(el('span', 'cb-bgico'), el('span', 'cb-v', ''), csIcon('chevUpDown', 12));   // the icon: a robot for agents, a terminal for shells (chatSkinBgPaint)
-  idBox.append(modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
+  /* The hat the session wears (#109): shown once it has put an agent on, from the transcript. */
+  const hatSeg = el('span', 'cb-where cb-hat');
+  hatSeg.hidden = true;
+  hatSeg.append(csIcon('id', 12), el('span', 'cb-v', ''));
+  idBox.append(hatSeg, modelSeg, effortSeg, modeSeg, bgSeg, dirSeg, branchSeg, acctSeg);
   barParts.model = { seg: modelSeg, v: modelSeg.querySelector('.cb-v') };
   barParts.effort = { seg: effortSeg, v: effortSeg.querySelector('.cb-v') };
   /* The effort menu. It cannot be a child of the bar (the bar clips what overflows it), so it floats over the end of the log like
@@ -9542,7 +9546,7 @@ function chatSkinBuild(id, p) {
   p.el.appendChild(root);
 
   const cs = {
-    id, pane: p, who: chatSkinWho(p), root, log, stickyEl, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg,
+    id, pane: p, who: chatSkinWho(p), root, log, stickyEl, queueEl, queued: [], stateEl, stateIco, stateTitle, stateText, stateTips, stateBtn, workEl, alertEl, alertIco, alertTitle, alertText, alertBtn, alertBack, input, sendBtn, stopBtn, jumpBtn, compose, box, wrap, meta, bar, barParts, modelSeg, effortSeg, hatSeg,
     effort: { open: false, off: null, pop: effortPop, opts: effortOpts },   // the effort menu: see chatSkinEffortMenu
     slash: { open: false, items: [], index: 0, seq: 0, pop: slashPop, list: slashList },   // the slash popup: see chatSkinSlashRefresh
     items: new Map(),            // transcript uuid -> { node, role, … }
@@ -11494,11 +11498,113 @@ function chatSkinBusLabel(rec, text) {
    panel, and Claude Code records it, so it came back as the operator's bubble and an empty "/tasks (no content)" card. The panel
    is in the terminal; the chat shows neither. */
 const CS_HIDDEN_CMD = /^\/tasks$/;
+/* HATS (#109). The framework's suggest-agent skill names the one agent that fits the work in one fixed line, never translated
+   (The-AIOS/aios#299). The chat view draws that line as a card with the three answers the skill takes: "here" (wear the hat
+   in this session), "open" (start the agent as its own session) or "no". When the session then loads the agent
+   (`/aios:agent <name>`, as a Skill call or typed), the column shows the hat change and the bar shows the hat it wears. */
+const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \((.{1,80})\)\. Wear it here, or open it as its own session\?$/;
+/** The suggestion in a reply, if it has one: the agent, why it fits, and the reply without that line. Pure, for the tests. */
+function chatHatSuggestion(text) {
+  const lines = String(text || '').split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = CHAT_HAT_LINE.exec(lines[i].trim());
+    if (m) return { name: m[1], why: m[2], rest: lines.slice(0, i).concat(lines.slice(i + 1)).join('\n').trim() };
+  }
+  return null;
+}
+/** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
+    "aios:agent <name>") or as the operator's own command card ("/aios:agent <name>"). Pure, for the tests. */
+function chatHatWorn(info) {
+  const name = String((info && info.name) || ''), summary = String((info && info.summary) || '');
+  const m = name === 'Skill' ? /^(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(summary) : /^\/(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(name);
+  return m ? m[1] : '';
+}
+/** What an answer typed after a suggestion means, in the skill's words. */
+function chatHatAnswerOf(text) {
+  const s = String(text || '').trim().toLowerCase();
+  if (/^(here|yes|sí|si|sim|ναι)\b/.test(s)) return 'here';
+  if (/^open\b/.test(s)) return 'open';
+  if (/^(no|not now|não|όχι)\b/.test(s)) return 'no';
+  return 'other';
+}
+function chatSkinPaneIdOf(cs) { if (cs.id && panes.has(cs.id)) return cs.id; for (const [id, p] of panes) if (p.chatSkin === cs) return id; return null; }
+/* The card under a reply that suggests a hat. Answering sends the skill's word as the operator's message, through the same
+   path as the message box (so it waits its turn if the session is busy). Once the operator has said anything after it, the
+   card shows the answer and takes no more clicks. */
+function chatSkinHatCard(rec, hs, cs) {
+  if (!hs) { if (rec.hatCard) { rec.hatCard.remove(); rec.hatCard = null; (cs.hatOpen || new Set()).delete(rec); } return; }
+  if (rec.hatCard && rec.hatCard.dataset.agent === hs.name) return;
+  if (rec.hatCard) rec.hatCard.remove();
+  const card = el('div', 'chat-hat');
+  card.dataset.agent = hs.name;
+  const head = el('div', 'ch-head');
+  head.append(csIcon('id', 14), el('span', 'ch-k', t('chat.hat.suggested')));
+  const who = el('div', 'ch-who');
+  who.append(el('strong', 'ch-name', hs.name), el('span', 'ch-why', hs.why));
+  const acts = el('div', 'ch-acts');
+  for (const key of ['here', 'open', 'no']) {
+    const b = el('button', 'vbtn', t('chat.hat.' + key));
+    b.type = 'button';
+    b.dataset.answer = key;
+    b.addEventListener('click', () => chatSkinHatAnswer(cs, card, key));
+    acts.appendChild(b);
+  }
+  const done = el('div', 'ch-done');
+  done.hidden = true;
+  card.append(head, who, acts, done);
+  rec.body.after(card);
+  rec.hatCard = card;
+  (cs.hatOpen || (cs.hatOpen = new Set())).add(rec);
+}
+function chatSkinHatAnswer(cs, card, key) {
+  if (card.classList.contains('answered')) return;
+  const id = chatSkinPaneIdOf(cs);
+  const p = id && panes.get(id);
+  if (!p || p.exited || !cs.input) return;
+  if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing
+  cs.input.value = key;
+  chatSkinSendNow(id, p);
+  if (!cs.input.value) chatSkinHatMark(card, key);   // the box emptied: it went (or is queued)
+}
+function chatSkinHatMark(card, key) {
+  card.classList.add('answered');
+  for (const b of card.querySelectorAll('button')) { b.disabled = true; b.classList.toggle('chosen', b.dataset.answer === key); }
+  const done = card.querySelector('.ch-done');
+  done.textContent = t('chat.hat.chose.' + key, { name: card.dataset.agent });
+  done.hidden = false;
+}
+/* The operator said something after the suggestion: it is answered, by a button or in their own words. */
+function chatSkinHatSettle(cs, text) {
+  if (!cs.hatOpen || !cs.hatOpen.size) return;
+  const key = chatHatAnswerOf(text);
+  for (const rec of cs.hatOpen) if (rec.hatCard && !rec.hatCard.classList.contains('answered')) chatSkinHatMark(rec.hatCard, key);
+  cs.hatOpen.clear();
+}
+/* The session put the hat on: a line in the column, and the bar's hat chip. A failed load says so and changes nothing. */
+function chatSkinPaintHatWorn(rec, item, cs) {
+  const info = chatToolInfo(item);
+  const failed = info.status === 'error';
+  rec.node.classList.add('hat');
+  rec.node.classList.toggle('failed', failed);
+  rec.body.replaceChildren(csIcon('id', 13), el('span', '', t(failed ? 'chat.hat.wornFailed' : 'chat.hat.worn', { name: rec.hatWorn })));
+  rec.node.hidden = false;
+  if (!failed) chatSkinHatChip(cs, rec.hatWorn);
+}
+function chatSkinHatChip(cs, name) {
+  cs.hat = name || '';
+  const seg = cs.hatSeg;
+  if (!seg) return;
+  seg.hidden = !cs.hat;
+  seg.querySelector('.cb-v').textContent = cs.hat;
+  seg.title = cs.hat ? t('chat.hat.chip', { name: cs.hat }) : '';
+}
 function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
   let rec = cs.items.get(item.uuid);
   if (!rec) {
-    rec = chatSkinMakeItem(item.role, cs);
+    const worn = item.role === 'tool' ? chatHatWorn(chatToolInfo(item)) : '';   // loading an agent is drawn as a hat change, not a tool card (#109)
+    rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);
+    if (worn) rec.hatWorn = worn;
     rec.uuid = item.uuid;
     if (rec.role === 'tool') rec.node.csRec = rec;   // the column is regrouped from its nodes, which need to find their tool call again
     cs.items.set(item.uuid, rec);
@@ -11511,10 +11617,14 @@ function chatSkinUpsert(cs, item, animate, before) {
   const text = typeof item.text === 'string' ? item.text : '';
   if (rec.role !== 'user' && animate) cs.lastReplyAt = Date.now();   // news from Claude (not history being loaded): the last message has its answer
   if (rec.role === 'assistant') {
-    if (rec.text !== text) { chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs); }   // links only on the FINAL render: the provisional bubble below never gets them
+    if (rec.text !== text) {   // links only on the FINAL render: the provisional bubble below never gets them
+      const hs = chatHatSuggestion(text);   // a hat suggestion's fixed line becomes its card (#109); copy still copies the whole reply
+      chatRender(rec.body, hs ? hs.rest : text); rec.text = text; chatLinkPaths(rec.body, cs);
+      chatSkinHatCard(rec, hs, cs);
+    }
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
-    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); chatSkinHatSettle(cs, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
     rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
@@ -11526,6 +11636,8 @@ function chatSkinUpsert(cs, item, animate, before) {
       x.argFresh = false;
       chatLinkPaths(x.arg, cs, { inButton: true, whole: x.kindName === 'eye' || x.kindName === 'design' });
     }
+  } else if (rec.hatWorn) {
+    chatSkinPaintHatWorn(rec, item, cs);
   } else if (item.error) {
     if (rec.text !== text) { chatSkinPaintApiError(rec, text, cs); rec.text = text; }
     rec.node.hidden = !text.trim();
@@ -11640,6 +11752,8 @@ function chatSkinStreamAdopt(cs, uuid) {
 function chatSkinResetView(p) {
   const cs = p.chatSkin;
   cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
+  if (cs.hatOpen) cs.hatOpen.clear();
+  cs.hat = ''; if (cs.hatSeg) cs.hatSeg.hidden = true;   // the hat is read again from the transcript, like everything else in the column
   cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end
   cs.log.replaceChildren(cs.stateEl, cs.workEl);
   cs.turnOpen = false; cs.stalled = false; cs.state = 'waiting'; cs.stick = true; cs.resetAt = Date.now();
