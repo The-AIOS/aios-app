@@ -2,6 +2,9 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!-- Same lock as index.html (issue 162): own scripts only, no inline script, no eval. The inline <style>
+     below is why style-src keeps 'unsafe-inline'. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>AIOS</title>
 <link rel="stylesheet" href="theme.css">
 <style>
