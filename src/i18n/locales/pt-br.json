@@ -1208,7 +1208,7 @@
   "shortcut.save": "Salvar o arquivo aberto",
   "whatsnew.tab": "Novidades",
   "whatsnew.title": "Novidades do AIOS {version}",
-  "whatsnew.sub": "Suas notas guardam o trabalho de todos, suas sessões sugerem o agente certo na hora certa, e uma mensagem longa com captura de tela chega inteira.",
+  "whatsnew.sub": "Sua verdadeira equipe de agentes. Agora suas notas sincronizam o trabalho humano e o dos seus agentes, suas sessões sugerem o agente certo na hora certa, e uma mensagem longa com captura de tela chega inteira.",
   "whatsnew.h1": "Suas edições e as dos seus agentes, as duas mantidas",
   "whatsnew.b1": "Se um agente escrevia em uma nota que você tinha aberta, o seu próximo salvamento colocava a sua cópia antiga por cima da mudança dele. Agora cada salvamento confere o arquivo antes, e mudanças em linhas diferentes são combinadas. Se vocês dois mudaram a mesma linha, o AIOS pergunta qual manter e salva a outra ao lado da nota. Sem nada pendente, uma nota aberta se atualiza no lugar enquanto os agentes escrevem.",
   "whatsnew.h2": "O agente certo, sugerido quando faz sentido",

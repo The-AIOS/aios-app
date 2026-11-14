@@ -1208,7 +1208,7 @@
   "shortcut.save": "Guardar el archivo abierto",
   "whatsnew.tab": "Novedades",
   "whatsnew.title": "Novedades de AIOS {version}",
-  "whatsnew.sub": "Tus notas conservan el trabajo de todos, tus sesiones sugieren el agente correcto en el momento justo, y un mensaje largo con una captura llega completo.",
+  "whatsnew.sub": "Tu verdadero equipo de agentes. Ahora tus notas sincronizan el trabajo humano y el de tus agentes, tus sesiones sugieren el agente correcto en el momento justo, y un mensaje largo con una captura llega completo.",
   "whatsnew.h1": "Tus cambios y los de tus agentes, ambos se conservan",
   "whatsnew.b1": "Si un agente escribía en una nota que tenías abierta, tu siguiente guardado volvía a poner tu copia anterior encima de su cambio. Ahora cada guardado revisa el archivo primero, y los cambios en líneas distintas se combinan. Si ambos cambiaron la misma línea, AIOS te pregunta cuál conservar y guarda la otra junto a la nota. Sin nada pendiente, una nota abierta se actualiza en su lugar mientras los agentes escriben.",
   "whatsnew.h2": "El agente correcto, sugerido cuando encaja",

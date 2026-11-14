@@ -1208,7 +1208,7 @@
   "shortcut.save": "Save the open file",
   "whatsnew.tab": "What's new",
   "whatsnew.title": "What's new in AIOS {version}",
-  "whatsnew.sub": "Your notes keep everyone's work, your sessions suggest the right agent at the right moment, and a long message with a screenshot arrives whole.",
+  "whatsnew.sub": "Your real team of agents. Now your notes sync human and agents' work, your sessions suggest the right agent at the right moment, and a long message with a screenshot arrives whole.",
   "whatsnew.h1": "Your edits and your agents' edits, both kept",
   "whatsnew.b1": "If an agent wrote to a note you had open, your next save used to put your old copy back over its change. Now each save checks the file first, and changes on different lines are merged. If you both changed the same line, AIOS asks which to keep and saves the other beside the note. With nothing unsaved, an open note updates in place as agents write to it.",
   "whatsnew.h2": "The right agent, suggested when it fits",
