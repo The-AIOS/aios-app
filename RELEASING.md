@@ -110,6 +110,23 @@ npm run whatsnew:shot     # renders What's New in the real App (isolated) → ~/
 Either way, re-read it against every test round of the release, and tag only after the operator's yes. Rank the copy by what someone notices in their first ten minutes after updating; plumbing
 belongs in the GitHub notes, not What's New.
 
+## After the release ships — close its branches
+
+Every branch is work in flight. Once the release PR is merged and the release is published, nothing on its branches is
+in flight any more, so they go, the same day:
+
+- the release branch (`release/<version>`) and every branch merged into it (each fix's own branch, any contributed PR
+  head pushed to this repo);
+- any other branch fully contained in `main`: `git merge-base --is-ancestor origin/<branch> origin/main` succeeds.
+
+Branches merged by PR are already deleted by GitHub (the repo setting "Automatically delete head branches" is on). The
+ones it never sees are the ones merged locally into a release branch, which is how most fixes land. Left alone they pile
+up: 0.15.0 left fifteen behind. A branch that is NOT contained in `main` stays until its owner decides; it is
+unfinished work, not clutter.
+
+The open branches should read as the list of what is in flight: `main`, the next release branch while one is being cut,
+and one branch per open PR.
+
 ## How auto-update works (electron-updater, not Tauri)
 
 - The `publish` block in `package.json` (`provider: github`, `The-AIOS/aios-app`)
