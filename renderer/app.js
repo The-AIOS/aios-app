@@ -11785,22 +11785,22 @@ function chatSkinHatRecompute(cs) {
     }
     if (rec.hatOpenedEl && o.opened) {
       const name = o.opened.name;
-      const go = el('button', 'vbtn', t('chat.hat.goTo'));
-      go.type = 'button';
-      go.addEventListener('click', () => {
-        const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && !p.exited && p.name === name);
-        if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));   // only switches to a tab that is open: never starts anything
-      });
       const card = o.opened.onCard === null ? null : recs[o.opened.onCard].hatCard;
-      if (card) {
-        const mv = card.querySelector('.ch-moved');
-        mv.replaceChildren(el('span', '', t('chat.hat.moved', { name })), go);
-        mv.hidden = false;
-        rec.hatOpenedEl.hidden = true;
-      } else {
-        rec.hatOpenedEl.replaceChildren(csIcon('robot', 13), el('span', '', t('chat.hat.openedNote', { name })), go);
-        rec.hatOpenedEl.hidden = false;
+      const host = card ? card.querySelector('.ch-moved') : rec.hatOpenedEl;
+      /* Drawn once per place and name: redrawing on every pass rebuilt the button and took the keyboard focus off it. */
+      if (host.dataset.goFor !== name) {
+        const go = el('button', 'vbtn', t('chat.hat.goTo'));
+        go.type = 'button';
+        go.addEventListener('click', () => {
+          const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && !p.exited && p.name === name);
+          if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));   // only switches to a tab that is open: never starts anything
+        });
+        if (card) host.replaceChildren(el('span', '', t('chat.hat.moved', { name })), go);
+        else host.replaceChildren(csIcon('robot', 13), el('span', '', t('chat.hat.openedNote', { name })), go);
+        host.dataset.goFor = name;
       }
+      host.hidden = false;
+      if (card) rec.hatOpenedEl.hidden = true;
     }
   });
   for (const i of plan.open) { const c = recs[i].hatCard; const k = c && cs.hatPending && cs.hatPending.get(c.dataset.uuid); if (k) chatSkinHatCardState(c, 'answered', k); }
