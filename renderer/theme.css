@@ -2249,7 +2249,10 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-hat .ch-purpose { margin: -4px 0 9px 40px; color: var(--subtle); font-size: .88em;
                         display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }   /* a long description stays two lines; the full text is its tooltip */
 .chat-note.hat.in-bubble { margin: 0 0 8px; }
-.chat-hat .vbtn:hover:not(:disabled) { border-color: var(--st-testing); }   /* coral stays the send button's */
+.chat-hat .vbtn:hover:not(:disabled) { border-color: var(--st-testing); }
+.chat-hat .vbtn.state { display: inline-flex; align-items: center; gap: 4px; }
+.chat-hat .vbtn.state .cs-ico { color: var(--st-testing); }
+.chat-hat .vbtn.state, .chat-hat .vbtn.chosen { color: var(--ink); border-color: var(--st-testing); background: color-mix(in srgb, var(--st-testing) 16%, var(--surface-2)); cursor: default; }   /* coral stays the send button's */
 .chat-hat .ch-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .chat-hat.answered .ch-acts .vbtn:not(.chosen) { color: var(--faint); }
 .chat-hat.auto .ch-done { margin: 0 0 9px; }

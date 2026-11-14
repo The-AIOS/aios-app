@@ -4814,7 +4814,7 @@ test('each agent wears its bundle folder\'s colour; a company folder gets a stab
 
 guarded('a hat the session put on by itself turns its card into "your AIOS put it on", with open and take-it-off still offered',
   (src) => { const w = fnBody(src, 'chatSkinHatWearing'), a = fnBody(src, 'chatSkinHatAuto');
-    return /r\.hatCard\.dataset\.agent === name\) chatSkinHatAuto\(r\.hatCard\)/.test(w) && /here\.hidden = true;/.test(a) && /no\.textContent = t\('chat\.hat\.takeOff'\)/.test(a) && !/chatSkinSendNow|submitToPty|ptyWrite/.test(a); },
+    return /r\.hatCard\.dataset\.agent === name\) chatSkinHatAuto\(r\.hatCard\)/.test(w) && /here\.disabled = true; here\.classList\.add\('chosen', 'state'\);/.test(a) && /no\.textContent = t\('chat\.hat\.takeOff'\)/.test(a) && !/chatSkinSendNow|submitToPty|ptyWrite/.test(a); },
   (src) => src.replace("if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);", ''));
 
 guarded('"Wearing agent: none." takes the hat off: the chip goes, and a reply that says so is not mistaken for an agent called none',

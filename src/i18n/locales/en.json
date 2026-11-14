@@ -1324,6 +1324,7 @@
   "chat.hat.no": "No",
   "chat.hat.autoWorn": "Your AIOS put the {name} hat on and kept going.",
   "chat.hat.takeOff": "Take it off",
+  "chat.hat.wearing": "Wearing it",
   "chat.hat.chose.off": "You took the {name} hat off.",
   "chat.hat.chose.here": "You chose to wear {name} here.",
   "chat.hat.chose.open": "You chose to open {name} as its own session.",

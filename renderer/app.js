@@ -11638,8 +11638,10 @@ function chatSkinHatMark(card, key, cs) {
 function chatSkinHatAuto(card) {
   if (card.classList.contains('auto') || card.classList.contains('answered')) return;
   card.classList.add('auto');
+  /* Same three buttons, same places, as the ask card: the first shows what already happened (selected, not a button to
+     press), the other two stay choices. */
   const here = card.querySelector('button[data-answer="here"]');
-  if (here) here.hidden = true;
+  if (here) { here.disabled = true; here.classList.add('chosen', 'state'); here.replaceChildren(csIcon('check', 12), document.createTextNode(' ' + t('chat.hat.wearing'))); }
   const no = card.querySelector('button[data-answer="no"]');
   if (no) no.textContent = t('chat.hat.takeOff');
   const done = card.querySelector('.ch-done');
