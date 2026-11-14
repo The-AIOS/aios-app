@@ -11487,7 +11487,6 @@ function chatSkinBusLabel(rec, text) {
   Promise.resolve(gs.chatBusFrom(text)).then((r) => {
     if (!r || rec.text !== text || !rec.node.isConnected) return;
     rec.node.classList.add('from-bus');
-    if (rec.role === 'user' && typeof chatSkinHatSoon === 'function') { const c = [...panes.values()].map((x) => x.chatSkin).find((c2) => c2 && c2.items && [...c2.items.values()].includes(rec)); if (c) chatSkinHatSoon(c); }   // a bus message never answers a hat card
     let tag = rec.node.querySelector('.chat-from');
     if (!tag) { tag = el('div', 'chat-from'); rec.node.insertBefore(tag, rec.node.querySelector('.chat-bubble')); }
     tag.replaceChildren(csIcon('inbox', 11), el('span', '', r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon')));
@@ -11515,8 +11514,11 @@ function chatHatLines(text) {
   const lines = String(text || '').split('\n');
   let suggest = null, wearing = '', opened = '';
   const keep = [];
+  let fence = false;
   for (const line of lines) {
     const whole = line.replace(/\r$/, '');   // whole lines only: an indented or quoted copy is not the line
+    if (/^\s*(```|~~~)/.test(whole)) { fence = !fence; keep.push(line); continue; }
+    if (fence) { keep.push(line); continue; }   // a line inside a code block is quoted, never the line itself
     const s = CHAT_HAT_LINE.exec(whole);
     if (s) { suggest = { name: s[1], why: s[2] }; continue; }
     const w = CHAT_HAT_WEARING.exec(whole);
@@ -11549,10 +11551,10 @@ function chatHatAgentsLoad() {
     .then((m) => { chatHatAgentMap = m; chatHatAgentLoad = null; for (const p of panes.values()) if (p.chatSkin) chatSkinHatRedraw(p.chatSkin); return m; });
   return chatHatAgentLoad;
 }
-function chatHatAgent(name) {
-  if (!chatHatAgentMap) { void chatHatAgentsLoad(); return null; }
+function chatHatAgent(name, quiet) {
+  if (!chatHatAgentMap) { if (!quiet) void chatHatAgentsLoad(); return null; }
   const a = chatHatAgentMap.get(name);
-  if (!a && Date.now() - chatHatAgentAt > 20000) void chatHatAgentsLoad();
+  if (!a && !quiet && Date.now() - chatHatAgentAt > 20000) void chatHatAgentsLoad();   // only a hat LINE's miss asks again, never a colour
   return a || null;
 }
 /* Each agent wears its bundle's colour, the way a team's people do (#109, from the deck's friendly terminal): the folder it
@@ -11571,7 +11573,7 @@ function chatHatColorKey(group) {
 function chatHatAvatar(name, size) {
   const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
   av.setAttribute('aria-hidden', 'true');
-  const a = chatHatAgent(name);
+  const a = chatHatAgent(name, true);
   av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`);
   return av;
 }
@@ -11608,7 +11610,7 @@ function chatSkinHatDraw(rec, cs) {
   rec.hat = { suggest: sa ? hl.suggest.name : '', wearing, opened: hl.opened };
   chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
   if (sa) rec.hatCard = chatSkinHatCardEl({ ...hl.suggest, purpose: sa.desc }, cs);
-  if (rec.hatCard) rec.body.after(rec.hatCard);
+  if (rec.hatCard) { rec.hatCard.dataset.uuid = rec.uuid || ''; rec.body.after(rec.hatCard); }
   if (wearing) { rec.hatMark = el('div', 'chat-note hat in-bubble'); rec.hatMark.hidden = true; rec.body.before(rec.hatMark); }
   if (hl.opened) { rec.hatOpenedEl = el('div', 'chat-note hat in-bubble'); rec.hatOpenedEl.hidden = true; rec.body.before(rec.hatOpenedEl); }
   return true;
@@ -11654,6 +11656,7 @@ function chatSkinHatCardEl(hs, cs) {
    session is busy), never over a draft. Only a card that is still open takes a click. */
 function chatSkinHatAnswer(cs, card, key) {
   if (card.dataset.state !== 'open' && card.dataset.state !== 'auto') return;
+  if (cs.hatPending && cs.hatPending.has(card.dataset.uuid)) return;   // already sent once
   const id = chatSkinPaneIdOf(cs);
   const p = id && panes.get(id);
   if (!p || p.exited || !cs.input) return;
@@ -11661,21 +11664,21 @@ function chatSkinHatAnswer(cs, card, key) {
   if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing
   cs.input.value = key;
   chatSkinSendNow(id, p);
-  if (!cs.input.value) { card.dataset.pending = key; chatSkinHatSoon(cs); }   // it went (or is queued): shown as chosen until the message lands
+  if (!cs.input.value) { (cs.hatPending || (cs.hatPending = new Map())).set(card.dataset.uuid, key); chatSkinHatSoon(cs); }   // it went (or is queued): shown as chosen until the message lands; kept on the chat, so a redraw keeps it too
 }
 /* A card's look for a state: 'open' (ask: three live answers), 'auto' (the session put it on by itself: a selected Wearing
    it, then Open and Take it off), or answered with a key (all greyed, the chosen one marked, the outcome said). Built from
    scratch each time, so the same column always draws the same way. */
 function chatSkinHatCardState(card, state, key) {
   card.dataset.state = state;
-  card.classList.toggle('auto', state === 'auto' || (state === 'answered' && card.dataset.wasAuto === '1'));
-  card.classList.toggle('answered', state === 'answered');
+  card.classList.toggle('auto', state === 'auto' || state === 'closed' || (state === 'answered' && card.dataset.wasAuto === '1'));
+  card.classList.toggle('answered', state === 'answered' || state === 'closed');
   const auto = card.classList.contains('auto');
   const done = card.querySelector('.ch-done');
   for (const b of card.querySelectorAll('.ch-acts button')) {
     const a = b.dataset.answer;
     b.classList.remove('chosen', 'state');
-    b.disabled = state === 'answered';
+    b.disabled = state === 'answered' || state === 'closed';
     if (a === 'here') {
       if (auto) { b.disabled = true; b.classList.add('chosen', 'state'); b.replaceChildren(csIcon('check', 12), document.createTextNode(' ' + t('chat.hat.wearing'))); }
       else b.textContent = t('chat.hat.here');
@@ -11683,7 +11686,7 @@ function chatSkinHatCardState(card, state, key) {
     if (a === 'no') b.textContent = t(auto ? 'chat.hat.takeOff' : 'chat.hat.no');
     if (state === 'answered' && a === key) b.classList.add('chosen');
   }
-  const say = state === 'auto' ? 'chat.hat.autoWorn'
+  const say = state === 'auto' || state === 'closed' ? 'chat.hat.autoWorn'
     : state === 'answered' ? (auto && key === 'no' ? 'chat.hat.chose.off' : auto && key !== 'open' ? 'chat.hat.autoWorn' : 'chat.hat.chose.' + key) : '';
   done.textContent = say ? t(say, { name: card.dataset.agent }) : '';
   done.hidden = !say;
@@ -11695,9 +11698,10 @@ function chatSkinHatSoon(cs) {
 }
 /* WHAT THE HAT LINES SAY, decided from the column top to bottom every time, never from the order events arrived in (a reload
    replays history in one go, and scrolling up adds older rows above newer ones). Pure, so the tests can run a column:
-   rows, in column order, are { kind: 'user', text, bus } | { kind: 'worn', name, failed } | { kind: 'reply', suggest, wearing,
+   rows, in column order, are { kind: 'user', text } | { kind: 'worn', name, failed } | { kind: 'reply', suggest, wearing,
    opened }. Walking down:
-   - an operator's message (not one the bus typed) answers every open card above it;
+   - any message after a card answers every open card above it (a card only ever closes, never reopens);
+   - a card the AIOS put on closes when the hat changes under it;
    - a hat going on ("Wearing agent", or /aios:agent as a call) right after its own suggestion, unanswered, makes that card
      "put on by your AIOS" and needs no line of its own; otherwise it shows as the hat change, unless it is already on;
    - "Wearing agent: none." takes the hat off (said only when one was on);
@@ -11713,9 +11717,11 @@ function chatHatPlan(rows) {
     for (let j = open.length - 1; j >= 0; j--) if (rows[open[j]].suggest === name) { out[open[j]].card = { state: 'auto' }; out[open[j]].wasAuto = true; return true; }
     return false;
   };
+  /* The hat changed under a card the AIOS put on: that card's choices are about a hat no longer on, so it closes. */
+  const closeAutos = (keep) => { open = open.filter((j) => { if (out[j].card && out[j].card.state === 'auto' && rows[j].suggest !== keep) { out[j].card = { state: 'closed' }; return false; } return true; }); };
   rows.forEach((r, i) => {
     if (r.kind === 'user') {
-      if (r.bus || !String(r.text || '').trim()) return;
+      if (!String(r.text || '').trim()) return;   // any message after a card answers it: a card only ever closes, never reopens
       const key = chatHatAnswerOf(r.text);
       for (const j of open) out[j].card = { state: 'answered', key, wasAuto: !!out[j].wasAuto };
       open = [];
@@ -11723,6 +11729,7 @@ function chatHatPlan(rows) {
     }
     if (r.kind === 'worn') {
       if (r.failed) { out[i].wornHidden = false; return; }
+      closeAutos(r.name);
       out[i].wornHidden = autoFor(r.name);
       hat = r.name;
       return;
@@ -11731,8 +11738,10 @@ function chatHatPlan(rows) {
     if (r.suggest) { out[i].card = { state: 'open' }; cards.push(i); open.push(i); }
     if (r.wearing === 'none') {
       if (hat) out[i].mark = { kind: 'off', name: hat };
+      closeAutos('');
       hat = '';
     } else if (r.wearing) {
+      closeAutos(r.wearing);
       const own = autoFor(r.wearing);
       if (!own && hat !== r.wearing) out[i].mark = { kind: 'on', name: r.wearing };
       hat = r.wearing;
@@ -11754,7 +11763,7 @@ function chatSkinHatRecompute(cs) {
   for (const node of cs.log.querySelectorAll('.chat-row, .chat-note')) {
     const rec = byNode.get(node);
     if (!rec) continue;
-    if (rec.role === 'user' && !node.hidden) { recs.push(rec); rows.push({ kind: 'user', text: rec.text, bus: node.classList.contains('from-bus') }); }
+    if (rec.role === 'user' && !node.hidden) { recs.push(rec); rows.push({ kind: 'user', text: rec.text }); }
     else if (rec.hatWorn) { recs.push(rec); rows.push({ kind: 'worn', name: rec.hatWorn, failed: !!rec.hatFailed }); }
     else if (rec.role === 'assistant' && rec.hat) { recs.push(rec); rows.push({ kind: 'reply', ...rec.hat }); }
   }
@@ -11766,7 +11775,7 @@ function chatSkinHatRecompute(cs) {
     if (rec.hatCard && o.card) {
       const c = rec.hatCard;
       if (o.wasAuto || (o.card.wasAuto)) c.dataset.wasAuto = '1'; else delete c.dataset.wasAuto;
-      if (o.card.state === 'answered') delete c.dataset.pending;
+      if (o.card.state === 'answered' && cs.hatPending) cs.hatPending.delete(c.dataset.uuid);
       chatSkinHatCardState(c, o.card.state, o.card.key);
     }
     if (rec.hatMark) {
@@ -11794,7 +11803,7 @@ function chatSkinHatRecompute(cs) {
       }
     }
   });
-  for (const i of plan.open) { const c = recs[i].hatCard; if (c && c.dataset.pending) chatSkinHatCardState(c, 'answered', c.dataset.pending); }
+  for (const i of plan.open) { const c = recs[i].hatCard; const k = c && cs.hatPending && cs.hatPending.get(c.dataset.uuid); if (k) chatSkinHatCardState(c, 'answered', k); }
   chatSkinHatChip(cs, plan.hat);
 }
 /* The session put a hat on with /aios:agent: a line in the column (what it says, and whether it shows, is the recompute's). */
@@ -11975,6 +11984,7 @@ function chatSkinStreamAdopt(cs, uuid) {
 function chatSkinResetView(p) {
   const cs = p.chatSkin;
   cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
+  if (cs.hatPending) cs.hatPending.clear();
   cs.hat = ''; if (cs.hatSeg) cs.hatSeg.hidden = true;   // the hat is read again from the transcript, like everything else in the column
   cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end
   cs.log.replaceChildren(cs.stateEl, cs.workEl);

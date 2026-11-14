@@ -4740,25 +4740,60 @@ guarded('a reload or resume: a suggestion followed by the operator\'s answer com
     return r.out[0].card?.state === 'answered' && r.out[0].card?.key === 'here' && r.open.length === 0; },
   (src) => src.replace('for (const j of open) out[j].card = { state: \'answered\', key, wasAuto: !!out[j].wasAuto };', ''));
 
-test('only the last unanswered card stays live; a bus message never answers one', () => {
-  const r = plan([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'no' }, { kind: 'reply', suggest: 'lawyer' }, { kind: 'user', text: 'from another session', bus: true }]);
+test('only the last unanswered card stays live; any message after a card answers it, so a card never reopens', () => {
+  const r = plan([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'no' }, { kind: 'reply', suggest: 'lawyer' }, { kind: 'user', text: 'yes' }]);
   assert.equal(r.out[0].card?.state, 'answered');
-  assert.equal(r.out[2].card?.state, 'open');
-  assert.deepEqual(r.open, [2]);
+  assert.equal(r.out[2].card?.state, 'answered');
+  assert.deepEqual(r.open, []);
+  assert.doesNotMatch(fnBody(app, 'chatHatPlan') + fnBody(app, 'chatSkinHatRecompute'), /from-bus|r\.bus/, 'no message is set aside: a mislabelled one would reopen its card');
 });
+
+guarded('a card the AIOS put on closes when the hat changes under it (none, or another hat)',
+  (src) => { const p = planFn(src);
+    const a = p([{ kind: 'reply', suggest: S, wearing: S }, { kind: 'reply', wearing: 'none' }]);
+    const b = p([{ kind: 'reply', suggest: S, wearing: S }, { kind: 'worn', name: 'lawyer' }]);
+    const c = p([{ kind: 'reply', suggest: S, wearing: S }, { kind: 'reply', wearing: S }]);
+    return a.out[0].card?.state === 'closed' && b.out[0].card?.state === 'closed' && c.out[0].card?.state === 'auto'; },
+  (src) => src.replace("      closeAutos('');\n", ''));
+
+guarded('a hat line quoted inside a code block is not the line',
+  (src) => { const f = hatLinesFn(src);
+    const r = f('The skill writes:\n```\nWearing agent: accountant.\nSuggested agent: accountant (x). Wear it here, or open it as its own session?\n```');
+    return r.wearing === '' && r.suggest === null; },
+  (src) => src.replace('    if (fence) { keep.push(line); continue; }   // a line inside a code block is quoted, never the line itself\n', ''));
 
 guarded('the chip is the LAST hat in the column, in column order: a hat taken off stays off',
   (src) => { const p = planFn(src);
     return p([{ kind: 'reply', wearing: S }, { kind: 'reply', wearing: 'none' }]).hat === ''
       && p([{ kind: 'reply', wearing: 'lawyer' }, { kind: 'worn', name: S }]).hat === S
       && p([{ kind: 'worn', name: S }, { kind: 'reply', wearing: 'lawyer' }, { kind: 'reply', wearing: 'none' }, { kind: 'reply', wearing: 'explainer' }]).hat === 'explainer'; },
-  (src) => src.replace("    if (r.wearing === 'none') {\n      if (hat) out[i].mark = { kind: 'off', name: hat };\n      hat = '';", "    if (r.wearing === 'none') {\n      if (hat) out[i].mark = { kind: 'off', name: hat };"));
+  (src) => src.replace("      closeAutos('');\n      hat = '';", "      closeAutos('');"));
 
-test('scrolling up (older rows above) gives the same answer as reading in order: the plan only sees the column', () => {
-  const column: Row[] = [{ kind: 'reply', suggest: S }, { kind: 'user', text: 'no' }, { kind: 'reply', suggest: 'lawyer' }];
-  const a = plan(column), b = plan(column.slice());
-  assert.deepEqual(a, b);
-  assert.equal(a.out[2].card?.state, 'open', 'the current card stays open: an older message above does not answer it');
+/* The WALK that feeds the plan, run from the real source with a stand-in column: what it reads must be the column on screen,
+   whatever order the rows arrived in (scrolling up adds older rows above newer ones). */
+guarded('the walk reads the column in screen order, not arrival order: an older message added above answers nothing below it',
+  (src) => {
+    const recompute = new Function('chatHatPlan', 'chatSkinHatCardState', 'chatSkinHatChip', 'el', 't', 'csIcon', 'chatHatAvatar', 'panes', 'setActive', 'toast',
+      fnSrc(src, 'chatSkinHatRecompute') + '\nreturn chatSkinHatRecompute;');
+    const mkCard = () => ({ dataset: {} as Record<string, string>, state: '', querySelector: () => ({ hidden: true }) });
+    const node = () => ({ hidden: false, classList: { contains: () => false } });
+    const newCard = { role: 'assistant', node: node(), hat: { suggest: 'lawyer', wearing: '', opened: '' }, hatCard: mkCard() };
+    const oldCard = { role: 'assistant', node: node(), hat: { suggest: S, wearing: '', opened: '' }, hatCard: mkCard() };
+    const olderNo = { role: 'user', node: node(), text: 'no' };
+    const cs = { log: { querySelectorAll: () => [oldCard.node, olderNo.node, newCard.node] },   // the screen: old card, its answer, the new card
+      items: new Map<string, unknown>([['n', newCard], ['o', oldCard], ['u', olderNo]]) };          // arrival: the new card first, the older two loaded later
+    const run = recompute(planFn(src), (c: { state: string }, state: string) => { c.state = state; }, () => {}, () => ({}), () => '', () => ({}), () => ({}), new Map(), () => {}, () => {});
+    run(cs);
+    return oldCard.hatCard.state === 'answered' && newCard.hatCard.state === 'open';
+  },
+  (src) => src.replace("for (const node of cs.log.querySelectorAll('.chat-row, .chat-note')) {", 'for (const node of [...cs.items.values()].map((r) => r.node)) {'));
+
+test('a click still waiting to send survives a redraw, and cannot be sent twice', () => {
+  const a = fnBody(app, 'chatSkinHatAnswer'), r = fnBody(app, 'chatSkinHatRecompute');
+  assert.match(a, /if \(cs\.hatPending && cs\.hatPending\.has\(card\.dataset\.uuid\)\) return;/, 'a second click on the same card does nothing');
+  assert.match(a, /\(cs\.hatPending \|\| \(cs\.hatPending = new Map\(\)\)\)\.set\(card\.dataset\.uuid, key\)/, 'kept on the chat, not on the card a redraw replaces');
+  assert.match(r, /cs\.hatPending\.get\(c\.dataset\.uuid\)/);
+  assert.match(fnBody(app, 'chatHatAvatar'), /chatHatAgent\(name, true\)/, 'a colour never makes the list load again (which redraws)');
 });
 
 guarded('default mode: the hat going on right after its own suggestion makes the card "put on by your AIOS", with one notice',

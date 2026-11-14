@@ -358,13 +358,13 @@ export const discoverAgents = ttlMemo(discoverAgentsUncached, 5000);
  * else its agents/_index.md row) and its bundle folder (its colour). Null when there is no such agent, or the name is not
  * an agent name. The name is checked before it touches a path.
  */
-export function hatAgent(name: string): { name: string; desc: string; group: string } | null {
+export function hatAgent(name: string, listed?: string[]): { name: string; desc: string; group: string } | null {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || name === 'none' || name === 'readme') return null;
   const root = frameworkRoot();
   if (!root) return null;
   const base = path.join(root, 'agents');
-  let rels: string[] = [];
-  try { rels = fs.readdirSync(base, { recursive: true }) as string[]; } catch { return null; }
+  let rels: string[] = listed ?? [];
+  if (!listed) { try { rels = fs.readdirSync(base, { recursive: true }) as string[]; } catch { return null; } }
   const hits = rels.filter((r) => path.basename(r) === `${name}.md`);
   const rel = hits.find((r) => r.split(/[\\/]/)[0] === 'custom') ?? hits[0];   // custom/ overrides a bundled agent of the same name, as the framework says
   if (!rel) return null;
@@ -401,7 +401,7 @@ export function hatAgents(): Array<{ name: string; desc: string; group: string }
     if (/^[a-z0-9][a-z0-9-]*$/.test(n) && n !== 'none' && n !== 'readme') names.add(n);
   }
   const out: Array<{ name: string; desc: string; group: string }> = [];
-  for (const n of names) { const a = hatAgent(n); if (a) out.push(a); }
+  for (const n of names) { const a = hatAgent(n, rels); if (a) out.push(a); }   // one directory read for all of them
   return out;
 }
 
