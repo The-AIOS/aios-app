@@ -365,7 +365,8 @@ export function hatAgent(name: string): { name: string; desc: string; group: str
   const base = path.join(root, 'agents');
   let rels: string[] = [];
   try { rels = fs.readdirSync(base, { recursive: true }) as string[]; } catch { return null; }
-  const rel = rels.find((r) => path.basename(r) === `${name}.md`);
+  const hits = rels.filter((r) => path.basename(r) === `${name}.md`);
+  const rel = hits.find((r) => r.split(/[\\/]/)[0] === 'custom') ?? hits[0];   // custom/ overrides a bundled agent of the same name, as the framework says
   if (!rel) return null;
   const filePath = path.join(base, rel);
   let desc = '';
