@@ -1216,7 +1216,7 @@
   "whatsnew.h3": "Uma mensagem longa com captura de tela chega inteira",
   "whatsnew.b3": "A 0.15.1 fez as mensagens longas coladas chegarem inteiras. Enviado junto com uma captura de tela, o texto ainda podia perder o começo. Agora o texto e a imagem chegam juntos ao Claude, por completo.",
   "whatsnew.h4": "Uma segunda tranca na janela do App",
-  "whatsnew.b4": "A janela do App agora se recusa a executar qualquer script que não faça parte do próprio AIOS. Ela fica atrás da proteção do visualizador de notas, então o conteúdo de uma nota não consegue executar código no AIOS mesmo que algo passe pela primeira verificação. Contribuição de quem relatou o problema de segurança corrigido na 0.15.1.",
+  "whatsnew.b4": "A janela do App agora recusa scripts escritos dentro de uma página, que é como uma nota maliciosa tentaria executar código, e registra tudo o que bloqueia. É uma segunda camada atrás da proteção do próprio visualizador de notas, contribuição de quem relatou o problema de segurança corrigido na 0.15.1.",
   "whatsnew.more": "Notas completas no GitHub →",
   "whatsnew.skipped": "Você também pulou {versions}. O que mudou está nas notas de cada versão.",
   "menu.whatsnew": "Novidades",

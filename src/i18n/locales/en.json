@@ -1216,7 +1216,7 @@
   "whatsnew.h3": "A long message with a screenshot arrives whole",
   "whatsnew.b3": "0.15.1 made long pasted messages arrive in full. Sent together with a screenshot, the text could still lose its beginning. Now the text and the image reach Claude together, all of it.",
   "whatsnew.h4": "A second lock on the App window",
-  "whatsnew.b4": "The App window now refuses to run any script that isn't part of AIOS itself. It sits behind the note viewer's own protection, so content from a note can't run code in AIOS even if something slips past the first check. Contributed by the researcher who reported the security issue fixed in 0.15.1.",
+  "whatsnew.b4": "The App window now refuses scripts written into a page, which is how a malicious note would try to run code, and logs anything it blocks. It's a second layer behind the note viewer's own protection, contributed by the researcher who reported the security issue fixed in 0.15.1.",
   "whatsnew.more": "Full release notes on GitHub →",
   "whatsnew.skipped": "You also skipped {versions}. What they changed is in the release notes.",
   "menu.whatsnew": "What's New",

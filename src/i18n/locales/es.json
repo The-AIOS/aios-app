@@ -1216,7 +1216,7 @@
   "whatsnew.h3": "Un mensaje largo con una captura llega completo",
   "whatsnew.b3": "La 0.15.1 hizo que los mensajes largos pegados llegaran completos. Si los enviabas junto con una captura, el texto aún podía perder su inicio. Ahora el texto y la imagen llegan juntos a Claude, completos.",
   "whatsnew.h4": "Un segundo candado en la ventana de la App",
-  "whatsnew.b4": "La ventana de la App ahora se niega a ejecutar cualquier script que no sea parte de AIOS. Está detrás de la protección propia del visor de notas, así que el contenido de una nota no puede ejecutar código en AIOS aunque algo pase la primera revisión. Lo contribuyó quien reportó el problema de seguridad corregido en la 0.15.1.",
+  "whatsnew.b4": "La ventana de la App ahora rechaza los scripts escritos dentro de una página, que es como una nota maliciosa intentaría ejecutar código, y registra todo lo que bloquea. Es una segunda capa detrás de la protección propia del visor de notas, contribuida por quien reportó el problema de seguridad corregido en la 0.15.1.",
   "whatsnew.more": "Notas completas en GitHub →",
   "whatsnew.skipped": "También te saltaste {versions}. Lo que cambió está en las notas de cada versión.",
   "menu.whatsnew": "Novedades",

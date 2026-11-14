@@ -108,7 +108,17 @@ test('a missing policy fails the script check', () => {
   assert.equal(scriptsLocked(pages['renderer/index.html'].replace(META_RE, '')), false);
 });
 
-guarded('the window reports every refusal, and smoke counts it as an error', app + '\n/*MAIN*/\n' + main,
+const report = fs.readFileSync('renderer/csp-report.js', 'utf8');
+test('the refusal logger loads FIRST in both windows, right after the policy, so nothing loaded earlier goes unlogged', () => {
+  for (const [file, html] of Object.entries(pages)) {
+    const meta = html.search(META_RE);
+    const first = html.indexOf('<script');
+    assert.ok(meta >= 0 && first > meta, `${file}: the policy comes before any script`);
+    assert.match(html.slice(first), /^<script src="csp-report\.js"><\/script>/, `${file}: the first script is the logger`);
+  }
+});
+
+guarded('the window reports every refusal, and smoke counts it as an error', report + '\n/*MAIN*/\n' + main,
   (s) => /addEventListener\('securitypolicyviolation'[\s\S]{0,200}console\.error\(`aios-csp-violation /.test(s)
     && /msg\.startsWith\('aios-csp-violation '\)\) rendererErrors\.push/.test(s),
   (s) => s.replace("msg.startsWith('aios-csp-violation ')) rendererErrors.push", "msg.startsWith('aios-csp-violation ')) void"));

@@ -16,12 +16,7 @@ const IS_LINUX = !!(window.glassShell && window.glassShell.platform === 'linux')
 /* macOS specifically, not "not Windows" — Linux is neither, and the one place this decides is
    whether a ⌘ can stand for "shortcuts". It cannot anywhere else. */
 const IS_MAC = !!(window.glassShell && window.glassShell.platform === 'darwin');
-/* The window's Content Security Policy (index.html, #162) refuses anything it was not told about.
-   Say so in one greppable line, so `npm run smoke` fails on a refused file instead of the App
-   quietly losing a feature. Fires for this document's own policy only, never a board's. */
-document.addEventListener('securitypolicyviolation', (e) => {
-  console.error(`aios-csp-violation ${e.effectiveDirective || e.violatedDirective} ${e.blockedURI || '(inline)'}`);
-});
+/* The window's Content Security Policy violations are logged by renderer/csp-report.js, loaded first (#162). */
 /* WHAT A Ctrl+C / Ctrl+V KEYDOWN MEANS IN A TERMINAL, off macOS. Returns 'copy', 'paste', or
    null — null meaning "not ours": the key goes on exactly as before this existed.
    Windows Terminal and VS Code's terminal conventions, because that is what an operator on
