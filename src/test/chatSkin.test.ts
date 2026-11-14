@@ -3997,25 +3997,34 @@ test('a message sent during a turn shows at once as queued, and leaves when the 
   for (const l of ['en', 'es', 'pt-br', 'el']) assert.ok(read(`src/i18n/locales/${l}.json`).includes('"chat.queued"'), l);
 });
 
-test('an image path in a chat message is PASTED, so Claude Code attaches it as [Image #N]; the rest is typed (0.14.1 round)', () => {
+test('an image path in a chat message is PASTED, so Claude Code attaches it as [Image #N]; the text around it is pasted too (#155)', () => {
   const a = app.indexOf('const CHAT_IMAGE_EXT');
   const parts = new Function(app.slice(a, app.indexOf('\n}\n', app.indexOf('function chatSkinImageParts')) + 2) + 'return chatSkinImageParts;')() as (t: string) => unknown;
   assert.deepEqual(parts('what is wrong here? "/tmp/aios-chat-paste/paste-1-abc.png" '), ['what is wrong here? ', { paste: '/tmp/aios-chat-paste/paste-1-abc.png' }, ' '], 'the quoted path the chat box inserts');
   assert.deepEqual(parts('two: "/a b/x.PNG" and /c/y.jpg done'), ['two: ', { paste: '/a b/x.PNG' }, ' and ', { paste: '/c/y.jpg' }, ' done'], 'several, quoted or bare, any case');
   assert.equal(parts('no image /tmp/notes.md here'), null, 'control: a path to something else stays text');
   assert.equal(parts('see x.png'), null, 'control: a relative name stays text');
-  /* submitToPty with parts: strings typed, paths inside bracketed paste, then ONE Enter as its own write. */
-  const at = app.indexOf('function submitToPty(');
-  const writes: string[] = []; const timers: Array<() => void> = [];
-  const submit = new Function('window', 'setTimeout', app.slice(at, app.indexOf('\n}\n', at) + 2) + 'return submitToPty;')(
-    { glassShell: { ptyWrite: (_id: string, s: string) => writes.push(s) } }, (f: () => void) => { timers.push(f); return 0; }) as (id: string, t: unknown) => void;
-  submit('a', ['look ', { paste: '/tmp/s.png' }, ' thanks']);
-  assert.deepEqual(writes, ['look ', '\x1b[200~/tmp/s.png\x1b[201~', ' thanks'], 'typed, pasted, typed');
-  timers.forEach((f) => f());
-  assert.deepEqual(writes.slice(-1), ['\r'], 'then Enter, alone');
-  const sub = app.slice(app.indexOf('function chatSkinSubmit('), app.indexOf('function chatSkinSubmit(') + 1200);
-  assert.match(sub, /const imgParts = text\.startsWith\('\/'\) \? null : chatSkinImageParts\(text\);\s*if \(imgParts\) submitToPty\(id, imgParts\);/, 'the chat send uses it; a slash command never does');
+  /* submitToPty with parts: every part its own bracketed paste (no ESC inside), empty parts skipped, then ONE Enter. */
+  const writes = partWrites(app, ['look ', { paste: '/tmp/s.png' }, '', ' thanks\x1b[201~']);
+  assert.deepEqual(writes, ['\x1b[200~look \x1b[201~', '\x1b[200~/tmp/s.png\x1b[201~', '\x1b[200~ thanks[201~\x1b[201~', '\r'], 'pasted, pasted, pasted, then Enter alone');
+  const sub = app.slice(app.indexOf('function chatSkinSubmit('), app.indexOf('function chatSkinSubmit(') + 1600);
+  assert.match(sub, /const imgParts = text\.startsWith\('\/'\) \|\| text\.startsWith\('!'\) \? null : chatSkinImageParts\(text\);\s*if \(imgParts\) submitToPty\(id, imgParts\);/, 'the chat send uses it; a slash command or a "!" shell line never does');
 });
+
+/** Run the real submitToPty from `src` on a list of parts; return what it wrote to the pty, Enter last. */
+function partWrites(src: string, parts: unknown[]): string[] {
+  const at = src.indexOf('function submitToPty(');
+  const writes: string[] = []; const timers: Array<() => void> = [];
+  const submit = new Function('window', 'setTimeout', src.slice(at, src.indexOf('\n}\n', at) + 2) + 'return submitToPty;')(
+    { glassShell: { ptyWrite: (_id: string, s: string) => writes.push(s) } }, (f: () => void) => { timers.push(f); return 0; }) as (id: string, t: unknown) => void;
+  submit('a', parts);
+  timers.forEach((f) => f());
+  return writes;
+}
+
+guarded('a long message sent with an image arrives whole: the text parts are pasted, never typed (#155)',
+  (src) => { const w = partWrites(src, ['x'.repeat(1500), { paste: '/tmp/s.png' }]); return w[0] === '\x1b[200~' + 'x'.repeat(1500) + '\x1b[201~' && w.length === 3; },
+  (src) => src.replace("if (s) window.glassShell.ptyWrite(id, '\\x1b[200~' + s.replace(/\\x1b/g, '') + '\\x1b[201~');", "if (s) window.glassShell.ptyWrite(id, typeof part === 'string' ? s : '\\x1b[200~' + s + '\\x1b[201~');"));
 
 test('the mode row is not mirrored under the chat (the chip says it), and Shift+Tab in the chat box cycles the mode (0.14.1 round)', () => {
   const re = new Function(app.slice(app.indexOf('const CS_MODE_ROW'), app.indexOf('\n', app.indexOf('const CS_MODE_ROW')) + 1) + 'return CS_MODE_ROW;')() as RegExp;
