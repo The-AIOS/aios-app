@@ -11513,9 +11513,10 @@ function chatHatLines(text) {
   let suggest = null, wearing = '';
   const keep = [];
   for (const line of lines) {
-    const s = CHAT_HAT_LINE.exec(line.trim());
+    const whole = line.replace(/\r$/, '');   // whole lines only: an indented or quoted copy is not the line
+    const s = CHAT_HAT_LINE.exec(whole);
     if (s) { suggest = { name: s[1], why: s[2] }; continue; }
-    const w = CHAT_HAT_WEARING.exec(line.trim());
+    const w = CHAT_HAT_WEARING.exec(whole);
     if (w) { wearing = w[1]; continue; }
     keep.push(line);
   }
@@ -11526,12 +11527,14 @@ function chatHatSuggestion(text) {
   const h = chatHatLines(text);
   return h.suggest ? { name: h.suggest.name, why: h.suggest.why, rest: h.rest } : null;
 }
-/* What each agent is for, from the framework (the descriptions the Ask panel lists), fetched once and shared. */
-let chatHatPurposes = null;
-function chatHatPurpose(name) {
-  if (!chatHatPurposes) chatHatPurposes = Promise.resolve(window.glassShell.askDestinations ? window.glassShell.askDestinations() : null)
+/* The agents that exist in the framework (each with what it is for, the descriptions the Ask panel lists), read once and
+   shared. A line naming an agent that is not here is not drawn at all (security review, The-AIOS/aios#299): it stays text.
+   If the list cannot be read, nothing is drawn. */
+let chatHatAgentList = null;
+function chatHatAgents() {
+  if (!chatHatAgentList) chatHatAgentList = Promise.resolve(window.glassShell.askDestinations ? window.glassShell.askDestinations() : null)
     .then((d) => new Map(((d && d.agents) || []).map((a) => [a.name, String(a.desc || '')]))).catch(() => new Map());
-  return chatHatPurposes.then((m) => m.get(name) || '');
+  return chatHatAgentList;
 }
 /** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
     "aios:agent <name>") or as the operator's own command card ("/aios:agent <name>"). Pure, for the tests. */
@@ -11571,7 +11574,6 @@ function chatSkinHatCard(rec, hs, cs) {
   who.append(el('strong', 'ch-name', hs.name), el('span', 'ch-why', hs.why));
   const purpose = el('div', 'ch-purpose');
   purpose.hidden = true;
-  void chatHatPurpose(hs.name).then((d) => { if (d && d !== hs.why) { purpose.textContent = d; purpose.hidden = false; } });
   const acts = el('div', 'ch-acts');
   for (const key of ['here', 'open', 'no']) {
     const b = el('button', 'vbtn', t('chat.hat.' + key));
@@ -11582,6 +11584,7 @@ function chatSkinHatCard(rec, hs, cs) {
   }
   const done = el('div', 'ch-done');
   done.hidden = true;
+  if (hs.purpose && hs.purpose !== hs.why) { purpose.textContent = hs.purpose; purpose.hidden = false; }
   card.append(head, who, purpose, acts, done);
   rec.body.after(card);
   rec.hatCard = card;
@@ -11668,11 +11671,22 @@ function chatSkinUpsert(cs, item, animate, before) {
   if (rec.role !== 'user' && animate) cs.lastReplyAt = Date.now();   // news from Claude (not history being loaded): the last message has its answer
   if (rec.role === 'assistant') {
     if (rec.text !== text) {   // links only on the FINAL render: the provisional bubble below never gets them
-      const hl = chatHatLines(text);   // the hat lines become a card and a hat change (#109); copy still copies the whole reply
-      const hs = hl.suggest ? { ...hl.suggest, rest: hl.rest } : null;
-      chatRender(rec.body, hs || hl.wearing ? hl.rest : text); rec.text = text; chatLinkPaths(rec.body, cs);
-      chatSkinHatCard(rec, hs, cs);
-      chatSkinHatWearing(rec, hl.wearing, cs);
+      chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs);
+      /* The hat lines become a card and a hat change (#109), but only once the agent they name is checked to exist: until
+         then, and for a name that is not an agent, the reply shows as written. Copy still copies the whole reply. */
+      const hl = chatHatLines(text);
+      chatSkinHatCard(rec, null, cs); chatSkinHatWearing(rec, '', cs);
+      if (hl.suggest || hl.wearing) {
+        void chatHatAgents().then((agents) => {
+          if (rec.text !== text || !rec.node.isConnected) return;   // the reply changed or left meanwhile
+          const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name) } : null;
+          const wearing = hl.wearing && agents.has(hl.wearing) ? hl.wearing : '';
+          if (!hs && !wearing) return;
+          chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
+          chatSkinHatCard(rec, hs, cs);
+          chatSkinHatWearing(rec, wearing, cs);
+        });
+      }
     }
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {

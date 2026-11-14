@@ -4672,7 +4672,7 @@ test('0.15.0 review 2: the long-question switch never takes the keyboard from an
 });
 
 /* ── Hats (#109): the suggest-agent line from The-AIOS/aios#299, drawn as a card; putting the agent on, as a hat change ── */
-const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')) + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf, chatHatReadOf };')() as {
+const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')).replace(/let chatHatAgentList[\s\S]*?\n\}\n/, '') + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf, chatHatReadOf };')() as {
   chatHatSuggestion: (t: string) => { name: string; why: string; rest: string } | null;
   chatHatWorn: (i: { name: string; summary: string }) => string;
   chatHatAnswerOf: (t: string) => string;
@@ -4710,7 +4710,7 @@ test('the Skill call\'s one-line summary carries its args, so the hat it loads c
 guarded('a reply with the line shows the card in place of the line; loading the agent is a hat change, not a tool card',
   (src) => {
     const up = fnBody(src, 'chatSkinUpsert');
-    return /const hl = chatHatLines\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up) && /chatSkinHatWearing\(rec, hl\.wearing, cs\);/.test(up)
+    return /const hl = chatHatLines\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up) && /chatSkinHatWearing\(rec, wearing, cs\);/.test(up)
       && /const worn = info0 \? \(chatHatWorn\(info0\) \|\|/.test(up) && /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/.test(up)
       && /\} else if \(rec\.hatWorn\) \{\n\s*chatSkinPaintHatWorn\(rec, item, cs\);/.test(up);
   },
@@ -4733,7 +4733,7 @@ guarded('a session that puts the hat on by reading the agent\'s file counts too,
   (src) => src.replace("(cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')", "(chatHatReadOf(info0))"));
 
 /* Fixtures for the framework's two hat lines (The-AIOS/aios#299): read only in Claude's own text. */
-const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* What each agent is for')) + '\nreturn chatHatLines;')() as
+const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agents that exist in the framework')) + '\nreturn chatHatLines;')() as
   (t: string) => { suggest: { name: string; why: string } | null; wearing: string; rest: string };
 guarded('"Wearing agent: <name>." is the hat a session says it put on; a malformed line is just text',
   (src) => {
@@ -4768,5 +4768,31 @@ test('the hat lines are read in Claude\'s text only: inside a tool result or the
   const up = fnBody(app, 'chatSkinUpsert');
   assert.match(up, /if \(rec\.role === 'assistant'\) \{[\s\S]*const hl = chatHatLines\(text\);/, 'read in the assistant branch');
   assert.doesNotMatch(up.slice(up.indexOf("} else if (rec.role === 'user')")), /chatHatLines|chatHatSuggestion/, 'never in the user or tool branches');
+});
+
+guarded('a hat line is drawn only for an agent that exists; any other name stays text (security review, aios#299)',
+  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && agents\.has\(hl\.suggest\.name\)/.test(up) && /const wearing = hl\.wearing && agents\.has\(hl\.wearing\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
+    && /chatRender\(rec\.body, text\); rec\.text = text;/.test(up); },
+  (src) => src.replace("const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name) } : null;", 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
+
+test('only whole lines count: an indented, quoted or listed copy is not the line', () => {
+  const f = hatLinesFn(app);
+  const line = 'Suggested agent: accountant (invoices). Wear it here, or open it as its own session?';
+  assert.ok(f(line).suggest && f(line + '\r').suggest, 'the line, and with a CRLF ending');
+  for (const v of ['  ' + line, '> ' + line, '- ' + line, '`' + line + '`']) assert.equal(f(v).suggest, null, JSON.stringify(v));
+});
+
+test('the reason and the purpose are written as text, never as markup; nothing on the card is innerHTML', () => {
+  const card = fnBody(app, 'chatSkinHatCard');
+  assert.match(card, /el\('span', 'ch-why', hs\.why\)/);
+  assert.match(card, /purpose\.textContent = hs\.purpose/);
+  assert.doesNotMatch(card + fnBody(app, 'chatSkinHatWearing') + fnBody(app, 'chatSkinHatMark'), /innerHTML|insertAdjacentHTML|chatRender\(/);
+});
+
+test('a hat line never loads an agent or sends anything by itself: only a button the operator clicks sends a word', () => {
+  for (const fn of ['chatSkinHatCard', 'chatSkinHatWearing', 'chatSkinHatSettle', 'chatSkinHatChip', 'chatSkinPaintHatWorn']) {
+    assert.doesNotMatch(fnBody(app, fn), /chatSkinSendNow|chatSkinSubmit|submitToPty|ptyWrite|createPane|spawn/, fn);
+  }
+  assert.match(fnBody(app, 'chatSkinHatCard'), /addEventListener\('click', \(\) => chatSkinHatAnswer\(cs, card, key\)\)/);
 });
 
