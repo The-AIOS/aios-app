@@ -1330,6 +1330,7 @@
   "chat.hat.chose.no": "You went on without {name}.",
   "chat.hat.chose.other": "Answered in the chat.",
   "chat.hat.worn": "Now wearing the {name} hat",
+  "chat.hat.off": "Took the {name} hat off",
   "chat.hat.wornFailed": "Couldn't put on the {name} hat",
   "chat.hat.chip": "This session is wearing the {name} hat",
   "chat.hat.boxBusy": "Send or clear what you're typing first.",

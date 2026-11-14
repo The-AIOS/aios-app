@@ -1330,6 +1330,7 @@
   "chat.hat.chose.no": "Você seguiu sem {name}.",
   "chat.hat.chose.other": "Respondido no chat.",
   "chat.hat.worn": "Agora com o chapéu de {name}",
+  "chat.hat.off": "Tirou o chapéu de {name}",
   "chat.hat.wornFailed": "Não foi possível pôr o chapéu de {name}",
   "chat.hat.chip": "Esta sessão está com o chapéu de {name}",
   "chat.hat.boxBusy": "Primeiro envie ou apague o que você está digitando.",

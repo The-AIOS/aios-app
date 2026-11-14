@@ -2256,6 +2256,7 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-hat .ch-done { margin-top: 7px; color: var(--subtle); font-size: .85em; }
 .chat-note.hat { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); border-color: color-mix(in srgb, var(--st-testing) 40%, transparent); }
 .chat-note.hat .cs-ico { color: var(--st-testing); }
+.chat-note.hat.off { color: var(--subtle); border-color: var(--chat-claude-line); }
 .chat-note.hat.failed { color: var(--subtle); border-color: var(--chat-claude-line); }
 .chat-note.hat.failed .cs-ico { color: var(--faint); }
 .cb-hat .ch-av { width: 16px; height: 16px; font-size: 10px; border-radius: 4px; }

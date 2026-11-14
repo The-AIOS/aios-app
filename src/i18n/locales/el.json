@@ -1343,6 +1343,7 @@
   "chat.hat.chose.no": "Συνέχισες χωρίς τον {name}.",
   "chat.hat.chose.other": "Απαντήθηκε στη συνομιλία.",
   "chat.hat.worn": "Τώρα με το καπέλο του {name}",
+  "chat.hat.off": "Έβγαλε το καπέλο του {name}",
   "chat.hat.wornFailed": "Δεν ήταν δυνατό να μπει το καπέλο του {name}",
   "chat.hat.chip": "Αυτή η συνεδρία φοράει το καπέλο του {name}",
   "chat.hat.boxBusy": "Στείλε ή σβήσε πρώτα αυτό που γράφεις.",

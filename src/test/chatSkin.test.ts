@@ -4771,7 +4771,7 @@ test('the hat lines are read in Claude\'s text only: inside a tool result or the
 });
 
 guarded('a hat line is drawn only for an agent that exists; any other name stays text (security review, aios#299)',
-  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && agents\.has\(hl\.suggest\.name\)/.test(up) && /const wearing = hl\.wearing && agents\.has\(hl\.wearing\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
+  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && agents\.has\(hl\.suggest\.name\)/.test(up) && /const wearing = hl\.wearing && \(hl\.wearing === 'none' \|\| agents\.has\(hl\.wearing\)\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing\) return;/.test(up)
     && /chatRender\(rec\.body, text\); rec\.text = text;/.test(up); },
   (src) => src.replace("const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name).desc } : null;", 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
 
@@ -4816,4 +4816,9 @@ guarded('a hat the session put on by itself turns its card into "your AIOS put i
   (src) => { const w = fnBody(src, 'chatSkinHatWearing'), a = fnBody(src, 'chatSkinHatAuto');
     return /r\.hatCard\.dataset\.agent === name\) chatSkinHatAuto\(r\.hatCard\)/.test(w) && /here\.hidden = true;/.test(a) && /no\.textContent = t\('chat\.hat\.takeOff'\)/.test(a) && !/chatSkinSendNow|submitToPty|ptyWrite/.test(a); },
   (src) => src.replace("if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);", ''));
+
+guarded('"Wearing agent: none." takes the hat off: the chip goes, and a reply that says so is not mistaken for an agent called none',
+  (src) => { const w = fnBody(src, 'chatSkinHatWearing'), up = fnBody(src, 'chatSkinUpsert');
+    return /if \(name === 'none'\) \{[\s\S]*chatSkinHatChip\(cs, ''\);\s*return;/.test(w) && /hl\.wearing === 'none' \|\| agents\.has\(hl\.wearing\)/.test(up) && hatLinesFn(src)('Wearing agent: none.').wearing === 'none'; },
+  (src) => src.replace("hl.wearing === 'none' || agents.has(hl.wearing)", 'agents.has(hl.wearing)'));
 

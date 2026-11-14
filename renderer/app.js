@@ -11666,6 +11666,17 @@ function chatSkinPaintHatWorn(rec, item, cs) {
 function chatSkinHatWearing(rec, name, cs) {
   if (rec.hatMark) { rec.hatMark.remove(); rec.hatMark = null; }
   if (!name) return;
+  if (name === 'none') {   // "Wearing agent: none." — the hat came off ("no", or "open" moved the work to its own session)
+    if (cs.hat) {
+      const mark = el('div', 'chat-note hat off in-bubble');
+      mark.append(chatHatAvatar(cs.hat), el('span', '', t('chat.hat.off', { name: cs.hat })));
+      rec.body.before(mark);
+      rec.hatMark = mark;
+    }
+    cs.hatWanted = '';
+    chatSkinHatChip(cs, '');
+    return;
+  }
   if (cs.hat !== name && !(rec.hatCard && rec.hatCard.dataset.agent === name)) {   // its own card already says so
     const mark = el('div', 'chat-note hat in-bubble');
     mark.append(chatHatAvatar(name), el('span', '', t('chat.hat.worn', { name })));
@@ -11719,7 +11730,7 @@ function chatSkinUpsert(cs, item, animate, before) {
         void chatHatAgents().then((agents) => {
           if (rec.text !== text || !rec.node.isConnected) return;   // the reply changed or left meanwhile
           const hs = hl.suggest && agents.has(hl.suggest.name) ? { ...hl.suggest, purpose: agents.get(hl.suggest.name).desc } : null;
-          const wearing = hl.wearing && agents.has(hl.wearing) ? hl.wearing : '';
+          const wearing = hl.wearing && (hl.wearing === 'none' || agents.has(hl.wearing)) ? hl.wearing : '';   // 'none': the hat came off (no agent is named none)
           if (!hs && !wearing) return;
           chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
           chatSkinHatCard(rec, hs, cs);
