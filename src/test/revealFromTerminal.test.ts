@@ -43,7 +43,7 @@ test('the hover tip names both gestures, so the second one is discoverable', () 
 test('the viewer header carries a "Reveal in Finder" button for EVERY file, not one extension', () => {
   const i = app.indexOf('async function openViewer(p) {');
   assert.ok(i >= 0, 'openViewer moved?');
-  const body = app.slice(i, i + 7000);
+  const body = app.slice(i, i + 14000);   // widened in 0.15.2: the save-against-disk block (#159) sits above the header
   /* NOT inside the HTML-only block: the PNG button is gated by `if (HTML_EXT.test(name))`, and a
      reveal that only worked for .html would miss exactly the files that motivated it (images,
      PDFs — the non-editable ones, whose preview is a dead end). Searched from the END of that

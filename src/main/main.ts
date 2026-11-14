@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme, protocol, screen } from 'electron';
 import { fitToWorkArea } from '../core/windowFit';
+import { decideSave } from '../core/saveMerge';
 import { registerBoardScheme, installBoardProtocol, guardBoardNavigation, listBoards } from './boards';   // #91
 import { startHitServer, writeHostileBoard, judgeProbe, recordRequests, sleep, type HitServer, type HostileFixture } from './boardProbe';   // #91 smoke gate
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
@@ -1936,6 +1937,24 @@ ipcMain.handle('fs:write', (_e, relOrAbs: string, content: string) => {
     fs.renameSync(tmp, abs);
     return true;
   } catch { return false; }
+});
+/* The viewer's save (#159): decided against the disk NOW, not the copy the editor read. `base` is the text the editor
+   started from; if an agent changed the note since, both changes are merged, or nothing is written and the renderer asks.
+   The plain fs:write stays for writers that own their file outright (the Designer) and for "keep my version". */
+ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string) => {
+  const abs = resolveIn(relOrAbs);
+  if (!abs || typeof base !== 'string' || typeof mine !== 'string') return { ok: false };
+  let disk: string | null = null;
+  try { disk = fs.readFileSync(abs, 'utf8'); } catch { disk = null; }
+  const d = decideSave(base, mine, disk);
+  if ('conflict' in d) return { ok: false, conflict: true, disk };
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const tmp = abs + '.glass-tmp';
+    fs.writeFileSync(tmp, d.write);
+    fs.renameSync(tmp, abs);
+    return { ok: true, content: d.write, merged: d.write !== mine };
+  } catch { return { ok: false }; }
 });
 // Designer: the app no longer writes framework infra — it reads the catalog so the
 // operator can borrow a bundled unit's shape or pick one of their OWN custom units to
