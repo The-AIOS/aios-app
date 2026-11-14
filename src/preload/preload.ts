@@ -111,6 +111,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   askDestinations: () => ipcRenderer.invoke('ask:destinations'),
   /** The agent a hat line names, if a file agents/**\/<name>.md exists: its purpose and bundle folder (#109). */
   hatAgent: (name: string): Promise<{ name: string; desc: string; group: string } | null> => ipcRenderer.invoke('hat:agent', name),
+  /** Every agent a hat line may name, by the same rule (#109). */
+  hatAgents: (): Promise<Array<{ name: string; desc: string; group: string }>> => ipcRenderer.invoke('hat:agents'),
   askSend: (dest: { kind: string; name: string }, text: string) => ipcRenderer.invoke('ask:send', dest, text),
   // vault-scoped fs for explorer + viewers
   fsList: (rel: string): Promise<{ name: string; dir: boolean; path: string; mtime: number }[]> => ipcRenderer.invoke('fs:list', rel),
@@ -162,7 +164,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   vaultRoot: (): Promise<string | null> => ipcRenderer.invoke('shell:vaultRoot'),
   fsWrite: (p: string, content: string): Promise<boolean> => ipcRenderer.invoke('fs:write', p, content),
   /** Save a note against the disk now (#159): merges an agent's change, or reports a conflict and writes nothing. */
-  fsSaveMerged: (p: string, base: string, mine: string, prefer?: 'mine'): Promise<{ ok: boolean; conflict?: boolean; disk?: string | null; content?: string; merged?: boolean; copy?: string | null }> => ipcRenderer.invoke('fs:saveMerged', p, base, mine, prefer),
+  fsSaveMerged: (p: string, base: string, mine: string, prefer?: 'mine', keepOnConflict?: boolean): Promise<{ ok: boolean; conflict?: boolean; disk?: string | null; content?: string; merged?: boolean; copy?: string | null }> => ipcRenderer.invoke('fs:saveMerged', p, base, mine, prefer, keepOnConflict),
   /** A save conflict's other version, written beside the note as a new file that never overwrites anything (#159). */
   fsWriteConflictCopy: (p: string, content: string): Promise<string | null> => ipcRenderer.invoke('fs:writeConflictCopy', p, content),
   setupCheck: (): Promise<{ id: string; label: string; status: 'pass' | 'warn' | 'fail'; message: string; repairHint?: string; repairCmd?: string; canRepair: boolean }[]> => ipcRenderer.invoke('setup:check'),

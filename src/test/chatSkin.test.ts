@@ -4671,81 +4671,42 @@ test('0.15.0 review 2: the long-question switch never takes the keyboard from an
   assert.match(css, /body\.light \.chatskin \.cs-sticky \{ background: color-mix\(in srgb, var\(--chat-user-bg\) 90%, transparent\); \}/);
 });
 
-/* ── Hats (#109): the suggest-agent line from The-AIOS/aios#299, drawn as a card; putting the agent on, as a hat change ── */
-const hatFns = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('function chatSkinPaneIdOf(')).replace(/const chatHatAgentCache[\s\S]*?\n\}\n/, '') + '\nreturn { chatHatSuggestion, chatHatWorn, chatHatAnswerOf, chatHatReadOf };')() as {
-  chatHatSuggestion: (t: string) => { name: string; why: string; rest: string } | null;
-  chatHatWorn: (i: { name: string; summary: string }) => string;
-  chatHatAnswerOf: (t: string) => string;
-  chatHatReadOf: (i: { name: string; summary: string }) => string;
-};
-guarded('the suggestion line is read exactly as the framework writes it, and nothing like it passes for one',
+/* ── Hats (#109): the framework's hat lines (The-AIOS/aios#299), drawn as a card and a hat change ── */
+/* The pure parts, run from the real source: the line parser, the answer words, the colour key, and the ORDER plan that
+   decides every card, hat change and the chip from the column top to bottom. */
+const hatSrc = (src: string) => src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agents a hat line may name, checked'));
+const hatLinesFn = (src: string) => new Function(hatSrc(src) + '\nreturn chatHatLines;')() as
+  (t: string) => { suggest: { name: string; why: string } | null; wearing: string; opened: string; rest: string };
+const fnSrc = (src: string, name: string) => src.slice(src.indexOf(`function ${name}(`), src.indexOf('\n}\n', src.indexOf(`function ${name}(`)) + 3);
+type Row = { kind: 'user'; text: string; bus?: boolean } | { kind: 'worn'; name: string; failed?: boolean } | { kind: 'reply'; suggest?: string; wearing?: string; opened?: string };
+type Plan = { out: Array<{ card?: { state: string; key?: string; wasAuto?: boolean }; mark?: { kind: string; name: string }; opened?: { name: string; onCard: number | null }; wornHidden?: boolean }>; hat: string; open: number[] };
+const planFn = (src: string) => new Function(fnSrc(src, 'chatHatAnswerOf') + fnSrc(src, 'chatHatPlan') + '\nreturn chatHatPlan;')() as (rows: Row[]) => Plan;
+const plan = planFn(app);
+
+guarded('the suggestion line is read exactly as the framework writes it; malformed, quoted or translated copies stay text',
   (src) => {
-    const { chatHatSuggestion: f } = hatFns(src);
-    const reply = 'This is bookkeeping work.\n\nSuggested agent: accountant (invoices and bookkeeping). Wear it here, or open it as its own session?';
-    const hit = f(reply);
-    return !!hit && hit.name === 'accountant' && hit.why === 'invoices and bookkeeping' && hit.rest === 'This is bookkeeping work.'
-      && f('**Suggested agent: accountant (invoices). Wear it here, or open it as its own session?**') === null      // bold: not the line
-      && f('Agente sugerido: accountant (facturas). ¿Usarlo aquí o abrirlo como su propia sesión?') === null       // translated: not the line
-      && f('Suggested agent: Accountant (x). Wear it here, or open it as its own session?') === null               // names are lowercase
-      && f('We could use the accountant agent here.') === null;
+    const f = hatLinesFn(src);
+    const line = 'Suggested agent: accountant (invoices and bookkeeping). Wear it here, or open it as its own session?';
+    const hit = f('This is bookkeeping work.\n\n' + line);
+    const bad = ['**' + line + '**', '`' + line + '`', '  ' + line, '> ' + line, '- ' + line,
+      'Suggested agent: Accountant (x). Wear it here, or open it as its own session?',
+      'Suggested agent: accountant, lawyer (money). Wear it here, or open it as its own session?',
+      'Suggested agent: accountant. Wear it here, or open it as its own session?',
+      'Suggested agent: accountant (). Wear it here, or open it as its own session?',
+      'Agente sugerido: accountant (facturas). ¿Usarlo aquí o abrirlo como su propia sesión?'];
+    return !!hit.suggest && hit.suggest.name === 'accountant' && hit.suggest.why === 'invoices and bookkeeping' && hit.rest === 'This is bookkeeping work.'
+      && !!f(line + '\r').suggest && bad.every((b) => f(b).suggest === null && f(b).rest === b.trim());
   },
   (src) => src.replace("const CHAT_HAT_LINE = /^Suggested agent: ([a-z0-9][a-z0-9-]*) \\((.{1,80})\\)\\. Wear it here, or open it as its own session\\?$/;", "const CHAT_HAT_LINE = /Suggested agent: (\\S+) \\((.*)\\)/i;"));
 
-test('putting an agent on is recognised from Claude\'s Skill call and from the operator\'s typed command; the answer words map to the skill\'s', () => {
-  const { chatHatWorn: w, chatHatAnswerOf: a } = hatFns(app);
-  assert.equal(w({ name: 'Skill', summary: 'aios:agent accountant' }), 'accountant');
-  assert.equal(w({ name: '/aios:agent lawyer', summary: '' }), 'lawyer');
-  assert.equal(w({ name: 'Skill', summary: 'aios:today' }), '', 'another command is not a hat');
-  assert.equal(w({ name: 'Bash', summary: 'aios:agent accountant' }), '', 'only the Skill call or the typed command');
-  assert.deepEqual(['here', 'yes', 'open', 'no', 'Not now', 'what about taxes?'].map(a), ['here', 'here', 'open', 'no', 'no', 'other']);
-});
-
-test('the Skill call\'s one-line summary carries its args, so the hat it loads can be named', () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { summarizeTool } = require('../core/chatEvents') as { summarizeTool: (n: string, i: unknown) => string };
-  assert.equal(summarizeTool('Skill', { skill: 'aios:agent', args: 'accountant' }), 'aios:agent accountant');
-  assert.equal(summarizeTool('Skill', { skill: 'aios:today' }), 'aios:today');
-});
-
-guarded('a reply with the line shows the card in place of the line; loading the agent is a hat change, not a tool card',
-  (src) => {
-    const up = fnBody(src, 'chatSkinUpsert');
-    return /const hl = chatHatLines\(text\);/.test(up) && /chatSkinHatCard\(rec, hs, cs\);/.test(up) && /chatSkinHatWearing\(rec, wearing, cs\);/.test(up)
-      && /const worn = info0 \? \(chatHatWorn\(info0\) \|\|/.test(up) && /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/.test(up)
-      && /\} else if \(rec\.hatWorn\) \{\n\s*chatSkinPaintHatWorn\(rec, item, cs\);/.test(up);
-  },
-  (src) => src.replace("rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);", 'rec = chatSkinMakeItem(item.role, cs);'));
-
-guarded('an answer button never sends over a draft in the box, and goes through the box\'s own send path',
-  (src) => { const f = fnBody(src, 'chatSkinHatAnswer'); return /if \(cs\.input\.value\.trim\(\)\) \{ toast\(t\('chat\.hat\.boxBusy'\)\)/.test(f) && /chatSkinSendNow\(id, p\);/.test(f) && !/submitToPty|ptyWrite/.test(f); },
-  (src) => src.replace("  if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing\n", ''));
-
-guarded('a session that puts the hat on by reading the agent\'s file counts too, but only right after "here" to that agent',
-  (src) => {
-    const { chatHatReadOf: r } = hatFns(src);
-    const up = fnBody(src, 'chatSkinUpsert');
-    return r({ name: 'Read', summary: '/Users/op/aios/agents/aios/finance-legal/accountant.md' }) === 'accountant'
-      && r({ name: 'Read', summary: 'C:\\aios\\agents\\custom\\lawyer.md' }) === 'lawyer'
-      && r({ name: 'Read', summary: '/Users/op/aios/agents/_index.md' }) === ''
-      && r({ name: 'Read', summary: '/Users/op/notes/accountant.md' }) === ''
-      && /\(cs\.hatWanted && chatHatReadOf\(info0\) === cs\.hatWanted \? cs\.hatWanted : ''\)/.test(up);
-  },
-  (src) => src.replace("(cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')", "(chatHatReadOf(info0))"));
-
-/* Fixtures for the framework's two hat lines (The-AIOS/aios#299): read only in Claude's own text. */
-const hatLinesFn = (src: string) => new Function(src.slice(src.indexOf('const CHAT_HAT_LINE'), src.indexOf('/* The agent a hat line names, checked')) + '\nreturn chatHatLines;')() as
-  (t: string) => { suggest: { name: string; why: string } | null; wearing: string; opened: string; rest: string };
-guarded('"Wearing agent: <name>." is the hat a session says it put on; a malformed line is just text',
-  (src) => {
-    const f = hatLinesFn(src);
-    const ok = f('Loaded the brief.\nWearing agent: accountant.\nLet me start.');
-    const bad = ['Wearing agent: Accountant.', 'Wearing agent: accountant', 'wearing agent: accountant.', '**Wearing agent: accountant.**', 'Llevo el agente: accountant.'];
-    return ok.wearing === 'accountant' && ok.rest === 'Loaded the brief.\nLet me start.' && ok.suggest === null
-      && bad.every((b) => f(b).wearing === '' && f(b).rest === b);
-  },
+guarded('"Wearing agent: <name>." and "Opened agent session: <name>." are read exactly; none is the hat off',
+  (src) => { const f = hatLinesFn(src);
+    return f('Wearing agent: accountant.').wearing === 'accountant' && f('Wearing agent: none.').wearing === 'none'
+      && f('Opened agent session: accountant-october.').opened === 'accountant-october'
+      && ['Wearing agent: Accountant.', 'Wearing agent: accountant', '**Wearing agent: accountant.**', 'Opened agent session: X.'].every((b) => !f(b).wearing && !f(b).opened); },
   (src) => src.replace('const CHAT_HAT_WEARING = /^Wearing agent: ([a-z0-9][a-z0-9-]*)\\.$/;', 'const CHAT_HAT_WEARING = /Wearing agent: (\\S+?)\\.?$/i;'));
 
-test('the hat lines are read in Claude\'s text only: inside a tool result or the operator\'s message they stay what they are', () => {
+test('the lines are read in Claude\'s text only: inside a tool result or the operator\'s message they stay what they are', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { createTranscriptTracker } = require('../core/transcriptChat') as typeof import('../core/transcriptChat');
   const f = hatLinesFn(app);
@@ -4753,115 +4714,136 @@ test('the hat lines are read in Claude\'s text only: inside a tool result or the
   const u = (content: unknown) => JSON.stringify({ type: 'user', uuid: 'u-' + Math.random(), timestamp: '2026-11-13T10:00:00Z', message: { role: 'user', content } });
   const a = (content: unknown[], stop: string) => JSON.stringify({ type: 'assistant', uuid: 'a-' + Math.random(), timestamp: '2026-11-13T10:00:01Z', message: { id: 'm-' + Math.random(), role: 'assistant', content, stop_reason: stop, usage: { input_tokens: 1, output_tokens: 1 } } });
   const items = createTranscriptTracker().feedAll([
-    u('can you help? ' + line),                                                                   // the operator pasted it
+    u('can you help? ' + line),
     a([{ type: 'tool_use', id: 'tu1', name: 'Read', input: { file_path: '/x/notes.md' } }], 'tool_use'),
-    u([{ type: 'tool_result', tool_use_id: 'tu1', content: line + '\nWearing agent: lawyer.' }]),  // a file that quotes them
-    a([{ type: 'text', text: 'Bookkeeping work.\n\n' + line }], 'end_turn'),                     // Claude's own suggestion
+    u([{ type: 'tool_result', tool_use_id: 'tu1', content: line + '\nWearing agent: lawyer.' }]),
+    a([{ type: 'text', text: 'Bookkeeping work.\n\n' + line }], 'end_turn'),
   ]).items;
-  const seen = items.map((i) => (i.role === 'assistant' ? f(i.text || '') : null)).filter(Boolean) as ReturnType<typeof f>[];
-  assert.equal(seen.length, 1, 'one reply of Claude\'s');
+  const seen = items.filter((i) => i.role === 'assistant').map((i) => f(i.text || ''));
+  assert.equal(seen.length, 1);
   assert.equal(seen[0].suggest?.name, 'accountant');
-  const user = items.find((i) => i.role === 'user');
-  assert.ok(user && (user.text || '').includes(line), 'the operator\'s message keeps the line as text');
-  const tool = items.find((i) => i.role === 'tool');
-  assert.ok(tool && tool.tool && (tool.tool.output || '').includes('Wearing agent: lawyer.'), 'the tool result keeps it as output');
-  const up = fnBody(app, 'chatSkinUpsert');
-  assert.match(up, /if \(rec\.role === 'assistant'\) \{[\s\S]*const hl = chatHatLines\(text\);/, 'read in the assistant branch');
-  assert.doesNotMatch(up.slice(up.indexOf("} else if (rec.role === 'user')")), /chatHatLines|chatHatSuggestion/, 'never in the user or tool branches');
+  assert.ok((items.find((i) => i.role === 'user')?.text || '').includes(line), 'the operator\'s message keeps the line as text');
+  assert.ok((items.find((i) => i.role === 'tool')?.tool?.output || '').includes('Wearing agent: lawyer.'), 'the tool result keeps it as output');
+  assert.match(fnBody(app, 'chatSkinUpsert'), /if \(rec\.role === 'assistant'\) \{[\s\S]*chatSkinHatDraw\(rec, cs\)/, 'drawn in the assistant branch only');
 });
 
-guarded('a hat line is drawn only for an agent that exists; any other name stays text (security review, aios#299)',
-  (src) => { const up = fnBody(src, 'chatSkinUpsert'); return /const hs = hl\.suggest && sa \?/.test(up) && /const wearing = hl\.wearing === 'none' \|\| \(hl\.wearing && wa\) \? hl\.wearing : '';/.test(up) && /if \(!hs && !wearing && !hl\.opened\) return;/.test(up)
-    && /chatRender\(rec\.body, text\); rec\.text = text;/.test(up); },
-  (src) => src.replace('const hs = hl.suggest && sa ? { ...hl.suggest, purpose: sa.desc } : null;', 'const hs = hl.suggest ? { ...hl.suggest } : null;'));
-
-test('only whole lines count: an indented, quoted or listed copy is not the line', () => {
-  const f = hatLinesFn(app);
-  const line = 'Suggested agent: accountant (invoices). Wear it here, or open it as its own session?';
-  assert.ok(f(line).suggest && f(line + '\r').suggest, 'the line, and with a CRLF ending');
-  for (const v of ['  ' + line, '> ' + line, '- ' + line, '`' + line + '`']) assert.equal(f(v).suggest, null, JSON.stringify(v));
+test('answer words in any script: "sí", "ναι", "όχι" and "não" are words, "yesterday" and "nothing" are not', () => {
+  const a = new Function(fnSrc(app, 'chatHatAnswerOf') + '\nreturn chatHatAnswerOf;')() as (t: string) => string;
+  assert.deepEqual(['here', 'Yes!', 'sí', 'ναι', 'open', 'no', 'Not now', 'όχι', 'não', 'yesterday', 'nothing', 'what about taxes?'].map(a),
+    ['here', 'here', 'here', 'here', 'open', 'no', 'no', 'no', 'no', 'other', 'other', 'other']);
 });
 
-test('the reason and the purpose are written as text, never as markup; nothing on the card is innerHTML', () => {
-  const card = fnBody(app, 'chatSkinHatCard');
-  assert.match(card, /el\('span', 'ch-why', hs\.why\)/);
-  assert.match(card, /purpose\.textContent = hs\.purpose/);
-  assert.doesNotMatch(card + fnBody(app, 'chatSkinHatWearing') + fnBody(app, 'chatSkinHatMark'), /innerHTML|insertAdjacentHTML|chatRender\(/);
+/* THE ORDER PLAN: the cases the review found, as whole columns. Each also runs against a deliberately broken plan. */
+const S = 'accountant';
+guarded('a reload or resume: a suggestion followed by the operator\'s answer comes back answered, never live',
+  (src) => { const r = planFn(src)([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'here' }]);
+    return r.out[0].card?.state === 'answered' && r.out[0].card?.key === 'here' && r.open.length === 0; },
+  (src) => src.replace('for (const j of open) out[j].card = { state: \'answered\', key, wasAuto: !!out[j].wasAuto };', ''));
+
+test('only the last unanswered card stays live; a bus message never answers one', () => {
+  const r = plan([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'no' }, { kind: 'reply', suggest: 'lawyer' }, { kind: 'user', text: 'from another session', bus: true }]);
+  assert.equal(r.out[0].card?.state, 'answered');
+  assert.equal(r.out[2].card?.state, 'open');
+  assert.deepEqual(r.open, [2]);
 });
 
-test('a hat line never loads an agent or sends anything by itself: only a button the operator clicks sends a word', () => {
-  for (const fn of ['chatSkinHatCard', 'chatSkinHatWearing', 'chatSkinHatSettle', 'chatSkinHatChip', 'chatSkinPaintHatWorn']) {
+guarded('the chip is the LAST hat in the column, in column order: a hat taken off stays off',
+  (src) => { const p = planFn(src);
+    return p([{ kind: 'reply', wearing: S }, { kind: 'reply', wearing: 'none' }]).hat === ''
+      && p([{ kind: 'reply', wearing: 'lawyer' }, { kind: 'worn', name: S }]).hat === S
+      && p([{ kind: 'worn', name: S }, { kind: 'reply', wearing: 'lawyer' }, { kind: 'reply', wearing: 'none' }, { kind: 'reply', wearing: 'explainer' }]).hat === 'explainer'; },
+  (src) => src.replace("    if (r.wearing === 'none') {\n      if (hat) out[i].mark = { kind: 'off', name: hat };\n      hat = '';", "    if (r.wearing === 'none') {\n      if (hat) out[i].mark = { kind: 'off', name: hat };"));
+
+test('scrolling up (older rows above) gives the same answer as reading in order: the plan only sees the column', () => {
+  const column: Row[] = [{ kind: 'reply', suggest: S }, { kind: 'user', text: 'no' }, { kind: 'reply', suggest: 'lawyer' }];
+  const a = plan(column), b = plan(column.slice());
+  assert.deepEqual(a, b);
+  assert.equal(a.out[2].card?.state, 'open', 'the current card stays open: an older message above does not answer it');
+});
+
+guarded('default mode: the hat going on right after its own suggestion makes the card "put on by your AIOS", with one notice',
+  (src) => { const p = planFn(src);
+    const a = p([{ kind: 'reply', suggest: S, wearing: S }]);
+    const b = p([{ kind: 'reply', suggest: S }, { kind: 'worn', name: S }, { kind: 'reply', wearing: S }]);
+    return a.out[0].card?.state === 'auto' && !a.out[0].mark && b.out[0].card?.state === 'auto' && b.out[1].wornHidden === true && !b.out[2].mark && b.hat === S; },
+  (src) => src.replace('const own = autoFor(r.wearing);', 'const own = false;'));
+
+test('ask mode then "here": the card is answered, and the hat change shows as its outcome', () => {
+  const r = plan([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'here' }, { kind: 'worn', name: S }, { kind: 'reply', wearing: S }]);
+  assert.equal(r.out[0].card?.state, 'answered');
+  assert.equal(r.out[2].wornHidden, false, 'the load call shows: there is no open card to say it');
+  assert.equal(r.out[3].mark, undefined, 'and the Wearing line does not repeat it');
+  assert.equal(r.hat, S);
+});
+
+test('a failed load shows and changes no hat; "none" with no hat on says nothing', () => {
+  const r = plan([{ kind: 'worn', name: S, failed: true }, { kind: 'reply', wearing: 'none' }]);
+  assert.equal(r.out[0].wornHidden, false);
+  assert.equal(r.out[1].mark, undefined);
+  assert.equal(r.hat, '');
+});
+
+guarded('"Opened agent session" goes on the latest card for its agent, or stands alone',
+  (src) => { const p = planFn(src);
+    const a = p([{ kind: 'reply', suggest: S }, { kind: 'user', text: 'open' }, { kind: 'reply', opened: 'accountant-october', wearing: 'none' }]);
+    const b = p([{ kind: 'reply', opened: 'lawyer-acme' }]);
+    return a.out[2].opened?.onCard === 0 && b.out[0].opened?.onCard === null; },
+  (src) => src.replace("const j = [...cards].reverse().find((k) => n === rows[k].suggest || n.startsWith(rows[k].suggest + '-'));", 'const j = undefined;'));
+
+/* The wiring around the plan. */
+test('every hat draw goes through the agent list, read once; a name not in it stays text, and nothing waits on a lookup per name', () => {
+  const d = fnBody(app, 'chatSkinHatDraw');
+  assert.match(d, /if \(!chatHatAgentMap\) \{ void chatHatAgentsLoad\(\); return false; \}/);
+  assert.match(d, /const sa = hl\.suggest && chatHatAgent\(hl\.suggest\.name\);/);
+  assert.match(d, /if \(!sa && !wearing && !hl\.opened\) return false;/);
+  assert.doesNotMatch(d + fnBody(app, 'chatHatAgent'), /\.then\(/, 'no per-name promise in the draw');
+  assert.match(fnBody(app, 'chatSkinHatSoon'), /Promise\.resolve\(\)\.then\(\(\) => \{ cs\.hatQ = false; chatSkinHatRecompute\(cs\); \}\)/, 'decided after the batch lands');
+});
+
+test('nothing a hat line draws sends a word or opens a session; only a click does, never over a draft, never "here" on a hat already on', () => {
+  for (const fn of ['chatSkinHatDraw', 'chatSkinHatRecompute', 'chatHatPlan', 'chatSkinHatCardState', 'chatSkinHatChip', 'chatSkinPaintHatWorn']) {
     assert.doesNotMatch(fnBody(app, fn), /chatSkinSendNow|chatSkinSubmit|submitToPty|ptyWrite|createPane|spawn/, fn);
   }
-  assert.match(fnBody(app, 'chatSkinHatCard'), /addEventListener\('click', \(\) => chatSkinHatAnswer\(cs, card, key\)\)/);
+  const a = fnBody(app, 'chatSkinHatAnswer');
+  assert.match(a, /if \(cs\.input\.value\.trim\(\)\) \{ toast\(t\('chat\.hat\.boxBusy'\)\)/);
+  assert.match(a, /cs\.input\.value = key;\n\s*chatSkinSendNow\(id, p\);/);
+  assert.match(a, /if \(card\.dataset\.state === 'auto' && key === 'here'\) return;/);
+  assert.match(fnBody(app, 'chatSkinHatCardEl'), /for \(const key of \['here', 'open', 'no'\]\)/);
+});
+
+test('the reason and the purpose are text, never markup', () => {
+  const c = fnBody(app, 'chatSkinHatCardEl');
+  assert.match(c, /el\('span', 'ch-why', hs\.why\)/);
+  assert.match(c, /purpose\.textContent = hs\.purpose/);
+  assert.doesNotMatch(c + fnBody(app, 'chatSkinHatCardState') + fnBody(app, 'chatSkinHatRecompute'), /innerHTML|insertAdjacentHTML|chatRender\(/);
 });
 
 test('each agent wears its bundle folder\'s colour; a company folder gets a stable one; coral is never an agent colour', () => {
   const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s initial on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
   assert.equal(key('finance-legal'), 'finance-legal');
-  assert.equal(key('custom'), 'custom');
   assert.equal(key(''), 'custom');
   assert.match(key('sovra'), /^x[0-3]$/);
-  assert.equal(key('sovra'), key('sovra'), 'the same folder, the same colour, every time');
+  assert.equal(key('sovra'), key('sovra'));
   const css = fs.readFileSync('renderer/theme.css', 'utf8');
   for (const k of ['sales', 'strategy', 'finance-legal', 'engineering', 'communication', 'personal', 'commerce', 'custom', 'x0', 'x1', 'x2', 'x3']) {
     const m = new RegExp(`--agent-${k}: (#[0-9a-f]{6});`).exec(css);
-    assert.ok(m, `--agent-${k} is defined`);
-    assert.notEqual(m![1].toLowerCase(), '#ff5d4d', 'never the accent');
+    assert.ok(m, `--agent-${k}`);
+    assert.notEqual(m![1].toLowerCase(), '#ff5d4d');
   }
-  assert.match(fnBody(app, 'chatHatAvatar'), /String\(name \|\| '\?'\)\.charAt\(0\)\.toUpperCase\(\)/, 'the initial, as text');
 });
 
-guarded('a hat the session put on by itself turns its card into "your AIOS put it on", with open and take-it-off still offered',
-  (src) => { const w = fnBody(src, 'chatSkinHatWearing'), a = fnBody(src, 'chatSkinHatAuto');
-    return /r\.hatCard\.dataset\.agent === name\) chatSkinHatAuto\(r\.hatCard\)/.test(w) && /here\.disabled = true; here\.classList\.add\('chosen', 'state'\);/.test(a) && /no\.textContent = t\('chat\.hat\.takeOff'\)/.test(a) && !/chatSkinSendNow|submitToPty|ptyWrite/.test(a); },
-  (src) => src.replace("if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);", ''));
-
-guarded('"Wearing agent: none." takes the hat off: the chip goes, and a reply that says so is not mistaken for an agent called none',
-  (src) => { const w = fnBody(src, 'chatSkinHatWearing'), up = fnBody(src, 'chatSkinUpsert');
-    return /if \(name === 'none'\) \{[\s\S]*chatSkinHatChip\(cs, ''\);\s*return;/.test(w) && /hl\.wearing === 'none' \|\| \(hl\.wearing && wa\)/.test(up) && hatLinesFn(src)('Wearing agent: none.').wearing === 'none'; },
-  (src) => src.replace("hl.wearing === 'none' || (hl.wearing && wa)", '(hl.wearing && wa)'));
-
-/* The rest of the framework's test list (aios#299 contract, point 9). */
-test('malformed suggestion lines stay text: two agents, no reason, backticks, an empty reason', () => {
-  const f = hatLinesFn(app);
-  for (const bad of [
-    'Suggested agent: accountant, lawyer (money and contracts). Wear it here, or open it as its own session?',
-    'Suggested agent: accountant. Wear it here, or open it as its own session?',
-    '`Suggested agent: accountant (invoices). Wear it here, or open it as its own session?`',
-    'Suggested agent: accountant (). Wear it here, or open it as its own session?',
-    'Suggested agent: accountant (invoices). Wear it here or open it as its own session?',
-  ]) assert.equal(f(bad).suggest, null, bad);
+test('the Skill call\'s summary carries its args, so the hat it loads can be named; loading is drawn as a hat change', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { summarizeTool } = require('../core/chatEvents') as { summarizeTool: (n: string, i: unknown) => string };
+  assert.equal(summarizeTool('Skill', { skill: 'aios:agent', args: 'accountant' }), 'aios:agent accountant');
+  const w = new Function(fnSrc(app, 'chatHatWorn') + '\nreturn chatHatWorn;')() as (i: { name: string; summary: string }) => string;
+  assert.equal(w({ name: 'Skill', summary: 'aios:agent accountant' }), 'accountant');
+  assert.equal(w({ name: '/aios:agent lawyer', summary: '' }), 'lawyer');
+  assert.equal(w({ name: 'Bash', summary: 'aios:agent accountant' }), '');
+  assert.match(fnBody(app, 'chatSkinUpsert'), /rec = chatSkinMakeItem\(worn \? 'system' : item\.role, cs\);/);
 });
 
-test('after a resume the hat is the LAST Wearing line in the transcript, and resuming loads nothing', () => {
-  const lines = ['Wearing agent: lawyer.', 'Wearing agent: accountant.', 'Wearing agent: none.', 'Wearing agent: explainer.'];
-  const f = hatLinesFn(app);
-  let hat = '';
-  for (const l of lines) { const w = f(l).wearing; if (w) hat = w === 'none' ? '' : w; }   // the order the column replays them in
-  assert.equal(hat, 'explainer', 'the last, not the first');
-  const w = fnBody(app, 'chatSkinHatWearing');
-  assert.match(w, /chatSkinHatChip\(cs, name\);/, 'each wearing line moves the chip, so replay order decides');
-  assert.doesNotMatch(w + fnBody(app, 'chatSkinHatChip'), /chatSkinSendNow|submitToPty|createPane|aios:agent/, 'a replayed line only paints');
+test('the chip never crowds the bar: its name is cut early, the whole chip last, and the bar is fitted again', () => {
+  assert.match(app, /const CHAT_BAR_CUT = \[[^\]]*'\.cb-hat \.cb-v'[^\]]*'\.cb-hat'\]/);
+  assert.match(fnBody(app, 'chatSkinHatChip'), /chatSkinFitSoon\(cs\.bar\);/);
 });
-
-test('a button types exactly its word into the box and sends it, nothing else', () => {
-  const a = fnBody(app, 'chatSkinHatAnswer');
-  assert.match(a, /cs\.input\.value = key;\n\s*chatSkinSendNow\(id, p\);/);
-  const keys = /for \(const key of \['here', 'open', 'no'\]\)/.exec(fnBody(app, 'chatSkinHatCard'));
-  assert.ok(keys, 'the three words are the skill\'s');
-});
-
-guarded('"Opened agent session: <name>." says where "open" sent the work: the agent\'s card gets the tab\'s name and a button that only switches to it',
-  (src) => { const f = hatLinesFn(src); const o = fnBody(src, 'chatSkinHatOpened');
-    return f('Opened agent session: accountant-october-invoices.').opened === 'accountant-october-invoices' && f('Opened agent session: Accountant.').opened === ''
-      && /name\.startsWith\(c\.dataset\.agent \+ '-'\)/.test(o) && /if \(hit\) setActive\(hit\[0\]\); else toast/.test(o) && !/createPane|chatSkinSendNow|submitToPty|spawn/.test(o); },
-  (src) => src.replace("if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));", "createPane({ name });"));
-
-test('the default mode shows one notice, not two, and the chip never crowds the bar', () => {
-  const w = fnBody(app, 'chatSkinPaintHatWorn');
-  assert.match(w, /if \(card\) \{ chatSkinHatAuto\(card\); rec\.node\.hidden = true; \}/, 'the load call\'s line hides when the unanswered card says it');
-  assert.match(app, /const CHAT_BAR_CUT = \[[^\]]*'\.cb-hat \.cb-v'/, 'the hat\'s name is cut before the effort and the mode');
-  assert.match(fnBody(app, 'chatSkinHatChip'), /chatSkinFitSoon\(cs\.bar\);/, 'the bar is fitted again when the chip changes');
-});
-

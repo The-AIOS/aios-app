@@ -379,7 +379,30 @@ export function hatAgent(name: string): { name: string; desc: string; group: str
       } catch { /* no index */ }
     }
   }
-  return { name, desc: desc.replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1').slice(0, 300), group: path.basename(path.dirname(rel)) || 'agents' };
+  const dir = path.basename(path.dirname(rel));
+  return { name, desc: desc.replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1').slice(0, 300), group: dir && dir !== '.' ? dir : 'agents' };
+}
+
+/**
+ * Every agent a hat line may name (#109), by the same rule as hatAgent: one entry per agent file, custom/ winning. The chat
+ * reads this once, so it can draw hat lines in the order they arrive instead of waiting on a lookup per name (a reload
+ * replays a transcript in one go, and per-name lookups landed out of order).
+ */
+export function hatAgents(): Array<{ name: string; desc: string; group: string }> {
+  const root = frameworkRoot();
+  if (!root) return [];
+  let rels: string[] = [];
+  try { rels = fs.readdirSync(path.join(root, 'agents'), { recursive: true }) as string[]; } catch { return []; }
+  const names = new Set<string>();
+  for (const r of rels) {
+    const b = path.basename(r);
+    if (!b.endsWith('.md') || b.startsWith('_')) continue;
+    const n = b.slice(0, -3);
+    if (/^[a-z0-9][a-z0-9-]*$/.test(n) && n !== 'none' && n !== 'readme') names.add(n);
+  }
+  const out: Array<{ name: string; desc: string; group: string }> = [];
+  for (const n of names) { const a = hatAgent(n); if (a) out.push(a); }
+  return out;
 }
 
 export interface AiosCommand { name: string; description: string; argumentHint?: string; filePath: string; }

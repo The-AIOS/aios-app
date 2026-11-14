@@ -6299,7 +6299,7 @@ async function openViewer(p) {
     /* Quitting: the window will not wait for the save chain, so send now, outside it. A question still open: keep the text on
        screen beside the note, the note itself untouched. */
     if (paneObj.asking) void window.glassShell.fsWriteConflictCopy(file.path, shownNow()).catch(() => null);
-    else void window.glassShell.fsSaveMerged(file.path, base, shownNow()).catch(() => null);
+    else void window.glassShell.fsSaveMerged(file.path, base, shownNow(), undefined, true).catch(() => null);   // a conflict keeps the text beside the note
   };
 
   if (renderable && editable) {
@@ -11487,6 +11487,7 @@ function chatSkinBusLabel(rec, text) {
   Promise.resolve(gs.chatBusFrom(text)).then((r) => {
     if (!r || rec.text !== text || !rec.node.isConnected) return;
     rec.node.classList.add('from-bus');
+    if (rec.role === 'user' && typeof chatSkinHatSoon === 'function') { const c = [...panes.values()].map((x) => x.chatSkin).find((c2) => c2 && c2.items && [...c2.items.values()].includes(rec)); if (c) chatSkinHatSoon(c); }   // a bus message never answers a hat card
     let tag = rec.node.querySelector('.chat-from');
     if (!tag) { tag = el('div', 'chat-from'); rec.node.insertBefore(tag, rec.node.querySelector('.chat-bubble')); }
     tag.replaceChildren(csIcon('inbox', 11), el('span', '', r.from ? t('chat.bus.from', { name: r.from }) : t('chat.bus.anon')));
@@ -11531,12 +11532,28 @@ function chatHatSuggestion(text) {
   const h = chatHatLines(text);
   return h.suggest ? { name: h.suggest.name, why: h.suggest.why, rest: h.rest } : null;
 }
-/* The agent a hat line names, checked by the framework's own rule: a file agents/…/<name>.md exists (security review, The-AIOS/aios#299).
-   A line naming anything else is not drawn: it stays text. If the check cannot run, nothing is drawn. Asked once per name. */
-const chatHatAgentCache = new Map();
+/* The agents a hat line may name, checked by the framework's own rule: a file agents/…/<name>.md exists (security review,
+   The-AIOS/aios#299). Read ONCE into a map, so hat lines are drawn in the order they arrive: a reload replays a transcript in
+   one go, and a lookup per name landed out of order (a stale card came back live, the chip showed a hat already taken off).
+   Until the list is read, replies show as written; when it lands, every open chat draws its hat lines and recomputes. A name
+   that is not in the list stays text; a miss asks for the list again, at most every 20 s (an agent added mid-session). */
+let chatHatAgentMap = null;
+let chatHatAgentLoad = null;
+let chatHatAgentAt = 0;
+function chatHatAgentsLoad() {
+  if (chatHatAgentLoad) return chatHatAgentLoad;
+  chatHatAgentAt = Date.now();
+  chatHatAgentLoad = Promise.resolve(window.glassShell.hatAgents ? window.glassShell.hatAgents() : [])
+    .then((list) => new Map((Array.isArray(list) ? list : []).map((a) => [a.name, { desc: String(a.desc || ''), group: String(a.group || '') }])))
+    .catch(() => new Map())
+    .then((m) => { chatHatAgentMap = m; chatHatAgentLoad = null; for (const p of panes.values()) if (p.chatSkin) chatSkinHatRedraw(p.chatSkin); return m; });
+  return chatHatAgentLoad;
+}
 function chatHatAgent(name) {
-  if (!chatHatAgentCache.has(name)) chatHatAgentCache.set(name, Promise.resolve(window.glassShell.hatAgent ? window.glassShell.hatAgent(name) : null).catch(() => null));
-  return chatHatAgentCache.get(name);
+  if (!chatHatAgentMap) { void chatHatAgentsLoad(); return null; }
+  const a = chatHatAgentMap.get(name);
+  if (!a && Date.now() - chatHatAgentAt > 20000) void chatHatAgentsLoad();
+  return a || null;
 }
 /* Each agent wears its bundle's colour, the way a team's people do (#109, from the deck's friendly terminal): the folder it
    lives in under agents/ (sales, strategy, finance-legal, engineering, communication, personal, commerce, custom). A company's
@@ -11550,11 +11567,12 @@ function chatHatColorKey(group) {
   for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return 'x' + (h % 4);
 }
-/* The agent's initial on its colour. Drawn neutral, then coloured once the agent list is read. */
+/* The agent's initial on its colour. */
 function chatHatAvatar(name, size) {
   const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
   av.setAttribute('aria-hidden', 'true');
-  void chatHatAgent(name).then((a) => av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`));
+  const a = chatHatAgent(name);
+  av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`);
   return av;
 }
 /** The agent a tool call or a typed command put on, or ''. `/aios:agent <name>` as Claude's Skill call (summary
@@ -11564,29 +11582,48 @@ function chatHatWorn(info) {
   const m = name === 'Skill' ? /^(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(summary) : /^\/(?:aios:)?agent\s+([a-z0-9][a-z0-9-]*)\b/.exec(name);
   return m ? m[1] : '';
 }
-/** The agent whose file a Read opened (`.../agents/<bundle>/<name>.md`), or ''. A session can put a hat on by reading its file
-    instead of running /aios:agent; that counts only right after the operator said "here" to that very agent. Pure. */
-function chatHatReadOf(info) {
-  if (!info || info.name !== 'Read') return '';
-  const m = /[\\/]agents[\\/](?:[^\\/]+[\\/])*([a-z0-9][a-z0-9-]*)\.md$/.exec(String(info.summary || ''));
-  return m && m[1] !== '_index' ? m[1] : '';
-}
-/** What an answer typed after a suggestion means, in the skill's words. */
+/** What an answer typed after a suggestion means, in the skill's words. Any script: "sí", "ναι" and "όχι" are words too. */
 function chatHatAnswerOf(text) {
   const s = String(text || '').trim().toLowerCase();
-  if (/^(here|yes|sí|si|sim|ναι)\b/.test(s)) return 'here';
-  if (/^open\b/.test(s)) return 'open';
-  if (/^(no|not now|não|όχι)\b/.test(s)) return 'no';
+  const word = (re) => re.test(s);
+  if (word(/^(?:here|yes|sí|si|sim|ναι)(?![\p{L}\p{N}])/u)) return 'here';
+  if (word(/^open(?![\p{L}\p{N}])/u)) return 'open';
+  if (word(/^(?:no|not now|não|όχι)(?![\p{L}\p{N}])/u)) return 'no';
   return 'other';
 }
 function chatSkinPaneIdOf(cs) { if (cs.id && panes.has(cs.id)) return cs.id; for (const [id, p] of panes) if (p.chatSkin === cs) return id; return null; }
-/* The card under a reply that suggests a hat. Answering sends the skill's word as the operator's message, through the same
-   path as the message box (so it waits its turn if the session is busy). Once the operator has said anything after it, the
-   card shows the answer and takes no more clicks. */
-function chatSkinHatCard(rec, hs, cs) {
-  if (!hs) { if (rec.hatCard) { rec.hatCard.remove(); rec.hatCard = null; (cs.hatOpen || new Set()).delete(rec); } return; }
-  if (rec.hatCard && rec.hatCard.dataset.agent === hs.name) return;
-  if (rec.hatCard) rec.hatCard.remove();
+
+/* DRAWING a reply's hat lines (only once the agent list is read, and only for agents in it): the reply without those lines,
+   the card under it, and empty places for the hat change and the "opened" line. What each of them SAYS (answered or not, put
+   on by the AIOS, the hat change shown or not, the chip) is decided by chatSkinHatRecompute, from the whole column in order. */
+function chatSkinHatDraw(rec, cs) {
+  for (const k of ['hatCard', 'hatMark', 'hatOpenedEl']) if (rec[k]) { rec[k].remove(); rec[k] = null; }
+  rec.hat = null;
+  const hl = chatHatLines(rec.text || '');
+  if (!hl.suggest && !hl.wearing && !hl.opened) return false;
+  if (!chatHatAgentMap) { void chatHatAgentsLoad(); return false; }   // drawn when the list lands (chatSkinHatRedraw)
+  const sa = hl.suggest && chatHatAgent(hl.suggest.name);
+  const wearing = hl.wearing === 'none' || (hl.wearing && chatHatAgent(hl.wearing)) ? hl.wearing : '';
+  if (!sa && !wearing && !hl.opened) return false;   // names no agent that exists: the reply stays as written
+  rec.hat = { suggest: sa ? hl.suggest.name : '', wearing, opened: hl.opened };
+  chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
+  if (sa) rec.hatCard = chatSkinHatCardEl({ ...hl.suggest, purpose: sa.desc }, cs);
+  if (rec.hatCard) rec.body.after(rec.hatCard);
+  if (wearing) { rec.hatMark = el('div', 'chat-note hat in-bubble'); rec.hatMark.hidden = true; rec.body.before(rec.hatMark); }
+  if (hl.opened) { rec.hatOpenedEl = el('div', 'chat-note hat in-bubble'); rec.hatOpenedEl.hidden = true; rec.body.before(rec.hatOpenedEl); }
+  return true;
+}
+/* The list landed (or changed): draw every reply's hat lines again, then decide what they say. */
+function chatSkinHatRedraw(cs) {
+  for (const rec of cs.items.values()) if (rec.role === 'assistant' && rec.text && chatHatLines(rec.text).rest !== rec.text.trim()) {
+    if (!chatSkinHatDraw(rec, cs)) { chatRender(rec.body, rec.text); chatLinkPaths(rec.body, cs); }
+  }
+  for (const rec of cs.items.values()) if (rec.hatWorn) { const av = rec.body.querySelector('.ch-av'); if (av) av.replaceWith(chatHatAvatar(rec.hatWorn)); }   // its colour, now known
+  if (cs.hat) { cs.hat = ''; }   // the chip is drawn again with its colour
+  chatSkinHatSoon(cs);
+}
+/* The card for a suggestion: the agent's face, the reason, its purpose, and the skill's three answers. */
+function chatSkinHatCardEl(hs, cs) {
   const card = el('div', 'chat-hat');
   card.dataset.agent = hs.name;
   const head = el('div', 'ch-head');
@@ -11597,6 +11634,7 @@ function chatSkinHatCard(rec, hs, cs) {
   who.append(chatHatAvatar(hs.name, 'big'), words);
   const purpose = el('div', 'ch-purpose');
   purpose.hidden = true;
+  if (hs.purpose && hs.purpose !== hs.why) { purpose.textContent = hs.purpose; purpose.title = hs.purpose; purpose.hidden = false; }
   const acts = el('div', 'ch-acts');
   for (const key of ['here', 'open', 'no']) {
     const b = el('button', 'vbtn', t('chat.hat.' + key));
@@ -11607,123 +11645,169 @@ function chatSkinHatCard(rec, hs, cs) {
   }
   const done = el('div', 'ch-done');
   done.hidden = true;
-  if (hs.purpose && hs.purpose !== hs.why) { purpose.textContent = hs.purpose; purpose.title = hs.purpose; purpose.hidden = false; }
-  card.append(head, who, purpose, acts, done);
-  rec.body.after(card);
-  rec.hatCard = card;
-  (cs.hatOpen || (cs.hatOpen = new Set())).add(rec);
-  (cs.hatCards || (cs.hatCards = [])).push(card);
+  const moved = el('div', 'ch-moved');
+  moved.hidden = true;
+  card.append(head, who, purpose, done, acts, moved);
+  return card;
 }
+/* A button: type the skill's word into the message box and send it, through the box's own path (it waits its turn if the
+   session is busy), never over a draft. Only a card that is still open takes a click. */
 function chatSkinHatAnswer(cs, card, key) {
-  if (card.classList.contains('answered')) return;
+  if (card.dataset.state !== 'open' && card.dataset.state !== 'auto') return;
   const id = chatSkinPaneIdOf(cs);
   const p = id && panes.get(id);
   if (!p || p.exited || !cs.input) return;
+  if (card.dataset.state === 'auto' && key === 'here') return;   // already on
   if (cs.input.value.trim()) { toast(t('chat.hat.boxBusy')); cs.input.focus(); return; }   // never send over a draft the operator is writing
   cs.input.value = key;
   chatSkinSendNow(id, p);
-  if (!cs.input.value) chatSkinHatMark(card, key, cs);   // the box emptied: it went (or is queued)
+  if (!cs.input.value) { card.dataset.pending = key; chatSkinHatSoon(cs); }   // it went (or is queued): shown as chosen until the message lands
 }
-function chatSkinHatMark(card, key, cs) {
-  if (cs) cs.hatWanted = key === 'here' ? card.dataset.agent : '';
+/* A card's look for a state: 'open' (ask: three live answers), 'auto' (the session put it on by itself: a selected Wearing
+   it, then Open and Take it off), or answered with a key (all greyed, the chosen one marked, the outcome said). Built from
+   scratch each time, so the same column always draws the same way. */
+function chatSkinHatCardState(card, state, key) {
+  card.dataset.state = state;
+  card.classList.toggle('auto', state === 'auto' || (state === 'answered' && card.dataset.wasAuto === '1'));
+  card.classList.toggle('answered', state === 'answered');
   const auto = card.classList.contains('auto');
-  card.classList.add('answered');
-  for (const b of card.querySelectorAll('button')) { b.disabled = true; b.classList.toggle('chosen', b.dataset.answer === key); }
   const done = card.querySelector('.ch-done');
-  done.textContent = t(auto && key === 'no' ? 'chat.hat.chose.off' : auto && key !== 'open' ? 'chat.hat.autoWorn' : 'chat.hat.chose.' + key, { name: card.dataset.agent });
-  done.hidden = false;
+  for (const b of card.querySelectorAll('.ch-acts button')) {
+    const a = b.dataset.answer;
+    b.classList.remove('chosen', 'state');
+    b.disabled = state === 'answered';
+    if (a === 'here') {
+      if (auto) { b.disabled = true; b.classList.add('chosen', 'state'); b.replaceChildren(csIcon('check', 12), document.createTextNode(' ' + t('chat.hat.wearing'))); }
+      else b.textContent = t('chat.hat.here');
+    }
+    if (a === 'no') b.textContent = t(auto ? 'chat.hat.takeOff' : 'chat.hat.no');
+    if (state === 'answered' && a === key) b.classList.add('chosen');
+  }
+  const say = state === 'auto' ? 'chat.hat.autoWorn'
+    : state === 'answered' ? (auto && key === 'no' ? 'chat.hat.chose.off' : auto && key !== 'open' ? 'chat.hat.autoWorn' : 'chat.hat.chose.' + key) : '';
+  done.textContent = say ? t(say, { name: card.dataset.agent }) : '';
+  done.hidden = !say;
 }
-/* The session put the suggested hat on by itself and kept going (the default unless INTENT.md says to ask): the card says
-   so, and offers what is still a choice, handing the rest to its own session or taking the hat off. */
-function chatSkinHatAuto(card) {
-  if (card.classList.contains('auto') || card.classList.contains('answered')) return;
-  card.classList.add('auto');
-  /* Same three buttons, same places, as the ask card: the first shows what already happened (selected, not a button to
-     press), the other two stay choices. */
-  const here = card.querySelector('button[data-answer="here"]');
-  if (here) { here.disabled = true; here.classList.add('chosen', 'state'); here.replaceChildren(csIcon('check', 12), document.createTextNode(' ' + t('chat.hat.wearing'))); }
-  const no = card.querySelector('button[data-answer="no"]');
-  if (no) no.textContent = t('chat.hat.takeOff');
-  const done = card.querySelector('.ch-done');
-  done.textContent = t('chat.hat.autoWorn', { name: card.dataset.agent });
-  done.hidden = false;
-  card.insertBefore(done, card.querySelector('.ch-acts'));   // the news first, then what is still a choice
+function chatSkinHatSoon(cs) {
+  if (cs.hatQ) return;
+  cs.hatQ = true;
+  Promise.resolve().then(() => { cs.hatQ = false; chatSkinHatRecompute(cs); });   // after the batch that called it: a replay lands whole first
 }
-/* The operator said something after the suggestion: it is answered, by a button or in their own words. */
-function chatSkinHatSettle(cs, text) {
-  if (!cs.hatOpen || !cs.hatOpen.size) return;
-  const key = chatHatAnswerOf(text);
-  for (const rec of cs.hatOpen) if (rec.hatCard && !rec.hatCard.classList.contains('answered')) chatSkinHatMark(rec.hatCard, key, cs);
-  cs.hatOpen.clear();
+/* WHAT THE HAT LINES SAY, decided from the column top to bottom every time, never from the order events arrived in (a reload
+   replays history in one go, and scrolling up adds older rows above newer ones). Pure, so the tests can run a column:
+   rows, in column order, are { kind: 'user', text, bus } | { kind: 'worn', name, failed } | { kind: 'reply', suggest, wearing,
+   opened }. Walking down:
+   - an operator's message (not one the bus typed) answers every open card above it;
+   - a hat going on ("Wearing agent", or /aios:agent as a call) right after its own suggestion, unanswered, makes that card
+     "put on by your AIOS" and needs no line of its own; otherwise it shows as the hat change, unless it is already on;
+   - "Wearing agent: none." takes the hat off (said only when one was on);
+   - "Opened agent session" goes on the latest card for that agent (its name starts with the agent's), or stands alone;
+   - the hat at the bottom is the chip.
+   Returns, per row index, what to draw, and the hat. */
+function chatHatPlan(rows) {
+  const out = rows.map(() => ({}));
+  let hat = '';
+  let open = [];
+  const cards = [];
+  const autoFor = (name) => {
+    for (let j = open.length - 1; j >= 0; j--) if (rows[open[j]].suggest === name) { out[open[j]].card = { state: 'auto' }; out[open[j]].wasAuto = true; return true; }
+    return false;
+  };
+  rows.forEach((r, i) => {
+    if (r.kind === 'user') {
+      if (r.bus || !String(r.text || '').trim()) return;
+      const key = chatHatAnswerOf(r.text);
+      for (const j of open) out[j].card = { state: 'answered', key, wasAuto: !!out[j].wasAuto };
+      open = [];
+      return;
+    }
+    if (r.kind === 'worn') {
+      if (r.failed) { out[i].wornHidden = false; return; }
+      out[i].wornHidden = autoFor(r.name);
+      hat = r.name;
+      return;
+    }
+    if (r.kind !== 'reply') return;
+    if (r.suggest) { out[i].card = { state: 'open' }; cards.push(i); open.push(i); }
+    if (r.wearing === 'none') {
+      if (hat) out[i].mark = { kind: 'off', name: hat };
+      hat = '';
+    } else if (r.wearing) {
+      const own = autoFor(r.wearing);
+      if (!own && hat !== r.wearing) out[i].mark = { kind: 'on', name: r.wearing };
+      hat = r.wearing;
+    }
+    if (r.opened) {
+      const n = r.opened;
+      const j = [...cards].reverse().find((k) => n === rows[k].suggest || n.startsWith(rows[k].suggest + '-'));
+      out[i].opened = { name: n, onCard: j === undefined ? null : j };
+    }
+  });
+  return { out, hat, open };
 }
-/* The session put the hat on: a line in the column, and the bar's hat chip. A failed load says so and changes nothing. */
+/* Apply the plan to the column. A card answered by a click whose message has not landed yet shows the click. */
+function chatSkinHatRecompute(cs) {
+  if (!cs.log || !cs.items) return;
+  const byNode = new Map();
+  for (const rec of cs.items.values()) byNode.set(rec.node, rec);
+  const recs = [], rows = [];
+  for (const node of cs.log.querySelectorAll('.chat-row, .chat-note')) {
+    const rec = byNode.get(node);
+    if (!rec) continue;
+    if (rec.role === 'user' && !node.hidden) { recs.push(rec); rows.push({ kind: 'user', text: rec.text, bus: node.classList.contains('from-bus') }); }
+    else if (rec.hatWorn) { recs.push(rec); rows.push({ kind: 'worn', name: rec.hatWorn, failed: !!rec.hatFailed }); }
+    else if (rec.role === 'assistant' && rec.hat) { recs.push(rec); rows.push({ kind: 'reply', ...rec.hat }); }
+  }
+  const plan = chatHatPlan(rows);
+  for (const rec of recs) if (rec.hatCard) rec.hatCard.querySelector('.ch-moved').hidden = true;   // said again below if it still holds
+  plan.out.forEach((o, i) => {
+    const rec = recs[i];
+    if (rec.hatWorn) { rec.node.hidden = !!o.wornHidden; return; }
+    if (rec.hatCard && o.card) {
+      const c = rec.hatCard;
+      if (o.wasAuto || (o.card.wasAuto)) c.dataset.wasAuto = '1'; else delete c.dataset.wasAuto;
+      if (o.card.state === 'answered') delete c.dataset.pending;
+      chatSkinHatCardState(c, o.card.state, o.card.key);
+    }
+    if (rec.hatMark) {
+      const m = rec.hatMark;
+      m.hidden = !o.mark;
+      if (o.mark) { m.className = 'chat-note hat in-bubble' + (o.mark.kind === 'off' ? ' off' : ''); m.replaceChildren(chatHatAvatar(o.mark.name), el('span', '', t(o.mark.kind === 'off' ? 'chat.hat.off' : 'chat.hat.worn', { name: o.mark.name }))); }
+    }
+    if (rec.hatOpenedEl && o.opened) {
+      const name = o.opened.name;
+      const go = el('button', 'vbtn', t('chat.hat.goTo'));
+      go.type = 'button';
+      go.addEventListener('click', () => {
+        const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && !p.exited && p.name === name);
+        if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));   // only switches to a tab that is open: never starts anything
+      });
+      const card = o.opened.onCard === null ? null : recs[o.opened.onCard].hatCard;
+      if (card) {
+        const mv = card.querySelector('.ch-moved');
+        mv.replaceChildren(el('span', '', t('chat.hat.moved', { name })), go);
+        mv.hidden = false;
+        rec.hatOpenedEl.hidden = true;
+      } else {
+        rec.hatOpenedEl.replaceChildren(csIcon('robot', 13), el('span', '', t('chat.hat.openedNote', { name })), go);
+        rec.hatOpenedEl.hidden = false;
+      }
+    }
+  });
+  for (const i of plan.open) { const c = recs[i].hatCard; if (c && c.dataset.pending) chatSkinHatCardState(c, 'answered', c.dataset.pending); }
+  chatSkinHatChip(cs, plan.hat);
+}
+/* The session put a hat on with /aios:agent: a line in the column (what it says, and whether it shows, is the recompute's). */
 function chatSkinPaintHatWorn(rec, item, cs) {
-  const info = chatToolInfo(item);
-  const failed = info.status === 'error';
+  const failed = chatToolInfo(item).status === 'error';
+  rec.hatFailed = failed;
   rec.node.classList.add('hat');
   rec.node.classList.toggle('failed', failed);
   rec.body.replaceChildren(chatHatAvatar(rec.hatWorn), el('span', '', t(failed ? 'chat.hat.wornFailed' : 'chat.hat.worn', { name: rec.hatWorn })));
-  rec.node.hidden = false;
-  /* The session put on the hat it just suggested, with no answer yet (the default): its card says so, so this line would
-     say it twice. */
-  const card = !failed && cs.hatOpen ? [...cs.hatOpen].map((r) => r.hatCard).find((c) => c && c.dataset.agent === rec.hatWorn && !c.classList.contains('answered')) : null;
-  if (card) { chatSkinHatAuto(card); rec.node.hidden = true; }
-  if (!failed) chatSkinHatChip(cs, rec.hatWorn);
-}
-/* "Wearing agent: <name>." in a reply: the hat change, shown in the bubble unless the column already showed this very hat
-   going on (its /aios:agent call came just before), and the bar's chip either way. */
-function chatSkinHatWearing(rec, name, cs) {
-  if (rec.hatMark) { rec.hatMark.remove(); rec.hatMark = null; }
-  if (!name) return;
-  if (name === 'none') {   // "Wearing agent: none." — the hat came off ("no", or "open" moved the work to its own session)
-    if (cs.hat) {
-      const mark = el('div', 'chat-note hat off in-bubble');
-      mark.append(chatHatAvatar(cs.hat), el('span', '', t('chat.hat.off', { name: cs.hat })));
-      rec.body.before(mark);
-      rec.hatMark = mark;
-    }
-    cs.hatWanted = '';
-    chatSkinHatChip(cs, '');
-    return;
-  }
-  if (cs.hat !== name && !(rec.hatCard && rec.hatCard.dataset.agent === name)) {   // its own card already says so
-    const mark = el('div', 'chat-note hat in-bubble');
-    mark.append(chatHatAvatar(name), el('span', '', t('chat.hat.worn', { name })));
-    rec.body.before(mark);
-    rec.hatMark = mark;
-  }
-  cs.hatWanted = '';
-  if (cs.hatOpen) for (const r of cs.hatOpen) if (r.hatCard && r.hatCard.dataset.agent === name) chatSkinHatAuto(r.hatCard);   // it went on without a yes
-  chatSkinHatChip(cs, name);
-}
-/* "Opened agent session: <name>." — after "open", the session says which session it started (<agent>-<subject>). The latest
-   card for that agent says where the work went, with a button to that tab; with no card, the reply carries the note. Going
-   there only shows a tab that is already open: it never starts anything. */
-function chatSkinHatOpened(rec, name, cs) {
-  if (rec.hatOpenedEl) { rec.hatOpenedEl.remove(); rec.hatOpenedEl = null; }
-  if (!name) return;
-  const go = el('button', 'vbtn', t('chat.hat.goTo'));
-  go.type = 'button';
-  go.addEventListener('click', () => {
-    const hit = [...panes.entries()].find(([, p]) => p.kind === 'term' && !p.exited && p.name === name);
-    if (hit) setActive(hit[0]); else toast(t('chat.hat.notHere', { name }));
-  });
-  const card = [...(cs.hatCards || [])].reverse().find((c) => c.isConnected && (name === c.dataset.agent || name.startsWith(c.dataset.agent + '-')));
-  const line = el('div', 'ch-moved');
-  line.append(el('span', '', t(card ? 'chat.hat.moved' : 'chat.hat.openedNote', { name })), go);
-  if (card) {
-    for (const old of card.querySelectorAll('.ch-moved')) old.remove();
-    card.appendChild(line);
-  } else {
-    const note = el('div', 'chat-note hat in-bubble');
-    note.append(csIcon('robot', 13), line);
-    rec.body.before(note);
-    rec.hatOpenedEl = note;
-    return;
-  }
-  rec.hatOpenedEl = line;
+  chatSkinHatSoon(cs);
 }
 function chatSkinHatChip(cs, name) {
+  if (cs.hat === (name || '') && cs.hatSeg && cs.hatSeg.hidden === !cs.hat) return;
   cs.hat = name || '';
   const seg = cs.hatSeg;
   if (!seg) return;
@@ -11738,11 +11822,8 @@ function chatSkinUpsert(cs, item, animate, before) {
   if (!item || typeof item !== 'object' || !item.uuid) return;
   let rec = cs.items.get(item.uuid);
   if (!rec) {
-    /* Loading an agent is drawn as a hat change, not a tool card (#109): /aios:agent always; reading the agent's file only when
-       the operator just said "here" to that agent. */
-    const info0 = item.role === 'tool' ? chatToolInfo(item) : null;
-    const worn = info0 ? (chatHatWorn(info0) || (cs.hatWanted && chatHatReadOf(info0) === cs.hatWanted ? cs.hatWanted : '')) : '';
-    if (worn) cs.hatWanted = '';
+    /* Loading an agent (/aios:agent, as Claude's call or typed) is drawn as a hat change, not a tool card (#109). */
+    const worn = item.role === 'tool' ? chatHatWorn(chatToolInfo(item)) : '';
     rec = chatSkinMakeItem(worn ? 'system' : item.role, cs);
     if (worn) rec.hatWorn = worn;
     rec.uuid = item.uuid;
@@ -11759,26 +11840,14 @@ function chatSkinUpsert(cs, item, animate, before) {
   if (rec.role === 'assistant') {
     if (rec.text !== text) {   // links only on the FINAL render: the provisional bubble below never gets them
       chatRender(rec.body, text); rec.text = text; chatLinkPaths(rec.body, cs);
-      /* The hat lines become a card and a hat change (#109), but only once the agent they name is checked to exist: until
-         then, and for a name that is not an agent, the reply shows as written. Copy still copies the whole reply. */
-      const hl = chatHatLines(text);
-      chatSkinHatCard(rec, null, cs); chatSkinHatWearing(rec, '', cs); chatSkinHatOpened(rec, '', cs);
-      if (hl.suggest || hl.wearing || hl.opened) {
-        void Promise.all([hl.suggest ? chatHatAgent(hl.suggest.name) : null, hl.wearing && hl.wearing !== 'none' ? chatHatAgent(hl.wearing) : null]).then(([sa, wa]) => {
-          if (rec.text !== text || !rec.node.isConnected) return;   // the reply changed or left meanwhile
-          const hs = hl.suggest && sa ? { ...hl.suggest, purpose: sa.desc } : null;
-          const wearing = hl.wearing === 'none' || (hl.wearing && wa) ? hl.wearing : '';   // 'none': the hat came off (no agent is named none)
-          if (!hs && !wearing && !hl.opened) return;
-          chatRender(rec.body, hl.rest); chatLinkPaths(rec.body, cs);
-          chatSkinHatCard(rec, hs, cs);
-          chatSkinHatWearing(rec, wearing, cs);
-          chatSkinHatOpened(rec, hl.opened, cs);   // a session name, not an agent: nothing to check, it only names a tab
-        });
-      }
+      /* The hat lines become a card and a hat change (#109), for agents that exist; otherwise the reply stays as written. What
+         they say is decided by one pass over the whole column (chatSkinHatRecompute). Copy still copies the whole reply. */
+      if (chatSkinHatDraw(rec, cs) || rec.hadHat) chatSkinHatSoon(cs);
+      rec.hadHat = !!rec.hat;
     }
     rec.node.hidden = !text.trim();   // a tool-only message leaves no empty bubble
   } else if (rec.role === 'user') {
-    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); chatSkinHatSettle(cs, text); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
+    if (rec.text !== text) { rec.body.textContent = text; rec.text = text; chatLinkPaths(rec.body, cs); chatSkinBusLabel(rec, text); if (cs.queued && cs.queued.length) chatSkinQueueSettle(cs, text); if (cs.hatSeg) chatSkinHatSoon(cs); }   // textContent: the operator's text is never parsed as HTML either; a path they typed links like any other
     rec.node.hidden = !text.trim() || CS_HIDDEN_CMD.test(text.trim());
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
@@ -11906,9 +11975,6 @@ function chatSkinStreamAdopt(cs, uuid) {
 function chatSkinResetView(p) {
   const cs = p.chatSkin;
   cs.items.clear(); cs.groups.clear(); cs.groupOpen.clear();
-  if (cs.hatOpen) cs.hatOpen.clear();
-  cs.hatCards = [];
-  cs.hatWanted = '';
   cs.hat = ''; if (cs.hatSeg) cs.hatSeg.hidden = true;   // the hat is read again from the transcript, like everything else in the column
   cs.stream = null; cs.dlg = null; cs.dlgSig = '';   // replaceChildren below removes their nodes; a dialog still open is drawn again at the end
   cs.log.replaceChildren(cs.stateEl, cs.workEl);

@@ -93,7 +93,7 @@ function guarded(name: string, src: string, check: (s: string) => boolean, break
 
 guarded('main reads the disk and decides BEFORE writing; a conflict writes nothing', main,
   (s) => { const h = handlerOf(s, 'fs:saveMerged'); const read = h.indexOf('readFileSync(abs'), dec = h.indexOf('decideSave(base, mine, disk'), conf = h.indexOf("if ('conflict' in d) return"), write = h.indexOf('writeFileSync(tmp'); return read > 0 && read < dec && dec < conf && conf < write; },
-  (s) => s.replace("if ('conflict' in d) return { ok: false, conflict: true, disk };", ''));
+  (s) => s.replace("if ('conflict' in d) return { ok: false, conflict: true, disk, copy: keepOnConflict === true ? writeConflictCopy(abs, mine) : null };", ''));
 
 guarded('the viewer saves through fs:saveMerged with its base, never with a plain write to the note', app,
   (s) => { const v = viewerSave(s); return /fsSaveMerged\(file\.path, base, content, prefer\)/.test(v) && !/fsWrite\(/.test(v) && !/fsWrite\(/.test(ask(s)); },
@@ -127,7 +127,7 @@ guarded('every mode paints from the text on screen, so switching Rendered/Edit n
 
 const flushOf = (src: string) => src.slice(src.indexOf('paneObj.flushSave = (quitting) => {'), src.indexOf('\n  };\n', src.indexOf('paneObj.flushSave = (quitting) => {')));
 guarded('closing the tab or quitting saves an unsaved note, timer or not, and a quit sends it outside the queue (third pass #2, #4)', app,
-  (s) => { const f = flushOf(s); return /if \(!saveTimer && !paneObj\.dirty\) return;/.test(f) && /else void window\.glassShell\.fsSaveMerged\(file\.path, base, shownNow\(\)\)/.test(f)
+  (s) => { const f = flushOf(s); return /if \(!saveTimer && !paneObj\.dirty\) return;/.test(f) && /else void window\.glassShell\.fsSaveMerged\(file\.path, base, shownNow\(\)(, undefined, true)?\)/.test(f)
     && /if \(p\.flushSave\) p\.flushSave\(\);/.test(s.slice(s.indexOf('function closePane('), s.indexOf('function closePane(') + 400)) && /p\.flushSave\(true\)/.test(s); },
   (s) => s.replace('if (!saveTimer && !paneObj.dirty) return;', 'if (!saveTimer) return;'));
 
@@ -170,3 +170,9 @@ guarded('the caret stays on the operator\'s line when an agent changes text abov
     return neu.slice(to - 7, to) === 'my line' && mapCaret(old, neu, 3) === 3 && mapCaret('a\nb\n', 'a\nb\nc\n', 3) === 3;
   },
   (s) => s.replace("  else {\n    const hit = N.indexOf(O[line], pre);\n    to = hit >= 0 && hit < N.length - suf ? hit : pre;\n  }", '  else to = line + (N.length - O.length);'));
+
+guarded('quitting into a conflict keeps the operator\'s text beside the note: nobody is there to answer (fourth review)', main + '\n' + app,
+  (s) => /if \('conflict' in d\) return \{ ok: false, conflict: true, disk, copy: keepOnConflict === true \? writeConflictCopy\(abs, mine\) : null \};/.test(s)
+    && /fsSaveMerged\(file\.path, base, shownNow\(\), undefined, true\)/.test(s),
+  (s) => s.replace('fsSaveMerged(file.path, base, shownNow(), undefined, true)', 'fsSaveMerged(file.path, base, shownNow())'));
+

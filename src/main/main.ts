@@ -1959,14 +1959,15 @@ function writeConflictCopy(abs: string, content: string): string | null {
    `prefer: 'mine'` is the operator's "Keep my changes": the disk's version is copied beside the note IN THIS SAME STEP,
    from the very text the merge reads, so an agent write landing in between cannot fall between the copy and the note.
    The plain fs:write stays for writers that own their file outright (the Designer). */
-ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string, prefer?: unknown) => {
+ipcMain.handle('fs:saveMerged', (_e, relOrAbs: string, base: string, mine: string, prefer?: unknown, keepOnConflict?: unknown) => {
   const abs = resolveIn(relOrAbs);
   if (!abs || typeof base !== 'string' || typeof mine !== 'string') return { ok: false };
   let disk: string | null = null;
   try { disk = fs.readFileSync(abs, 'utf8'); } catch { disk = null; }
   const keepMine = prefer === 'mine';
   const d = decideSave(base, mine, disk, keepMine ? 'mine' : undefined);
-  if ('conflict' in d) return { ok: false, conflict: true, disk };
+  /* Quitting, nobody is there to answer: on a conflict the operator's text is kept beside the note instead (never lost). */
+  if ('conflict' in d) return { ok: false, conflict: true, disk, copy: keepOnConflict === true ? writeConflictCopy(abs, mine) : null };
   let copy: string | null = null;
   if (keepMine && disk !== null && disk !== base && disk !== d.write) {
     copy = writeConflictCopy(abs, disk);
@@ -2248,6 +2249,7 @@ ipcMain.handle('ask:destinations', () => ({
   agents: aios.discoverAgents().map((a) => ({ name: a.name, desc: a.description ?? '', group: a.group })),   // group: the agent's bundle folder, its colour in the chat (#109)
 }));
 ipcMain.handle('hat:agent', (_e, name: unknown) => (typeof name === 'string' ? aios.hatAgent(name) : null));   // #109: a hat line's agent, by file
+ipcMain.handle('hat:agents', () => aios.hatAgents());   // #109: every agent a hat line may name, read once by the chat
 ipcMain.handle('ask:send', (_e, dest: QuickBarDestination, text: unknown) => writeAskRequest(dest, String(text ?? ''), {
   inboxDir,
   takenNames: () => aios.listRunningAgents().map((a) => a.name),
