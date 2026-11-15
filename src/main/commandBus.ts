@@ -21,7 +21,7 @@ import {
   INBOX_CONTRACT, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
   shouldReleaseForSibling, countDeliveries, verifyVerdict, isDeliverable, maxAttemptsFor,
-  triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
+  triedBy, withTried, fulfillerId, type SendTarget,
   queueTurn, stampAge, withQueuedAt, queuedAtOf, isQueuedDelivery, supersedes, type QueuedSend,
 } from '../core/sendQueue';
 import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs } from './retypeGuard';
@@ -167,15 +167,6 @@ function ensureReadme(dir: string, appVersion: string): void {
   }
 }
 
-/** One `ps` call: the parent of a pid, or 0 if it cannot be read. */
-function ppidOf(pid: number): number {
-  try {
-    const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
-    const n = Number(out);
-    return Number.isFinite(n) ? n : 0;
-  } catch { return 0; }
-}
-
 /** Absolute path of this surface's presence record. */
 function presenceFile(): string {
   return path.join(os.homedir(), '.aios', 'surfaces', `${MY_SURFACE}.json`);
@@ -189,9 +180,49 @@ function presenceFile(): string {
  */
 function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 1) return false;
-  try { process.kill(pid, 0); return true; } catch (e) {
+  try { process.kill(pid, 0); } catch (e) {
     return (e as NodeJS.ErrnoException)?.code !== 'ESRCH';
   }
+  /* Linux: kill() also accepts a THREAD id, so signal 0 succeeds for a pid that is only a thread
+     of some other process. A record naming a dead App then reads as alive as soon as the number is
+     reused by any thread — measured: app.json named 1301, which after a reboot was a containerd
+     thread (Tgid 1291), and the App deferred to it on every start and every heal. A real process
+     is its own thread-group leader, so Tgid must equal the pid. Unreadable → keep the signal's answer. */
+  if (process.platform === 'linux') {
+    try {
+      const m = /^Tgid:\s*(\d+)/m.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'));
+      if (m && Number(m[1]) !== pid) return false;
+    } catch { /* gone between the two calls, or no /proc — the signal already said alive */ }
+  }
+  return true;
+}
+
+/**
+ * Liveness for the pid a given record names. A record written BEFORE this boot names nobody,
+ * whatever the pid now belongs to: pids restart from low numbers after a reboot, and a crash or
+ * power cut leaves the record behind (no `before-quit`), so the old number is soon reused by an
+ * unrelated process. `at` is in the record for this; a minute of slack absorbs clock skew.
+ */
+function aliveFor(rec: ReturnType<typeof parsePresenceRecord>): (pid: number) => boolean {
+  const bootedAt = Date.now() - os.uptime() * 1000;
+  const predatesBoot = typeof rec?.at === 'number' && rec.at < bootedAt - 60_000;
+  return (pid) => !predatesBoot && pidAlive(pid);
+}
+
+/**
+ * The pid this App announces: its own main process.
+ *
+ * `processTreeRoot` exists for Glass, whose extension host and terminals are SIBLINGS under the
+ * IDE's root. The App needs no walk — every session pane is a child of its main process — and on
+ * Linux the walk does not stop at the App: an AppImage's parent is `systemd --user`, not pid 1, so
+ * it climbs out and announces the user's session manager. That pid is an ancestor of every process
+ * the user runs, so a plain terminal or tmux session OUTSIDE the App derived surface 'app', and a
+ * second App instance always found the record "owned by a live pid" that was never an App.
+ * Measured on Linux: three consecutive starts logged `root pid 1289` (systemd --user) against
+ * `self 49466`, while the spawned sessions descended from 49466.
+ */
+function appRoot(): number {
+  return process.pid;
 }
 
 /** Raw contents of the presence record, or undefined if it is absent or unreadable. */
@@ -220,8 +251,8 @@ function healPresence(appVersion: string): void {
   if (!app.isPackaged) return;
   try {
     const rec = parsePresenceRecord(readPresence());
-    const root = processTreeRoot(process.pid, ppidOf);
-    if (presenceVerdict(rec, root, pidAlive) === 'leave') return;   // healthy — someone alive owns it
+    const root = appRoot();
+    if (presenceVerdict(rec, root, aliveFor(rec)) === 'leave') return;   // healthy — someone alive owns it
     if (rec?.pid === root && readPresence() !== undefined) return;  // already ours; do not churn the file
     fs.mkdirSync(path.dirname(presenceFile()), { recursive: true });
     const body = presenceBody(root, appVersion);
@@ -278,12 +309,10 @@ function announcePresence(appVersion: string): void {
   try {
     const dir = path.join(os.homedir(), '.aios', 'surfaces');
     fs.mkdirSync(dir, { recursive: true });
-    /* The tree ROOT, not process.pid — see processTreeRoot. For the App these are the same pid
-       today (its main process has ppid 1), but deriving it removes a fact about our own process
-       layout from a file whose whole job is to be matched against someone else's ancestry. */
-    const root = processTreeRoot(process.pid, ppidOf);
+    /* The App's own main process — see appRoot for why the App does not walk up its ancestry. */
+    const root = appRoot();
     const rec = parsePresenceRecord(readPresence());
-    if (presenceVerdict(rec, root, pidAlive) === 'leave') {
+    if (presenceVerdict(rec, root, aliveFor(rec)) === 'leave') {
       log(`presence left to pid ${rec?.pid} — it is still running, and ours (${root}) must not displace a live surface`);
       return;
     }
@@ -309,7 +338,7 @@ function announcePresence(appVersion: string): void {
 function retractPresence(): void {
   try {
     const f = presenceFile();
-    const mine = processTreeRoot(process.pid, ppidOf);
+    const mine = appRoot();
     const body = parsePresenceRecord(readPresence());
     if (!mayRetract(body, mine)) { log(`presence left in place — ${f} names pid ${body?.pid}, not ours (${mine})`); return; }
     fs.unlinkSync(f);
