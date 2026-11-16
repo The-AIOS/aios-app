@@ -38,7 +38,7 @@ guarded('every marked.parse in the vault viewer goes through vaultSanitize, none
     const sinks = markedSinks(src);
     return sinks.length > 0 && sinks.every((l) => /vaultSanitize\(marked\.parse\(/.test(l)) && !/innerHTML\s*=\s*marked\.parse/.test(src);
   },
-  (src) => src.replace('md.replaceChildren(vaultSanitize(marked.parse(src)));', 'md.innerHTML = marked.parse(src);'));
+  (src) => src.replace('md.replaceChildren(vaultSanitize(marked.parse(src, NOTE_MD)));', 'md.innerHTML = marked.parse(src, NOTE_MD);'));
 
 guarded('vaultSanitize parses into an inert <template> and walks every element',
   (src) => {
@@ -134,7 +134,7 @@ test('every chip string exists in all four languages', () => {
 
 /* 0.15.1 round 2: a note that had anything held back says so in plain words, once, at the top, like a mail app. */
 guarded('a note with held-back content gets one plain-language banner, with Show images when images were held',
-  (src) => /md\.replaceChildren\(vaultSanitize\(marked\.parse\(src\)\)\);\n\s+vaultHeldBanner\(md\);/.test(src)
+  (src) => /md\.replaceChildren\(vaultSanitize\(marked\.parse\(src, NOTE_MD\)\)\);\n\s+vaultHeldBanner\(md\);/.test(src)
     && /const images = chips\.filter\(\(c\) => c\.dataset\.kind === 'image' && c\.querySelector\('\.vblock-btn'\)\);/.test(src)
     && /chip\.dataset\.kind = kind;/.test(src)
     && /head\.textContent = t\('viewer\.held\.title'/.test(src) && /why\.textContent = t\('viewer\.held\.why'\)/.test(src),
