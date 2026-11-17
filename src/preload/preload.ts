@@ -266,5 +266,9 @@ contextBridge.exposeInMainWorld('glassShell', {
   copyPlainText: (t: string, cols: number): Promise<boolean> => ipcRenderer.invoke('shell:copyPlainText', t, cols),
   htmlToPng: (p: string): Promise<{ out: string; w: number; h: number } | null> => ipcRenderer.invoke('html:toPng', p),
   onFsEvent: (cb: (m: { dirs: string[] }) => void) => ipcRenderer.on('shell:fsEvent', (_e, m) => cb(m)),
+  /* #177: one open file, watched through its real folder; changes arrive as shell:fileChanged. */
+  fsWatchFile: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:watchFile', p),
+  fsUnwatchFile: (p: string): Promise<void> => ipcRenderer.invoke('fs:unwatchFile', p),
+  onFileChanged: (cb: (m: { path: string }) => void) => ipcRenderer.on('shell:fileChanged', (_e, m) => cb(m)),
   onRootsChanged: (cb: (m: { framework: string; vault: string }) => void) => ipcRenderer.on('shell:rootsChanged', (_e, m) => cb(m)),
 });

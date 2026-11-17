@@ -4877,6 +4877,7 @@ function closePane(id) {
   const p = panes.get(id);
   if (!p) return;
   if (p.flushSave) p.flushSave();   // a note's waiting autosave is saved, not dropped, when its tab closes (#159)
+  if (p.unwatch) p.unwatch();   // #177: its file is no longer watched
   const z = zoneOf(p);
   if (p.ro) { try { p.ro.disconnect(); } catch { /* already gone */ } }
   if (p.gl) { try { p.gl.dispose(); } catch { /* already gone */ } }
@@ -6293,8 +6294,16 @@ async function openViewer(p) {
     const f = await window.glassShell.fsRead(file.path).catch(() => null);
     if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
     base = file.content = f.content;
-    if (editorRef) editorRef.replaceText(toEditor(f.content)); else paint();
+    if (editorRef) { editorRef.replaceText(toEditor(f.content)); return; }
+    /* #177: a reading view keeps its place. (A rendered HTML page is a sandboxed frame the window
+       cannot scroll, so it reloads from its top.) */
+    const top = body.scrollTop;
+    paint();
+    body.scrollTop = top;
   };
+  /* #177: watched on its own, through its real folder, for as long as the tab is open. */
+  void window.glassShell.fsWatchFile?.(file.path).catch(() => false);
+  paneObj.unwatch = () => { void window.glassShell.fsUnwatchFile?.(file.path).catch(() => null); };
   /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
   paneObj.flushSave = (quitting) => {
     if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
@@ -7242,6 +7251,10 @@ window.glassShell.onFsEvent((m) => {
   /* An open note whose folder changed may have been written by an agent: the viewer reloads it if nothing is unsaved (#159). */
   const dirs = new Set(m.dirs || []);
   for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && dirs.has(xDirOf(p.path))) void p.onDiskMaybeChanged();
+});
+/* #177: an open file changed on disk (its own watch, main fs:watchFile): reload it if nothing is unsaved. */
+window.glassShell.onFileChanged?.((m) => {
+  for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && p.path === m.path) void p.onDiskMaybeChanged();
 });
 /* The framework or vault just appeared (or moved). The tree was built when neither existed, so it
    is not stale — it is empty, next to a vault full of files. Rebuild it rather than waiting for a

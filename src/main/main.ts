@@ -1413,6 +1413,40 @@ function setupExplorerWatch(win: BrowserWindow): void {
     } catch { /* root may be absent */ }
   }
 }
+/* #177: each open file is watched on its own, through its REAL folder. The explorer watch above covers
+   only the allowed roots and names folders by the root's own path, so a file opened by another path
+   to the same place (a symlinked framework root, ~/aios → ~/obsidian) or outside the roots never
+   reloaded. The folder is watched, not the file: an agent's atomic replace kills a watch on the file. */
+const fileWatches = new Map<string, { w: fs.FSWatcher; n: number; timer?: ReturnType<typeof setTimeout> }>();
+ipcMain.handle('fs:watchFile', (e, p: string) => {
+  const key = String(p || '');
+  const cur = fileWatches.get(key);
+  if (cur) { cur.n++; return true; }
+  const abs = resolveIn(key);
+  if (!abs) return false;
+  let real = abs;
+  try { real = fs.realpathSync(abs); } catch { /* keep the given path */ }
+  const base = path.basename(real);
+  try {
+    const entry: { w: fs.FSWatcher; n: number; timer?: ReturnType<typeof setTimeout> } = { w: undefined as unknown as fs.FSWatcher, n: 1 };
+    entry.w = fs.watch(path.dirname(real), (_evt, filename) => {
+      if (filename && String(filename) !== base) return;
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.timer = setTimeout(() => { if (!e.sender.isDestroyed()) e.sender.send('shell:fileChanged', { path: key }); }, 250);
+    });
+    entry.w.on('error', () => { try { entry.w.close(); } catch { /* gone */ } fileWatches.delete(key); });
+    fileWatches.set(key, entry);
+    return true;
+  } catch { return false; }
+});
+ipcMain.handle('fs:unwatchFile', (_e, p: string) => {
+  const key = String(p || '');
+  const cur = fileWatches.get(key);
+  if (!cur || --cur.n > 0) return;
+  if (cur.timer) clearTimeout(cur.timer);
+  try { cur.w.close(); } catch { /* gone */ }
+  fileWatches.delete(key);
+});
 function resolveIn(relOrAbs: string): string | null {
   const v = aios.vaultRoot();
   const abs = path.isAbsolute(relOrAbs) ? relOrAbs : (v ? path.resolve(v, relOrAbs) : null);
