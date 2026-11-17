@@ -29,7 +29,8 @@ import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs }
 import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presence';
 import { MY_SURFACE } from './surface';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
-import { TranscriptSince, readTranscript } from './transcriptSince';
+import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from './transcriptSince';
+import { liveSubagents, landedInSubagentReason } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 
@@ -652,6 +653,15 @@ async function runSend(
     const appended = since.read(sid);
     return appended === null ? null : countDeliveries(appended, deliverText, needle, claimedAt);
   };
+  /* #179: a copy that landed in one of the target's subagents instead of the target. It ends the
+     send (never typed again) with a dead letter naming where it went. */
+  const subSince = new SubagentsSince();
+  const landedInSubagent = (sid: string): boolean => {
+    if (countDeliveries(subSince.read(sid), deliverText, needle, claimedAt) === 0) return false;
+    markUndelivered(heldPath, req, landedInSubagentReason(req.name));
+    return true;
+  };
+  let heldForSubagents = false;   // one log line per request while subagents hold it
   /* A transcript we cannot read cannot verify anything, and re-typing on that is how one message
      arrived three times. Typed once → done, said plainly; never typed → nothing to finish here. */
   const finishUnverifiable = (): void => {
@@ -708,7 +718,22 @@ async function runSend(
     }
     // idle → deliver, then prove it in the target's own transcript
     const sessionId = target ? target.sessionId : '';
+    if (!firstTypedAt) subSince.read(sessionId);   // #179: the subagent baseline, before anything is typed (the first read fixes it)
     if (baseline === undefined) baseline = count(sessionId) ?? 0;
+    if (firstTypedAt && landedInSubagent(sessionId)) return;
+    /* #179: background subagents still running → busy, like a session mid-turn. Typed input can
+       reach one of them instead of the session, so wait until they finish (a stale one stops
+       counting after SUBAGENT_STALE_MS, so this cannot hold forever). */
+    if (liveSubagents(subagentStates(sessionId), Date.now()) > 0) {
+      if (!heldForSubagents) { heldForSubagents = true; log(`holding a message for '${req.name}': it has background subagents running`); }
+      if (firstTypedAt && Date.now() - firstTypedAt >= MAX_HOLD_MS) {
+        markUndelivered(heldPath, req, `'${req.name}' kept background subagents running for ${Math.round(MAX_HOLD_MS / 60000)} min`);
+        return;
+      }
+      if (!fs.existsSync(heldPath)) return;
+      await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+      continue;
+    }
     const before = baseline;
     /* THE CAP HAS TO SIT HERE, before the send — not only in the after-a-miss decision.
        A 'wait' verdict does `continue`, which re-enters this branch, so a cap enforced only
@@ -796,6 +821,7 @@ async function runSend(
       await new Promise((r) => setTimeout(r, VERIFY_TICK_MS));
       const now = count(sessionId);
       if (now === null) { finishUnverifiable(); return; }
+      if (now <= before && landedInSubagent(sessionId)) return;
       const verdict = verifyVerdict(before, now);
       if (verdict === 'pending') continue;
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
