@@ -4197,6 +4197,7 @@ function makeTab(id, name, iconName) {
     if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
     if (pane.kind === 'term' && hasFeedback) items.push({ label: t('tab.report'), value: 'report' });   // hidden without the aios-feedback agent
     if (pane.kind === 'term' && pane.sessionId) items.push({ label: t('tab.copyAnswer'), value: 'copyAnswer' });   // from the transcript
+    if (pane.kind === 'term' && !pane.exited) items.push({ label: t(pane.recording ? 'tab.recordOff' : 'tab.recordOn'), value: 'record' });   // #75: raw output, to diagnose a screen drawn wrong
     /* Read-aloud is HIDDEN for now (operator decision, 0.11.0): it returns with two-way voice.
        The code stays; flipping READ_ALOUD brings the menu row back. */
     if (READ_ALOUD && pane.kind === 'term' && (pane.isSession || pane.sessionId)) items.push({ label: t(pane.readAloud ? 'tab.readAloudOff' : 'tab.readAloudOn'), value: 'readAloud' });
@@ -4220,6 +4221,14 @@ function makeTab(id, name, iconName) {
       else if (pick === 'report') void reportThis(id);
       else if (pick === 'chatView') chatSkinFollowMode(id);
       else if (pick === 'readAloud') setReadAloud(id, !pane.readAloud);
+      else if (pick === 'record') {
+        const on = !pane.recording;
+        const r = await window.glassShell.ptyRecord(id, on, pane.name || 'terminal', pane.term?.cols || 80, pane.term?.rows || 24).catch(() => null);
+        if (on && !(r && r.file)) { toast(t('term.recordFailed')); return; }
+        pane.recording = on;
+        toast(t(on ? 'term.recordStarted' : 'term.recordSaved', { name: xBase(r && r.file ? r.file : '') }));
+        if (!on && r && r.file) void window.glassShell.revealInOS(r.file);
+      }
       else if (pick === 'copyAnswer') void window.glassShell.copyLastAnswer(pane.sessionId).then((n) => toast(t(n > 0 ? 'term.copiedAnswer' : 'term.noAnswer')));
       else if (pick === 'rename') {
         const next = (await inputModal(t('tab.rename'), pane.name || t('pulse.terminal'), []) || '').trim();

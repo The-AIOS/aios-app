@@ -1646,5 +1646,10 @@
   "viewer.held.why": "Las notas pueden traer cosas de correos, páginas web u otras personas. Una imagen de internet puede avisarle a quien la envió que abriste la nota, y una página incrustada puede ejecutar código en la ventana que escribe en tus sesiones. Por eso AIOS solo las muestra cuando tú lo decides.",
   "viewer.held.showImages": "Mostrar imágenes ({n})",
   "viewer.blocked.failed": "No se pudo cargar la imagen de {host}",
-  "viewer.blocked.missing": "Imagen no encontrada: {name}"
+  "viewer.blocked.missing": "Imagen no encontrada: {name}",
+  "tab.recordOn": "Grabar la salida de la terminal",
+  "tab.recordOff": "Detener la grabación",
+  "term.recordStarted": "Grabando esta terminal en {name}. Guarda todo lo que se muestra, así que detenla cuando tengas lo que necesitas.",
+  "term.recordSaved": "Grabación guardada: {name}",
+  "term.recordFailed": "No se pudo iniciar la grabación"
 }

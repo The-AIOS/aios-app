@@ -44,6 +44,7 @@ import type { QuickBarDestination } from '../core/quickBar';
 import { initCommandBus, appLog, inboxDir, reportTrustBlocked } from './commandBus';
 import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS } from '../core/trustPrompt';
 import { windowOpenAction } from '../core/linkOpen';
+import { headerLine, outputLine, resizeLine, recordingName } from '../core/ttyRecord';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
@@ -384,6 +385,8 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   const trustWatch = watchesForTrust(opts.cmd) && opts.name ? { until: Date.now() + TRUST_WATCH_MS, buf: '' } : null;
   p.onData((data) => {
     if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data });
+    const rec = recordings.get(id);
+    if (rec) { try { fs.writeSync(rec.fd, outputLine(Date.now() - rec.t0, data)); } catch { stopRecording(id); } }
     if (trustWatch && trustWatch.until) {
       if (Date.now() > trustWatch.until) { trustWatch.until = 0; trustWatch.buf = ''; }
       else {
@@ -402,7 +405,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
     const sk = skins.get(id);
     if (sk && !sk.screenFed) sk.monitor.push(data);   // chat skin only: is the TUI waiting on a dialog? Until the renderer sends real screens, the raw stream is the best guess
   });
-  p.onExit(({ exitCode }) => { ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
+  p.onExit(({ exitCode }) => { stopRecording(id); ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
   /* THE COMMAND IS NOT WRITTEN HERE ANY MORE — see `pty:run`.
      It used to run right at spawn, while the pty was still at the hardcoded 80×24 the renderer
      passes before it has measured anything. A shell prompt survives that (it reflows), but a
@@ -421,7 +424,37 @@ ipcMain.handle('pty:run', (_e, { id, cmd }: { id: number; cmd: string }) => {
   return true;
 });
 ipcMain.on('pty:write', (_e, { id, data }: { id: number; data: string }) => ptys.get(id)?.write(data));
-ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: number; cols: number; rows: number }) => ptys.get(id)?.resize(cols, rows));
+ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: number; cols: number; rows: number }) => {
+  ptys.get(id)?.resize(cols, rows);
+  const rec = recordings.get(id);
+  if (rec) { try { fs.writeSync(rec.fd, resizeLine(Date.now() - rec.t0, cols, rows)); } catch { stopRecording(id); } }
+});
+/* #75: record one pane's raw output (asciicast v2, core/ttyRecord), turned on and off from its tab menu.
+   It holds everything the pane showed, so it is only ever started by the operator, written to the App's
+   own folder and readable by them alone. Returns the file's path. */
+const recordings = new Map<number, { fd: number; t0: number; file: string }>();
+function stopRecording(id: number): string {
+  const rec = recordings.get(id);
+  if (!rec) return '';
+  recordings.delete(id);
+  try { fs.closeSync(rec.fd); } catch { /* already closed */ }
+  return rec.file;
+}
+ipcMain.handle('pty:record', (_e, { id, on, name, cols, rows }: { id: number; on: boolean; name?: string; cols?: number; rows?: number }) => {
+  if (!on) return { file: stopRecording(id) };
+  if (!ptys.has(id)) return { file: '' };
+  if (recordings.has(id)) return { file: recordings.get(id)!.file };
+  const t0 = Date.now();
+  const dir = path.join(app.getPath('userData'), 'recordings');
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = path.join(dir, recordingName(String(name || 'terminal'), t0));
+    const fd = fs.openSync(file, 'a', 0o600);
+    fs.writeSync(fd, headerLine(Number(cols) || 80, Number(rows) || 24, t0, name));
+    recordings.set(id, { fd, t0, file });
+    return { file };
+  } catch { return { file: '' }; }
+});
 ipcMain.on('pty:kill', (_e, { id }: { id: number }) => { ptys.get(id)?.kill(); ptys.delete(id); ptyTails.delete(id); void endSkin(id, false); });
 
 /* ── CHAT SKIN ───────────────────────────────────────────────────────────────────────────────────

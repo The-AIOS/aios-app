@@ -268,6 +268,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   onFsEvent: (cb: (m: { dirs: string[] }) => void) => ipcRenderer.on('shell:fsEvent', (_e, m) => cb(m)),
   /* #177: one open file, watched through its real folder; changes arrive as shell:fileChanged. */
   fsWatchFile: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:watchFile', p),
+  /* #75: start or stop recording one pane's raw output; resolves to the recording's path. */
+  ptyRecord: (id: number, on: boolean, name: string, cols: number, rows: number): Promise<{ file: string }> => ipcRenderer.invoke('pty:record', { id, on, name, cols, rows }),
   fsUnwatchFile: (p: string): Promise<void> => ipcRenderer.invoke('fs:unwatchFile', p),
   onFileChanged: (cb: (m: { path: string }) => void) => ipcRenderer.on('shell:fileChanged', (_e, m) => cb(m)),
   onRootsChanged: (cb: (m: { framework: string; vault: string }) => void) => ipcRenderer.on('shell:rootsChanged', (_e, m) => cb(m)),

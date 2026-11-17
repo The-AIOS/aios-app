@@ -1646,5 +1646,10 @@
   "viewer.held.why": "Notes can carry things from emails, web pages or other people. An image from the internet can tell its sender you opened the note, and an embedded page can run code in the window that types into your sessions. So AIOS shows them only when you choose.",
   "viewer.held.showImages": "Show images ({n})",
   "viewer.blocked.failed": "Image from {host} couldn't be loaded",
-  "viewer.blocked.missing": "Image not found: {name}"
+  "viewer.blocked.missing": "Image not found: {name}",
+  "tab.recordOn": "Record terminal output",
+  "tab.recordOff": "Stop recording",
+  "term.recordStarted": "Recording this terminal to {name}. It captures everything shown, so stop it when you have what you need.",
+  "term.recordSaved": "Recording saved: {name}",
+  "term.recordFailed": "Couldn't start the recording"
 }
