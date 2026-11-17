@@ -13,12 +13,13 @@ import { needsConsultBlock, ADVISOR_CONSULT_BLOCK } from '../core/advisor';
 import { normalizeVerb } from '../core/busVerbs';
 import { ResumeIndex } from './resumeIndex';
 import { staleResumeName } from '../core/resumeTarget';
+import { trustBlockedReason } from '../core/trustPrompt';
 import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '../core/supersede';
 import { resolveSessionName, resolveFormerName, sessionKey } from '../core/nameMatch';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import { decideKill, KILL_EXPECT_CAPABILITY } from '../core/killGuard';
 import {
-  INBOX_CONTRACT, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
+  INBOX_CONTRACT, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
   shouldReleaseForSibling, countDeliveries, verifyVerdict, isDeliverable, maxAttemptsFor,
   triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
@@ -529,6 +530,23 @@ function markUndelivered(fromPath: string, req: BusRequest | null, reason: strin
     try { fs.renameSync(fromPath, dest); } catch { /* already gone */ }
   }
   log(`UNDELIVERED ${path.basename(dest)} — ${reason}${req ? ` (${req.action} '${req.name}')` : ''}`);
+}
+
+/**
+ * #182: a session the bus opened is waiting on Claude Code's folder-trust question. The request
+ * was already claimed and logged as delivered, so without this the sender sees a success while
+ * nothing runs. Leave a dead letter naming why (`/today` and `/close-day` surface them); the App
+ * never answers the question itself. Returns the reason, for the operator's notice.
+ */
+export function reportTrustBlocked(name: string): string {
+  const reason = trustBlockedReason(name);
+  const safe = String(name || 'session').replace(/[^A-Za-z0-9._-]/g, '-');
+  const dest = path.join(inboxDir(), `${safe}-trust-question.json${UNDELIVERED_SUFFIX}`);
+  try {
+    fs.writeFileSync(dest, JSON.stringify({ name, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n');
+  } catch { /* the log line below still records it */ }
+  log(`TRUST QUESTION — '${name}' is waiting on Claude Code's folder-trust question and has not started: ${path.basename(dest)}`);
+  return reason;
 }
 
 /* Review nit: a superseded message used to be deleted, which reads exactly like a delivery to the

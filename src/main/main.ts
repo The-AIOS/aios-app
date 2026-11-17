@@ -41,7 +41,8 @@ import { sanitizeGroups, type MenuBarGroup } from '../core/menuBar';
 import { QuickBar, writeAskRequest } from './quickBar';
 import { isBlockedStatus } from '../core/attention';
 import type { QuickBarDestination } from '../core/quickBar';
-import { initCommandBus, appLog, inboxDir } from './commandBus';
+import { initCommandBus, appLog, inboxDir, reportTrustBlocked } from './commandBus';
+import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS } from '../core/trustPrompt';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
@@ -376,8 +377,26 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   });
   const id = nextId++;
   ptys.set(id, p);
+  /* #182: a tab started with --add-dir (every bus spawn and resume) can stop on Claude Code's
+     folder-trust question before the session exists. Watch its first output for that question;
+     on a match, mark the tab, tell the operator and leave a dead letter. Never answer it. */
+  const trustWatch = watchesForTrust(opts.cmd) && opts.name ? { until: Date.now() + TRUST_WATCH_MS, buf: '' } : null;
   p.onData((data) => {
     if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data });
+    if (trustWatch && trustWatch.until) {
+      if (Date.now() > trustWatch.until) { trustWatch.until = 0; trustWatch.buf = ''; }
+      else {
+        trustWatch.buf = (trustWatch.buf + data).slice(-16_384);
+        if (isTrustPrompt(plainForTrust(trustWatch.buf))) {
+          trustWatch.until = 0; trustWatch.buf = '';
+          const reason = reportTrustBlocked(String(opts.name));
+          if (!e.sender.isDestroyed()) {
+            e.sender.send('shell:intent', { name: opts.name, background: true, kind: 'focusByName' });
+            e.sender.send('shell:intent', { text: reason, kind: 'toast' });
+          }
+        }
+      }
+    }
     ptyTails.set(id, ((ptyTails.get(id) ?? '') + data).slice(-PTY_TAIL_CHARS));   // so a chat view opened mid-dialog can still see the dialog
     const sk = skins.get(id);
     if (sk && !sk.screenFed) sk.monitor.push(data);   // chat skin only: is the TUI waiting on a dialog? Until the renderer sends real screens, the raw stream is the best guess
