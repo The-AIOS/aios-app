@@ -893,7 +893,9 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
       return { kind: 'plan', icon: '💡', cmdLabel: t('nudge.runCmd', { short: r.short }), label, command: r.command };
     }
   }
-  if (hour < 17 && runningCount > 0) {
+  /* From mid-afternoon only: closing sessions is an end-of-work act, and a nudge shown at 10am whenever anything runs
+     is one the operator learns to ignore (operator, 0.17). */
+  if (hour >= 15 && hour < 17 && runningCount > 0) {
     return { kind: 'sessions', icon: '💬', label: t('nudge.sessions'), command: '/aios:close-session' };
   }
   return null;
