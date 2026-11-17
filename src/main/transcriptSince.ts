@@ -63,3 +63,57 @@ export class TranscriptSince {
     } catch { return null; }
   }
 }
+
+/** The folder Claude Code keeps a session's subagent transcripts in (`<session>/subagents`), or undefined. */
+export function subagentDir(sessionId: string): string | undefined {
+  const f = transcriptPath(sessionId);
+  return f ? path.join(f.slice(0, -'.jsonl'.length), 'subagents') : undefined;
+}
+
+/** #179: each subagent's `finished` flag and last write, for core/subagentGate. [] when there are none. */
+export function subagentStates(sessionId: string): { finished?: unknown; mtimeMs: number }[] {
+  const dir = subagentDir(sessionId);
+  if (!dir) return [];
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const out: { finished?: unknown; mtimeMs: number }[] = [];
+  for (const n of names) {
+    if (!n.endsWith('.jsonl')) continue;
+    const f = path.join(dir, n);
+    let mtimeMs = 0;
+    try { mtimeMs = fs.statSync(f).mtimeMs; } catch { continue; }
+    let finished: unknown;
+    try { finished = (JSON.parse(fs.readFileSync(f.slice(0, -'.jsonl'.length) + '.meta.json', 'utf8')) as { finished?: unknown }).finished; } catch { /* no meta: judged by its last write */ }
+    out.push({ finished, mtimeMs });
+  }
+  return out;
+}
+
+/** #179: what was appended to any of a session's subagent transcripts since this send began.
+ *  A subagent file first seen after the start is read from its beginning. */
+export class SubagentsSince {
+  private offsets: Map<string, number> | null = null;
+  read(sessionId: string): string {
+    const dir = subagentDir(sessionId);
+    let names: string[] = [];
+    if (dir) { try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.jsonl')); } catch { names = []; } }
+    const first = this.offsets === null;
+    if (first) this.offsets = new Map();
+    const offs = this.offsets as Map<string, number>;
+    let out = '';
+    for (const n of names) {
+      const f = path.join(dir as string, n);
+      try {
+        const size = fs.statSync(f).size;
+        if (!offs.has(f)) offs.set(f, first ? size : 0);
+        const from = offs.get(f) as number;
+        if (size <= from || size - from > WHOLE_TRANSCRIPT_MAX_BYTES) continue;
+        const buf = Buffer.alloc(size - from);
+        const fd = fs.openSync(f, 'r');
+        try { fs.readSync(fd, buf, 0, buf.length, from); } finally { fs.closeSync(fd); }
+        out += buf.toString('utf8') + '\n';
+      } catch { /* unreadable: nothing from it */ }
+    }
+    return out;
+  }
+}

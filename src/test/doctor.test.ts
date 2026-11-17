@@ -559,3 +559,32 @@ test('a signed-out gh still logs in THROUGH the ladder, on both platforms', () =
   assert.equal((code.match(/includes\('NOAUTH'\)\) return ghNoAuth\(loginCmd\)/g) || []).length, 2, 'POSIX and Windows both route the signed-out case');
   assert.doesNotMatch(code, /message: t\('setupCheck\.ghNoAuth'\), repairCmd: loginCmd/, 'no branch may hand out the bare login');
 });
+
+test('probes run through a shell that EXISTS — zsh is optional on Linux', () => {
+  /* A hardcoded /bin/zsh on a Linux machine without zsh made every probe fail with ENOENT, read as
+     "not found": Setup said Git was missing while the terminal beside it had git and node. */
+  const has = (...ps: string[]) => (p: string) => ps.includes(p);
+  assert.equal(aios.probeShell('darwin', '/bin/bash', has('/bin/bash')), '/bin/zsh', 'macOS is unchanged');
+  assert.equal(aios.probeShell('linux', '/bin/bash', has('/bin/bash')), '/bin/bash', 'the operator\'s POSIX $SHELL wins');
+  assert.equal(aios.probeShell('linux', '/usr/bin/zsh', has('/usr/bin/zsh', '/bin/bash')), '/usr/bin/zsh');
+  assert.equal(aios.probeShell('linux', '/usr/bin/fish', has('/usr/bin/fish', '/bin/bash')), '/bin/bash',
+    'fish cannot run the POSIX snippets, so it falls through');
+  assert.equal(aios.probeShell('linux', undefined, has('/usr/bin/bash')), '/usr/bin/bash');
+  assert.equal(aios.probeShell('linux', '/bin/zsh', has()), '/bin/sh', 'a $SHELL that is gone is not trusted');
+  const src = fs.readFileSync('src/main/aios.ts', 'utf8');
+  assert.doesNotMatch(src, /execFile\('\/bin\/zsh'/, 'no probe may hardcode zsh again');
+  assert.doesNotMatch(src, /: '\/bin\/zsh';/, 'nor fall back to it without checking it exists');
+});
+
+test('the git row names Xcode only on macOS', () => {
+  const src = fs.readFileSync('src/main/aios.ts', 'utf8');
+  assert.match(src, /process\.platform === 'darwin' \? 'setupCheck\.gitMissing' : 'setupCheck\.gitMissingOther'/);
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /t\(IS_MAC \? 'onboarding\.installGit' : 'onboarding\.installGitOther'\)/);
+  for (const l of ['en', 'es', 'pt-br', 'el']) {
+    const b = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8'));
+    for (const k of ['setupCheck.gitMissingOther', 'onboarding.installGitOther']) {
+      assert.ok(b[k] && !/xcode/i.test(b[k]), `${l}: ${k} exists and does not mention Xcode`);
+    }
+  }
+});

@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
@@ -1698,9 +1699,27 @@ function psq(s: string): string {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
+/**
+ * The POSIX shell every probe runs through. zsh on macOS, exactly as before — it is the system
+ * default and always present there. On Linux zsh is an optional package most machines never
+ * install, and a hardcoded `/bin/zsh` made execFile fail with ENOENT, which every probe reads as
+ * "not found": git, node, gh, the Claude version and the spawn wrapper all reported missing on a
+ * machine where the terminal beside them had every one of them (measured on Ubuntu 24.04 without
+ * zsh: Setup showed "Git not found" while `node is already installed` scrolled past below it).
+ * The operator's own $SHELL wins when it speaks POSIX (bash or zsh); fish and friends cannot run
+ * these snippets, so they fall through to the same candidates main.ts uses for the terminal.
+ */
+export function probeShell(platform: string = process.platform, envShell: string | undefined = process.env.SHELL,
+  exists: (p: string) => boolean = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }): string {
+  if (platform === 'darwin') return '/bin/zsh';
+  if (envShell && /\/(bash|zsh)$/.test(envShell) && exists(envShell)) return envShell;
+  for (const c of ['/bin/bash', '/usr/bin/bash', '/bin/zsh', '/usr/bin/zsh']) if (exists(c)) return c;
+  return '/bin/sh';
+}
+
 function zshOnce(snippet: string, flags: string): Promise<string | null> {
   return new Promise((res) => {
-    execFile('/bin/zsh', [flags, snippet], { timeout: 8000 }, (err, out) => res(err ? null : String(out).trim()));
+    execFile(probeShell(), [flags, snippet], { timeout: 8000, windowsHide: true }, (err, out) => res(err ? null : String(out).trim()));
   });
 }
 /**
@@ -1898,7 +1917,7 @@ function runClaude(args: string[], cwd?: string): Promise<void> {
  * `uv` FIRST, exactly as the framework runs its own hooks (`uv run …/context-floor.py`), and for
  * the framework's reason: on Windows the name `python3` (and often `python`) is the Microsoft Store
  * alias, which prints an installer notice, runs nothing and exits non-zero. Step 1 of setup
- * installs uv, and `install-settings.py` is stdlib-only, so `uv run` needs no environment.
+ * installs uv, and `hooks/install/install-settings.py` (v0.8.19; `hooks/` before) is stdlib-only, so `uv run` needs no environment.
  * Searched in the persisted PATH and in uv's own install folders as well as this process's PATH,
  * because the App's PATH predates the install. Fallbacks: `python3` on POSIX, the `py`
  * launcher on Windows (it lives in C:\Windows, never a Store alias). Never a bare `python` there.
@@ -2099,6 +2118,11 @@ function doctorChecks(): DoctorCheck[] {
     const p = path.join(root, rel);
     return fs.existsSync(p) ? p : undefined;
   };
+  /* install-settings.py in its v0.8.19 folder (hooks/install/), else the old flat place, for a vault not yet updated (aios#309). */
+  const installSettingsScript = (): string | undefined => {
+    for (const rel of hookCandidates('install-settings.py')) { const s = scriptIf(rel); if (s) return s; }
+    return undefined;
+  };
   /* A headless repair on Windows may ONLY be offered when the framework ships a PowerShell
      sibling next to the `.sh` (install-wrappers.ps1 beside install-wrappers.sh). Running the
      `.sh` through bash instead is the failure mode this guards: it errors in a way that reads
@@ -2118,7 +2142,9 @@ function doctorChecks(): DoctorCheck[] {
     /* Windows gets a repairCmd of its own because the RENDERER falls back to
        `xcode-select --install` when this is undefined (setup's Advanced lane) — a macOS command
        offered on Windows is exactly the impossible instruction the gh check learned not to give. */
-    whichCheck('git', 'git', 'fail', 'setupCheck.gitMissing', installGitCmd()),
+    /* The Xcode wording is macOS-only: on Linux and Windows git comes from the package manager
+       or the installer, and naming Xcode there is an instruction nobody can follow. */
+    whichCheck('git', 'git', 'fail', process.platform === 'darwin' ? 'setupCheck.gitMissing' : 'setupCheck.gitMissingOther', installGitCmd()),
     whichCheck('node', 'node', 'warn', 'setupCheck.nodeMissing', installNodeCmd()),
     /* WINDOWS ONLY, and OPTIONAL in the stepper — it never blocks a step on its own. On a machine
        where setup has always worked the policy is already permissive and this passes silently, so
@@ -2377,9 +2403,10 @@ function doctorChecks(): DoctorCheck[] {
       run: async (): Promise<CheckResult> => {
         const label = t('setupCheck.hooks');
         if (!root) return { id: 'hooks', label, status: 'warn', message: t('setupCheck.hooksNoFramework'), canRepair: false };
-        const missing = missingHooks(readJson(claudeSettingsPath()), (f) => fs.existsSync(path.join(root, 'hooks', f)));
+        const missing = missingHooks(readJson(claudeSettingsPath()), (rel) => fs.existsSync(path.join(root, rel)),
+          [root, '~/aios', '$HOME/aios', path.join(os.homedir(), 'aios')]);   // an old path into THIS framework is the one Repair rewrites
         if (!missing.length) return { id: 'hooks', label, status: 'pass', message: t('setupCheck.hooksOk'), canRepair: false };
-        const script = scriptIf(path.join('hooks', 'install-settings.py'));
+        const script = installSettingsScript();
         const py = script ? pythonRunner() : undefined;
         return {
           id: 'hooks', label, status: 'warn',
@@ -2389,7 +2416,7 @@ function doctorChecks(): DoctorCheck[] {
         };
       },
       repair: async () => {
-        const script = scriptIf(path.join('hooks', 'install-settings.py'));
+        const script = installSettingsScript();
         const py = script ? pythonRunner() : undefined;
         if (!script || !py) return;
         /* --settings names the file THIS check reads, so the installer and the check can never be
@@ -2673,7 +2700,7 @@ export async function wiringLeft(): Promise<{ id: string; label: string; message
 export const HEALTH_IDS = ['framework', 'vault', 'account', 'skills', 'plugin', 'spawn', 'hooks', 'claude', 'gh'] as const;   // the four wiring rows sit together (release round: wiring lost after setup had no visible prompt)
 
 /** #27 — scheduled-job health from canonical's status files ($AIOS_HEALTH_DIR or ~/.aios/health).
- *  Read only; the jobs themselves (hooks/aios-health.py) write them. No directory → no rows. */
+ *  Read only; the jobs themselves (hooks/pipeline/aios-health.py since v0.8.19) write them. No directory → no rows. */
 export function routineHealth(now = Date.now()): RoutineRow[] {
   const dir = process.env.AIOS_HEALTH_DIR || path.join(os.homedir(), '.aios', 'health');
   let names: string[] = [];
@@ -3533,7 +3560,7 @@ function operatorShell(): string {
   // PowerShell is both what this app's panes launch and what every Windows branch here assumes.
   if (process.platform === 'win32') return 'powershell.exe';
   const sh = process.env.SHELL;
-  return sh && fs.existsSync(sh) ? sh : '/bin/zsh';
+  return sh && fs.existsSync(sh) ? sh : probeShell();
 }
 
 /**

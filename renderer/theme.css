@@ -2482,3 +2482,13 @@ body.light .chatskin .cs-sticky { background: color-mix(in srgb, var(--chat-user
 .qbrec-clear { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--subtle); font: inherit; font-size: 12px; cursor: pointer; }
 .qbrec-clear:hover { color: var(--ink); }
 .qbrec-clear[hidden] { display: none; }
+
+/* #75: a terminal tab that is recording its raw output says so, with a dot before its name. */
+.tab.recording .tname::before { content: '● '; color: var(--tg-coral); }
+
+/* Dragging a panel card to reorder it: the card being dragged gets a dashed outline (never faded text, #24), the drop side a neutral line (coral is the send button's), and board frames stop
+   swallowing the drag while it lasts. */
+.pcard.pdragging { outline: 1px dashed var(--subtle); outline-offset: -1px; }
+.pcard.pdrop-before { box-shadow: 0 -2px 0 0 var(--ink); }
+.pcard.pdrop-after { box-shadow: 0 2px 0 0 var(--ink); }
+body.pcard-dragging #panel iframe { pointer-events: none; }

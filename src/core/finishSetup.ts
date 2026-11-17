@@ -19,6 +19,7 @@
  * check results and a real repair function; the tests feed it fabricated ones.
  */
 
+import { hookCandidates } from './hookPaths';
 export interface FinishCheckLike {
   id: string;
   status: 'pass' | 'warn' | 'fail';
@@ -133,6 +134,7 @@ export const FRAMEWORK_HOOKS: ReadonlyArray<{ sig: string; files: readonly strin
   { sig: 'bus_log.py', files: ['bus_log.py'] },                                      // D · inbox prompts
   { sig: 'floor-at-start.py', files: ['floor-at-start.py'] },                        // E · the floor
   { sig: 'model-switch-log.py', files: ['model-switch-log.py'] },                    // F · model switches
+  { sig: 'suggest-agent-hint.py', files: ['suggest-agent-hint.py'] },                // G · suggest an agent mid-session (v0.8.19)
 ];
 
 /** Every hook command in a settings.json object, whatever event it sits under. Tolerant by design:
@@ -156,13 +158,31 @@ export function hookCommands(settings: unknown): string[] {
   return out;
 }
 
-/** Which shipped framework hooks are NOT in this settings object. Empty → the row passes. */
-export function missingHooks(settings: unknown, ships: (file: string) => boolean): string[] {
+/** Which shipped framework hooks are NOT in this settings object. Empty → the row passes. `ships` is asked
+ *  for paths relative to the framework root, in a hook's new folder first, then the old flat place (aios#309). */
+export function missingHooks(settings: unknown, ships: (rel: string) => boolean, frameworkPrefixes: readonly string[] = []): string[] {
   const cmds = hookCommands(settings).map((c) => c.replace(/\\/g, '/'));
   return FRAMEWORK_HOOKS
-    .filter((h) => h.files.some(ships))
-    .filter((h) => !cmds.some((c) => c.includes(h.sig)))
+    .filter((h) => h.files.some((f) => hookCandidates(f).some(ships)))
+    .filter((h) => !cmds.some((c) => c.includes(h.sig) && pointsWhereShipped(c, h.files, ships, frameworkPrefixes)))
     .map((h) => h.sig);
+}
+
+/* A wired command counts only if it runs the hook where the framework ships it now. After the v0.8.19 regroup (aios#309)
+   a settings.json can still run hooks/provenance.py; that works through a forwarding file until v0.8.20 (aios#330) and
+   then points at nothing. When the hook ships in its new folder, a command naming the old flat path is not wired, so
+   the row warns and Repair rewrites it (review of the hook moves). */
+/* Only an old path INTO THIS FRAMEWORK is flagged (`frameworkPrefixes`: its root as written, `~/aios`, `$HOME/aios`):
+   that is the one Repair rewrites. The operator's own copy elsewhere, or a relative path, is theirs, and flagging it
+   would warn forever with nothing Repair could fix (review of the hook moves). No prefixes given → never flagged. */
+function pointsWhereShipped(cmd: string, files: readonly string[], ships: (rel: string) => boolean, prefixes: readonly string[]): boolean {
+  for (const f of files) {
+    const [best] = hookCandidates(f);
+    if (best === `hooks/${f}` || !ships(best) || cmd.includes(best)) continue;
+    const oldIntoFramework = prefixes.some((p) => p && cmd.includes(`${p.replace(/\\/g, '/').replace(/\/+$/, '')}/hooks/${f}`));
+    if (oldIntoFramework) return false;
+  }
+  return true;
 }
 
 /**

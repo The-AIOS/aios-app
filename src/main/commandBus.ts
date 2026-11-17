@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import { findHook, hookCandidates } from '../core/hookPaths';
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
@@ -13,22 +14,24 @@ import { needsConsultBlock, ADVISOR_CONSULT_BLOCK } from '../core/advisor';
 import { normalizeVerb } from '../core/busVerbs';
 import { ResumeIndex } from './resumeIndex';
 import { staleResumeName } from '../core/resumeTarget';
+import { trustBlockedReason } from '../core/trustPrompt';
 import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '../core/supersede';
 import { resolveSessionName, resolveFormerName, sessionKey } from '../core/nameMatch';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import { decideKill, KILL_EXPECT_CAPABILITY } from '../core/killGuard';
 import {
-  INBOX_CONTRACT, HOLD_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
+  INBOX_CONTRACT, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
   isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
   shouldReleaseForSibling, countDeliveries, verifyVerdict, isDeliverable, maxAttemptsFor,
-  triedBy, withTried, fulfillerId, processTreeRoot, type SendTarget,
+  triedBy, withTried, fulfillerId, type SendTarget,
   queueTurn, stampAge, withQueuedAt, queuedAtOf, isQueuedDelivery, supersedes, type QueuedSend,
 } from '../core/sendQueue';
 import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs } from './retypeGuard';
 import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presence';
 import { MY_SURFACE } from './surface';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
-import { TranscriptSince, readTranscript } from './transcriptSince';
+import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from './transcriptSince';
+import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 
@@ -167,15 +170,6 @@ function ensureReadme(dir: string, appVersion: string): void {
   }
 }
 
-/** One `ps` call: the parent of a pid, or 0 if it cannot be read. */
-function ppidOf(pid: number): number {
-  try {
-    const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
-    const n = Number(out);
-    return Number.isFinite(n) ? n : 0;
-  } catch { return 0; }
-}
-
 /** Absolute path of this surface's presence record. */
 function presenceFile(): string {
   return path.join(os.homedir(), '.aios', 'surfaces', `${MY_SURFACE}.json`);
@@ -189,9 +183,49 @@ function presenceFile(): string {
  */
 function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 1) return false;
-  try { process.kill(pid, 0); return true; } catch (e) {
+  try { process.kill(pid, 0); } catch (e) {
     return (e as NodeJS.ErrnoException)?.code !== 'ESRCH';
   }
+  /* Linux: kill() also accepts a THREAD id, so signal 0 succeeds for a pid that is only a thread
+     of some other process. A record naming a dead App then reads as alive as soon as the number is
+     reused by any thread — measured: app.json named 1301, which after a reboot was a containerd
+     thread (Tgid 1291), and the App deferred to it on every start and every heal. A real process
+     is its own thread-group leader, so Tgid must equal the pid. Unreadable → keep the signal's answer. */
+  if (process.platform === 'linux') {
+    try {
+      const m = /^Tgid:\s*(\d+)/m.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'));
+      if (m && Number(m[1]) !== pid) return false;
+    } catch { /* gone between the two calls, or no /proc — the signal already said alive */ }
+  }
+  return true;
+}
+
+/**
+ * Liveness for the pid a given record names. A record written BEFORE this boot names nobody,
+ * whatever the pid now belongs to: pids restart from low numbers after a reboot, and a crash or
+ * power cut leaves the record behind (no `before-quit`), so the old number is soon reused by an
+ * unrelated process. `at` is in the record for this; a minute of slack absorbs clock skew.
+ */
+function aliveFor(rec: ReturnType<typeof parsePresenceRecord>): (pid: number) => boolean {
+  const bootedAt = Date.now() - os.uptime() * 1000;
+  const predatesBoot = typeof rec?.at === 'number' && rec.at < bootedAt - 60_000;
+  return (pid) => !predatesBoot && pidAlive(pid);
+}
+
+/**
+ * The pid this App announces: its own main process.
+ *
+ * `processTreeRoot` exists for Glass, whose extension host and terminals are SIBLINGS under the
+ * IDE's root. The App needs no walk — every session pane is a child of its main process — and on
+ * Linux the walk does not stop at the App: an AppImage's parent is `systemd --user`, not pid 1, so
+ * it climbs out and announces the user's session manager. That pid is an ancestor of every process
+ * the user runs, so a plain terminal or tmux session OUTSIDE the App derived surface 'app', and a
+ * second App instance always found the record "owned by a live pid" that was never an App.
+ * Measured on Linux: three consecutive starts logged `root pid 1289` (systemd --user) against
+ * `self 49466`, while the spawned sessions descended from 49466.
+ */
+function appRoot(): number {
+  return process.pid;
 }
 
 /** Raw contents of the presence record, or undefined if it is absent or unreadable. */
@@ -220,8 +254,8 @@ function healPresence(appVersion: string): void {
   if (!app.isPackaged) return;
   try {
     const rec = parsePresenceRecord(readPresence());
-    const root = processTreeRoot(process.pid, ppidOf);
-    if (presenceVerdict(rec, root, pidAlive) === 'leave') return;   // healthy — someone alive owns it
+    const root = appRoot();
+    if (presenceVerdict(rec, root, aliveFor(rec)) === 'leave') return;   // healthy — someone alive owns it
     if (rec?.pid === root && readPresence() !== undefined) return;  // already ours; do not churn the file
     fs.mkdirSync(path.dirname(presenceFile()), { recursive: true });
     const body = presenceBody(root, appVersion);
@@ -278,12 +312,10 @@ function announcePresence(appVersion: string): void {
   try {
     const dir = path.join(os.homedir(), '.aios', 'surfaces');
     fs.mkdirSync(dir, { recursive: true });
-    /* The tree ROOT, not process.pid — see processTreeRoot. For the App these are the same pid
-       today (its main process has ppid 1), but deriving it removes a fact about our own process
-       layout from a file whose whole job is to be matched against someone else's ancestry. */
-    const root = processTreeRoot(process.pid, ppidOf);
+    /* The App's own main process — see appRoot for why the App does not walk up its ancestry. */
+    const root = appRoot();
     const rec = parsePresenceRecord(readPresence());
-    if (presenceVerdict(rec, root, pidAlive) === 'leave') {
+    if (presenceVerdict(rec, root, aliveFor(rec)) === 'leave') {
       log(`presence left to pid ${rec?.pid} — it is still running, and ours (${root}) must not displace a live surface`);
       return;
     }
@@ -309,7 +341,7 @@ function announcePresence(appVersion: string): void {
 function retractPresence(): void {
   try {
     const f = presenceFile();
-    const mine = processTreeRoot(process.pid, ppidOf);
+    const mine = appRoot();
     const body = parsePresenceRecord(readPresence());
     if (!mayRetract(body, mine)) { log(`presence left in place — ${f} names pid ${body?.pid}, not ours (${mine})`); return; }
     fs.unlinkSync(f);
@@ -487,7 +519,9 @@ export function heldSendCount(): number {
 function resolveTier(tier: string): { model?: string } | { error: string } {
   const root = aios.frameworkRoot();
   if (!root) return { error: `cannot resolve tier '${tier}': no framework root found` };
-  const hook = path.join(root, 'hooks', 'resolve-tier');
+  /* hooks/pipeline/resolve-tier since v0.8.19, hooks/resolve-tier before (aios#309): the new place first. */
+  const rel = findHook('resolve-tier', (r) => fs.existsSync(path.join(root, r))) ?? hookCandidates('resolve-tier')[0];
+  const hook = path.join(root, rel);
   if (!fs.existsSync(hook)) {
     return { error: `cannot resolve tier '${tier}': ${hook} is missing — run /aios:update to sync it, or pass an explicit "model" instead` };
   }
@@ -529,6 +563,29 @@ function markUndelivered(fromPath: string, req: BusRequest | null, reason: strin
     try { fs.renameSync(fromPath, dest); } catch { /* already gone */ }
   }
   log(`UNDELIVERED ${path.basename(dest)} — ${reason}${req ? ` (${req.action} '${req.name}')` : ''}`);
+}
+
+/**
+ * #182: a session the bus opened is waiting on Claude Code's folder-trust question. The request
+ * was already claimed and logged as delivered, so without this the sender sees a success while
+ * nothing runs. Leave a dead letter naming why (`/today` and `/close-day` surface them); the App
+ * never answers the question itself. Returns the reason, for the operator's notice.
+ */
+export function reportTrustBlocked(name: string): string {
+  const reason = trustBlockedReason(name);
+  const dest = trustLetterPath(name);
+  try {
+    fs.writeFileSync(dest, JSON.stringify({ name, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n');
+  } catch { /* the log line below still records it */ }
+  log(`TRUST QUESTION — '${name}' is waiting on Claude Code's folder-trust question and has not started: ${path.basename(dest)}`);
+  return reason;
+}
+function trustLetterPath(name: string): string {
+  return path.join(inboxDir(), `${String(name || 'session').replace(/[^A-Za-z0-9._-]/g, '-')}-trust-question.json${UNDELIVERED_SUFFIX}`);
+}
+/** The session started after all (the operator answered the question): its trust dead letter is no longer true. */
+export function clearTrustBlocked(name: string): void {
+  try { fs.unlinkSync(trustLetterPath(name)); log(`TRUST QUESTION answered — '${name}' started; its dead letter is removed`); } catch { /* already gone */ }
 }
 
 /* Review nit: a superseded message used to be deleted, which reads exactly like a delivery to the
@@ -634,6 +691,18 @@ async function runSend(
     const appended = since.read(sid);
     return appended === null ? null : countDeliveries(appended, deliverText, needle, claimedAt);
   };
+  /* #179: a copy that landed in one of the target's subagents instead of the target. It ends the
+     send (never typed again) with a dead letter naming where it went. */
+  const subSince = new SubagentsSince();
+  const landedInSubagent = (sid: string): boolean => {
+    if (!firstTypedAt || baseline === undefined) return false;
+    const subCopies = countDeliveries(subSince.read(sid), deliverText, needle, firstTypedAt);   // only copies written after the first type
+    if (!landedInSubagentOnly(count(sid), baseline, subCopies)) return false;   // the session has its own copy: delivered
+    markUndelivered(heldPath, req, landedInSubagentReason(req.name));
+    return true;
+  };
+  let heldForSubagents = false;   // one log line per request while subagents hold it
+  let subHoldSince = 0;           // when this send first found subagents running (the pre-type cap counts from here)
   /* A transcript we cannot read cannot verify anything, and re-typing on that is how one message
      arrived three times. Typed once → done, said plainly; never typed → nothing to finish here. */
   const finishUnverifiable = (): void => {
@@ -690,7 +759,37 @@ async function runSend(
     }
     // idle → deliver, then prove it in the target's own transcript
     const sessionId = target ? target.sessionId : '';
+    if (!firstTypedAt) subSince.read(sessionId);   // #179: the subagent baseline, before anything is typed (the first read fixes it)
     if (baseline === undefined) baseline = count(sessionId) ?? 0;
+    if (firstTypedAt && landedInSubagent(sessionId)) return;
+    /* #179: background subagents still running → busy, like a session mid-turn. Typed input can
+       reach one of them instead of the session, so wait until they finish (a stale one stops
+       counting after SUBAGENT_STALE_MS, so this cannot hold forever). */
+    /* One pure decision (core/subagentGate preTypeStep): a late arrival is recognised BEFORE the subagent hold, or a
+       session that went on to start agents of its own would hold a delivered message until it dead-lettered; an
+       unreadable transcript after a type is finished, never retyped; the hold clock counts only time on subagents. */
+    const step = preTypeStep({
+      firstTypedAt, mainNow: firstTypedAt ? count(sessionId) : 0, baseline, now: Date.now(), maxHoldMs: MAX_HOLD_MS,
+      subLive: liveSubagents(subagentStates(sessionId), Date.now()), holdSince: subHoldSince,
+    });
+    subHoldSince = step.holdSince;
+    const subHold = step.do;
+    if (subHold === 'unverifiable') { finishUnverifiable(); return; }
+    if (subHold === 'delivered') {
+      try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+      log(`delivered → '${req.name}' (verified late)`);
+      return;
+    }
+    if (subHold !== 'go') {
+      if (!heldForSubagents) { heldForSubagents = true; log(`holding a message for '${req.name}': it has background subagents running`); }
+      if (subHold === 'give-up') {
+        markUndelivered(heldPath, req, `'${req.name}' kept background subagents running for ${Math.round((Date.now() - (firstTypedAt || subHoldSince)) / 60000)} min, so this message was not typed into it`);
+        return;
+      }
+      if (!fs.existsSync(heldPath)) return;
+      await new Promise((r) => setTimeout(r, HOLD_TICK_MS));
+      continue;
+    }
     const before = baseline;
     /* THE CAP HAS TO SIT HERE, before the send — not only in the after-a-miss decision.
        A 'wait' verdict does `continue`, which re-enters this branch, so a cap enforced only
@@ -778,6 +877,7 @@ async function runSend(
       await new Promise((r) => setTimeout(r, VERIFY_TICK_MS));
       const now = count(sessionId);
       if (now === null) { finishUnverifiable(); return; }
+      if (now <= before && landedInSubagent(sessionId)) return;
       const verdict = verifyVerdict(before, now);
       if (verdict === 'pending') continue;
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
@@ -883,7 +983,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
     // background like every other bus path (#47): a fresh spawn was the one that still switched the
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
-    emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group });
+    emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, bus: true });
     if (req.groupNote) log(`spawn '${req.name}': ${req.groupNote}`);
     log(`spawn '${req.name}'${req.group ? ` in group '${req.group}'` : ''}${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
@@ -962,7 +1062,7 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).
-      emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group });
+      emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, bus: true });
       if (req.groupNote) log(`resume '${req.name}': ${req.groupNote}`);
       log(`resume '${req.name}'${req.group ? ` in group '${req.group}'` : ''} → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${taskFile ? ' (via file)' : ''}`);
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }

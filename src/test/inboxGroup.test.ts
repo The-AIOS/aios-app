@@ -46,7 +46,7 @@ test('a resume that falls back to a spawn keeps its group', () => {
 
 test('main hands the group to the renderer on both launch paths, and says when it did not apply', () => {
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  const emits = src.match(/emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group \}\);/g) || [];
+  const emits = src.match(/emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group(, bus: true)? \}\);/g) || [];
   assert.equal(emits.length, 2, 'spawn and resume both pass it');
   assert.match(src, /group '\$\{req\.group\}' NOT applied: a running session keeps its tab where it is/);
   assert.match(src, /if \(req\.groupNote\) log\(`spawn/);

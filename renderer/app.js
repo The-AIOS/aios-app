@@ -772,6 +772,17 @@ function pulseTitle(card, key, text, count) {
   dn.addEventListener('click', (e) => { e.stopPropagation(); moveCard(card, 1); });
   mv.append(up, dn);
   ti.appendChild(mv);
+  /* Drag the title to reorder (the arrows and ⌥↑↓ stay, for the keyboard). A plain click never starts a drag and a drag
+     never fires a click, so folding keeps working. The drop side is handled once, on the panel (wirePanelCardDrag). */
+  ti.draggable = true;
+  ti.addEventListener('dragstart', (e) => {
+    dragCardId = card.id;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('application/x-aios-card', card.id); } catch { /* older engines */ }   // a card is not a file: no other drop target claims it
+    card.classList.add('pdragging');
+    document.body.classList.add('pcard-dragging');   // board frames stop swallowing the drag (theme.css)
+  });
+  ti.addEventListener('dragend', endCardDrag);
   const collapsed = pulse.collapsed.has(key);
   card.classList.toggle('pcollapsed', collapsed);
   ti.addEventListener('click', () => {
@@ -787,7 +798,73 @@ function pulseTitle(card, key, text, count) {
   return ti;
 }
 
-/* ── pulse card reordering — drag-free ↑↓ within the panel, persisted ───────── */
+/* ── pulse card reordering — drag a card's title, or ↑↓ / ⌥↑↓, within the panel, persisted ── */
+let dragCardId = null;
+/** The panel's card ids after dropping `dragged` before or after `target`. Pure, so the order rule is tested by running it. */
+function cardDropOrder(ids, dragged, target, after) {
+  if (dragged === target || !ids.includes(dragged) || !ids.includes(target)) return ids.slice();
+  const rest = ids.filter((x) => x !== dragged);
+  const at = rest.indexOf(target) + (after ? 1 : 0);
+  return [...rest.slice(0, at), dragged, ...rest.slice(at)];
+}
+function clearCardDropHint() {
+  for (const c of document.querySelectorAll('#panel > .pcard.pdrop-before, #panel > .pcard.pdrop-after')) c.classList.remove('pdrop-before', 'pdrop-after');
+}
+/* Everything a card drag sets, cleared. The title that started the drag can be rebuilt by a panel refresh mid-drag, and a
+   detached source may never get its own dragend, so this also runs from the window (after the drop is handled) and on the
+   first mouse move once the drag is over: board frames can never stay unclickable. */
+function endCardDrag() {
+  if (!dragCardId && !document.body.classList.contains('pcard-dragging')) return;
+  dragCardId = null;
+  document.body.classList.remove('pcard-dragging');
+  for (const c of document.querySelectorAll('#panel > .pcard.pdragging')) c.classList.remove('pdragging');
+  clearCardDropHint();
+}
+window.addEventListener('dragend', endCardDrag, true);
+window.addEventListener('drop', () => setTimeout(endCardDrag, 0), true);   // after the panel's own drop handler has used dragCardId
+window.addEventListener('mousemove', (e) => { if (dragCardId && e.buttons === 0) endCardDrag(); });   // a move with no button held means the drag is over (a stray move during a drag still has the button down)
+/* Once, on the panel: the cards' titles are rebuilt on every refresh, so per-card drop listeners would pile up. */
+function wirePanelCardDrag() {
+  const panel = document.getElementById('panel');
+  if (!panel || panel.dataset.cardDrag) return;
+  panel.dataset.cardDrag = '1';
+  const targetOf = (e) => {
+    const c = e.target instanceof Element ? e.target.closest('#panel > .pcard') : null;
+    return c && dragCardId && c.id !== dragCardId ? c : null;
+  };
+  panel.addEventListener('dragover', (e) => {
+    const c = targetOf(e);
+    if (!c) { if (dragCardId) clearCardDropHint(); return; }   // over a gap: no line left on the last card
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const r = c.getBoundingClientRect();
+    const after = e.clientY - r.top > r.height / 2;
+    clearCardDropHint();
+    c.classList.add(after ? 'pdrop-after' : 'pdrop-before');
+  });
+  panel.addEventListener('drop', (e) => {
+    const c = targetOf(e);
+    if (!c) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = c.getBoundingClientRect();
+    const ids = cardDropOrder(movablePulseCards().map((x) => x.id), dragCardId, c.id, e.clientY - r.top > r.height / 2);
+    /* Move ONLY the dragged card: moving a board's frame in the page reloads it, so re-placing every card would flash
+       every board. Its new neighbour comes from the tested order rule. */
+    const dragged = document.getElementById(dragCardId);
+    const next = ids[ids.indexOf(dragCardId) + 1];
+    const nextEl = next ? document.getElementById(next) : null;
+    /* moveBefore (Chromium 133+) keeps even the dragged board's frame loaded; insertBefore reloads it. A drop that changes
+       nothing moves nothing. */
+    const place = (ref) => { if (typeof panel.moveBefore === 'function') panel.moveBefore(dragged, ref); else panel.insertBefore(dragged, ref); };
+    if (dragged) {
+      if (nextEl) { if (dragged.nextElementSibling !== nextEl) place(nextEl); }
+      else { const cards = movablePulseCards(); const last = cards[cards.length - 1]; if (last && last !== dragged) place(last.nextSibling); }
+    }
+    persistPulseOrder();
+    clearCardDropHint();
+  });
+}
 function movablePulseCards() {
   return Array.from(document.querySelectorAll('#panel > .pcard'));
 }
@@ -1167,7 +1244,7 @@ async function refreshHealth() {
     feedMark(r, 'health', c.id + '|' + c.status);
     H.appendChild(r);
   }
-  /* #27 — SCHEDULED JOBS, from canonical's status files (~/.aios/health, hooks/aios-health.py).
+  /* #27 — SCHEDULED JOBS, from canonical's status files (~/.aios/health, hooks/pipeline/aios-health.py since v0.8.19).
      Shown only when a job has written one; a machine with no scheduled jobs sees nothing new. A
      job past its deadline reads "no result since …" — never "didn't run": it may have run and
      failed to write. No notification: the card is where you look, the rituals already speak up. */
@@ -1226,7 +1303,7 @@ async function openHealthHelp(notGreen, badJobs) {
   const brief = 'Help me fix my AIOS health. These items in the AIOS App\'s Health card are not green:\n'
     + lines.join('\n') + '\n\n'
     + 'For each one: find the cause, explain it in plain words, and propose the fix. Ask me before you run any command or change anything. '
-    + 'Scheduled jobs write their status with hooks/aios-health.py at the end of each run; a job is fixed when its NEXT run writes a fresh "ok", so tell me how to trigger it or when it is due — never edit or delete a status file to make it look green. '
+    + 'Scheduled jobs write their status with hooks/pipeline/aios-health.py (hooks/aios-health.py before v0.8.19) at the end of each run; a job is fixed when its NEXT run writes a fresh "ok", so tell me how to trigger it or when it is due — never edit or delete a status file to make it look green. '
     + 'When you are done, tell me to press ↻ on the Health card to re-check.';
   const handed = await window.glassShell.taskHandoff(brief, 'health-help').catch((e) => ({ error: String(e && e.message || e) }));
   if (handed && typeof handed === 'object') { toast(t('handoff.failed', { why: handed.error })); return; }
@@ -4009,7 +4086,7 @@ async function reportThis(id) {
     + '1) which repository it belongs to (the desktop app is The-AIOS/aios-app, the framework is The-AIOS/aios, the editor extension is The-AIOS/aios-glass; if unclear, ask me), and '
     + '2) whether it is best sent as an issue, or built as a pull request because you can make and test a small, clear fix. '
     + 'For a pull request, work in a separate contribution clone exactly as CONTRIBUTING.md says, never in my AIOS folder. '
-    + 'Before drafting, run hooks/issue-scrub.py over everything you will include. Show me the exact repository and text (and for a pull request, the diff), '
+    + 'Before drafting, run hooks/security/issue-scrub.py (hooks/issue-scrub.py on a framework older than v0.8.19) over everything you will include. Show me the exact repository and text (and for a pull request, the diff), '
     + 'and do not run gh issue create, gh pr create, git push or post any comment until I approve.', undefined, 'default', undefined, [file]);
 }
 function explainRelease(version) {
@@ -4197,6 +4274,7 @@ function makeTab(id, name, iconName) {
     if (zoneSplit(z)) items.push({ label: t('split.unsplit'), value: 'unsplit' });
     if (pane.kind === 'term' && hasFeedback) items.push({ label: t('tab.report'), value: 'report' });   // hidden without the aios-feedback agent
     if (pane.kind === 'term' && pane.sessionId) items.push({ label: t('tab.copyAnswer'), value: 'copyAnswer' });   // from the transcript
+    if (pane.kind === 'term' && !pane.exited) items.push({ label: t(pane.recording ? 'tab.recordOff' : 'tab.recordOn'), value: 'record' });   // #75: raw output, to diagnose a screen drawn wrong
     /* Read-aloud is HIDDEN for now (operator decision, 0.11.0): it returns with two-way voice.
        The code stays; flipping READ_ALOUD brings the menu row back. */
     if (READ_ALOUD && pane.kind === 'term' && (pane.isSession || pane.sessionId)) items.push({ label: t(pane.readAloud ? 'tab.readAloudOff' : 'tab.readAloudOn'), value: 'readAloud' });
@@ -4220,6 +4298,15 @@ function makeTab(id, name, iconName) {
       else if (pick === 'report') void reportThis(id);
       else if (pick === 'chatView') chatSkinFollowMode(id);
       else if (pick === 'readAloud') setReadAloud(id, !pane.readAloud);
+      else if (pick === 'record') {
+        const on = !pane.recording;
+        const r = await window.glassShell.ptyRecord(id, on, pane.name || 'terminal', pane.term?.cols || 80, pane.term?.rows || 24).catch(() => null);
+        if (on && !(r && r.file)) { toast(t('term.recordFailed')); return; }
+        pane.recording = on;
+        pane.tab?.classList.toggle('recording', on);   // the tab shows it while it records (review of #75)
+        toast(t(on ? 'term.recordStarted' : 'term.recordSaved', { name: xBase(r && r.file ? r.file : '') }));
+        if (!on && r && r.file) void window.glassShell.revealInOS(r.file);
+      }
       else if (pick === 'copyAnswer') void window.glassShell.copyLastAnswer(pane.sessionId).then((n) => toast(t(n > 0 ? 'term.copiedAnswer' : 'term.noAnswer')));
       else if (pick === 'rename') {
         const next = (await inputModal(t('tab.rename'), pane.name || t('pulse.terminal'), []) || '').trim();
@@ -4459,7 +4546,7 @@ async function ensurePersonalized(cmd) {
   return false;
 }
 
-async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false, noProfile = false } = {}) {
+async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false, noProfile = false, bus = false } = {}) {
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
@@ -4489,6 +4576,15 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     // required to select a unicode width table below; without it xterm throws on
     // term.unicode.activeVersion and we silently keep the Unicode 6 widths
     allowProposedApi: true,
+    /* #176: a link Claude Code prints (OSC 8) opens in the default browser on click. xterm's own
+       handler asks to confirm, then opens a blank window and navigates it, which main now refuses
+       (every new window is denied); web links go straight to the browser instead. */
+    linkHandler: {
+      activate: (_e, uri) => { if (/^https?:\/\//i.test(String(uri || ''))) void window.glassShell.openExternal(uri); },
+      /* the target, shown on hover: a link's visible text can name one site and point at another (review of #176) */
+      hover: (_e, uri) => { if (term.element) term.element.title = String(uri || ''); },
+      leave: () => { if (term.element) term.element.title = ''; },
+    },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -4499,7 +4595,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
      escape can reach the parser unhandled; the pane id is filled in once the spawn returns. */
   let oscPane = null;
   term.parser.registerOscHandler(7501, (data) => programStatusOsc(oscPane, data));
-  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile });
+  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile, bus });
   oscPane = id;
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd), bornAt: Date.now() };
@@ -4873,6 +4969,7 @@ function closePane(id) {
   const p = panes.get(id);
   if (!p) return;
   if (p.flushSave) p.flushSave();   // a note's waiting autosave is saved, not dropped, when its tab closes (#159)
+  if (p.unwatch) p.unwatch();   // #177: its file is no longer watched
   const z = zoneOf(p);
   if (p.ro) { try { p.ro.disconnect(); } catch { /* already gone */ } }
   if (p.gl) { try { p.gl.dispose(); } catch { /* already gone */ } }
@@ -6180,6 +6277,13 @@ async function openRecents() {
   else if (v.t === 'resume') void batchResume();
 }
 
+/* A note renders the way Obsidian renders it: one newline, one line break. marked's default
+   reads a single newline as a soft break (a space), so a note whose lines stand alone (a goals
+   file, a list kept one item per line, an address) collapsed into one paragraph here while it
+   read line by line in Obsidian, where "Strict line breaks" is off by default. Passed per call,
+   never through marked.use(), which would also change every other marked caller. */
+const NOTE_MD = { gfm: true, breaks: true };
+
 async function openViewer(p) {
   seenExport(p);   // an opened export is no longer new
   for (const [id, pane] of panes) {
@@ -6289,8 +6393,16 @@ async function openViewer(p) {
     const f = await window.glassShell.fsRead(file.path).catch(() => null);
     if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
     base = file.content = f.content;
-    if (editorRef) editorRef.replaceText(toEditor(f.content)); else paint();
+    if (editorRef) { editorRef.replaceText(toEditor(f.content)); return; }
+    /* #177: a reading view keeps its place. (A rendered HTML page is a sandboxed frame the window
+       cannot scroll, so it reloads from its top.) */
+    const top = body.scrollTop;
+    paint();
+    body.scrollTop = top;
   };
+  /* #177: watched on its own, through its real folder, for as long as the tab is open. */
+  void window.glassShell.fsWatchFile?.(file.path).catch(() => false);
+  paneObj.unwatch = () => { void window.glassShell.fsUnwatchFile?.(file.path).catch(() => null); };
   /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
   paneObj.flushSave = (quitting) => {
     if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
@@ -6438,7 +6550,7 @@ async function openViewer(p) {
     // vault, so a note can carry markup nobody typed. marked passes raw HTML through, and this
     // window holds the pty bridge — so the parsed note goes through vaultSanitize before it is
     // adopted, never straight into innerHTML.
-    md.replaceChildren(vaultSanitize(marked.parse(src)));
+    md.replaceChildren(vaultSanitize(marked.parse(src, NOTE_MD)));
     vaultHeldBanner(md);
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
@@ -6794,8 +6906,8 @@ const clearDragging = () => { dragDepth = 0; document.body.classList.remove('dra
    The type test has to read `types`, not getData(): during a drag the DataTransfer is in
    PROTECTED MODE and getData() returns '' by spec (see attachDropZone below, where testing
    getData() once broke dropping entirely). */
-const isTabDrag = (ev) => [...(ev.dataTransfer?.types || [])].includes('application/x-aios-tab');
-window.addEventListener('dragenter', (ev) => { if (!isTabDrag(ev)) setDragging(true); });
+const isInternalDrag = (ev) => { const ty = [...(ev.dataTransfer?.types || [])]; return ty.includes('application/x-aios-tab') || ty.includes('application/x-aios-card'); };   // a panel card is not a file either: no drop-here overlays
+window.addEventListener('dragenter', (ev) => { if (!isInternalDrag(ev)) setDragging(true); });
 window.addEventListener('dragleave', (ev) => { if (!ev.relatedTarget) clearDragging(); });
 /* `dragend` only fires on the element the drag STARTED from, so an external drag never
    produces one — for a Finder drop, `drop` is the only signal we get. And it has to be
@@ -7238,6 +7350,12 @@ window.glassShell.onFsEvent((m) => {
   /* An open note whose folder changed may have been written by an agent: the viewer reloads it if nothing is unsaved (#159). */
   const dirs = new Set(m.dirs || []);
   for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && dirs.has(xDirOf(p.path))) void p.onDiskMaybeChanged();
+});
+/* #177: this page is new (first load or a reload): drop the watches an earlier page left behind, before any viewer opens. */
+void window.glassShell.fsUnwatchAll?.().catch(() => null);
+/* #177: an open file changed on disk (its own watch, main fs:watchFile): reload it if nothing is unsaved. */
+window.glassShell.onFileChanged?.((m) => {
+  for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && p.path === m.path) void p.onDiskMaybeChanged();
 });
 /* The framework or vault just appeared (or moved). The tree was built when neither existed, so it
    is not stale — it is empty, next to a vault full of files. Rebuild it rather than waiting for a
@@ -7893,7 +8011,7 @@ window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
     case 'terminal': {
       // cwd: a bus request's validated directory (main/busCwd); absent = the framework root.
-      const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m) });
+      const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m), bus: m.bus === true });   // bus: #182's trust watch
       // group: a bus spawn/resume asked for a tab group by name (core/commandBus parseGroup).
       if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group);
       return;
@@ -8000,6 +8118,14 @@ window.glassShell.onIntent(async (m) => {
     case 'toast':
       toast(m.text);
       return;
+    case 'recordStopped': {   // #75: a recording reached its size cap and main stopped it
+      const p = panes.get(m.id);
+      if (p) { p.recording = false; p.tab?.classList.remove('recording'); }
+      if (m.why === 'size') toast(t('term.recordCapped', { name: xBase(String(m.file || '')) }));
+      else if (m.why === 'error') toast(t('term.recordBroken', { name: xBase(String(m.file || '')) }));
+      else if (m.file) toast(t('term.recordSaved', { name: xBase(String(m.file)) }));
+      return;
+    }
     case 'palette': void openPalette(); return;
     case 'quickOpen': void quickOpen(); return;
     case 'pickContext': void pickContext(m.ctxKind); return;
@@ -8213,7 +8339,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'note'], [2, 'robot'], [3, 'chat'], [4, 'shield']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'robot'], [2, 'layout'], [3, 'sync'], [4, 'globe'], [5, 'chat']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -8258,7 +8384,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -14059,7 +14185,7 @@ function openSetupTab() {
              assets). The remedy per platform belongs to the check, which knows what OS it is on;
              a renderer fallback can only ever guess. No command → no button. */
           if (git && git.status !== 'pass' && git.repairCmd) {
-            mkBtn(adv, t('onboarding.installGit'), () => void fixPane('git', git.repairCmd), { title: git.repairHint });
+            mkBtn(adv, t(IS_MAC ? 'onboarding.installGit' : 'onboarding.installGitOther'), () => void fixPane('git', git.repairCmd), { title: git.repairHint });
           }
           if (claude && claude.status !== 'pass') {
             // the check may be reporting "installed but off PATH", whose fix is not an install
@@ -15717,6 +15843,7 @@ function relocalize(loc) {
 /* ── boot ─────────────────────────────────────────────────────────────────── */
 applyLayout();
 applyPulseOrder();
+wirePanelCardDrag();   // drag a card's title to reorder the panel
 void initLocale().then(async () => {
   applyStaticI18n();       // re-resolve static HTML now that the real locale is loaded
   mountExplorerRefresh();  // …and re-assert the button, which an innerHTML wipe would have taken

@@ -67,7 +67,7 @@ test('no rung→model table survives anywhere in the App — one table, and it i
   }
   // and main resolves by asking that script, by name
   const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(main, /path\.join\(root, 'hooks', 'resolve-tier'\)/);
+  assert.match(main, /findHook\('resolve-tier', \(r\) => fs\.existsSync\(path\.join\(root, r\)\)\)/);   // hooks/pipeline/ first since v0.8.19 (aios#309)
 });
 
 test('presence is WIRED to the shared decision, on all three paths', () => {
@@ -109,6 +109,24 @@ test('presence is WIRED to the shared decision, on all three paths', () => {
     'the retract must be registered behind the same isPackaged gate as the announce');
   assert.match(fn('healPresence'), /if \(!app\.isPackaged\) return;/,
     'and so is the heal — a dev build must not claim the record the installed App depends on');
+});
+
+test('the App announces ITSELF, and a reused pid or a pre-boot record never reads as alive', () => {
+  /* Measured on Linux: the AppImage's parent is `systemd --user` (not pid 1), so walking the tree
+     announced the session manager — an ancestor of every process the user runs — and after a
+     reboot the stale record's pid was a containerd THREAD, which signal 0 accepts. The App then
+     deferred to that "live incumbent" on every start and every heal, and agents following the
+     liveness rule concluded no surface existed while the App kept fulfilling spawns. */
+  const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.doesNotMatch(main, /processTreeRoot\(/, 'the App must not walk out of its own process');
+  assert.match(main, /function appRoot\(\): number \{\s*return process\.pid;/);
+  assert.match(main, /\/proc\/\$\{pid\}\/status/, 'a thread id is not a process: Tgid must equal the pid');
+  assert.match(main, /os\.uptime\(\)/, 'a record written before this boot names nobody');
+  for (const name of ['announcePresence', 'healPresence']) {
+    const i = main.indexOf(`function ${name}(`);
+    const body = main.slice(i, main.indexOf('\nfunction ', i + 1));
+    assert.match(body, /presenceVerdict\(rec, root, aliveFor\(rec\)\)/, `${name} judges liveness per record`);
+  }
 });
 
 test('an unresolvable rung REFUSES the spawn — defaulting on a typo is the bug itself', () => {

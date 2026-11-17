@@ -276,7 +276,9 @@ test('readiness is cheap enough to call before every action', () => {
   assert.match(aios, /return \{ where: 'path', bin: p \};/);
   // an interactive rc can print banners, so the answer must be picked out, not assumed
   assert.match(aios, /filter\(\(l\) => l\.startsWith\('\/'\)\)\.pop\(\)/);
-  assert.match(aios, /return sh && fs\.existsSync\(sh\) \? sh : '\/bin\/zsh';/);
+  /* With $SHELL gone, fall back to a shell that EXISTS (zsh on macOS, bash first on Linux, where
+     zsh is optional) — see probeShell in doctor.test. */
+  assert.match(aios, /return sh && fs\.existsSync\(sh\) \? sh : probeShell\(\);/);
   assert.doesNotMatch(aios, /execFileSync\('\/bin\/sh', \['-lc'/, 'sh cannot see a zsh profile');
   assert.match(aios, /export function claudeLocation\(\)/);
   // vaultRoot() falls back to the framework root, so identity is not enough to prove a vault

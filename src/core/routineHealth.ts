@@ -1,6 +1,6 @@
 /**
  * #27 — scheduled-job health, read from canonical's status files (~/.aios/health/<name>.json,
- * written by hooks/aios-health.py since v0.8.12). Pure: main reads the directory, this decides.
+ * written by hooks/aios-health.py since v0.8.12, hooks/pipeline/aios-health.py since v0.8.19). Pure: main reads the directory, this decides.
  *
  * The contract is canonical's, ported rule for rule so the App and /today never disagree:
  *  · one file per job: { name, state: ok|warn|fail|pending, detail, written_at, valid_until }

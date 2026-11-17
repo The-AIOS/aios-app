@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, powerMonitor } from 'electron';
+import { app, ipcMain, BrowserWindow, powerMonitor, Notification } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,6 +8,8 @@ import { listRunningAgents } from './aios';
 import { lastPanelStatuses } from './panelHost';
 import { heldSendCount } from './commandBus';
 import { installStep, mayAutoInstall, SAMPLE_MS, NEVER_QUIET_WARN_MS } from '../core/autoInstall';
+import { shouldNotifyUpdate, parseNotified } from '../core/updateNotice';
+import { t } from '../i18n';
 
 /**
  * Auto-update — the last mile for app-only operators (no terminal, cannot
@@ -80,7 +82,7 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
     if (!app.isPackaged) return { ok: false, dev: true, current: app.getVersion() };
     lastCheckRef.at = Date.now();
     try {
-      const r = await autoUpdater.checkForUpdatesAndNotify();
+      const r = await autoUpdater.checkForUpdates();
       const v = r && r.updateInfo ? r.updateInfo.version : '';
       return { ok: true, version: v || '', current: app.getVersion() };
     } catch (e) { return { ok: false, message: String((e as Error)?.message ?? e), current: app.getVersion() }; }
@@ -128,6 +130,7 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   autoUpdater.on('download-progress', (p) => emit('progress', { percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', (info) => {
     emit('ready', { version: info.version });
+    notifyReadyOnce(String(info.version || ''));
     unattended.readyVersion = String(info.version || '');
     syncUnattended();
   });
@@ -137,16 +140,16 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   // "Check for updates" sends the `checkUpdates` intent, which the renderer answers with a
   // toast for every outcome — found / up-to-date / dev build / failed. `quitAndInstall`
   // remains scaffolding with no caller yet.
-  ipcMain.handle('updater:check', () => autoUpdater.checkForUpdatesAndNotify());
+  ipcMain.handle('updater:check', () => autoUpdater.checkForUpdates());
   // Mark the quit BEFORE installing: quitAndInstall closes the windows first, and a window that
   // hides on close (macOS) would otherwise swallow the install. See quitState.ts.
   const install = (): void => { markQuitting(); autoUpdater.quitAndInstall(); };
   ipcMain.handle('updater:quitAndInstall', install);
   unattended.install = install;
 
-  // Check on boot, then every 6h while the app stays open. `checkForUpdatesAndNotify`
-  // auto-downloads and raises a NATIVE OS notification when an update is staged —
-  // the zero-friction path for a non-technical operator, no in-app UI required.
+  // Check on boot, then every 6h while the app stays open. The check auto-downloads; the
+  // NATIVE OS notification is raised once per version by notifyReadyOnce (#183), not by
+  // every check.
   /* CHECK ON REAL EVENTS, not only on elapsed time.
      Measured 2026-07-31: an install had been running 2.6 days on one process and a release
      published at 15:00 had produced no download by 17:51. The interval is not the mechanism — a
@@ -164,7 +167,7 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
     if (!force && now - lastCheck.at < MIN_GAP) return;
     lastCheck.at = now;
     console.log(`[updater] checking (${why})`);
-    void autoUpdater.checkForUpdatesAndNotify().catch(() => { /* offline / no release yet — silent */ });
+    void autoUpdater.checkForUpdates().catch(() => { /* offline / no release yet — silent */ });
   };
   check('boot', true);
   const timer = setInterval(() => check('interval'), SIX_HOURS);
@@ -179,6 +182,22 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
 
 
   app.on('before-quit', () => { clearInterval(timer); stopUnattended(); });
+}
+
+/* #183: the system notification, once per version. electron-updater emits 'update-downloaded'
+   again on every check that finds the staged file, and the App checks on boot, focus, wake, the
+   menu and every six hours, so the library's own notifying check raised it over and over. The
+   version already announced is kept in userData so a restart does not raise it again either. */
+function notifiedFile(): string { return path.join(app.getPath('userData'), 'update-notified.json'); }
+function notifyReadyOnce(version: string): void {
+  let last = '';
+  try { last = parseNotified(fs.readFileSync(notifiedFile(), 'utf8')); } catch { /* none yet */ }
+  if (!shouldNotifyUpdate(version, last)) return;
+  try {
+    if (!Notification.isSupported()) return;   // nothing shown: not remembered either, so a later run can still tell
+    new Notification({ title: t('update.readyTitle'), body: t('update.readyBody', { name: app.getName(), version }) }).show();
+  } catch { return; /* not shown: the pill in the window still shows it, and a later check may notify */ }
+  try { fs.writeFileSync(notifiedFile(), JSON.stringify({ version })); } catch { /* shown once this run at least */ }
 }
 
 function attemptFile(): string { return path.join(app.getPath('userData'), 'unattended-install.json'); }

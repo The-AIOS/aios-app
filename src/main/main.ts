@@ -41,7 +41,11 @@ import { sanitizeGroups, type MenuBarGroup } from '../core/menuBar';
 import { QuickBar, writeAskRequest } from './quickBar';
 import { isBlockedStatus } from '../core/attention';
 import type { QuickBarDestination } from '../core/quickBar';
-import { initCommandBus, appLog, inboxDir } from './commandBus';
+import { initCommandBus, appLog, inboxDir, reportTrustBlocked, clearTrustBlocked } from './commandBus';
+import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS, trustSessionStarted } from '../core/trustPrompt';
+import { windowOpenAction } from '../core/linkOpen';
+import { transcriptPath } from './transcriptSince';
+import { headerLine, outputLine, resizeLine, recordingName } from '../core/ttyRecord';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
@@ -351,7 +355,7 @@ function loginArgs(shell: string, noProfile = false): string[] {
   return shellArgs(shell, os.platform(), noProfile);   // shellArgs.ts: per platform, and #44's setup-only -NoProfile
 }
 
-ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean }) => {
+ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean; bus?: boolean }) => {
   const shell = defaultShell();
   /* The working directory must EXIST, or node-pty exits immediately with code 1 and every
      terminal is born "[session ended]". The old fallback was ~/aios unconditionally, so on
@@ -376,13 +380,35 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
   });
   const id = nextId++;
   ptys.set(id, p);
+  /* #182: a tab the BUS opened with --add-dir (a spawn or resume) can stop on Claude Code's
+     folder-trust question before the session exists. Watch its first output for that question;
+     on a match, mark the tab, tell the operator and leave a dead letter, removed once the session
+     starts. Never answer it. A tab the operator opened is in front of them: not watched. */
+  const spawnedAt = Date.now();
+  const trustWatch = opts.bus === true && watchesForTrust(opts.cmd) && opts.name ? { until: spawnedAt + TRUST_WATCH_MS, buf: '' } : null;
   p.onData((data) => {
     if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data });
+    if (recordings.has(id)) recordWrite(id, outputLine(Date.now() - recordings.get(id)!.t0, data));
+    if (trustWatch && trustWatch.until) {
+      if (Date.now() > trustWatch.until) { trustWatch.until = 0; trustWatch.buf = ''; }
+      else {
+        trustWatch.buf = (trustWatch.buf + data).slice(-16_384);
+        if (isTrustPrompt(plainForTrust(trustWatch.buf))) {
+          trustWatch.until = 0; trustWatch.buf = '';
+          const reason = reportTrustBlocked(String(opts.name));
+          clearTrustLetterWhenLive(String(opts.name), spawnedAt);
+          if (!e.sender.isDestroyed()) {
+            e.sender.send('shell:intent', { name: opts.name, background: true, kind: 'focusByName' });
+            e.sender.send('shell:intent', { text: reason.replace(/`([^`]*)`/g, '"$1"'), kind: 'toast' });   // a toast is plain text: the command in quotes, not code marks (the dead letter keeps them)
+          }
+        }
+      }
+    }
     ptyTails.set(id, ((ptyTails.get(id) ?? '') + data).slice(-PTY_TAIL_CHARS));   // so a chat view opened mid-dialog can still see the dialog
     const sk = skins.get(id);
     if (sk && !sk.screenFed) sk.monitor.push(data);   // chat skin only: is the TUI waiting on a dialog? Until the renderer sends real screens, the raw stream is the best guess
   });
-  p.onExit(({ exitCode }) => { ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
+  p.onExit(({ exitCode }) => { endRecording(id, 'exit'); ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
   /* THE COMMAND IS NOT WRITTEN HERE ANY MORE — see `pty:run`.
      It used to run right at spawn, while the pty was still at the hardcoded 80×24 the renderer
      passes before it has measured anything. A shell prompt survives that (it reflows), but a
@@ -401,7 +427,56 @@ ipcMain.handle('pty:run', (_e, { id, cmd }: { id: number; cmd: string }) => {
   return true;
 });
 ipcMain.on('pty:write', (_e, { id, data }: { id: number; data: string }) => ptys.get(id)?.write(data));
-ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: number; cols: number; rows: number }) => ptys.get(id)?.resize(cols, rows));
+ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: number; cols: number; rows: number }) => {
+  ptys.get(id)?.resize(cols, rows);
+  if (recordings.has(id)) recordWrite(id, resizeLine(Date.now() - recordings.get(id)!.t0, cols, rows));
+});
+/* #75: record one pane's raw output (asciicast v2, core/ttyRecord), turned on and off from its tab menu.
+   It holds everything the pane showed, so it is only ever started by the operator, written to the App's
+   own folder and readable by them alone. Returns the file's path. */
+/* Written through a stream (never a synchronous write per chunk on the main thread) and capped: a recording left on
+   stops by itself at RECORD_MAX_BYTES and the operator is told (review of #75). */
+const RECORD_MAX_BYTES = 100 * 1024 * 1024;
+const recordings = new Map<number, { out: fs.WriteStream; t0: number; file: string; bytes: number; sender: Electron.WebContents }>();
+function stopRecording(id: number): string {
+  const rec = recordings.get(id);
+  if (!rec) return '';
+  recordings.delete(id);
+  try { rec.out.end(); } catch { /* already closed */ }
+  return rec.file;
+}
+/** Stop a recording main ended on its own (size cap, write error, the terminal exited) and tell the window, so the tab's
+ *  dot and the menu label follow (second review of #75). */
+function endRecording(id: number, why: 'size' | 'error' | 'exit'): void {
+  const rec = recordings.get(id);
+  if (!rec) return;
+  const file = stopRecording(id);
+  if (!rec.sender.isDestroyed()) rec.sender.send('shell:intent', { id, file, why, kind: 'recordStopped' });
+}
+function recordWrite(id: number, line: string): void {
+  const rec = recordings.get(id);
+  if (!rec) return;
+  rec.bytes += Buffer.byteLength(line);
+  rec.out.write(line);
+  if (rec.bytes < RECORD_MAX_BYTES) return;
+  endRecording(id, 'size');
+}
+ipcMain.handle('pty:record', (e, { id, on, name, cols, rows }: { id: number; on: boolean; name?: string; cols?: number; rows?: number }) => {
+  if (!on) return { file: stopRecording(id) };
+  if (!ptys.has(id)) return { file: '' };
+  if (recordings.has(id)) return { file: recordings.get(id)!.file };
+  const t0 = Date.now();
+  const dir = path.join(app.getPath('userData'), 'recordings');
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = path.join(dir, recordingName(String(name || 'terminal'), t0));
+    const out = fs.createWriteStream(file, { flags: 'wx', mode: 0o600 });   // wx: never appends to another recording
+    out.on('error', () => { if (recordings.get(id)?.out === out) endRecording(id, 'error'); });   // only this recording, never a newer one
+    recordings.set(id, { out, t0, file, bytes: 0, sender: e.sender });
+    recordWrite(id, headerLine(Number(cols) || 80, Number(rows) || 24, t0, name));
+    return { file };
+  } catch { return { file: '' }; }
+});
 ipcMain.on('pty:kill', (_e, { id }: { id: number }) => { ptys.get(id)?.kill(); ptys.delete(id); ptyTails.delete(id); void endSkin(id, false); });
 
 /* ── CHAT SKIN ───────────────────────────────────────────────────────────────────────────────────
@@ -1393,6 +1468,77 @@ function setupExplorerWatch(win: BrowserWindow): void {
     } catch { /* root may be absent */ }
   }
 }
+/* #177: each open file is watched on its own, through its REAL folder. The explorer watch above covers
+   only the allowed roots and names folders by the root's own path, so a file opened by another path
+   to the same place (a symlinked framework root, ~/aios → ~/obsidian) or outside the roots never
+   reloaded. The folder is watched, not the file: an agent's atomic replace kills a watch on the file. */
+/* Keyed by window and path, and closed with the window or when its page starts over (a reload re-opens every viewer,
+   so its old watches would never be unwatched): review of #177. realpath .native folds the case on macOS and Windows. */
+const fileWatches = new Map<string, { w: fs.FSWatcher; n: number; timer?: ReturnType<typeof setTimeout> }>();
+const watchKey = (senderId: number, p: string): string => `${senderId}|${p}`;
+function closeWatches(senderId: number): void {
+  for (const [k, v] of [...fileWatches]) {
+    if (!k.startsWith(`${senderId}|`)) continue;
+    if (v.timer) clearTimeout(v.timer);
+    try { v.w.close(); } catch { /* gone */ }
+    fileWatches.delete(k);
+  }
+}
+const watchedSenders = new Set<number>();
+ipcMain.handle('fs:watchFile', (e, p: string) => {
+  const given = String(p || '');
+  const key = watchKey(e.sender.id, given);
+  const cur = fileWatches.get(key);
+  if (cur) { cur.n++; return true; }
+  const abs = resolveIn(given);
+  if (!abs) return false;
+  let real = abs;
+  try { real = fs.realpathSync.native(abs); } catch { /* keep the given path */ }
+  const base = path.basename(real);
+  if (!watchedSenders.has(e.sender.id)) {
+    watchedSenders.add(e.sender.id);
+    const id = e.sender.id;
+    e.sender.once('destroyed', () => { closeWatches(id); watchedSenders.delete(id); });
+  }
+  try {
+    const entry: { w: fs.FSWatcher; n: number; timer?: ReturnType<typeof setTimeout> } = { w: undefined as unknown as fs.FSWatcher, n: 1 };
+    entry.w = fs.watch(path.dirname(real), (_evt, filename) => {
+      if (filename && String(filename) !== base) return;
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.timer = setTimeout(() => { if (!e.sender.isDestroyed()) e.sender.send('shell:fileChanged', { path: given }); }, 250);
+    });
+    entry.w.on('error', () => { try { entry.w.close(); } catch { /* gone */ } fileWatches.delete(key); });
+    fileWatches.set(key, entry);
+    return true;
+  } catch { return false; }
+});
+ipcMain.handle('fs:unwatchFile', (e, p: string) => {
+  const key = watchKey(e.sender.id, String(p || ''));
+  const cur = fileWatches.get(key);
+  if (!cur || --cur.n > 0) return;
+  if (cur.timer) clearTimeout(cur.timer);
+  try { cur.w.close(); } catch { /* gone */ }
+  fileWatches.delete(key);
+});
+/* The page is starting over (first load or a reload): whatever it watched before is no longer open. */
+ipcMain.handle('fs:unwatchAll', (e) => { closeWatches(e.sender.id); });
+/* #182 (review): once the operator answers the trust question the session starts, and the dead letter
+   saying it "has not started" would make /today ask for a duplicate. Remove it as soon as the session
+   is in the registry; checked every 10 s for up to an hour. */
+function clearTrustLetterWhenLive(name: string, spawnedAt: number): void {
+  const until = Date.now() + 60 * 60 * 1000;
+  const timer = setInterval(() => {
+    /* THIS session, and started: the name, a start after this tab opened (not another session of that name), and a
+       transcript, which Claude Code writes only once the first prompt runs, after the question (second review). */
+    const live = trustSessionStarted(aios.listRunningAgents(), name, spawnedAt, (sid) => {
+      const f = transcriptPath(sid);
+      try { return f ? fs.statSync(f).mtimeMs : undefined; } catch { return undefined; }
+    });
+    if (!live && Date.now() < until) return;
+    clearInterval(timer);
+    if (live) clearTrustBlocked(name);
+  }, 10_000);
+}
 function resolveIn(relOrAbs: string): string | null {
   const v = aios.vaultRoot();
   const abs = path.isAbsolute(relOrAbs) ? relOrAbs : (v ? path.resolve(v, relOrAbs) : null);
@@ -1849,6 +1995,17 @@ ipcMain.handle('aios:plugins', () => ({
   installed: aios.installedPlugins(),
   marketplaces: aios.knownMarketplaces(),
 }));
+/* #176: a link asking for a new window (target=_blank, window.open, xterm's own link opener) opens in
+   the default browser instead of a new App window, which has none of the operator's browser sessions
+   (and would carry the preload bridge). Set on every web contents as a backstop; in-App browser panes,
+   the HTML viewer and boards cannot open popups at all (no allowpopups / allow-popups), before and after.
+   Nothing but web and mail links is ever handed to the OS. */
+app.on('web-contents-created', (_e, wc) => {
+  wc.setWindowOpenHandler(({ url }) => {
+    if (windowOpenAction(url) === 'external') void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+});
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//.test(url)) void shell.openExternal(url);
   return true;
