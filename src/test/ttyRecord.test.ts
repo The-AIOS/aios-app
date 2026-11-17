@@ -33,16 +33,18 @@ test('broken lines are skipped, not fatal', () => {
 });
 
 test('the file name is safe and dated', () => {
-  assert.match(recordingName('lead / ../x', START), /^lead-x-\d{8}-\d{6}\.cast$/);
+  assert.match(recordingName('lead / ../x', START), /^lead-x-\d{8}-\d{9}\.cast$/);
   assert.match(recordingName('', START), /^terminal-/);
 });
 
 test('wiring: main records a pane only when asked, adds resizes, and keeps the file private', () => {
   const main = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(main, /ipcMain\.handle\('pty:record'/);
-  assert.match(main, /outputLine\(Date\.now\(\) - rec\.t0, data\)/, 'every output chunk while recording');
+  assert.match(main, /recordWrite\(id, outputLine\(/, 'every output chunk while recording');
+  assert.match(main, /if \(rec\.bytes < RECORD_MAX_BYTES\) return;/, 'capped (review of #75)');
+  assert.doesNotMatch(main.slice(main.indexOf('function recordWrite'), main.indexOf('function recordWrite') + 600), /writeSync/, 'never a synchronous write per chunk');
   assert.match(main, /resizeLine\(/, 'resizes are recorded');
-  assert.match(main, /openSync\(file, 'a', 0o600\)/, 'readable by the operator alone');
+  assert.match(main, /createWriteStream\(file, \{ flags: 'wx', mode: 0o600 \}\)/, 'readable by the operator alone, never appended to another recording');
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /value: 'record'/, 'turned on from the tab menu');
 });

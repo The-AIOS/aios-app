@@ -1,6 +1,6 @@
 /**
  * #177: an open file reloads when it changes on disk, even when it was opened by another path to
- * the same place (a symlinked root) or lives outside the explorer's roots. Main's watch needs
+ * the same place (a symlinked root). Files outside the allowed roots are not readable, so not watched. Main's watch needs
  * Electron, so its wiring is read from the source; the folder rule is exercised with a real watch.
  */
 import { test } from 'node:test';
@@ -14,9 +14,13 @@ test('wiring: each open viewer watches its file through its real folder, and sto
   const pre = fs.readFileSync('src/preload/preload.ts', 'utf8');
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(main, /ipcMain\.handle\('fs:watchFile'/);
-  assert.match(main, /fs\.realpathSync\(abs\)/, 'the real path, so a symlinked root still matches');
+  assert.match(main, /fs\.realpathSync\.native\(abs\)/, 'the real path (case folded), so a symlinked root still matches');
+  assert.match(main, /const watchKey = \(senderId: number, p: string\)/, 'watches belong to one window');
+  assert.match(main, /e\.sender\.once\('destroyed', \(\) => \{ closeWatches\(id\)/, 'and close with it');
+  assert.match(main, /ipcMain\.handle\('fs:unwatchAll'/);
+  assert.match(app, /void window\.glassShell\.fsUnwatchAll\?\.\(\)/, 'a reloaded page drops the watches its earlier self left');
   assert.match(main, /fs\.watch\(path\.dirname\(real\)/, 'the folder, not the file (an atomic replace kills a file watch)');
-  assert.match(main, /resolveIn\(key\)/, 'only files the viewer may read');
+  assert.match(main, /resolveIn\(given\)/, 'only files the viewer may read');
   assert.match(pre, /fsWatchFile:/); assert.match(pre, /onFileChanged:/);
   assert.match(app, /fsWatchFile\?\.\(file\.path\)/, 'the viewer starts watching when it opens');
   assert.match(app, /if \(p\.unwatch\) p\.unwatch\(\);/, 'and stops when its tab closes');

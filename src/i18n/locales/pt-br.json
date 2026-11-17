@@ -1216,7 +1216,7 @@
   "whatsnew.h2": "Os arquivos abertos ficam atualizados",
   "whatsnew.b2": "Quando um agente reescreve um arquivo que você tem aberto, uma nota, um relatório ou uma página HTML, a visualização se atualiza sozinha e mantém sua posição na nota. Se você tiver alterações não salvas, elas ficam, e o próximo salvamento junta as duas.",
   "whatsnew.h3": "Os links abrem no seu navegador",
-  "whatsnew.b3": "Um link em uma sessão, em uma página dentro do App ou em um terminal abria uma nova janela do App sem login em nada. Agora ele abre no seu navegador padrão, onde você já está.",
+  "whatsnew.b3": "Um link em uma sessão ou em um terminal abria uma nova janela do App sem login em nada. Agora ele abre no seu navegador padrão, onde você já está.",
   "whatsnew.h4": "Cada resposta aparece uma vez",
   "whatsnew.b4": "Na visualização de chat uma resposta podia aparecer duas vezes, a cópia ao vivo e a finalizada, e a resposta anterior podia voltar embaixo do próximo turno. Agora a resposta finalizada toma o lugar da cópia ao vivo, e uma resposta anterior fica onde estava.",
   "whatsnew.more": "Notas completas no GitHub →",
@@ -1653,5 +1653,8 @@
   "tab.recordOff": "Parar a gravação",
   "term.recordStarted": "Gravando este terminal em {name}. Ela guarda tudo o que aparece, então pare quando tiver o que precisa.",
   "term.recordSaved": "Gravação salva: {name}",
-  "term.recordFailed": "Não foi possível iniciar a gravação"
+  "term.recordFailed": "Não foi possível iniciar a gravação",
+  "term.recordCapped": "A gravação parou ao chegar a 100 MB e foi salva: {name}",
+  "update.readyTitle": "Há uma atualização pronta para instalar",
+  "update.readyBody": "{name} {version} foi baixado e será instalado quando você sair."
 }

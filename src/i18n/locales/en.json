@@ -1216,7 +1216,7 @@
   "whatsnew.h2": "Open files stay current",
   "whatsnew.b2": "When an agent rewrites a file you have open, a note, a report or an HTML page, the view updates by itself, keeping your place in a note. If you have unsaved edits, they stay, and your next save merges both.",
   "whatsnew.h3": "Links open in your browser",
-  "whatsnew.b3": "A link in a session, an in-App page or a terminal used to open a new App window that wasn't signed in to anything. Now it opens in your default browser, where you already are.",
+  "whatsnew.b3": "A link in a session or a terminal used to open a new App window that wasn't signed in to anything. Now it opens in your default browser, where you already are.",
   "whatsnew.h4": "Each reply shows once",
   "whatsnew.b4": "In the chat view a reply could appear twice, the live copy and the finished one, and the previous reply could come back under the next turn. Now the finished reply takes the live copy's place, and an earlier reply stays where it was.",
   "whatsnew.more": "Full release notes on GitHub →",
@@ -1653,5 +1653,8 @@
   "tab.recordOff": "Stop recording",
   "term.recordStarted": "Recording this terminal to {name}. It captures everything shown, so stop it when you have what you need.",
   "term.recordSaved": "Recording saved: {name}",
-  "term.recordFailed": "Couldn't start the recording"
+  "term.recordFailed": "Couldn't start the recording",
+  "term.recordCapped": "Recording stopped at 100 MB and saved: {name}",
+  "update.readyTitle": "A new update is ready to install",
+  "update.readyBody": "{name} {version} has been downloaded and will be installed when you quit."
 }

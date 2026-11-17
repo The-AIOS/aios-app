@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('glassShell', {
     return ipcRenderer.invoke('fs:grantDropped', paths);
   },
   addFolderPath: (p: string): Promise<string | { refused: string; path: string } | null> => ipcRenderer.invoke('fs:addFolderPath', p),
-  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
+  ptySpawn: (opts: { cols: number; rows: number; cmd?: string; cwd?: string; name?: string; noProfile?: boolean; bus?: boolean }): Promise<number> => ipcRenderer.invoke('pty:spawn', opts),
   /* App self-update. `updater.ts` has emitted on `shell:updater` since it was written and
      NOTHING listened — its own comment called the renderer surface a "future" one. These
      three lines are that surface's whole cost. */
@@ -271,6 +271,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   /* #75: start or stop recording one pane's raw output; resolves to the recording's path. */
   ptyRecord: (id: number, on: boolean, name: string, cols: number, rows: number): Promise<{ file: string }> => ipcRenderer.invoke('pty:record', { id, on, name, cols, rows }),
   fsUnwatchFile: (p: string): Promise<void> => ipcRenderer.invoke('fs:unwatchFile', p),
+  fsUnwatchAll: (): Promise<void> => ipcRenderer.invoke('fs:unwatchAll'),
   onFileChanged: (cb: (m: { path: string }) => void) => ipcRenderer.on('shell:fileChanged', (_e, m) => cb(m)),
   onRootsChanged: (cb: (m: { framework: string; vault: string }) => void) => ipcRenderer.on('shell:rootsChanged', (_e, m) => cb(m)),
 });

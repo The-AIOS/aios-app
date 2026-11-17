@@ -30,6 +30,31 @@ export function liveSubagents(states: readonly SubagentState[], now: number, sta
   return states.filter((s) => s.finished !== true && now - s.mtimeMs < staleMs).length;
 }
 
+/** Longest a message waits for subagents BEFORE it is first typed (review of #179: without a cap, a session that keeps
+ *  agents running back to back held every message to it forever, with no dead letter). */
+export const SUBAGENT_HOLD_MAX_MS = 60 * 60 * 1000;
+
+/**
+ * What a send does while the target has subagents running: `go` (none live), `hold`, or `give-up` once it has waited
+ * too long (before the first type, from when it queued; after, from the first type, like every other hold).
+ */
+export function subagentHold(s: { live: number; now: number; queuedAt: number; firstTypedAt: number; maxHoldMs: number; maxPreTypeMs?: number }): 'go' | 'hold' | 'give-up' {
+  if (s.live <= 0) return 'go';
+  const waited = s.firstTypedAt ? s.now - s.firstTypedAt : s.now - s.queuedAt;
+  const cap = s.firstTypedAt ? s.maxHoldMs : (s.maxPreTypeMs ?? SUBAGENT_HOLD_MAX_MS);
+  return waited >= cap ? 'give-up' : 'hold';
+}
+
+/**
+ * Did the message land in a subagent INSTEAD of the session? Only when the session's own transcript has no copy since
+ * the send began, and a subagent has one written after the first type. A session that received the message and quoted
+ * it to an agent of its own has a copy in both: that is a delivery, never a dead letter (review of #179).
+ */
+export function landedInSubagentOnly(mainNow: number | null, mainBefore: number, subCopiesSinceTyped: number): boolean {
+  if (mainNow !== null && mainNow > mainBefore) return false;
+  return subCopiesSinceTyped > 0;
+}
+
 /** The dead letter for a message that arrived in a subagent instead of the session. */
 export function landedInSubagentReason(name: string): string {
   return `the message reached a background subagent of '${name}', not '${name}' itself, so it was not typed again. `

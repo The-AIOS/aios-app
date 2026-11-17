@@ -30,5 +30,6 @@ test('wiring: every web contents gets the handler, and new windows are always de
 
 test('wiring: terminal links (OSC 8) open in the browser, without the blank-window detour', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /linkHandler: \{ activate: \(_e, uri\) => \{ if \(\/\^https\?:/, 'the terminal has its own link handler');
+  assert.match(app, /linkHandler: \{\s*activate: \(_e, uri\) => \{ if \(\/\^https\?:/, 'the terminal has its own link handler');
+  assert.match(app, /hover: \(_e, uri\) => \{ if \(term\.element\) term\.element\.title = /, 'and shows the target on hover');
 });

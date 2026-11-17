@@ -38,7 +38,9 @@ export function plainForTrust(raw: string): string {
 /** Is Claude Code asking whether to trust a folder? `text` is plain (see plainForTrust). */
 export function isTrustPrompt(text: string): boolean {
   const flat = String(text || '').replace(/\s+/g, ' ');
-  return TRUST_PATTERNS.some((re) => re.test(flat));
+  /* The question AND its numbered Yes choice: the shell echoes the command line first, and a task
+     typed inline that merely mentions the question must not trip it (review of #182). */
+  return TRUST_PATTERNS.some((re) => re.test(flat)) && /\b1\.\s*Yes\b/i.test(flat);
 }
 
 /** A tab worth watching: started with `--add-dir`, which is what raises the question for a new folder. */

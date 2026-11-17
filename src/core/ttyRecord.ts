@@ -61,7 +61,7 @@ export function parseRecording(text: string): { header: RecordHeader | null; eve
 export function recordingName(tabName: string, startMs: number): string {
   const d = new Date(startMs);
   const pad = (n: number): string => String(n).padStart(2, '0');
-  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}${String(d.getMilliseconds()).padStart(3, '0')}`;
   const safe = String(tabName || 'terminal').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'terminal';
   return `${safe}-${stamp}.cast`;
 }

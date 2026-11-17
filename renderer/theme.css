@@ -2482,3 +2482,6 @@ body.light .chatskin .cs-sticky { background: color-mix(in srgb, var(--chat-user
 .qbrec-clear { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--subtle); font: inherit; font-size: 12px; cursor: pointer; }
 .qbrec-clear:hover { color: var(--ink); }
 .qbrec-clear[hidden] { display: none; }
+
+/* #75: a terminal tab that is recording its raw output says so, with a dot before its name. */
+.tab.recording .tname::before { content: '● '; color: var(--tg-coral); }

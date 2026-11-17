@@ -9,6 +9,7 @@ import { lastPanelStatuses } from './panelHost';
 import { heldSendCount } from './commandBus';
 import { installStep, mayAutoInstall, SAMPLE_MS, NEVER_QUIET_WARN_MS } from '../core/autoInstall';
 import { shouldNotifyUpdate, parseNotified } from '../core/updateNotice';
+import { t } from '../i18n';
 
 /**
  * Auto-update — the last mile for app-only operators (no terminal, cannot
@@ -192,14 +193,11 @@ function notifyReadyOnce(version: string): void {
   let last = '';
   try { last = parseNotified(fs.readFileSync(notifiedFile(), 'utf8')); } catch { /* none yet */ }
   if (!shouldNotifyUpdate(version, last)) return;
-  try { fs.writeFileSync(notifiedFile(), JSON.stringify({ version })); } catch { /* still notify once this run */ }
   try {
-    if (!Notification.isSupported()) return;
-    new Notification({
-      title: 'A new update is ready to install',
-      body: `${app.getName()} version ${version} has been downloaded and will be installed when you quit.`,
-    }).show();
-  } catch { /* the pill in the window still shows it */ }
+    if (!Notification.isSupported()) return;   // nothing shown: not remembered either, so a later run can still tell
+    new Notification({ title: t('update.readyTitle'), body: t('update.readyBody', { name: app.getName(), version }) }).show();
+  } catch { return; /* not shown: the pill in the window still shows it, and a later check may notify */ }
+  try { fs.writeFileSync(notifiedFile(), JSON.stringify({ version })); } catch { /* shown once this run at least */ }
 }
 
 function attemptFile(): string { return path.join(app.getPath('userData'), 'unattended-install.json'); }

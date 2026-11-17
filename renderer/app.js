@@ -4226,6 +4226,7 @@ function makeTab(id, name, iconName) {
         const r = await window.glassShell.ptyRecord(id, on, pane.name || 'terminal', pane.term?.cols || 80, pane.term?.rows || 24).catch(() => null);
         if (on && !(r && r.file)) { toast(t('term.recordFailed')); return; }
         pane.recording = on;
+        pane.tab?.classList.toggle('recording', on);   // the tab shows it while it records (review of #75)
         toast(t(on ? 'term.recordStarted' : 'term.recordSaved', { name: xBase(r && r.file ? r.file : '') }));
         if (!on && r && r.file) void window.glassShell.revealInOS(r.file);
       }
@@ -4468,7 +4469,7 @@ async function ensurePersonalized(cmd) {
   return false;
 }
 
-async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false, noProfile = false } = {}) {
+async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, background = false, noProfile = false, bus = false } = {}) {
   // the Setup tab's own fix buttons pass bypassReady — they ARE the remedy
   if (!bypassReady && !(await ensureRunnable(cmd))) return null;
   if (!bypassReady && !(await ensurePersonalized(cmd))) return null;
@@ -4501,7 +4502,12 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     /* #176: a link Claude Code prints (OSC 8) opens in the default browser on click. xterm's own
        handler asks to confirm, then opens a blank window and navigates it, which main now refuses
        (every new window is denied); web links go straight to the browser instead. */
-    linkHandler: { activate: (_e, uri) => { if (/^https?:\/\//i.test(String(uri || ''))) void window.glassShell.openExternal(uri); } },
+    linkHandler: {
+      activate: (_e, uri) => { if (/^https?:\/\//i.test(String(uri || ''))) void window.glassShell.openExternal(uri); },
+      /* the target, shown on hover: a link's visible text can name one site and point at another (review of #176) */
+      hover: (_e, uri) => { if (term.element) term.element.title = String(uri || ''); },
+      leave: () => { if (term.element) term.element.title = ''; },
+    },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -4512,7 +4518,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
      escape can reach the parser unhandled; the pane id is filled in once the spawn returns. */
   let oscPane = null;
   term.parser.registerOscHandler(7501, (data) => programStatusOsc(oscPane, data));
-  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile });
+  const id = await window.glassShell.ptySpawn({ cols: 80, rows: 24, cmd, cwd, name, noProfile, bus });
   oscPane = id;
   const tab = makeTab(id, name, 'term');
   const p = { kind: 'term', name, el, tab, term, fit, exited: false, cmd, cwd: cwd || '', isSession: paneIsClaude(cmd), bornAt: Date.now() };
@@ -7268,6 +7274,8 @@ window.glassShell.onFsEvent((m) => {
   const dirs = new Set(m.dirs || []);
   for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && dirs.has(xDirOf(p.path))) void p.onDiskMaybeChanged();
 });
+/* #177: this page is new (first load or a reload): drop the watches an earlier page left behind, before any viewer opens. */
+void window.glassShell.fsUnwatchAll?.().catch(() => null);
 /* #177: an open file changed on disk (its own watch, main fs:watchFile): reload it if nothing is unsaved. */
 window.glassShell.onFileChanged?.((m) => {
   for (const p of panes.values()) if (p.kind === 'view' && p.onDiskMaybeChanged && p.path === m.path) void p.onDiskMaybeChanged();
@@ -7926,7 +7934,7 @@ window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
     case 'terminal': {
       // cwd: a bus request's validated directory (main/busCwd); absent = the framework root.
-      const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m) });
+      const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m), bus: m.bus === true });   // bus: #182's trust watch
       // group: a bus spawn/resume asked for a tab group by name (core/commandBus parseGroup).
       if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group);
       return;
@@ -8033,6 +8041,12 @@ window.glassShell.onIntent(async (m) => {
     case 'toast':
       toast(m.text);
       return;
+    case 'recordStopped': {   // #75: a recording reached its size cap and main stopped it
+      const p = panes.get(m.id);
+      if (p) { p.recording = false; p.tab?.classList.remove('recording'); }
+      toast(t('term.recordCapped', { name: xBase(String(m.file || '')) }));
+      return;
+    }
     case 'palette': void openPalette(); return;
     case 'quickOpen': void quickOpen(); return;
     case 'pickContext': void pickContext(m.ctxKind); return;

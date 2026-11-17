@@ -30,7 +30,7 @@ import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presen
 import { MY_SURFACE } from './surface';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from './transcriptSince';
-import { liveSubagents, landedInSubagentReason } from '../core/subagentGate';
+import { liveSubagents, landedInSubagentReason, subagentHold, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 
@@ -570,13 +570,19 @@ function markUndelivered(fromPath: string, req: BusRequest | null, reason: strin
  */
 export function reportTrustBlocked(name: string): string {
   const reason = trustBlockedReason(name);
-  const safe = String(name || 'session').replace(/[^A-Za-z0-9._-]/g, '-');
-  const dest = path.join(inboxDir(), `${safe}-trust-question.json${UNDELIVERED_SUFFIX}`);
+  const dest = trustLetterPath(name);
   try {
     fs.writeFileSync(dest, JSON.stringify({ name, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n');
   } catch { /* the log line below still records it */ }
   log(`TRUST QUESTION — '${name}' is waiting on Claude Code's folder-trust question and has not started: ${path.basename(dest)}`);
   return reason;
+}
+function trustLetterPath(name: string): string {
+  return path.join(inboxDir(), `${String(name || 'session').replace(/[^A-Za-z0-9._-]/g, '-')}-trust-question.json${UNDELIVERED_SUFFIX}`);
+}
+/** The session started after all (the operator answered the question): its trust dead letter is no longer true. */
+export function clearTrustBlocked(name: string): void {
+  try { fs.unlinkSync(trustLetterPath(name)); log(`TRUST QUESTION answered — '${name}' started; its dead letter is removed`); } catch { /* already gone */ }
 }
 
 /* Review nit: a superseded message used to be deleted, which reads exactly like a delivery to the
@@ -686,7 +692,9 @@ async function runSend(
      send (never typed again) with a dead letter naming where it went. */
   const subSince = new SubagentsSince();
   const landedInSubagent = (sid: string): boolean => {
-    if (countDeliveries(subSince.read(sid), deliverText, needle, claimedAt) === 0) return false;
+    if (!firstTypedAt || baseline === undefined) return false;
+    const subCopies = countDeliveries(subSince.read(sid), deliverText, needle, firstTypedAt);   // only copies written after the first type
+    if (!landedInSubagentOnly(count(sid), baseline, subCopies)) return false;   // the session has its own copy: delivered
     markUndelivered(heldPath, req, landedInSubagentReason(req.name));
     return true;
   };
@@ -753,10 +761,11 @@ async function runSend(
     /* #179: background subagents still running → busy, like a session mid-turn. Typed input can
        reach one of them instead of the session, so wait until they finish (a stale one stops
        counting after SUBAGENT_STALE_MS, so this cannot hold forever). */
-    if (liveSubagents(subagentStates(sessionId), Date.now()) > 0) {
+    const subHold = subagentHold({ live: liveSubagents(subagentStates(sessionId), Date.now()), now: Date.now(), queuedAt, firstTypedAt, maxHoldMs: MAX_HOLD_MS });
+    if (subHold !== 'go') {
       if (!heldForSubagents) { heldForSubagents = true; log(`holding a message for '${req.name}': it has background subagents running`); }
-      if (firstTypedAt && Date.now() - firstTypedAt >= MAX_HOLD_MS) {
-        markUndelivered(heldPath, req, `'${req.name}' kept background subagents running for ${Math.round(MAX_HOLD_MS / 60000)} min`);
+      if (subHold === 'give-up') {
+        markUndelivered(heldPath, req, `'${req.name}' kept background subagents running the whole time this message waited (${Math.round((Date.now() - (firstTypedAt || queuedAt)) / 60000)} min), so it was not typed into it`);
         return;
       }
       if (!fs.existsSync(heldPath)) return;
@@ -956,7 +965,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
     // background like every other bus path (#47): a fresh spawn was the one that still switched the
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
-    emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group });
+    emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, bus: true });
     if (req.groupNote) log(`spawn '${req.name}': ${req.groupNote}`);
     log(`spawn '${req.name}'${req.group ? ` in group '${req.group}'` : ''}${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
@@ -1035,7 +1044,7 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).
-      emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group });
+      emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, bus: true });
       if (req.groupNote) log(`resume '${req.name}': ${req.groupNote}`);
       log(`resume '${req.name}'${req.group ? ` in group '${req.group}'` : ''} → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${taskFile ? ' (via file)' : ''}`);
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
