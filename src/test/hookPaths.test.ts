@@ -52,11 +52,24 @@ test('wiring: the App runs resolve-tier and install-settings.py from the new pla
 test('review: a settings.json still running the OLD path is not wired once the hook ships in its new folder', () => {
   const newVault = (rel: string) => rel === 'hooks/context/provenance.py' || rel === 'hooks/provenance.py';   // v0.8.19: new file plus the forwarding stub
   const old = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 ~/aios/hooks/provenance.py' }] }] } };
+  const P = ['/Users/x/aios', '~/aios', '$HOME/aios'];
   const fresh = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 ~/aios/hooks/context/provenance.py' }] }] } };
   const win = { hooks: { PostToolUse: [{ hooks: [{ command: 'python C:\\Users\\x\\aios\\hooks\\context\\provenance.py' }] }] } };
-  assert.ok(missingHooks(old, newVault).includes('provenance.py'), 'old path: Repair is offered');
-  assert.ok(!missingHooks(fresh, newVault).includes('provenance.py'), 'new path: wired');
-  assert.ok(!missingHooks(win, newVault).includes('provenance.py'), 'new path with Windows backslashes: wired');
+  assert.ok(missingHooks(old, newVault, P).includes('provenance.py'), 'old path: Repair is offered');
+  assert.ok(!missingHooks(fresh, newVault, P).includes('provenance.py'), 'new path: wired');
+  assert.ok(!missingHooks(win, newVault, P).includes('provenance.py'), 'new path with Windows backslashes: wired');
   const oldVault = (rel: string) => rel === 'hooks/provenance.py';
-  assert.ok(!missingHooks(old, oldVault).includes('provenance.py'), 'an old framework with the old path: still wired');
+  assert.ok(!missingHooks(old, oldVault, P).includes('provenance.py'), 'an old framework with the old path: still wired');
+});
+
+test("review: an old path that is NOT this framework is the operator's own, never flagged (Repair could not fix it)", () => {
+  const newVault = (rel: string) => rel === 'hooks/context/provenance.py';
+  const P = ['/Users/x/aios', '~/aios', '$HOME/aios'];
+  const own = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 ~/.claude/hooks/provenance.py' }] }] } };
+  const rel = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 hooks/provenance.py' }] }] } };
+  const abs = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 /Users/x/aios/hooks/provenance.py' }] }] } };
+  assert.ok(!missingHooks(own, newVault, P).includes('provenance.py'), "the operator's own copy elsewhere");
+  assert.ok(!missingHooks(rel, newVault, P).includes('provenance.py'), 'a relative path');
+  assert.ok(missingHooks(abs, newVault, P).includes('provenance.py'), 'the absolute old path into this framework IS flagged');
+  assert.ok(!missingHooks(abs, newVault).includes('provenance.py'), 'no prefixes given: never flagged');
 });

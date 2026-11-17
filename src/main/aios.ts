@@ -2403,7 +2403,8 @@ function doctorChecks(): DoctorCheck[] {
       run: async (): Promise<CheckResult> => {
         const label = t('setupCheck.hooks');
         if (!root) return { id: 'hooks', label, status: 'warn', message: t('setupCheck.hooksNoFramework'), canRepair: false };
-        const missing = missingHooks(readJson(claudeSettingsPath()), (rel) => fs.existsSync(path.join(root, rel)));
+        const missing = missingHooks(readJson(claudeSettingsPath()), (rel) => fs.existsSync(path.join(root, rel)),
+          [root, '~/aios', '$HOME/aios', path.join(os.homedir(), 'aios')]);   // an old path into THIS framework is the one Repair rewrites
         if (!missing.length) return { id: 'hooks', label, status: 'pass', message: t('setupCheck.hooksOk'), canRepair: false };
         const script = installSettingsScript();
         const py = script ? pythonRunner() : undefined;
