@@ -14085,7 +14085,7 @@ function openSetupTab() {
              assets). The remedy per platform belongs to the check, which knows what OS it is on;
              a renderer fallback can only ever guess. No command → no button. */
           if (git && git.status !== 'pass' && git.repairCmd) {
-            mkBtn(adv, t('onboarding.installGit'), () => void fixPane('git', git.repairCmd), { title: git.repairHint });
+            mkBtn(adv, t(IS_MAC ? 'onboarding.installGit' : 'onboarding.installGitOther'), () => void fixPane('git', git.repairCmd), { title: git.repairHint });
           }
           if (claude && claude.status !== 'pass') {
             // the check may be reporting "installed but off PATH", whose fix is not an install

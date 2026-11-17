@@ -1698,9 +1698,27 @@ function psq(s: string): string {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
+/**
+ * The POSIX shell every probe runs through. zsh on macOS, exactly as before — it is the system
+ * default and always present there. On Linux zsh is an optional package most machines never
+ * install, and a hardcoded `/bin/zsh` made execFile fail with ENOENT, which every probe reads as
+ * "not found": git, node, gh, the Claude version and the spawn wrapper all reported missing on a
+ * machine where the terminal beside them had every one of them (measured on Ubuntu 24.04 without
+ * zsh: Setup showed "Git not found" while `node is already installed` scrolled past below it).
+ * The operator's own $SHELL wins when it speaks POSIX (bash or zsh); fish and friends cannot run
+ * these snippets, so they fall through to the same candidates main.ts uses for the terminal.
+ */
+export function probeShell(platform: string = process.platform, envShell: string | undefined = process.env.SHELL,
+  exists: (p: string) => boolean = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }): string {
+  if (platform === 'darwin') return '/bin/zsh';
+  if (envShell && /\/(bash|zsh)$/.test(envShell) && exists(envShell)) return envShell;
+  for (const c of ['/bin/bash', '/usr/bin/bash', '/bin/zsh', '/usr/bin/zsh']) if (exists(c)) return c;
+  return '/bin/sh';
+}
+
 function zshOnce(snippet: string, flags: string): Promise<string | null> {
   return new Promise((res) => {
-    execFile('/bin/zsh', [flags, snippet], { timeout: 8000 }, (err, out) => res(err ? null : String(out).trim()));
+    execFile(probeShell(), [flags, snippet], { timeout: 8000, windowsHide: true }, (err, out) => res(err ? null : String(out).trim()));
   });
 }
 /**
@@ -2118,7 +2136,9 @@ function doctorChecks(): DoctorCheck[] {
     /* Windows gets a repairCmd of its own because the RENDERER falls back to
        `xcode-select --install` when this is undefined (setup's Advanced lane) — a macOS command
        offered on Windows is exactly the impossible instruction the gh check learned not to give. */
-    whichCheck('git', 'git', 'fail', 'setupCheck.gitMissing', installGitCmd()),
+    /* The Xcode wording is macOS-only: on Linux and Windows git comes from the package manager
+       or the installer, and naming Xcode there is an instruction nobody can follow. */
+    whichCheck('git', 'git', 'fail', process.platform === 'darwin' ? 'setupCheck.gitMissing' : 'setupCheck.gitMissingOther', installGitCmd()),
     whichCheck('node', 'node', 'warn', 'setupCheck.nodeMissing', installNodeCmd()),
     /* WINDOWS ONLY, and OPTIONAL in the stepper — it never blocks a step on its own. On a machine
        where setup has always worked the policy is already permissive and this passes silently, so
@@ -3533,7 +3553,7 @@ function operatorShell(): string {
   // PowerShell is both what this app's panes launch and what every Windows branch here assumes.
   if (process.platform === 'win32') return 'powershell.exe';
   const sh = process.env.SHELL;
-  return sh && fs.existsSync(sh) ? sh : '/bin/zsh';
+  return sh && fs.existsSync(sh) ? sh : probeShell();
 }
 
 /**
