@@ -1219,6 +1219,8 @@
   "whatsnew.b3": "Um link em uma sessão ou em um terminal abria uma nova janela do App sem login em nada. Agora ele abre no seu navegador padrão, onde você já está.",
   "whatsnew.h4": "Cada resposta aparece uma vez",
   "whatsnew.b4": "Na visualização de chat uma resposta podia aparecer duas vezes, a cópia ao vivo e a finalizada, e a resposta anterior podia voltar embaixo do próximo turno. Agora a resposta finalizada toma o lugar da cópia ao vivo, e uma resposta anterior fica onde estava.",
+  "whatsnew.h5": "Organize seu painel arrastando",
+  "whatsnew.b5": "Arraste um cartão pelo título para colocá-lo onde quiser no painel lateral. As setas e os atalhos de teclado continuam funcionando, e sua ordem é mantida.",
   "whatsnew.more": "Notas completas no GitHub →",
   "whatsnew.skipped": "Você também pulou {versions}. O que mudou está nas notas de cada versão.",
   "menu.whatsnew": "Novidades",

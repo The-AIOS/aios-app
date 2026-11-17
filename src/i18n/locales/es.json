@@ -1219,6 +1219,8 @@
   "whatsnew.b3": "Un enlace en una sesión o en una terminal abría una ventana nueva de la App sin ninguna sesión iniciada. Ahora se abre en tu navegador predeterminado, donde ya estás.",
   "whatsnew.h4": "Cada respuesta aparece una vez",
   "whatsnew.b4": "En la vista de chat una respuesta podía aparecer dos veces, la copia en vivo y la terminada, y la respuesta anterior podía volver debajo del siguiente turno. Ahora la respuesta terminada toma el lugar de la copia en vivo, y una respuesta anterior se queda donde estaba.",
+  "whatsnew.h5": "Ordena tu panel arrastrando",
+  "whatsnew.b5": "Arrastra una tarjeta por su título para ponerla donde quieras en el panel lateral. Las flechas y los atajos de teclado siguen funcionando, y tu orden se conserva.",
   "whatsnew.more": "Notas completas en GitHub →",
   "whatsnew.skipped": "También te saltaste {versions}. Lo que cambió está en las notas de cada versión.",
   "menu.whatsnew": "Novedades",

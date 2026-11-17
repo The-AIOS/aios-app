@@ -1219,6 +1219,8 @@
   "whatsnew.b3": "A link in a session or a terminal used to open a new App window that wasn't signed in to anything. Now it opens in your default browser, where you already are.",
   "whatsnew.h4": "Each reply shows once",
   "whatsnew.b4": "In the chat view a reply could appear twice, the live copy and the finished one, and the previous reply could come back under the next turn. Now the finished reply takes the live copy's place, and an earlier reply stays where it was.",
+  "whatsnew.h5": "Arrange your panel by dragging",
+  "whatsnew.b5": "Drag a card by its title to put it where you want it in the side panel. The arrows and keyboard shortcuts still work, and your order is kept.",
   "whatsnew.more": "Full release notes on GitHub →",
   "whatsnew.skipped": "You also skipped {versions}. What they changed is in the release notes.",
   "menu.whatsnew": "What's New",
