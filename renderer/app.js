@@ -772,6 +772,17 @@ function pulseTitle(card, key, text, count) {
   dn.addEventListener('click', (e) => { e.stopPropagation(); moveCard(card, 1); });
   mv.append(up, dn);
   ti.appendChild(mv);
+  /* Drag the title to reorder (the arrows and ⌥↑↓ stay, for the keyboard). A plain click never starts a drag and a drag
+     never fires a click, so folding keeps working. The drop side is handled once, on the panel (wirePanelCardDrag). */
+  ti.draggable = true;
+  ti.addEventListener('dragstart', (e) => {
+    dragCardId = card.id;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('application/x-aios-card', card.id); } catch { /* older engines */ }   // a card is not a file: no other drop target claims it
+    card.classList.add('pdragging');
+    document.body.classList.add('pcard-dragging');   // board frames stop swallowing the drag (theme.css)
+  });
+  ti.addEventListener('dragend', () => { dragCardId = null; card.classList.remove('pdragging'); document.body.classList.remove('pcard-dragging'); clearCardDropHint(); });
   const collapsed = pulse.collapsed.has(key);
   card.classList.toggle('pcollapsed', collapsed);
   ti.addEventListener('click', () => {
@@ -787,7 +798,51 @@ function pulseTitle(card, key, text, count) {
   return ti;
 }
 
-/* ── pulse card reordering — drag-free ↑↓ within the panel, persisted ───────── */
+/* ── pulse card reordering — drag a card's title, or ↑↓ / ⌥↑↓, within the panel, persisted ── */
+let dragCardId = null;
+/** The panel's card ids after dropping `dragged` before or after `target`. Pure, so the order rule is tested by running it. */
+function cardDropOrder(ids, dragged, target, after) {
+  if (dragged === target || !ids.includes(dragged) || !ids.includes(target)) return ids.slice();
+  const rest = ids.filter((x) => x !== dragged);
+  const at = rest.indexOf(target) + (after ? 1 : 0);
+  return [...rest.slice(0, at), dragged, ...rest.slice(at)];
+}
+function clearCardDropHint() {
+  for (const c of document.querySelectorAll('#panel > .pcard.pdrop-before, #panel > .pcard.pdrop-after')) c.classList.remove('pdrop-before', 'pdrop-after');
+}
+/* Once, on the panel: the cards' titles are rebuilt on every refresh, so per-card drop listeners would pile up. */
+function wirePanelCardDrag() {
+  const panel = document.getElementById('panel');
+  if (!panel || panel.dataset.cardDrag) return;
+  panel.dataset.cardDrag = '1';
+  const targetOf = (e) => {
+    const c = e.target instanceof Element ? e.target.closest('#panel > .pcard') : null;
+    return c && dragCardId && c.id !== dragCardId ? c : null;
+  };
+  panel.addEventListener('dragover', (e) => {
+    const c = targetOf(e);
+    if (!c) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const r = c.getBoundingClientRect();
+    const after = e.clientY - r.top > r.height / 2;
+    clearCardDropHint();
+    c.classList.add(after ? 'pdrop-after' : 'pdrop-before');
+  });
+  panel.addEventListener('drop', (e) => {
+    const c = targetOf(e);
+    if (!c) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = c.getBoundingClientRect();
+    const ids = cardDropOrder(movablePulseCards().map((x) => x.id), dragCardId, c.id, e.clientY - r.top > r.height / 2);
+    /* The same path as a restored order: saved, then placed by applyPulseOrder, which moves cards only among cards. */
+    try { localStorage.setItem('pulseOrder', JSON.stringify(ids)); } catch { /* ignore */ }
+    applyPulseOrder();
+    persistPulseOrder();   // what is on screen is what is kept, even if storage refused the write above
+    clearCardDropHint();
+  });
+}
 function movablePulseCards() {
   return Array.from(document.querySelectorAll('#panel > .pcard'));
 }
@@ -15766,6 +15821,7 @@ function relocalize(loc) {
 /* ── boot ─────────────────────────────────────────────────────────────────── */
 applyLayout();
 applyPulseOrder();
+wirePanelCardDrag();   // drag a card's title to reorder the panel
 void initLocale().then(async () => {
   applyStaticI18n();       // re-resolve static HTML now that the real locale is loaded
   mountExplorerRefresh();  // …and re-assert the button, which an innerHTML wipe would have taken
