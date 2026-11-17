@@ -111,6 +111,24 @@ test('presence is WIRED to the shared decision, on all three paths', () => {
     'and so is the heal — a dev build must not claim the record the installed App depends on');
 });
 
+test('the App announces ITSELF, and a reused pid or a pre-boot record never reads as alive', () => {
+  /* Measured on Linux: the AppImage's parent is `systemd --user` (not pid 1), so walking the tree
+     announced the session manager — an ancestor of every process the user runs — and after a
+     reboot the stale record's pid was a containerd THREAD, which signal 0 accepts. The App then
+     deferred to that "live incumbent" on every start and every heal, and agents following the
+     liveness rule concluded no surface existed while the App kept fulfilling spawns. */
+  const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.doesNotMatch(main, /processTreeRoot\(/, 'the App must not walk out of its own process');
+  assert.match(main, /function appRoot\(\): number \{\s*return process\.pid;/);
+  assert.match(main, /\/proc\/\$\{pid\}\/status/, 'a thread id is not a process: Tgid must equal the pid');
+  assert.match(main, /os\.uptime\(\)/, 'a record written before this boot names nobody');
+  for (const name of ['announcePresence', 'healPresence']) {
+    const i = main.indexOf(`function ${name}(`);
+    const body = main.slice(i, main.indexOf('\nfunction ', i + 1));
+    assert.match(body, /presenceVerdict\(rec, root, aliveFor\(rec\)\)/, `${name} judges liveness per record`);
+  }
+});
+
 test('an unresolvable rung REFUSES the spawn — defaulting on a typo is the bug itself', () => {
   const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   // the refusal is a dead letter, and it RETURNS — it must not fall through into the launch
