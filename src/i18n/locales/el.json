@@ -744,7 +744,7 @@
   "setupCheck.hooks": "Hooks",
   "setupCheck.hooksOk": "συνδεδεμένα",
   "setupCheck.hooksMissing": "{n} δεν έχουν συνδεθεί ακόμη — η Ολοκλήρωση ρύθμισης τα προσθέτει",
-  "setupCheck.hooksNoInstaller": "δεν έχουν συνδεθεί — αυτό το framework δεν έχει hooks/install-settings.py (ενημέρωσε το framework)",
+  "setupCheck.hooksNoInstaller": "δεν έχουν συνδεθεί — αυτό το framework δεν έχει install-settings.py (ενημέρωσε το framework)",
   "setupCheck.hooksNoUv": "δεν έχουν συνδεθεί — χρειάζονται το uv, που το εγκαθιστά το «Εγκατάστησε ό,τι χρειάζομαι»",
   "setupCheck.hooksNoFramework": "περιμένει το framework (η συνομιλία ρύθμισης το κατεβάζει)",
   "setupCheck.psPolicy": "Scripts PowerShell",

@@ -744,7 +744,7 @@
   "setupCheck.hooks": "Hooks",
   "setupCheck.hooksOk": "conectados",
   "setupCheck.hooksMissing": "{n} sin conectar — Terminar configuración los añade",
-  "setupCheck.hooksNoInstaller": "sin conectar — este framework no trae hooks/install-settings.py (actualiza el framework)",
+  "setupCheck.hooksNoInstaller": "sin conectar — este framework no trae install-settings.py (actualiza el framework)",
   "setupCheck.hooksNoUv": "sin conectar — necesita uv, que instala Instalar lo que necesito",
   "setupCheck.hooksNoFramework": "espera al framework (la conversación de configuración lo descarga)",
   "setupCheck.psPolicy": "Scripts de PowerShell",

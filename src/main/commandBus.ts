@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import { findHook, hookCandidates } from '../core/hookPaths';
 import * as fs from 'fs';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
@@ -518,7 +519,9 @@ export function heldSendCount(): number {
 function resolveTier(tier: string): { model?: string } | { error: string } {
   const root = aios.frameworkRoot();
   if (!root) return { error: `cannot resolve tier '${tier}': no framework root found` };
-  const hook = path.join(root, 'hooks', 'resolve-tier');
+  /* hooks/pipeline/resolve-tier since v0.8.19, hooks/resolve-tier before (aios#330): the new place first. */
+  const rel = findHook('resolve-tier', (r) => fs.existsSync(path.join(root, r))) ?? hookCandidates('resolve-tier')[0];
+  const hook = path.join(root, rel);
   if (!fs.existsSync(hook)) {
     return { error: `cannot resolve tier '${tier}': ${hook} is missing — run /aios:update to sync it, or pass an explicit "model" instead` };
   }

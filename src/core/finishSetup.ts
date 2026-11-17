@@ -19,6 +19,7 @@
  * check results and a real repair function; the tests feed it fabricated ones.
  */
 
+import { hookCandidates } from './hookPaths';
 export interface FinishCheckLike {
   id: string;
   status: 'pass' | 'warn' | 'fail';
@@ -133,6 +134,7 @@ export const FRAMEWORK_HOOKS: ReadonlyArray<{ sig: string; files: readonly strin
   { sig: 'bus_log.py', files: ['bus_log.py'] },                                      // D · inbox prompts
   { sig: 'floor-at-start.py', files: ['floor-at-start.py'] },                        // E · the floor
   { sig: 'model-switch-log.py', files: ['model-switch-log.py'] },                    // F · model switches
+  { sig: 'suggest-agent-hint.py', files: ['suggest-agent-hint.py'] },                // G · suggest an agent mid-session (v0.8.19)
 ];
 
 /** Every hook command in a settings.json object, whatever event it sits under. Tolerant by design:
@@ -156,11 +158,12 @@ export function hookCommands(settings: unknown): string[] {
   return out;
 }
 
-/** Which shipped framework hooks are NOT in this settings object. Empty → the row passes. */
-export function missingHooks(settings: unknown, ships: (file: string) => boolean): string[] {
+/** Which shipped framework hooks are NOT in this settings object. Empty → the row passes. `ships` is asked
+ *  for paths relative to the framework root, in a hook's new folder first, then the old flat place (aios#330). */
+export function missingHooks(settings: unknown, ships: (rel: string) => boolean): string[] {
   const cmds = hookCommands(settings).map((c) => c.replace(/\\/g, '/'));
   return FRAMEWORK_HOOKS
-    .filter((h) => h.files.some(ships))
+    .filter((h) => h.files.some((f) => hookCandidates(f).some(ships)))
     .filter((h) => !cmds.some((c) => c.includes(h.sig)))
     .map((h) => h.sig);
 }

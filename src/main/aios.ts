@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
 import { identityNamesIn } from '../core/sessionName';
@@ -1916,7 +1917,7 @@ function runClaude(args: string[], cwd?: string): Promise<void> {
  * `uv` FIRST, exactly as the framework runs its own hooks (`uv run …/context-floor.py`), and for
  * the framework's reason: on Windows the name `python3` (and often `python`) is the Microsoft Store
  * alias, which prints an installer notice, runs nothing and exits non-zero. Step 1 of setup
- * installs uv, and `install-settings.py` is stdlib-only, so `uv run` needs no environment.
+ * installs uv, and `hooks/install/install-settings.py` (v0.8.19; `hooks/` before) is stdlib-only, so `uv run` needs no environment.
  * Searched in the persisted PATH and in uv's own install folders as well as this process's PATH,
  * because the App's PATH predates the install. Fallbacks: `python3` on POSIX, the `py`
  * launcher on Windows (it lives in C:\Windows, never a Store alias). Never a bare `python` there.
@@ -2116,6 +2117,11 @@ function doctorChecks(): DoctorCheck[] {
     if (!root) return undefined;
     const p = path.join(root, rel);
     return fs.existsSync(p) ? p : undefined;
+  };
+  /* install-settings.py in its v0.8.19 folder (hooks/install/), else the old flat place, for a vault not yet updated (aios#330). */
+  const installSettingsScript = (): string | undefined => {
+    for (const rel of hookCandidates('install-settings.py')) { const s = scriptIf(rel); if (s) return s; }
+    return undefined;
   };
   /* A headless repair on Windows may ONLY be offered when the framework ships a PowerShell
      sibling next to the `.sh` (install-wrappers.ps1 beside install-wrappers.sh). Running the
@@ -2397,9 +2403,9 @@ function doctorChecks(): DoctorCheck[] {
       run: async (): Promise<CheckResult> => {
         const label = t('setupCheck.hooks');
         if (!root) return { id: 'hooks', label, status: 'warn', message: t('setupCheck.hooksNoFramework'), canRepair: false };
-        const missing = missingHooks(readJson(claudeSettingsPath()), (f) => fs.existsSync(path.join(root, 'hooks', f)));
+        const missing = missingHooks(readJson(claudeSettingsPath()), (rel) => fs.existsSync(path.join(root, rel)));
         if (!missing.length) return { id: 'hooks', label, status: 'pass', message: t('setupCheck.hooksOk'), canRepair: false };
-        const script = scriptIf(path.join('hooks', 'install-settings.py'));
+        const script = installSettingsScript();
         const py = script ? pythonRunner() : undefined;
         return {
           id: 'hooks', label, status: 'warn',
@@ -2409,7 +2415,7 @@ function doctorChecks(): DoctorCheck[] {
         };
       },
       repair: async () => {
-        const script = scriptIf(path.join('hooks', 'install-settings.py'));
+        const script = installSettingsScript();
         const py = script ? pythonRunner() : undefined;
         if (!script || !py) return;
         /* --settings names the file THIS check reads, so the installer and the check can never be
@@ -2693,7 +2699,7 @@ export async function wiringLeft(): Promise<{ id: string; label: string; message
 export const HEALTH_IDS = ['framework', 'vault', 'account', 'skills', 'plugin', 'spawn', 'hooks', 'claude', 'gh'] as const;   // the four wiring rows sit together (release round: wiring lost after setup had no visible prompt)
 
 /** #27 — scheduled-job health from canonical's status files ($AIOS_HEALTH_DIR or ~/.aios/health).
- *  Read only; the jobs themselves (hooks/aios-health.py) write them. No directory → no rows. */
+ *  Read only; the jobs themselves (hooks/pipeline/aios-health.py since v0.8.19) write them. No directory → no rows. */
 export function routineHealth(now = Date.now()): RoutineRow[] {
   const dir = process.env.AIOS_HEALTH_DIR || path.join(os.homedir(), '.aios', 'health');
   let names: string[] = [];

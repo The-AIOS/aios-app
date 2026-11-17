@@ -744,7 +744,7 @@
   "setupCheck.hooks": "Hooks",
   "setupCheck.hooksOk": "wired",
   "setupCheck.hooksMissing": "{n} not wired yet — Finish setup adds them",
-  "setupCheck.hooksNoInstaller": "not wired — this framework has no hooks/install-settings.py (update the framework)",
+  "setupCheck.hooksNoInstaller": "not wired — this framework has no install-settings.py (update the framework)",
   "setupCheck.hooksNoUv": "not wired — needs uv, which Install what I need installs",
   "setupCheck.hooksNoFramework": "waits for the framework (the setup conversation downloads it)",
   "setupCheck.psPolicy": "PowerShell scripts",
