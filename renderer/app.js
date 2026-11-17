@@ -782,7 +782,7 @@ function pulseTitle(card, key, text, count) {
     card.classList.add('pdragging');
     document.body.classList.add('pcard-dragging');   // board frames stop swallowing the drag (theme.css)
   });
-  ti.addEventListener('dragend', () => { dragCardId = null; card.classList.remove('pdragging'); document.body.classList.remove('pcard-dragging'); clearCardDropHint(); });
+  ti.addEventListener('dragend', endCardDrag);
   const collapsed = pulse.collapsed.has(key);
   card.classList.toggle('pcollapsed', collapsed);
   ti.addEventListener('click', () => {
@@ -810,6 +810,19 @@ function cardDropOrder(ids, dragged, target, after) {
 function clearCardDropHint() {
   for (const c of document.querySelectorAll('#panel > .pcard.pdrop-before, #panel > .pcard.pdrop-after')) c.classList.remove('pdrop-before', 'pdrop-after');
 }
+/* Everything a card drag sets, cleared. The title that started the drag can be rebuilt by a panel refresh mid-drag, and a
+   detached source may never get its own dragend, so this also runs from the window (after the drop is handled) and on the
+   first mouse move once the drag is over: board frames can never stay unclickable. */
+function endCardDrag() {
+  if (!dragCardId && !document.body.classList.contains('pcard-dragging')) return;
+  dragCardId = null;
+  document.body.classList.remove('pcard-dragging');
+  for (const c of document.querySelectorAll('#panel > .pcard.pdragging')) c.classList.remove('pdragging');
+  clearCardDropHint();
+}
+window.addEventListener('dragend', endCardDrag, true);
+window.addEventListener('drop', () => setTimeout(endCardDrag, 0), true);   // after the panel's own drop handler has used dragCardId
+window.addEventListener('mousemove', () => { if (dragCardId) endCardDrag(); });   // no mouse moves arrive during a drag: one now means it ended
 /* Once, on the panel: the cards' titles are rebuilt on every refresh, so per-card drop listeners would pile up. */
 function wirePanelCardDrag() {
   const panel = document.getElementById('panel');
@@ -821,7 +834,7 @@ function wirePanelCardDrag() {
   };
   panel.addEventListener('dragover', (e) => {
     const c = targetOf(e);
-    if (!c) return;
+    if (!c) { if (dragCardId) clearCardDropHint(); return; }   // over a gap: no line left on the last card
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const r = c.getBoundingClientRect();
@@ -836,10 +849,16 @@ function wirePanelCardDrag() {
     e.stopPropagation();
     const r = c.getBoundingClientRect();
     const ids = cardDropOrder(movablePulseCards().map((x) => x.id), dragCardId, c.id, e.clientY - r.top > r.height / 2);
-    /* The same path as a restored order: saved, then placed by applyPulseOrder, which moves cards only among cards. */
-    try { localStorage.setItem('pulseOrder', JSON.stringify(ids)); } catch { /* ignore */ }
-    applyPulseOrder();
-    persistPulseOrder();   // what is on screen is what is kept, even if storage refused the write above
+    /* Move ONLY the dragged card: moving a board's frame in the page reloads it, so re-placing every card would flash
+       every board. Its new neighbour comes from the tested order rule. */
+    const dragged = document.getElementById(dragCardId);
+    const next = ids[ids.indexOf(dragCardId) + 1];
+    const nextEl = next ? document.getElementById(next) : null;
+    if (dragged) {
+      if (nextEl) panel.insertBefore(dragged, nextEl);
+      else { const cards = movablePulseCards(); const last = cards[cards.length - 1]; if (last && last !== dragged) panel.insertBefore(dragged, last.nextSibling); }
+    }
+    persistPulseOrder();
     clearCardDropHint();
   });
 }
@@ -6884,7 +6903,7 @@ const clearDragging = () => { dragDepth = 0; document.body.classList.remove('dra
    The type test has to read `types`, not getData(): during a drag the DataTransfer is in
    PROTECTED MODE and getData() returns '' by spec (see attachDropZone below, where testing
    getData() once broke dropping entirely). */
-const isTabDrag = (ev) => [...(ev.dataTransfer?.types || [])].includes('application/x-aios-tab');
+const isTabDrag = (ev) => { const ty = [...(ev.dataTransfer?.types || [])]; return ty.includes('application/x-aios-tab') || ty.includes('application/x-aios-card'); };   // a panel card is not a file either: no drop-here overlays
 window.addEventListener('dragenter', (ev) => { if (!isTabDrag(ev)) setDragging(true); });
 window.addEventListener('dragleave', (ev) => { if (!ev.relatedTarget) clearDragging(); });
 /* `dragend` only fires on the element the drag STARTED from, so an external drag never
