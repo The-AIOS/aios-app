@@ -45,7 +45,9 @@ export function isTrustPrompt(text: string): boolean {
 
 /** A tab worth watching: started with `--add-dir`, which is what raises the question for a new folder. */
 export function watchesForTrust(cmd: string | undefined): boolean {
-  return /(^|\s)--add-dir(\s|=)/.test(String(cmd || ''));
+  /* Quoted or not: the bus quotes every argument (`'--add-dir'`), which the first version missed, so it never watched a
+     real spawn (caught by the 0.16.0 integration test). */
+  return /(^|\s)(['"]?)--add-dir\2(\s|=)/.test(String(cmd || ''));
 }
 
 /** The reason written into the dead letter and shown to the operator. One sentence of what, one of how. */

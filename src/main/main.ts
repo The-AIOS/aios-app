@@ -399,7 +399,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
           clearTrustLetterWhenLive(String(opts.name), spawnedAt);
           if (!e.sender.isDestroyed()) {
             e.sender.send('shell:intent', { name: opts.name, background: true, kind: 'focusByName' });
-            e.sender.send('shell:intent', { text: reason, kind: 'toast' });
+            e.sender.send('shell:intent', { text: reason.replace(/`/g, ''), kind: 'toast' });   // a toast is plain text: no code marks (the dead letter keeps them)
           }
         }
       }

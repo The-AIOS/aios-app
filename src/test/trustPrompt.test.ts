@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { isTrustPrompt, watchesForTrust, trustBlockedReason, plainForTrust, trustSessionStarted } from '../core/trustPrompt';
+import { buildSpawnCmd, buildResumeCmd } from '../core/commandBus';
 
 test('the added-directory question is recognised, however the terminal wraps it', () => {
   const screen = 'Adding a new directory: /Users/x/.aios/run/handoff-ab12\n\n  Is this a directory you\n   created or one you trust?\n\n ❯ 1. Yes\n   2. No';
@@ -27,6 +28,15 @@ test('ordinary session output is not the question', () => {
   for (const s of ['Welcome to Claude Code', 'I trust you will like this folder layout.', 'Read /Users/x/.aios/run/handoff-1/task.md', '']) {
     assert.equal(isTrustPrompt(s), false, s);
   }
+});
+
+test('the command the bus REALLY builds is watched (it quotes every argument)', () => {
+  const spawn = buildSpawnCmd('claude', 'worker', { task: 'x', taskFile: '/Users/x/.aios/run/handoff-1/aios-spawn-task-worker.md' });
+  assert.match(spawn, /--add-dir/, 'precondition: a task file adds --add-dir');
+  assert.equal(watchesForTrust(spawn), true, spawn);
+  const resume = buildResumeCmd('claude', 'abc-123', { taskFile: '/Users/x/.aios/run/handoff-2/aios-resume-task-w.md' });
+  assert.equal(watchesForTrust(resume), true, resume);
+  assert.equal(watchesForTrust(buildSpawnCmd('claude', 'worker', { task: 'short' })), false, 'no task file, no --add-dir, nothing to watch');
 });
 
 test('only tabs started with --add-dir are watched', () => {
