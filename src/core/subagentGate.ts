@@ -63,3 +63,24 @@ export function landedInSubagentReason(name: string): string {
   return `the message reached a background subagent of '${name}', not '${name}' itself, so it was not typed again. `
     + `Send it again once '${name}' has no background subagents running.`;
 }
+
+/**
+ * One pass of the send loop before it types (third review of #179), as a pure decision so it is tested by running it:
+ *  - typed before and the session's transcript is unreadable → `unverifiable` (typed once, never typed again);
+ *  - typed before and the session's own transcript gained a copy → `delivered` (it arrived late);
+ *  - subagents running → `hold` or `give-up`, the clock counting only time spent on subagents and starting over once
+ *    none are running;
+ *  - otherwise → `go`.
+ * Returns the hold clock to keep for the next pass.
+ */
+export function preTypeStep(s: {
+  firstTypedAt: number; mainNow: number | null; baseline: number; subLive: number; holdSince: number; now: number; maxHoldMs: number; maxPreTypeMs?: number;
+}): { do: 'unverifiable' | 'delivered' | 'hold' | 'give-up' | 'go'; holdSince: number } {
+  if (s.firstTypedAt) {
+    if (s.mainNow === null) return { do: 'unverifiable', holdSince: s.holdSince };
+    if (s.mainNow > s.baseline) return { do: 'delivered', holdSince: s.holdSince };
+  }
+  if (s.subLive <= 0) return { do: 'go', holdSince: 0 };
+  const since = s.holdSince || s.now;
+  return { do: subagentHold({ live: s.subLive, now: s.now, holdSince: since, firstTypedAt: s.firstTypedAt, maxHoldMs: s.maxHoldMs, maxPreTypeMs: s.maxPreTypeMs }), holdSince: since };
+}

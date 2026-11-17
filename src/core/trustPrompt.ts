@@ -53,3 +53,20 @@ export function trustBlockedReason(name: string): string {
   return `'${name}' is waiting on Claude Code's question about trusting its task folder, so it has not started. `
     + 'Answer it in that tab. To stop the question for every later spawn, trust ~/.aios/run once: run `cd ~/.aios/run && claude`, choose Yes, then /exit.';
 }
+
+/**
+ * Has THE session this tab started really started (so its trust dead letter can go)? A registry row with its name, started
+ * after the tab opened (not another session of that name), whose transcript was written after the tab opened: a fresh
+ * spawn writes its first one only once its first prompt runs, and a resumed session's old transcript does not count
+ * until it grows (third review of #182). `transcriptMtime` is undefined when there is none.
+ */
+export function trustSessionStarted(
+  rows: ReadonlyArray<{ name: string; startedAt: number; sessionId: string }>, name: string, spawnedAt: number,
+  transcriptMtime: (sessionId: string) => number | undefined,
+): boolean {
+  return rows.some((r) => {
+    if (r.name !== name || !(r.startedAt >= spawnedAt - 5_000)) return false;
+    const m = transcriptMtime(r.sessionId);
+    return m !== undefined && m >= spawnedAt;
+  });
+}

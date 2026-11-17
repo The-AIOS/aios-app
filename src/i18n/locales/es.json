@@ -1655,6 +1655,7 @@
   "term.recordSaved": "Grabación guardada: {name}",
   "term.recordFailed": "No se pudo iniciar la grabación",
   "term.recordCapped": "La grabación se detuvo al llegar a 100 MB y se guardó: {name}",
+  "term.recordBroken": "La grabación se detuvo: no se pudo escribir ({name}). Lo que se escribió antes se conserva.",
   "update.readyTitle": "Hay una actualización lista para instalar",
   "update.readyBody": "{name} {version} ya se descargó y se instalará cuando salgas."
 }

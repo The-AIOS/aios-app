@@ -8045,6 +8045,7 @@ window.glassShell.onIntent(async (m) => {
       const p = panes.get(m.id);
       if (p) { p.recording = false; p.tab?.classList.remove('recording'); }
       if (m.why === 'size') toast(t('term.recordCapped', { name: xBase(String(m.file || '')) }));
+      else if (m.why === 'error') toast(t('term.recordBroken', { name: xBase(String(m.file || '')) }));
       else if (m.file) toast(t('term.recordSaved', { name: xBase(String(m.file)) }));
       return;
     }

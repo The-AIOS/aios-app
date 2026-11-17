@@ -1655,6 +1655,7 @@
   "term.recordSaved": "Gravação salva: {name}",
   "term.recordFailed": "Não foi possível iniciar a gravação",
   "term.recordCapped": "A gravação parou ao chegar a 100 MB e foi salva: {name}",
+  "term.recordBroken": "A gravação parou: não foi possível gravar ({name}). O que foi gravado antes é mantido.",
   "update.readyTitle": "Há uma atualização pronta para instalar",
   "update.readyBody": "{name} {version} foi baixado e será instalado quando você sair."
 }

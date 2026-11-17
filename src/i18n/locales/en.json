@@ -1655,6 +1655,7 @@
   "term.recordSaved": "Recording saved: {name}",
   "term.recordFailed": "Couldn't start the recording",
   "term.recordCapped": "Recording stopped at 100 MB and saved: {name}",
+  "term.recordBroken": "The recording stopped: it could not be written ({name}). What was written before is kept.",
   "update.readyTitle": "A new update is ready to install",
   "update.readyBody": "{name} {version} has been downloaded and will be installed when you quit."
 }

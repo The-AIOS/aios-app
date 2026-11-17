@@ -49,4 +49,5 @@ test('wiring: main records a pane only when asked, adds resizes, and keeps the f
   assert.match(main, /createWriteStream\(file, \{ flags: 'wx', mode: 0o600 \}\)/, 'readable by the operator alone, never appended to another recording');
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /value: 'record'/, 'turned on from the tab menu');
+  assert.match(app, /else if \(m\.why === 'error'\) toast\(t\('term\.recordBroken'/, 'a write error is never reported as saved');
 });

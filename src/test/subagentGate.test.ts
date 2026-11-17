@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { liveSubagents, landedInSubagentReason, SUBAGENT_STALE_MS, subagentHold, landedInSubagentOnly, SUBAGENT_HOLD_MAX_MS } from '../core/subagentGate';
+import { liveSubagents, landedInSubagentReason, SUBAGENT_STALE_MS, subagentHold, landedInSubagentOnly, SUBAGENT_HOLD_MAX_MS, preTypeStep } from '../core/subagentGate';
 import { countDeliveries } from '../core/sendQueue';
 
 const NOW = 1_800_000_000_000;
@@ -70,9 +70,8 @@ test('a message that lands in a subagent is counted there, including a subagent 
 
 test('wiring: the send loop holds for live subagents and stops on a copy found in one', () => {
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(bus, /const subLive = liveSubagents\(subagentStates\(sessionId\), Date\.now\(\)\);\s*if \(subLive > 0 && !subHoldSince\) subHoldSince = Date\.now\(\);\s*const subHold = subagentHold\(\{ live: subLive, now: Date\.now\(\), holdSince: subHoldSince/, 'busy while subagents run, capped from the first time they held it');
-  const late = bus.indexOf("log(`delivered → '${req.name}' (verified late)`);\n        return;\n      }\n    }\n    const subLive");
-  assert.ok(late > 0, 'a late arrival is checked BEFORE the subagent hold (second review)');
+  assert.match(bus, /const step = preTypeStep\(\{/, 'one pure decision per pass (table-tested below)');
+  assert.match(bus, /subHoldSince = step\.holdSince;/, 'its clock is carried between passes');
   assert.match(bus, /if \(subHold === 'give-up'\) \{\s*markUndelivered/, 'a hold that runs out is a dead letter');
   assert.match(bus, /if \(!landedInSubagentOnly\(count\(sid\), baseline, subCopies\)\) return false;/, 'the session\'s own copy is looked for first');
   assert.match(bus, /countDeliveries\(subSince\.read\(sid\), deliverText, needle, firstTypedAt\)/, 'only subagent copies written after the first type');
@@ -97,4 +96,24 @@ test('review of #179: a copy in the session itself is a delivery, even when an a
   assert.equal(landedInSubagentOnly(0, 0, 1), true, 'only a subagent has it: the wrong recipient');
   assert.equal(landedInSubagentOnly(null, 0, 1), false, 'session transcript unreadable: not verifiable, never a wrong-recipient letter');
   assert.equal(landedInSubagentOnly(0, 0, 0), false);
+});
+
+test('third review of #179: one pass before typing, table-tested', () => {
+  const B = { firstTypedAt: 0, mainNow: 0 as number | null, baseline: 0, subLive: 0, holdSince: 0, now: NOW, maxHoldMs: 30 * 60_000 };
+  // never typed, no subagents: go
+  assert.deepEqual(preTypeStep(B), { do: 'go', holdSince: 0 });
+  // never typed, subagents: hold, and the clock starts now
+  assert.deepEqual(preTypeStep({ ...B, subLive: 2 }), { do: 'hold', holdSince: NOW });
+  // the clock is kept between passes, and gives up only after the full hold ON SUBAGENTS
+  assert.equal(preTypeStep({ ...B, subLive: 1, holdSince: NOW - SUBAGENT_HOLD_MAX_MS + 1, now: NOW }).do, 'hold');
+  assert.equal(preTypeStep({ ...B, subLive: 1, holdSince: NOW - SUBAGENT_HOLD_MAX_MS, now: NOW }).do, 'give-up');
+  // subagents finish: the clock starts over, so a later batch gets a full hold of its own
+  assert.deepEqual(preTypeStep({ ...B, subLive: 0, holdSince: NOW - 10 * 60_000 }), { do: 'go', holdSince: 0 });
+  // typed, and the session's own transcript gained a copy: delivered, even with subagents running
+  assert.equal(preTypeStep({ ...B, firstTypedAt: NOW - 60_000, mainNow: 1, subLive: 3 }).do, 'delivered');
+  // typed, transcript unreadable: unverifiable, never held into a subagents dead letter
+  assert.equal(preTypeStep({ ...B, firstTypedAt: NOW - 60_000, mainNow: null, subLive: 3 }).do, 'unverifiable');
+  // typed, not arrived, subagents: hold from the first type, like every other hold
+  assert.equal(preTypeStep({ ...B, firstTypedAt: NOW - 29 * 60_000, mainNow: 0, subLive: 1 }).do, 'hold');
+  assert.equal(preTypeStep({ ...B, firstTypedAt: NOW - 30 * 60_000, mainNow: 0, subLive: 1 }).do, 'give-up');
 });

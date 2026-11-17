@@ -42,7 +42,7 @@ import { QuickBar, writeAskRequest } from './quickBar';
 import { isBlockedStatus } from '../core/attention';
 import type { QuickBarDestination } from '../core/quickBar';
 import { initCommandBus, appLog, inboxDir, reportTrustBlocked, clearTrustBlocked } from './commandBus';
-import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS } from '../core/trustPrompt';
+import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS, trustSessionStarted } from '../core/trustPrompt';
 import { windowOpenAction } from '../core/linkOpen';
 import { transcriptPath } from './transcriptSince';
 import { headerLine, outputLine, resizeLine, recordingName } from '../core/ttyRecord';
@@ -1530,7 +1530,10 @@ function clearTrustLetterWhenLive(name: string, spawnedAt: number): void {
   const timer = setInterval(() => {
     /* THIS session, and started: the name, a start after this tab opened (not another session of that name), and a
        transcript, which Claude Code writes only once the first prompt runs, after the question (second review). */
-    const live = aios.listRunningAgents().some((r) => r.name === name && r.startedAt >= spawnedAt - 5_000 && !!transcriptPath(r.sessionId));
+    const live = trustSessionStarted(aios.listRunningAgents(), name, spawnedAt, (sid) => {
+      const f = transcriptPath(sid);
+      try { return f ? fs.statSync(f).mtimeMs : undefined; } catch { return undefined; }
+    });
     if (!live && Date.now() < until) return;
     clearInterval(timer);
     if (live) clearTrustBlocked(name);

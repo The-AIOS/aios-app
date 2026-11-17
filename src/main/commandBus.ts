@@ -30,7 +30,7 @@ import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presen
 import { MY_SURFACE } from './surface';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
 import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from './transcriptSince';
-import { liveSubagents, landedInSubagentReason, subagentHold, landedInSubagentOnly } from '../core/subagentGate';
+import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 
@@ -762,19 +762,21 @@ async function runSend(
     /* #179: background subagents still running → busy, like a session mid-turn. Typed input can
        reach one of them instead of the session, so wait until they finish (a stale one stops
        counting after SUBAGENT_STALE_MS, so this cannot hold forever). */
-    /* Typed earlier and arrived late (after the verify window): delivered. Checked BEFORE the subagent hold, or a
-       session that went on to start agents of its own would hold a delivered message until it dead-lettered. */
-    if (firstTypedAt) {
-      const arrived = count(sessionId);
-      if (arrived !== null && arrived > baseline) {
-        try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
-        log(`delivered → '${req.name}' (verified late)`);
-        return;
-      }
+    /* One pure decision (core/subagentGate preTypeStep): a late arrival is recognised BEFORE the subagent hold, or a
+       session that went on to start agents of its own would hold a delivered message until it dead-lettered; an
+       unreadable transcript after a type is finished, never retyped; the hold clock counts only time on subagents. */
+    const step = preTypeStep({
+      firstTypedAt, mainNow: firstTypedAt ? count(sessionId) : 0, baseline, now: Date.now(), maxHoldMs: MAX_HOLD_MS,
+      subLive: liveSubagents(subagentStates(sessionId), Date.now()), holdSince: subHoldSince,
+    });
+    subHoldSince = step.holdSince;
+    const subHold = step.do;
+    if (subHold === 'unverifiable') { finishUnverifiable(); return; }
+    if (subHold === 'delivered') {
+      try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+      log(`delivered → '${req.name}' (verified late)`);
+      return;
     }
-    const subLive = liveSubagents(subagentStates(sessionId), Date.now());
-    if (subLive > 0 && !subHoldSince) subHoldSince = Date.now();
-    const subHold = subagentHold({ live: subLive, now: Date.now(), holdSince: subHoldSince, firstTypedAt, maxHoldMs: MAX_HOLD_MS });
     if (subHold !== 'go') {
       if (!heldForSubagents) { heldForSubagents = true; log(`holding a message for '${req.name}': it has background subagents running`); }
       if (subHold === 'give-up') {
