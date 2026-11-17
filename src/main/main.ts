@@ -43,6 +43,7 @@ import { isBlockedStatus } from '../core/attention';
 import type { QuickBarDestination } from '../core/quickBar';
 import { initCommandBus, appLog, inboxDir, reportTrustBlocked } from './commandBus';
 import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS } from '../core/trustPrompt';
+import { windowOpenAction } from '../core/linkOpen';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
 import * as caffeine from './caffeinate';
@@ -1868,6 +1869,15 @@ ipcMain.handle('aios:plugins', () => ({
   installed: aios.installedPlugins(),
   marketplaces: aios.knownMarketplaces(),
 }));
+/* #176: a link asking for a new window (target=_blank, window.open) opens in the default browser,
+   from the App window, an in-App browser pane, a board or the quick bar. A new App window has none
+   of the operator's browser sessions, so the page arrived signed out. Nothing else is ever opened. */
+app.on('web-contents-created', (_e, wc) => {
+  wc.setWindowOpenHandler(({ url }) => {
+    if (windowOpenAction(url) === 'external') void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+});
 ipcMain.handle('shell:openExternal', (_e, url: string) => {
   if (/^https?:\/\//.test(url)) void shell.openExternal(url);
   return true;

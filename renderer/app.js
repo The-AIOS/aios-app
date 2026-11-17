@@ -4489,6 +4489,10 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
     // required to select a unicode width table below; without it xterm throws on
     // term.unicode.activeVersion and we silently keep the Unicode 6 widths
     allowProposedApi: true,
+    /* #176: a link Claude Code prints (OSC 8) opens in the default browser on click. xterm's own
+       handler asks to confirm, then opens a blank window and navigates it, which main now refuses
+       (every new window is denied); web links go straight to the browser instead. */
+    linkHandler: { activate: (_e, uri) => { if (/^https?:\/\//i.test(String(uri || ''))) void window.glassShell.openExternal(uri); } },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
