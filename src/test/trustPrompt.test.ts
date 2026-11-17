@@ -76,4 +76,5 @@ test('third review of #182: the letter clears only for the session that tab star
   assert.equal(trustSessionStarted([row('w', T - 3_600_000, 's0')], 'w', T, mt({ s0: T + 9000 })), false, 'another, older session of that name');
   assert.equal(trustSessionStarted([row('w', T + 1000, 's2')], 'w', T, mt({ s2: T - 86_400_000 })), false, 'a resumed session whose old transcript has not grown');
   assert.equal(trustSessionStarted([row('x', T + 1000, 's3')], 'w', T, mt({ s3: T + 9000 })), false, 'a different name');
+  assert.equal(trustSessionStarted([row('w', T, 's4')], 'w', T, mt({ s4: T })), true, 'on the boundary: written the moment the tab opened counts (a >= turned > fails here)');
 });
