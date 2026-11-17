@@ -41,7 +41,9 @@ test('wiring: main records a pane only when asked, adds resizes, and keeps the f
   const main = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(main, /ipcMain\.handle\('pty:record'/);
   assert.match(main, /recordWrite\(id, outputLine\(/, 'every output chunk while recording');
-  assert.match(main, /if \(rec\.bytes < RECORD_MAX_BYTES\) return;/, 'capped (review of #75)');
+  assert.match(main, /if \(rec\.bytes < RECORD_MAX_BYTES\) return;\s*endRecording\(id, 'size'\);/, 'capped (review of #75)');
+  assert.match(main, /if \(recordings\.get\(id\)\?\.out === out\) endRecording\(id, 'error'\)/, 'a write error stops only its own recording, and says so');
+  assert.match(main, /p\.onExit\(\(\{ exitCode \}\) => \{ endRecording\(id, 'exit'\);/, 'and so does the terminal exiting');
   assert.doesNotMatch(main.slice(main.indexOf('function recordWrite'), main.indexOf('function recordWrite') + 600), /writeSync/, 'never a synchronous write per chunk');
   assert.match(main, /resizeLine\(/, 'resizes are recorded');
   assert.match(main, /createWriteStream\(file, \{ flags: 'wx', mode: 0o600 \}\)/, 'readable by the operator alone, never appended to another recording');

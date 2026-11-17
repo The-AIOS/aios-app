@@ -8044,7 +8044,8 @@ window.glassShell.onIntent(async (m) => {
     case 'recordStopped': {   // #75: a recording reached its size cap and main stopped it
       const p = panes.get(m.id);
       if (p) { p.recording = false; p.tab?.classList.remove('recording'); }
-      toast(t('term.recordCapped', { name: xBase(String(m.file || '')) }));
+      if (m.why === 'size') toast(t('term.recordCapped', { name: xBase(String(m.file || '')) }));
+      else if (m.file) toast(t('term.recordSaved', { name: xBase(String(m.file)) }));
       return;
     }
     case 'palette': void openPalette(); return;

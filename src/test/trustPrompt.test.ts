@@ -54,7 +54,8 @@ test('wiring: main watches a bus tab started with --add-dir and leaves a dead le
   const main = fs.readFileSync('src/main/main.ts', 'utf8');
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(main, /opts\.bus === true && watchesForTrust\(opts\.cmd\)/, 'only tabs the bus opened are watched (review of #182)');
-  assert.match(main, /clearTrustLetterWhenLive\(String\(opts\.name\)\)/, 'the dead letter is removed once the session starts');
+  assert.match(main, /clearTrustLetterWhenLive\(String\(opts\.name\), spawnedAt\)/, 'the dead letter is removed once the session starts');
+  assert.match(main, /r\.name === name && r\.startedAt >= spawnedAt - 5_000 && !!transcriptPath\(r\.sessionId\)/, 'only THIS session, started after the tab, with a transcript');
   assert.match(bus, /export function clearTrustBlocked/);
   assert.equal((bus.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group, bus: true \}/g) || []).length, 2, 'spawn and resume mark their tabs');
   assert.match(main, /isTrustPrompt\(plainForTrust\(/, 'the stream is stripped before matching');

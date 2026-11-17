@@ -44,6 +44,7 @@ import type { QuickBarDestination } from '../core/quickBar';
 import { initCommandBus, appLog, inboxDir, reportTrustBlocked, clearTrustBlocked } from './commandBus';
 import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS } from '../core/trustPrompt';
 import { windowOpenAction } from '../core/linkOpen';
+import { transcriptPath } from './transcriptSince';
 import { headerLine, outputLine, resizeLine, recordingName } from '../core/ttyRecord';
 import { isBusCwdGranted, setBusRoots } from './busCwd';
 setPanelLog(appLog);   // panel notes land in the bus trail (see panelHost)
@@ -383,7 +384,8 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
      folder-trust question before the session exists. Watch its first output for that question;
      on a match, mark the tab, tell the operator and leave a dead letter, removed once the session
      starts. Never answer it. A tab the operator opened is in front of them: not watched. */
-  const trustWatch = opts.bus === true && watchesForTrust(opts.cmd) && opts.name ? { until: Date.now() + TRUST_WATCH_MS, buf: '' } : null;
+  const spawnedAt = Date.now();
+  const trustWatch = opts.bus === true && watchesForTrust(opts.cmd) && opts.name ? { until: spawnedAt + TRUST_WATCH_MS, buf: '' } : null;
   p.onData((data) => {
     if (!e.sender.isDestroyed()) e.sender.send('pty:data', { id, data });
     if (recordings.has(id)) recordWrite(id, outputLine(Date.now() - recordings.get(id)!.t0, data));
@@ -394,7 +396,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
         if (isTrustPrompt(plainForTrust(trustWatch.buf))) {
           trustWatch.until = 0; trustWatch.buf = '';
           const reason = reportTrustBlocked(String(opts.name));
-          clearTrustLetterWhenLive(String(opts.name));
+          clearTrustLetterWhenLive(String(opts.name), spawnedAt);
           if (!e.sender.isDestroyed()) {
             e.sender.send('shell:intent', { name: opts.name, background: true, kind: 'focusByName' });
             e.sender.send('shell:intent', { text: reason, kind: 'toast' });
@@ -406,7 +408,7 @@ ipcMain.handle('pty:spawn', (e, opts: { cols: number; rows: number; cmd?: string
     const sk = skins.get(id);
     if (sk && !sk.screenFed) sk.monitor.push(data);   // chat skin only: is the TUI waiting on a dialog? Until the renderer sends real screens, the raw stream is the best guess
   });
-  p.onExit(({ exitCode }) => { stopRecording(id); ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
+  p.onExit(({ exitCode }) => { endRecording(id, 'exit'); ptys.delete(id); ptyTails.delete(id); void endSkin(id, true); if (!e.sender.isDestroyed()) e.sender.send('pty:exit', { id, exitCode }); });
   /* THE COMMAND IS NOT WRITTEN HERE ANY MORE — see `pty:run`.
      It used to run right at spawn, while the pty was still at the hardcoded 80×24 the renderer
      passes before it has measured anything. A shell prompt survives that (it reflows), but a
@@ -443,14 +445,21 @@ function stopRecording(id: number): string {
   try { rec.out.end(); } catch { /* already closed */ }
   return rec.file;
 }
+/** Stop a recording main ended on its own (size cap, write error, the terminal exited) and tell the window, so the tab's
+ *  dot and the menu label follow (second review of #75). */
+function endRecording(id: number, why: 'size' | 'error' | 'exit'): void {
+  const rec = recordings.get(id);
+  if (!rec) return;
+  const file = stopRecording(id);
+  if (!rec.sender.isDestroyed()) rec.sender.send('shell:intent', { id, file, why, kind: 'recordStopped' });
+}
 function recordWrite(id: number, line: string): void {
   const rec = recordings.get(id);
   if (!rec) return;
   rec.bytes += Buffer.byteLength(line);
   rec.out.write(line);
   if (rec.bytes < RECORD_MAX_BYTES) return;
-  const file = stopRecording(id);
-  if (!rec.sender.isDestroyed()) rec.sender.send('shell:intent', { id, file, why: 'size', kind: 'recordStopped' });
+  endRecording(id, 'size');
 }
 ipcMain.handle('pty:record', (e, { id, on, name, cols, rows }: { id: number; on: boolean; name?: string; cols?: number; rows?: number }) => {
   if (!on) return { file: stopRecording(id) };
@@ -462,7 +471,7 @@ ipcMain.handle('pty:record', (e, { id, on, name, cols, rows }: { id: number; on:
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const file = path.join(dir, recordingName(String(name || 'terminal'), t0));
     const out = fs.createWriteStream(file, { flags: 'wx', mode: 0o600 });   // wx: never appends to another recording
-    out.on('error', () => { stopRecording(id); });
+    out.on('error', () => { if (recordings.get(id)?.out === out) endRecording(id, 'error'); });   // only this recording, never a newer one
     recordings.set(id, { out, t0, file, bytes: 0, sender: e.sender });
     recordWrite(id, headerLine(Number(cols) || 80, Number(rows) || 24, t0, name));
     return { file };
@@ -1516,10 +1525,12 @@ ipcMain.handle('fs:unwatchAll', (e) => { closeWatches(e.sender.id); });
 /* #182 (review): once the operator answers the trust question the session starts, and the dead letter
    saying it "has not started" would make /today ask for a duplicate. Remove it as soon as the session
    is in the registry; checked every 10 s for up to an hour. */
-function clearTrustLetterWhenLive(name: string): void {
+function clearTrustLetterWhenLive(name: string, spawnedAt: number): void {
   const until = Date.now() + 60 * 60 * 1000;
   const timer = setInterval(() => {
-    const live = aios.listRunningAgents().some((r) => r.name === name);
+    /* THIS session, and started: the name, a start after this tab opened (not another session of that name), and a
+       transcript, which Claude Code writes only once the first prompt runs, after the question (second review). */
+    const live = aios.listRunningAgents().some((r) => r.name === name && r.startedAt >= spawnedAt - 5_000 && !!transcriptPath(r.sessionId));
     if (!live && Date.now() < until) return;
     clearInterval(timer);
     if (live) clearTrustBlocked(name);

@@ -699,6 +699,7 @@ async function runSend(
     return true;
   };
   let heldForSubagents = false;   // one log line per request while subagents hold it
+  let subHoldSince = 0;           // when this send first found subagents running (the pre-type cap counts from here)
   /* A transcript we cannot read cannot verify anything, and re-typing on that is how one message
      arrived three times. Typed once → done, said plainly; never typed → nothing to finish here. */
   const finishUnverifiable = (): void => {
@@ -761,11 +762,23 @@ async function runSend(
     /* #179: background subagents still running → busy, like a session mid-turn. Typed input can
        reach one of them instead of the session, so wait until they finish (a stale one stops
        counting after SUBAGENT_STALE_MS, so this cannot hold forever). */
-    const subHold = subagentHold({ live: liveSubagents(subagentStates(sessionId), Date.now()), now: Date.now(), queuedAt, firstTypedAt, maxHoldMs: MAX_HOLD_MS });
+    /* Typed earlier and arrived late (after the verify window): delivered. Checked BEFORE the subagent hold, or a
+       session that went on to start agents of its own would hold a delivered message until it dead-lettered. */
+    if (firstTypedAt) {
+      const arrived = count(sessionId);
+      if (arrived !== null && arrived > baseline) {
+        try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+        log(`delivered → '${req.name}' (verified late)`);
+        return;
+      }
+    }
+    const subLive = liveSubagents(subagentStates(sessionId), Date.now());
+    if (subLive > 0 && !subHoldSince) subHoldSince = Date.now();
+    const subHold = subagentHold({ live: subLive, now: Date.now(), holdSince: subHoldSince, firstTypedAt, maxHoldMs: MAX_HOLD_MS });
     if (subHold !== 'go') {
       if (!heldForSubagents) { heldForSubagents = true; log(`holding a message for '${req.name}': it has background subagents running`); }
       if (subHold === 'give-up') {
-        markUndelivered(heldPath, req, `'${req.name}' kept background subagents running the whole time this message waited (${Math.round((Date.now() - (firstTypedAt || queuedAt)) / 60000)} min), so it was not typed into it`);
+        markUndelivered(heldPath, req, `'${req.name}' kept background subagents running for ${Math.round((Date.now() - (firstTypedAt || subHoldSince)) / 60000)} min, so this message was not typed into it`);
         return;
       }
       if (!fs.existsSync(heldPath)) return;

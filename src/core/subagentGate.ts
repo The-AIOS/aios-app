@@ -36,11 +36,13 @@ export const SUBAGENT_HOLD_MAX_MS = 60 * 60 * 1000;
 
 /**
  * What a send does while the target has subagents running: `go` (none live), `hold`, or `give-up` once it has waited
- * too long (before the first type, from when it queued; after, from the first type, like every other hold).
+ * too long ON SUBAGENTS: before the first type, from `holdSince` (the first time this send found subagents running,
+ * never the time it queued, which includes waiting for a busy session or a draft: second review of #179); after, from
+ * the first type, like every other hold.
  */
-export function subagentHold(s: { live: number; now: number; queuedAt: number; firstTypedAt: number; maxHoldMs: number; maxPreTypeMs?: number }): 'go' | 'hold' | 'give-up' {
+export function subagentHold(s: { live: number; now: number; holdSince: number; firstTypedAt: number; maxHoldMs: number; maxPreTypeMs?: number }): 'go' | 'hold' | 'give-up' {
   if (s.live <= 0) return 'go';
-  const waited = s.firstTypedAt ? s.now - s.firstTypedAt : s.now - s.queuedAt;
+  const waited = s.firstTypedAt ? s.now - s.firstTypedAt : s.now - s.holdSince;
   const cap = s.firstTypedAt ? s.maxHoldMs : (s.maxPreTypeMs ?? SUBAGENT_HOLD_MAX_MS);
   return waited >= cap ? 'give-up' : 'hold';
 }
@@ -51,7 +53,8 @@ export function subagentHold(s: { live: number; now: number; queuedAt: number; f
  * it to an agent of its own has a copy in both: that is a delivery, never a dead letter (review of #179).
  */
 export function landedInSubagentOnly(mainNow: number | null, mainBefore: number, subCopiesSinceTyped: number): boolean {
-  if (mainNow !== null && mainNow > mainBefore) return false;
+  if (mainNow === null) return false;   // the session's transcript cannot be read: not verifiable, never "wrong recipient"
+  if (mainNow > mainBefore) return false;
   return subCopiesSinceTyped > 0;
 }
 

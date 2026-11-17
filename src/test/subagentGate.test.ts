@@ -70,7 +70,9 @@ test('a message that lands in a subagent is counted there, including a subagent 
 
 test('wiring: the send loop holds for live subagents and stops on a copy found in one', () => {
   const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(bus, /subagentHold\(\{ live: liveSubagents\(subagentStates\(sessionId\), Date\.now\(\)\)/, 'busy while subagents run, through the capped rule');
+  assert.match(bus, /const subLive = liveSubagents\(subagentStates\(sessionId\), Date\.now\(\)\);\s*if \(subLive > 0 && !subHoldSince\) subHoldSince = Date\.now\(\);\s*const subHold = subagentHold\(\{ live: subLive, now: Date\.now\(\), holdSince: subHoldSince/, 'busy while subagents run, capped from the first time they held it');
+  const late = bus.indexOf("log(`delivered → '${req.name}' (verified late)`);\n        return;\n      }\n    }\n    const subLive");
+  assert.ok(late > 0, 'a late arrival is checked BEFORE the subagent hold (second review)');
   assert.match(bus, /if \(subHold === 'give-up'\) \{\s*markUndelivered/, 'a hold that runs out is a dead letter');
   assert.match(bus, /if \(!landedInSubagentOnly\(count\(sid\), baseline, subCopies\)\) return false;/, 'the session\'s own copy is looked for first');
   assert.match(bus, /countDeliveries\(subSince\.read\(sid\), deliverText, needle, firstTypedAt\)/, 'only subagent copies written after the first type');
@@ -80,10 +82,12 @@ test('wiring: the send loop holds for live subagents and stops on a copy found i
 });
 
 test('review of #179: the hold for subagents is capped, before and after the first type', () => {
-  const base = { live: 1, queuedAt: NOW - 1000, firstTypedAt: 0, maxHoldMs: 30 * 60_000 };
+  const base = { live: 1, holdSince: NOW - 1000, firstTypedAt: 0, maxHoldMs: 30 * 60_000 };
   assert.equal(subagentHold({ ...base, live: 0, now: NOW }), 'go');
   assert.equal(subagentHold({ ...base, now: NOW }), 'hold');
-  assert.equal(subagentHold({ ...base, now: NOW - 1000 + SUBAGENT_HOLD_MAX_MS }), 'give-up', 'never typed: capped from when it queued');
+  assert.equal(subagentHold({ ...base, now: NOW - 1000 + SUBAGENT_HOLD_MAX_MS }), 'give-up', 'never typed: capped from when subagents first held it');
+  // second review: time spent waiting on a busy session is not time spent on subagents
+  assert.equal(subagentHold({ ...base, holdSince: NOW, now: NOW + 1000 }), 'hold', 'a message that queued 70 min ago for a busy session still gets its full hold');
   assert.equal(subagentHold({ ...base, firstTypedAt: NOW, now: NOW + 29 * 60_000 }), 'hold');
   assert.equal(subagentHold({ ...base, firstTypedAt: NOW, now: NOW + 30 * 60_000 }), 'give-up', 'typed: capped like every other hold');
 });
@@ -91,6 +95,6 @@ test('review of #179: the hold for subagents is capped, before and after the fir
 test('review of #179: a copy in the session itself is a delivery, even when an agent of its own quoted it', () => {
   assert.equal(landedInSubagentOnly(1, 0, 1), false, 'the session got it and quoted it to an agent: delivered');
   assert.equal(landedInSubagentOnly(0, 0, 1), true, 'only a subagent has it: the wrong recipient');
-  assert.equal(landedInSubagentOnly(null, 0, 1), true, 'session transcript unreadable, a subagent has it');
+  assert.equal(landedInSubagentOnly(null, 0, 1), false, 'session transcript unreadable: not verifiable, never a wrong-recipient letter');
   assert.equal(landedInSubagentOnly(0, 0, 0), false);
 });
