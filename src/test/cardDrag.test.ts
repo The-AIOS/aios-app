@@ -38,11 +38,12 @@ test('wiring: titles drag, the panel takes the drop once, frames step aside, the
   assert.match(app, /panel\.dataset\.cardDrag = '1';/, 'drop listeners are installed once, not per redraw');
   assert.match(app, /^wirePanelCardDrag\(\);/m, 'and installed at startup');
   const drop = app.slice(app.indexOf("panel.addEventListener('drop'"), app.indexOf("panel.addEventListener('drop'") + 1400);
-  assert.match(drop, /panel\.insertBefore\(dragged, nextEl\)/, 'only the dragged card moves (moving a board frame reloads it)');
+  assert.match(drop, /if \(dragged\.nextElementSibling !== nextEl\) place\(nextEl\);/, 'only the dragged card moves, and only when the order changes');
+  assert.match(drop, /typeof panel\.moveBefore === 'function'/, 'moveBefore keeps a moved board loaded where available');
   assert.doesNotMatch(drop, /applyPulseOrder\(\)/, 'never re-places every card on a drop');
-  assert.match(app, /isTabDrag = \(ev\) => \{[^}]*application\/x-aios-card/, 'a card drag lights no drop-here overlays');
+  assert.match(app, /isInternalDrag = \(ev\) => \{[^}]*application\/x-aios-card/, 'a card drag lights no drop-here overlays');
   assert.match(app, /window\.addEventListener\('dragend', endCardDrag, true\);/, 'cleared from the window too, when a refresh replaced the source');
-  assert.match(app, /window\.addEventListener\('mousemove', \(\) => \{ if \(dragCardId\) endCardDrag\(\); \}\);/, 'and on the first mouse move after the drag');
+  assert.match(app, /window\.addEventListener\('mousemove', \(e\) => \{ if \(dragCardId && e\.buttons === 0\) endCardDrag\(\); \}\);/, 'and on the first mouse move after the drag, never during one');
   assert.match(css, /body\.pcard-dragging #panel iframe \{ pointer-events: none; \}/, 'board frames do not swallow the drag');
   assert.match(app, /moveCard\(card, -1\)/, 'the arrows and keys still work');
 });

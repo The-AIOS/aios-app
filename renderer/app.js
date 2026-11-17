@@ -822,7 +822,7 @@ function endCardDrag() {
 }
 window.addEventListener('dragend', endCardDrag, true);
 window.addEventListener('drop', () => setTimeout(endCardDrag, 0), true);   // after the panel's own drop handler has used dragCardId
-window.addEventListener('mousemove', () => { if (dragCardId) endCardDrag(); });   // no mouse moves arrive during a drag: one now means it ended
+window.addEventListener('mousemove', (e) => { if (dragCardId && e.buttons === 0) endCardDrag(); });   // a move with no button held means the drag is over (a stray move during a drag still has the button down)
 /* Once, on the panel: the cards' titles are rebuilt on every refresh, so per-card drop listeners would pile up. */
 function wirePanelCardDrag() {
   const panel = document.getElementById('panel');
@@ -854,9 +854,12 @@ function wirePanelCardDrag() {
     const dragged = document.getElementById(dragCardId);
     const next = ids[ids.indexOf(dragCardId) + 1];
     const nextEl = next ? document.getElementById(next) : null;
+    /* moveBefore (Chromium 133+) keeps even the dragged board's frame loaded; insertBefore reloads it. A drop that changes
+       nothing moves nothing. */
+    const place = (ref) => { if (typeof panel.moveBefore === 'function') panel.moveBefore(dragged, ref); else panel.insertBefore(dragged, ref); };
     if (dragged) {
-      if (nextEl) panel.insertBefore(dragged, nextEl);
-      else { const cards = movablePulseCards(); const last = cards[cards.length - 1]; if (last && last !== dragged) panel.insertBefore(dragged, last.nextSibling); }
+      if (nextEl) { if (dragged.nextElementSibling !== nextEl) place(nextEl); }
+      else { const cards = movablePulseCards(); const last = cards[cards.length - 1]; if (last && last !== dragged) place(last.nextSibling); }
     }
     persistPulseOrder();
     clearCardDropHint();
@@ -6903,8 +6906,8 @@ const clearDragging = () => { dragDepth = 0; document.body.classList.remove('dra
    The type test has to read `types`, not getData(): during a drag the DataTransfer is in
    PROTECTED MODE and getData() returns '' by spec (see attachDropZone below, where testing
    getData() once broke dropping entirely). */
-const isTabDrag = (ev) => { const ty = [...(ev.dataTransfer?.types || [])]; return ty.includes('application/x-aios-tab') || ty.includes('application/x-aios-card'); };   // a panel card is not a file either: no drop-here overlays
-window.addEventListener('dragenter', (ev) => { if (!isTabDrag(ev)) setDragging(true); });
+const isInternalDrag = (ev) => { const ty = [...(ev.dataTransfer?.types || [])]; return ty.includes('application/x-aios-tab') || ty.includes('application/x-aios-card'); };   // a panel card is not a file either: no drop-here overlays
+window.addEventListener('dragenter', (ev) => { if (!isInternalDrag(ev)) setDragging(true); });
 window.addEventListener('dragleave', (ev) => { if (!ev.relatedTarget) clearDragging(); });
 /* `dragend` only fires on the element the drag STARTED from, so an external drag never
    produces one — for a Finder drop, `drop` is the only signal we get. And it has to be

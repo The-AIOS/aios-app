@@ -200,8 +200,8 @@ test('the drop accept-test reads TYPES, never getData — dragover is protected'
 test('a tab reorder drag never arms the file drop zones', () => {
   // A tab drag is a drag, and the window-level dragenter lit both zones for ANY drag — so
   // reordering a tab offered two drop targets that could never accept it.
-  assert.match(app, /const isTabDrag = \(ev\) =>[\s\S]{0,200}?application\/x-aios-tab/, 'a tab-drag test must exist');
-  assert.match(app, /dragenter', \(ev\) => \{ if \(!isTabDrag\(ev\)\) setDragging\(true\); \}\)/, 'the window dragenter must skip tab drags');
+  assert.match(app, /const isInternalDrag = \(ev\) =>[\s\S]{0,200}?application\/x-aios-tab/, 'a tab-drag test must exist');
+  assert.match(app, /dragenter', \(ev\) => \{ if \(!isInternalDrag\(ev\)\) setDragging\(true\); \}\)/, 'the window dragenter must skip tab drags');
   assert.match(app, /if \(types\.includes\('application\/x-aios-tab'\)\) return false;/, 'the zone accept-test must refuse tab drags explicitly');
   assert.match(app, /tab\.draggable = true/, 'tabs must be draggable');
 });
