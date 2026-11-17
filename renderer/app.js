@@ -6194,6 +6194,13 @@ async function openRecents() {
   else if (v.t === 'resume') void batchResume();
 }
 
+/* A note renders the way Obsidian renders it: one newline, one line break. marked's default
+   reads a single newline as a soft break (a space), so a note whose lines stand alone (a goals
+   file, a list kept one item per line, an address) collapsed into one paragraph here while it
+   read line by line in Obsidian, where "Strict line breaks" is off by default. Passed per call,
+   never through marked.use(), which would also change every other marked caller. */
+const NOTE_MD = { gfm: true, breaks: true };
+
 async function openViewer(p) {
   seenExport(p);   // an opened export is no longer new
   for (const [id, pane] of panes) {
@@ -6460,7 +6467,7 @@ async function openViewer(p) {
     // vault, so a note can carry markup nobody typed. marked passes raw HTML through, and this
     // window holds the pty bridge — so the parsed note goes through vaultSanitize before it is
     // adopted, never straight into innerHTML.
-    md.replaceChildren(vaultSanitize(marked.parse(src)));
+    md.replaceChildren(vaultSanitize(marked.parse(src, NOTE_MD)));
     vaultHeldBanner(md);
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
