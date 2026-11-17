@@ -1,5 +1,5 @@
 /**
- * Canonical v0.8.19 moved hooks into folders (aios#330). The App looks in the new folder first and falls back to the
+ * Canonical v0.8.19 moved hooks into folders (aios#309). The App looks in the new folder first and falls back to the
  * old flat place, so a vault not yet updated keeps working.
  */
 import { test } from 'node:test';
@@ -47,4 +47,16 @@ test('wiring: the App runs resolve-tier and install-settings.py from the new pla
   assert.doesNotMatch(bus, /path\.join\(root, 'hooks', 'resolve-tier'\)/, 'no hardcoded old path');
   assert.equal((aios.match(/const script = installSettingsScript\(\);/g) || []).length, 2, 'the check and the repair both');
   assert.doesNotMatch(aios, /scriptIf\(path\.join\('hooks', 'install-settings\.py'\)\)/);
+});
+
+test('review: a settings.json still running the OLD path is not wired once the hook ships in its new folder', () => {
+  const newVault = (rel: string) => rel === 'hooks/context/provenance.py' || rel === 'hooks/provenance.py';   // v0.8.19: new file plus the forwarding stub
+  const old = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 ~/aios/hooks/provenance.py' }] }] } };
+  const fresh = { hooks: { PostToolUse: [{ hooks: [{ command: 'python3 ~/aios/hooks/context/provenance.py' }] }] } };
+  const win = { hooks: { PostToolUse: [{ hooks: [{ command: 'python C:\\Users\\x\\aios\\hooks\\context\\provenance.py' }] }] } };
+  assert.ok(missingHooks(old, newVault).includes('provenance.py'), 'old path: Repair is offered');
+  assert.ok(!missingHooks(fresh, newVault).includes('provenance.py'), 'new path: wired');
+  assert.ok(!missingHooks(win, newVault).includes('provenance.py'), 'new path with Windows backslashes: wired');
+  const oldVault = (rel: string) => rel === 'hooks/provenance.py';
+  assert.ok(!missingHooks(old, oldVault).includes('provenance.py'), 'an old framework with the old path: still wired');
 });

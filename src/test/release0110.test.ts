@@ -386,7 +386,7 @@ test('Report this and What\'s in it? open the canonical agents with a brief — 
   assert.match(app, /if \(pane\.kind === 'term' && hasFeedback\) items\.push\(\{ label: t\('tab\.report'\), value: 'report' \}\);/, 'review 12: hidden without the aios-feedback agent');
   assert.match(app, /spawnNamed\('aios-feedback', /);
   // Review 12: the brief carries the safety itself, not only canonical's agent.
-  assert.match(app, /run hooks\/issue-scrub\.py over everything you will include/);
+  assert.match(app, /run hooks\/security\/issue-scrub\.py \(hooks\/issue-scrub\.py on a framework older than v0\.8\.19\) over everything you will include/);   // regrouped in v0.8.19 (aios#309)
   assert.match(app, /the desktop app is The-AIOS\/aios-app, the framework is The-AIOS\/aios, the editor extension is The-AIOS\/aios-glass/, 'the session picks the repo from what was reported (operator test: never assume the App)');
   assert.match(app, /do not run gh issue create, gh pr create, git push or post any comment until I approve/);
   assert.match(app, /git push or post any comment until I approve\.', undefined, 'default'(, undefined, \[file\])?\);/, 'permission mode default, whatever the operator usually runs');

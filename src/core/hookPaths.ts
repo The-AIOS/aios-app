@@ -1,8 +1,8 @@
 /**
- * Where a framework hook lives (canonical v0.8.19 moved them into folders: aios#330). The App runs
+ * Where a framework hook lives (canonical v0.8.19 moved them into folders: aios#309). The App runs
  * some hooks by path and checks that others are wired, so it asks here: the new place first, then the
  * old one, so a vault not yet updated keeps working (canonical keeps forwarding files at the old paths
- * until v0.8.20). Pure: the caller says which paths exist.
+ * until v0.8.20, aios#330). Pure: the caller says which paths exist.
  */
 
 /** Hook file → its folder under hooks/ since v0.8.19. */

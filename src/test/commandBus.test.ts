@@ -67,7 +67,7 @@ test('no rung→model table survives anywhere in the App — one table, and it i
   }
   // and main resolves by asking that script, by name
   const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(main, /findHook\('resolve-tier', \(r\) => fs\.existsSync\(path\.join\(root, r\)\)\)/);   // hooks/pipeline/ first since v0.8.19 (aios#330)
+  assert.match(main, /findHook\('resolve-tier', \(r\) => fs\.existsSync\(path\.join\(root, r\)\)\)/);   // hooks/pipeline/ first since v0.8.19 (aios#309)
 });
 
 test('presence is WIRED to the shared decision, on all three paths', () => {

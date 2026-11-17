@@ -93,7 +93,7 @@ test('the plugin repair is two argv calls — no `&&`, no shell quoting, marketp
 });
 
 test('hooks: required only when the framework SHIPS the script, matched however the command is spelled', () => {
-  const ships = (files: string[]) => (rel: string) => files.includes(rel.split('/').pop() as string);   // asked for paths (new folder, then old); any place counts here
+  const ships = (files: string[]) => (rel: string) => files.some((f) => rel === `hooks/${f}`);   // a framework before v0.8.19: the flat layout these commands use (the folders are tested in hookPaths.test)
   assert.deepEqual(missingHooks({}, ships(['floor-at-start.py', 'inject-datetime.ps1'])).sort(), ['floor-at-start.py', 'inject-datetime']);
   const winStyle = {
     hooks: {

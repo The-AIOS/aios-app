@@ -519,7 +519,7 @@ export function heldSendCount(): number {
 function resolveTier(tier: string): { model?: string } | { error: string } {
   const root = aios.frameworkRoot();
   if (!root) return { error: `cannot resolve tier '${tier}': no framework root found` };
-  /* hooks/pipeline/resolve-tier since v0.8.19, hooks/resolve-tier before (aios#330): the new place first. */
+  /* hooks/pipeline/resolve-tier since v0.8.19, hooks/resolve-tier before (aios#309): the new place first. */
   const rel = findHook('resolve-tier', (r) => fs.existsSync(path.join(root, r))) ?? hookCandidates('resolve-tier')[0];
   const hook = path.join(root, rel);
   if (!fs.existsSync(hook)) {

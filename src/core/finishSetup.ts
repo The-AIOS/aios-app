@@ -159,13 +159,25 @@ export function hookCommands(settings: unknown): string[] {
 }
 
 /** Which shipped framework hooks are NOT in this settings object. Empty → the row passes. `ships` is asked
- *  for paths relative to the framework root, in a hook's new folder first, then the old flat place (aios#330). */
+ *  for paths relative to the framework root, in a hook's new folder first, then the old flat place (aios#309). */
 export function missingHooks(settings: unknown, ships: (rel: string) => boolean): string[] {
   const cmds = hookCommands(settings).map((c) => c.replace(/\\/g, '/'));
   return FRAMEWORK_HOOKS
     .filter((h) => h.files.some((f) => hookCandidates(f).some(ships)))
-    .filter((h) => !cmds.some((c) => c.includes(h.sig)))
+    .filter((h) => !cmds.some((c) => c.includes(h.sig) && pointsWhereShipped(c, h.files, ships)))
     .map((h) => h.sig);
+}
+
+/* A wired command counts only if it runs the hook where the framework ships it now. After the v0.8.19 regroup (aios#309)
+   a settings.json can still run hooks/provenance.py; that works through a forwarding file until v0.8.20 (aios#330) and
+   then points at nothing. When the hook ships in its new folder, a command naming the old flat path is not wired, so
+   the row warns and Repair rewrites it (review of the hook moves). */
+function pointsWhereShipped(cmd: string, files: readonly string[], ships: (rel: string) => boolean): boolean {
+  for (const f of files) {
+    const [best] = hookCandidates(f);
+    if (best !== `hooks/${f}` && ships(best) && cmd.includes(`hooks/${f}`) && !cmd.includes(best)) return false;
+  }
+  return true;
 }
 
 /**

@@ -2118,7 +2118,7 @@ function doctorChecks(): DoctorCheck[] {
     const p = path.join(root, rel);
     return fs.existsSync(p) ? p : undefined;
   };
-  /* install-settings.py in its v0.8.19 folder (hooks/install/), else the old flat place, for a vault not yet updated (aios#330). */
+  /* install-settings.py in its v0.8.19 folder (hooks/install/), else the old flat place, for a vault not yet updated (aios#309). */
   const installSettingsScript = (): string | undefined => {
     for (const rel of hookCandidates('install-settings.py')) { const s = scriptIf(rel); if (s) return s; }
     return undefined;

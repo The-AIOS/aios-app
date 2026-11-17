@@ -1244,7 +1244,7 @@ async function refreshHealth() {
     feedMark(r, 'health', c.id + '|' + c.status);
     H.appendChild(r);
   }
-  /* #27 — SCHEDULED JOBS, from canonical's status files (~/.aios/health, hooks/aios-health.py).
+  /* #27 — SCHEDULED JOBS, from canonical's status files (~/.aios/health, hooks/pipeline/aios-health.py since v0.8.19).
      Shown only when a job has written one; a machine with no scheduled jobs sees nothing new. A
      job past its deadline reads "no result since …" — never "didn't run": it may have run and
      failed to write. No notification: the card is where you look, the rituals already speak up. */
@@ -1303,7 +1303,7 @@ async function openHealthHelp(notGreen, badJobs) {
   const brief = 'Help me fix my AIOS health. These items in the AIOS App\'s Health card are not green:\n'
     + lines.join('\n') + '\n\n'
     + 'For each one: find the cause, explain it in plain words, and propose the fix. Ask me before you run any command or change anything. '
-    + 'Scheduled jobs write their status with hooks/aios-health.py at the end of each run; a job is fixed when its NEXT run writes a fresh "ok", so tell me how to trigger it or when it is due — never edit or delete a status file to make it look green. '
+    + 'Scheduled jobs write their status with hooks/pipeline/aios-health.py (hooks/aios-health.py before v0.8.19) at the end of each run; a job is fixed when its NEXT run writes a fresh "ok", so tell me how to trigger it or when it is due — never edit or delete a status file to make it look green. '
     + 'When you are done, tell me to press ↻ on the Health card to re-check.';
   const handed = await window.glassShell.taskHandoff(brief, 'health-help').catch((e) => ({ error: String(e && e.message || e) }));
   if (handed && typeof handed === 'object') { toast(t('handoff.failed', { why: handed.error })); return; }
@@ -4086,7 +4086,7 @@ async function reportThis(id) {
     + '1) which repository it belongs to (the desktop app is The-AIOS/aios-app, the framework is The-AIOS/aios, the editor extension is The-AIOS/aios-glass; if unclear, ask me), and '
     + '2) whether it is best sent as an issue, or built as a pull request because you can make and test a small, clear fix. '
     + 'For a pull request, work in a separate contribution clone exactly as CONTRIBUTING.md says, never in my AIOS folder. '
-    + 'Before drafting, run hooks/issue-scrub.py over everything you will include. Show me the exact repository and text (and for a pull request, the diff), '
+    + 'Before drafting, run hooks/security/issue-scrub.py (hooks/issue-scrub.py on a framework older than v0.8.19) over everything you will include. Show me the exact repository and text (and for a pull request, the diff), '
     + 'and do not run gh issue create, gh pr create, git push or post any comment until I approve.', undefined, 'default', undefined, [file]);
 }
 function explainRelease(version) {
