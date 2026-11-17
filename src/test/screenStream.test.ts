@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { extractStreaming, sameMessage, anchorOf, normalizeForMatch, stitch, previewIsMessage, createStreamTracker, STREAM_ANCHOR_WORDS } from '../core/screenStream';
+import { extractStreaming, sameMessage, anchorOf, normalizeForMatch, stitch, previewIsMessage, createStreamTracker, STREAM_ANCHOR_WORDS, staleCopyOf } from '../core/screenStream';
 
 const RULE = '─'.repeat(56);
 const BOX = ['╭' + RULE + '╮', '│ > ' + ' '.repeat(52) + ' │', '╰' + RULE + '╯'];
@@ -401,4 +401,39 @@ test('the CLI\'s progress lines for a tool that is running are not a reply', () 
   }
   // control: prose that merely starts with a gerund is a reply
   assert.equal(extractStreaming(screen('⏺ Running the tests is the next step.', SPIN, BOX))?.text, 'Running the tests is the next step.');
+});
+
+// ── #175: a reply shown twice in the chat view ─────────────────────────────
+
+test('#175: the previous reply still on screen when the next turn starts is not drawn again', () => {
+  const tr = createStreamTracker();
+  tr.screen(tallScreen(LINES.slice(0, 6)));
+  tr.items([{ uuid: 'a1', role: 'assistant', text: LINES.join('\n') }]);
+  tr.end();
+  tr.begin();   // the operator sent the next message; the old reply is still painted
+  assert.equal(tr.screen(tallScreen(LINES)), null, 'the whole old reply is not a new preview');
+  assert.ok(tr.screen(tallScreen(['A fresh answer about the tide tables'])), 'a different reply is a preview at once');
+});
+
+test('#175: a FROZEN preview is replaced by the finished reply even when their texts do not match', () => {
+  const tr = createStreamTracker();
+  tr.screen(tallScreen(LINES.slice(0, 6)));
+  assert.deepEqual(tr.screen(tallScreen(LINES.slice(0, 6), { live: false })), { type: 'stream', text: null }, 'frozen');
+  const ev = tr.items([{ uuid: 't', role: 'tool' }, { uuid: 'a9', role: 'assistant', text: 'Text the screen painted differently, so nothing matches.' }]);
+  assert.deepEqual(ev, { type: 'stream', text: null, adopt: 'a9' });
+  assert.equal(tr.current(), null);
+});
+
+test('#175: a LIVE preview is not taken by an unrelated finished reply (it may be a later one still streaming)', () => {
+  const tr = createStreamTracker();
+  tr.screen(tallScreen(LINES.slice(0, 6)));
+  assert.equal(tr.items([{ uuid: 'a0', role: 'assistant', text: 'A different reply altogether, about gardens.' }]), null);
+  assert.ok(tr.current(), 'still previewing');
+});
+
+test('#175: staleCopyOf needs most of the reply, so a short shared opening is not stale', () => {
+  const fin = LINES.join('\n');
+  assert.equal(staleCopyOf(LINES.join('\n'), fin, false), true);
+  assert.equal(staleCopyOf(LINES.slice(0, 2).join('\n'), fin, false), false);
+  assert.equal(staleCopyOf('something else entirely here', fin, false), false);
 });

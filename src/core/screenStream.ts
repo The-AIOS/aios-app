@@ -361,6 +361,17 @@ export function previewIsMessage(preview: string, finalText: string, headCut: bo
   return normalizeForMatch(kept).length >= (headCut ? 24 : 12) && sameMessage(kept, finalText, { headCut });
 }
 
+/**
+ * #175: is this preview an earlier, FINISHED reply still standing on the screen? It must match that reply and hold most
+ * of it. A new turn that merely opens with the same words is a short prefix while it is written, and stays a preview.
+ */
+export function staleCopyOf(preview: string, finalText: string, headCut: boolean): boolean {
+  if (!sameMessage(preview, finalText, { headCut })) return false;
+  const a = normalizeForMatch(preview).length;
+  const b = normalizeForMatch(finalText).length;
+  return b > 0 && a >= b * 0.8;
+}
+
 /** How many unjoinable windows in a row are ignored before one is believed (the reply really did move on). */
 const STITCH_PATIENCE = 3;
 
@@ -371,11 +382,18 @@ export function createStreamTracker(opts: ExtractOptions = {}): StreamTracker {
      transcript has the finished message, and a snapshot taken in that gap reads the SAME text as a reply in progress: without
      this it would be drawn again as a second preview under the real message, and never replaced. */
   let done: string | null = null;
+  /* #175: the last few finished replies, kept ACROSS turns. On the next turn the screen still shows the previous reply until
+     new output scrolls it away, and `done` (cleared by begin) no longer recognised it, so it was drawn again as a preview
+     under the new turn's actions. A preview that is one of these is never shown. */
+  let recent: string[] = [];
+  const RECENT_MAX = 4;
+  const remember = (t: string): void => { recent = [t, ...recent.filter((x) => x !== t)].slice(0, RECENT_MAX); };
   let misses = 0;   // consecutive windows that could not be joined to what we have
   return {
     screen(text: string): StreamEvent | null {
       const r = extractStreaming(String(text ?? '').slice(-STREAM_SCREEN_MAX), opts);
       if (r && done !== null && sameMessage(r.text, done, { headCut: r.headCut })) return null;   // the finished message, seen again on a stale screen
+      if (r && !live && recent.some((f) => staleCopyOf(r.text, f, r.headCut))) return null;   // #175: an earlier turn's reply, still on screen
       if (r) {
         let next = r;
         if (r.headCut && prev) {
@@ -394,16 +412,25 @@ export function createStreamTracker(opts: ExtractOptions = {}): StreamTracker {
       return { type: 'stream', text: null };
     },
     items(items): StreamEvent | null {
+      const texts = items.filter((it) => it.role === 'assistant' && typeof it.text === 'string' && it.text.trim());
+      for (const it of texts) remember(it.text as string);
       if (!prev) return null;
-      for (const it of items) {
-        if (it.role !== 'assistant' || typeof it.text !== 'string' || !it.text.trim()) continue;
-        if (previewIsMessage(prev.text, it.text, prev.headCut)) { prev = null; live = false; done = it.text; return { type: 'stream', text: null, adopt: it.uuid }; }
+      for (const it of texts) {
+        if (previewIsMessage(prev.text, it.text as string, prev.headCut)) { prev = null; live = false; done = it.text as string; return { type: 'stream', text: null, adopt: it.uuid }; }
+      }
+      /* #175: no text match, but the preview had already FROZEN (the reply stopped being written) and a finished reply has
+         now arrived: that reply is what the preview was showing. Seen on Windows, where the painted text and the transcript
+         did not match and both copies stayed. Only a frozen preview: a live one may be a later reply still streaming. */
+      if (!live && texts.length) {
+        const it = texts[texts.length - 1];
+        prev = null; done = it.text as string;
+        return { type: 'stream', text: null, adopt: it.uuid };
       }
       return null;
     },
     end(): void { prev = null; live = false; misses = 0; },
     begin(): void { done = null; },
-    reset(): void { prev = null; live = false; done = null; misses = 0; },
+    reset(): void { prev = null; live = false; done = null; misses = 0; recent = []; },
     current(): { text: string; headCut: boolean } | null { return prev ? { text: prev.text, headCut: prev.headCut } : null; },
   };
 }
