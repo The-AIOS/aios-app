@@ -1542,7 +1542,7 @@ export function shellSettings(): ShellSettings {
     ignorePaths: Array.isArray(raw.ignorePaths)
       ? raw.ignorePaths.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim())
       : DEFAULT_IGNORE_PATHS,                 // absent → seed defaults; [] → operator cleared it
-    locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el'
+    locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el' | 'fr'
     killBehavior: raw.killBehavior === 'kill' || raw.killBehavior === 'capture' ? raw.killBehavior : 'ask', // Glass parity; default confirm
     terminalMode: raw.terminalMode === 'auto' ? 'auto' : 'ask', // #6: ask where to run (only when live sessions exist); auto = primary/new
     /* `auto` is the default and absent-means-default costs nothing here: the blocker dies

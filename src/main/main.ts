@@ -1890,7 +1890,7 @@ ipcMain.handle('session:speakable', (_e, sessionId: string) => {
       const answer = lastAnswer(buf.toString('utf8'));
       const lang = guessLang(answer);
       /* "The rest is on screen" in the ANSWER's language, so one voice says the whole thing. */
-      const rest = lang === 'es' ? 'El resto está en pantalla.' : lang === 'pt' ? 'O resto está na tela.' : lang === 'en' ? 'The rest is on screen.' : t('readAloud.rest');
+      const rest = lang === 'es' ? 'El resto está en pantalla.' : lang === 'pt' ? 'O resto está na tela.' : lang === 'fr' ? 'La suite est à l’écran.' : lang === 'en' ? 'The rest is on screen.' : t('readAloud.rest');
       return { text: speakable(answer, rest), lang: lang ?? '' };
     }
   } catch { /* unreadable — say nothing */ }

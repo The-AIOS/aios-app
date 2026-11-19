@@ -323,7 +323,7 @@ async function speakAnswer(p, paneId) {
   /* The ANSWER's language picks the voice (a Spanish answer in an English voice is noise); the
      App's language only when the guess is unsure. */
   const loc = (res.lang === 'pt' ? 'pt-br' : res.lang) || (window.i18n && window.i18n.getLocale()) || 'en';
-  const lang = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  const lang = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
   const voice = window.speechSynthesis.getVoices().find((v) => v.lang === lang) || window.speechSynthesis.getVoices().find((v) => v.lang.startsWith(lang.slice(0, 2)));
@@ -1313,7 +1313,7 @@ async function openHealthHelp(notGreen, badJobs) {
 /** One line for a scheduled job, in the operator's language (canonical's wording, aios-health.py line()). */
 function routineHealthText(j) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   const when = (ms) => (ms ? new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?');
   const detail = j.detail ? ': ' + j.detail : '';
   switch (j.status) {
@@ -1342,7 +1342,7 @@ const boardCardId = (name) => 'pBoard-' + encodeURIComponent(name);
 
 function boardWhen(ms) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   return new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
