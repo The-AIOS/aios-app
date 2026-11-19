@@ -317,7 +317,7 @@
   "settings.savedNewSessions": "Αποθηκεύτηκε — οι νέες συνεδρίες το χρησιμοποιούν",
   "settings.saved": "Αποθηκεύτηκε",
   "settings.language": "Γλώσσα",
-  "settings.languageHint": "η γλώσσα της εφαρμογής",
+  "settings.languageHint": "η γλώσσα της εφαρμογής· οι συνεδρίες Claude που ανοίγουν εδώ απαντούν κι αυτές σε αυτήν",
   "settings.languageAuto": "Αυτόματη (συστήματος)",
   "settings.savedLanguage": "Αποθηκεύτηκε — το interface αλλάζει τώρα",
   "settings.theme": "Θέμα",

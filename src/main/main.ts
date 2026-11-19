@@ -1890,7 +1890,7 @@ ipcMain.handle('session:speakable', (_e, sessionId: string) => {
       const answer = lastAnswer(buf.toString('utf8'));
       const lang = guessLang(answer);
       /* "The rest is on screen" in the ANSWER's language, so one voice says the whole thing. */
-      const rest = lang === 'es' ? 'El resto está en pantalla.' : lang === 'pt' ? 'O resto está na tela.' : lang === 'en' ? 'The rest is on screen.' : t('readAloud.rest');
+      const rest = lang === 'es' ? 'El resto está en pantalla.' : lang === 'pt' ? 'O resto está na tela.' : lang === 'fr' ? 'La suite est à l’écran.' : lang === 'en' ? 'The rest is on screen.' : t('readAloud.rest');
       return { text: speakable(answer, rest), lang: lang ?? '' };
     }
   } catch { /* unreadable — say nothing */ }
@@ -2427,6 +2427,7 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
   if (key === 'caffeinate') caffeine.modeChanged();
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
+    aios.syncClaudeLanguage();   // and Claude answers in it (core/claudeLanguage.ts)
     rebuildMenu();               // the native menu can't re-render itself — rebuild it
     menuBar?.relabel();          // nor can the menu-bar icon's
   }
@@ -2819,6 +2820,7 @@ app.whenReady().then(() => {
   installBoardProtocol(protocol, (f) => boardProbeHooks.onServe?.(f));
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
+  aios.syncClaudeLanguage();     // Claude answers in the App's language (core/claudeLanguage.ts)
   const win = createWindow();
   mainWin = win;
   /* macOS: THE RED BUTTON HIDES, IT DOES NOT QUIT. The Mac convention, and here it protects work:

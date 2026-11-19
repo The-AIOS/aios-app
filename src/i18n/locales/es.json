@@ -317,7 +317,7 @@
   "settings.savedNewSessions": "Guardado — las nuevas sesiones lo usan",
   "settings.saved": "Guardado",
   "settings.language": "Idioma",
-  "settings.languageHint": "el idioma de la interfaz",
+  "settings.languageHint": "el idioma de la app; las sesiones de Claude abiertas aquí también responden en él",
   "settings.languageAuto": "Automático (sistema)",
   "settings.savedLanguage": "Guardado — la interfaz se actualiza ahora",
   "settings.theme": "Tema",

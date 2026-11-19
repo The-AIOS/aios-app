@@ -32,6 +32,7 @@ import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
 import { FOLDER_SORT_KEY, MASTER_SORT_KEY, normalizeSortMode, setFolderSort, type FolderSortMap, type SortMode } from '../core/sort';
 import { t, setLocale, normalizeLocale, normalizeLocalePref, type Locale, type LocalePref } from '../i18n';
+import { claudeLanguageFor, decideClaudeLanguage } from '../core/claudeLanguage';
 
 /**
  * The shell's AIOS data layer — faithful ports of the extension's fs-only
@@ -1542,7 +1543,7 @@ export function shellSettings(): ShellSettings {
     ignorePaths: Array.isArray(raw.ignorePaths)
       ? raw.ignorePaths.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim())
       : DEFAULT_IGNORE_PATHS,                 // absent → seed defaults; [] → operator cleared it
-    locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el'
+    locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el' | 'fr'
     killBehavior: raw.killBehavior === 'kill' || raw.killBehavior === 'capture' ? raw.killBehavior : 'ask', // Glass parity; default confirm
     terminalMode: raw.terminalMode === 'auto' ? 'auto' : 'ask', // #6: ask where to run (only when live sessions exist); auto = primary/new
     /* `auto` is the default and absent-means-default costs nothing here: the blocker dies
@@ -1607,6 +1608,43 @@ export function resolvedLocale(): Locale {
 /** Load the resolved UI locale into the i18n module. Call on boot + on change. */
 export function applyLocale(): Locale {
   return setLocale(resolvedLocale());
+}
+
+/* The App's own memory of the `language` value it last wrote into Claude's local store, so a value
+   the operator set is never mistaken for ours (core/claudeLanguage.ts). Kept in OUR settings, never in
+   Claude's file: a flag of ours there would be a foreign key in someone else's schema. */
+const CLAUDE_LANGUAGE_SYNCED = 'claudeLanguageSynced';
+
+/**
+ * Make Claude answer in the App's language: keep Claude Code's `language` setting, in the vault's
+ * local store, in step with the resolved UI locale. Call on boot + on change, after applyLocale().
+ * Never throws: a settings file that cannot be read or written leaves Claude as it was.
+ * Sessions already running pick the change up (Claude watches its settings); new ones start with it.
+ */
+export function syncClaudeLanguage(): 'set' | 'unset' | 'keep' {
+  try {
+    const r = frameworkRoot();
+    if (!r) return 'keep';   // no vault yet: the setup brief names the language instead (renderer)
+    let raw: Record<string, unknown> = {};
+    try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); } catch { raw = {}; }
+    const [global, , project, local] = claudeStores();
+    const action = decideClaudeLanguage({
+      local: local.language,
+      elsewhere: project.language ?? global.language,
+      synced: raw[CLAUDE_LANGUAGE_SYNCED],
+      target: claudeLanguageFor(resolvedLocale()),
+    });
+    if (action.kind === 'set') {
+      writeClaudeLocalSettings((j) => { j.language = action.value; });
+      setShellSetting(CLAUDE_LANGUAGE_SYNCED, action.value);
+    } else if (action.kind === 'unset') {
+      writeClaudeLocalSettings((j) => { delete j.language; });
+      setShellSetting(CLAUDE_LANGUAGE_SYNCED, '');
+    }
+    return action.kind;
+  } catch {
+    return 'keep';
+  }
 }
 
 export function setShellSetting(key: string, value: unknown): void {

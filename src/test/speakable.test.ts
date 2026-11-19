@@ -37,5 +37,6 @@ test('the answer\'s language picks the voice; unsure means "use the App\'s"', as
   assert.equal(guessLang('Listo. Revisé el código y todo pasa para la entrega.'), 'es');
   assert.equal(guessLang('Pronto. Você está com tudo, e isso não muda nada.'), 'pt');
   assert.equal(guessLang('Done. The tests pass and this is ready for you.'), 'en');
+  assert.equal(guessLang('C’est fait. Je vous confirme que les tests passent et que tout est prêt.'), 'fr');
   assert.equal(guessLang('OK.'), undefined);
 });
