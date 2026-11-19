@@ -317,7 +317,7 @@
   "settings.savedNewSessions": "Enregistré : les nouvelles sessions l’utilisent",
   "settings.saved": "Enregistré",
   "settings.language": "Langue",
-  "settings.languageHint": "la langue de l’interface de l’app",
+  "settings.languageHint": "la langue de l’app ; les sessions Claude lancées ici répondent aussi dans cette langue",
   "settings.languageAuto": "Auto (système)",
   "settings.savedLanguage": "Enregistré : l’interface se met à jour",
   "settings.theme": "Thème",
