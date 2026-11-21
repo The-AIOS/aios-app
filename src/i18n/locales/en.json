@@ -317,7 +317,7 @@
   "settings.savedNewSessions": "Saved — new sessions use it",
   "settings.saved": "Saved",
   "settings.language": "Language",
-  "settings.languageHint": "the app interface language",
+  "settings.languageHint": "the app's language; Claude sessions launched here answer in it too",
   "settings.languageAuto": "Auto (system)",
   "settings.savedLanguage": "Saved — the interface updates now",
   "settings.theme": "Theme",

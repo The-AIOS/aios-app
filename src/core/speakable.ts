@@ -56,13 +56,18 @@ export function lastAnswer(jsonlTail: string): string {
  * unintelligible. A light guess from marker letters and common words; undefined when unsure, in
  * which case the caller uses the App's language.
  */
-export function guessLang(text: string): 'es' | 'pt' | 'en' | undefined {
+export function guessLang(text: string): 'es' | 'pt' | 'en' | 'fr' | undefined {
   const s = ` ${String(text ?? '').toLowerCase()} `;
   const count = (re: RegExp) => (s.match(re) || []).length;
   const pt = count(/[ãõç]|\b(não|você|está|também|são|isso|uma)\b/g);
   const es = count(/[ñ¿¡]|\b(el|los|las|que|para|está|también|pero|todo|y)\b/g);
   const en = count(/\b(the|and|is|are|you|this|that|with|for)\b/g);
-  const best = Math.max(pt, es, en);
+  /* French shares `que` and `é` with Spanish, so it is told apart by letters Spanish and Portuguese
+     never use and by words they do not have; without it a French answer full of `que` got a
+     Spanish voice. `ê`/`ô` are left out: Portuguese uses them (você). */
+  const fr = count(/[èëîïûùœ]|\b(est|une|pour|vous|avec|dans|pas|qui|je|nous|du|au|des)\b/g);
+  const best = Math.max(pt, es, en, fr);
   if (best < 2) return undefined;
+  if (fr === best && fr > Math.max(pt, es, en)) return 'fr';
   return best === pt && pt > es ? 'pt' : best === es ? 'es' : 'en';
 }

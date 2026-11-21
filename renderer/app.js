@@ -323,7 +323,7 @@ async function speakAnswer(p, paneId) {
   /* The ANSWER's language picks the voice (a Spanish answer in an English voice is noise); the
      App's language only when the guess is unsure. */
   const loc = (res.lang === 'pt' ? 'pt-br' : res.lang) || (window.i18n && window.i18n.getLocale()) || 'en';
-  const lang = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  const lang = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
   const voice = window.speechSynthesis.getVoices().find((v) => v.lang === lang) || window.speechSynthesis.getVoices().find((v) => v.lang.startsWith(lang.slice(0, 2)));
@@ -1313,7 +1313,7 @@ async function openHealthHelp(notGreen, badJobs) {
 /** One line for a scheduled job, in the operator's language (canonical's wording, aios-health.py line()). */
 function routineHealthText(j) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   const when = (ms) => (ms ? new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?');
   const detail = j.detail ? ': ' + j.detail : '';
   switch (j.status) {
@@ -1342,7 +1342,7 @@ const boardCardId = (name) => 'pBoard-' + encodeURIComponent(name);
 
 function boardWhen(ms) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   return new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -8269,6 +8269,15 @@ function addDirArgs(...files) {
   for (const f of files) { const s = String(f || ''); const i = xSepIdx(s); if (i > 0) dirs.add(s.slice(0, i)); }
   return [...dirs].map((d) => ' --add-dir ' + shq(d)).join('');
 }
+/* One sentence for the setup brief naming the App's language, or '' for English (Claude then matches the operator). */
+function setupLanguageLine() {
+  const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
+  if (loc === 'en') return '';
+  const m = (window.i18n.localeMeta ? window.i18n.localeMeta() : []).find((x) => x.code === loc);
+  if (!m) return '';
+  return `My AIOS App is in ${m.name} (${m.nativeName}), so speak ${m.name} with me throughout, and write my notes in ${m.name}. `;
+}
+
 function spawnNamed(name, task, cwd, mode, model, readFiles) {
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!handle) return;
@@ -14068,6 +14077,10 @@ function openSetupTab() {
          lines to paste, which is where first installs stalled. The App runs those four itself behind
          a consented click (Finish setup), so a refusal here points there instead of at a terminal. */
       + 'The App wires the skills, the plugin, the spawn wrapper and the hooks itself. If any of those is refused here, do not hand me commands to paste; tell me to press Finish setup in the App. '
+      /* THE APP'S LANGUAGE. This brief is English and Claude matches the language it is spoken to in,
+         so a French App opened an English setup. The vault's `language` setting cannot carry it yet:
+         on a first install there is no vault for it to live in. So the brief says it. */
+      + setupLanguageLine()
       + 'Work through it with me interactively.', cwd, 'auto', model);
     };
 
