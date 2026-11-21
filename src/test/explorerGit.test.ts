@@ -190,7 +190,7 @@ test('the drop accept-test reads TYPES, never getData — dragover is protected'
   assert.match(app, /const DROP_TYPES = \['application\/x-aios-path', 'text\/uri-list', 'text\/plain', 'Files'\];/);
   // Intent, not layout: the accept test must READ types and must not call getData. Pinning
   // the two lines as ADJACENT broke when a tab-drag guard was inserted between them.
-  assert.match(app, /const ok = \(ev\) => \{[\s\S]{0,400}?ev\.dataTransfer\?\.types[\s\S]{0,400}?types\.some\(/, 'ok() must read dataTransfer.types');
+  assert.match(app, /const ok = \(ev\) => \{[\s\S]{0,400}?ev\.dataTransfer\?\.types[\s\S]{0,800}?types\.some\(/, 'ok() must read dataTransfer.types');
   const okBody = /const ok = \(ev\) => \{([\s\S]*?)\n  \};/.exec(app)?.[1] ?? '';
   assert.ok(okBody.length > 0, 'ok() body must be findable');
   assert.doesNotMatch(okBody, /getData/, 'ok() must never call getData — protected mode returns \'\' by spec');

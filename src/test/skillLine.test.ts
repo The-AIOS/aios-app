@@ -44,3 +44,10 @@ test('wiring: every tool row is painted as a skill line or not, and a skill line
   assert.match(app, /!n\.classList\.contains\('skill-line'\) && !!n\.csRec/);
   assert.match(fs.readFileSync('renderer/theme.css', 'utf8'), /\.tab\.dropok \{/, 'a tab a file is held over is lit');
 });
+
+test('review: lines painted before the lists landed are painted again, and a failed read is asked again', () => {
+  const load = grab('chatSkillListsGet');
+  assert.match(load, /rec\.role === 'tool' && rec\.node\.classList\.contains\('skill-line'\)\) chatSkinSkillPaint\(rec\)/, 'every skill line, not only those that already had a description bar');
+  assert.doesNotMatch(load, /if \(rec\.skillBar\) chatSkinSkillPaint/, 'negative control: the old filter missed lines painted with no bar');
+  assert.match(load, /\.catch\(\(\) => \{ chatSkillListsLoad = null; \}\)/, 'a failed read is not cached');
+});

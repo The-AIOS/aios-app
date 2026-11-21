@@ -4849,7 +4849,7 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   attachDropZone(el, (paths) => { dropPathsInto(id, p, paths); setActive(id); });
   /* Drop onto a session's TAB, as onto a tab in Chrome: the path goes into that session, which comes forward. Holding
      the drag over the tab for a moment switches to it, so the operator can drop into its pane instead (0.17). */
-  attachDropZone(p.tab, (paths) => { if (panes.get(id) === p && !p.exited) { dropPathsInto(id, p, paths); setActive(id); } });
+  attachDropZone(p.tab, (paths) => { if (panes.get(id) === p && !p.exited) { dropPathsInto(id, p, paths); setActive(id); } }, { accept: () => panes.get(id) === p && !p.exited });
   attachTabDragDwell(p.tab, id);
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
@@ -7016,6 +7016,8 @@ function attachDropZone(elm, onPath, opts = {}) {
     // Explicit refusal, not refusal-by-omission: a tab reorder must never be read as a path,
     // even if a future change adds 'text/plain' to a tab's dataTransfer.
     if (types.includes('application/x-aios-tab')) return false;
+    if (types.includes('application/x-aios-card')) return false;   // a panel card being reordered, likewise
+    if (opts.accept && !opts.accept()) return false;   // an exited session's tab
     return types.some((tp) => DROP_TYPES.includes(tp));
   };
   elm.addEventListener('dragover', (ev) => {
@@ -7049,7 +7051,7 @@ function attachTabDragDwell(tab, id) {
   const stop = () => { clearTimeout(timer); timer = 0; };
   tab.addEventListener('dragenter', (ev) => {
     if (!isFileDrag(ev) || timer) return;
-    timer = setTimeout(() => { timer = 0; if (panes.has(id)) setActive(id); }, TAB_DWELL_MS);
+    timer = setTimeout(() => { timer = 0; const p = panes.get(id); if (p && !p.exited && active[zoneOf(p)] !== id) setActive(id); }, TAB_DWELL_MS);
   });
   tab.addEventListener('dragleave', (ev) => { if (!tab.contains(ev.relatedTarget)) stop(); });
   tab.addEventListener('drop', stop);
@@ -11556,12 +11558,12 @@ function chatSkillListsGet() {
   if (chatSkillLists) return chatSkillLists;
   if (!chatSkillListsLoad) {
     chatSkillListsLoad = Promise.resolve(window.glassShell.aiosLists())
-      .then((l) => ({ commands: (l && l.commands) || [], skills: (l && l.skills) || [] }))
-      .catch(() => ({ commands: [], skills: [] }))
       .then((l) => {
-        chatSkillLists = l;
-        for (const p of panes.values()) if (p.chatSkin) for (const rec of p.chatSkin.items.values()) if (rec.skillBar) chatSkinSkillPaint(rec);
-      });
+        chatSkillLists = { commands: (l && l.commands) || [], skills: (l && l.skills) || [] };
+        setTimeout(() => { chatSkillLists = null; chatSkillListsLoad = null; }, 60000);   // read again a minute on, so a skill installed since is found
+        for (const p of panes.values()) if (p.chatSkin) for (const rec of p.chatSkin.items.values()) if (rec.role === 'tool' && rec.node.classList.contains('skill-line')) chatSkinSkillPaint(rec);   // every line painted before the lists landed, bar or not
+      })
+      .catch(() => { chatSkillListsLoad = null; });   // a failed read is asked again on the next paint, never cached
   }
   return null;
 }
@@ -11574,7 +11576,7 @@ function chatSkinSkillPaint(rec) {
   const hit = chatSkillLookup(sk.id, chatSkillListsGet());
   x.name.textContent = t(hit.kind === 'command' ? 'chat.skill.ran' : 'chat.skill.loaded');
   const label = hit.label + (sk.args ? ' ' + sk.args : '');
-  if (x.arg.textContent !== label) x.arg.textContent = label;
+  if (x.arg.textContent !== label) { x.arg.textContent = label; x.argFresh = true; }   // rewritten: its links are looked for again. argText stays the summary, so the plain paint leaves the label alone
   x.head.title = x.name.textContent + ' ' + label + ' — ' + t('chat.skin.tool.' + rec.info.status);
   const brief = chatSkillBrief(hit.desc);
   const key = brief + '\n' + hit.filePath;
