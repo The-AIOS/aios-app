@@ -4309,7 +4309,10 @@ function makeTab(id, name, iconName) {
     setActive(id);
   });
   /* #189: compact tabs show no title, so the full name rides on hover. */
-  tab.addEventListener('mouseenter', () => { if (!tab.title) tab.title = nm.textContent || ''; });   // never over a tooltip the tab already has (name — topic)
+  /* The name on hover, kept current after a rename; a tooltip someone else set (name — topic) is left alone. */
+  tab.addEventListener('mouseenter', () => {
+    if (!tab.title || tab.title === tab.dataset.hoverTitle) { tab.title = nm.textContent || ''; tab.dataset.hoverTitle = tab.title; }
+  });
 
   /* GESTURE 2 — "Open to the right". Same mechanism as ⌘\ (one splitWithPane), a second entry
      point: the chord is fast once known and invisible until then, a context item is the reverse.

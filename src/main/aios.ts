@@ -1640,11 +1640,13 @@ export function syncClaudeLanguage(): 'set' | 'unset' | 'keep' {
          "match the operator", like English, and removes a value the App wrote earlier. */
       target: shellSettings().locale === 'auto' ? null : claudeLanguageFor(resolvedLocale()),
     });
+    /* The marker moves only with a write that happened: a refused write must not make the App's value look like the
+       operator's, or the operator's look like the App's (second review of 0.17.0). */
     if (action.kind === 'set') {
-      writeClaudeLocalSettings((j) => { j.language = action.value; });
+      if (!writeClaudeLocalSettings((j) => { j.language = action.value; })) return 'keep';
       setShellSetting(CLAUDE_LANGUAGE_SYNCED, action.value);
     } else if (action.kind === 'unset') {
-      writeClaudeLocalSettings((j) => { delete j.language; });
+      if (!writeClaudeLocalSettings((j) => { delete j.language; })) return 'keep';
       setShellSetting(CLAUDE_LANGUAGE_SYNCED, '');
     }
     return action.kind;
@@ -2907,6 +2909,7 @@ function readJson(p: string): Record<string, unknown> {
 function readJsonForWrite(p: string): Record<string, unknown> | null {
   let raw: string;
   try { raw = fs.readFileSync(p, 'utf8'); } catch { return {}; }
+  if (!raw.trim()) return {};   // an empty file holds nothing to lose
   try { const j = JSON.parse(raw); return j && typeof j === 'object' && !Array.isArray(j) ? j : null; } catch { return null; }
 }
 /* The framework root's own Claude stores. `<root>/.claude/settings.json` is COMMITTED, so it is
@@ -2929,27 +2932,29 @@ function claudeStores(): [Record<string, unknown>, Record<string, unknown>, Reco
   return [readJson(claudeSettingsPath()), readJson(claudeJsonPath()), pp ? readJson(pp) : {}, lp ? readJson(lp) : {}];
 }
 
-function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void): void {
+function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void): boolean {
   const p = claudeLocalSettingsPath();
-  if (!p) return;
+  if (!p) return false;
   const j = readJsonForWrite(p);
-  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return; }
+  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return false; }
   mutate(j);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
   fs.renameSync(tmp, p);
+  return true;
 }
 
-function writeClaudeSettings(mutate: (j: Record<string, unknown>) => void): void {
+function writeClaudeSettings(mutate: (j: Record<string, unknown>) => void): boolean {
   const p = claudeSettingsPath();
   const j = readJsonForWrite(p);
-  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return; }
+  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return false; }
   mutate(j);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
   fs.renameSync(tmp, p);
+  return true;
 }
 
 /**
