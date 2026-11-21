@@ -356,7 +356,16 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .zbar > .tsMore:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
        border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
-       transition: all .14s; flex: 0 0 auto; }
+       transition: all .14s; flex: 0 1 auto; min-width: 90px; overflow: hidden; }
+/* #189, Chrome's tab strip: tabs keep their width while they fit, then all shrink evenly (titles truncate) down to
+   90px; past that the strip goes COMPACT (an icon and a dot, the active tab keeps its title and its ×); only past
+   the compact minimum does it scroll, with the fades and chevrons. A tab frozen by close-in-place keeps the width
+   it had until the pointer leaves the strip. */
+.tab .tname { min-width: 0; }
+.tabstrip.tcompact .tab { min-width: 40px; padding: 5px 9px; }
+.tabstrip.tcompact .tab:not(.active) .tname, .tabstrip.tcompact .tab:not(.active) .tx { display: none; }
+.tabstrip.tcompact .tab.active { min-width: 120px; }
+.tabstrip .tab.tfrozen { flex: 0 0 auto; }
 /* tabs pick up the same coral hover outline as the (+) — the invitation reads the same
    wherever it appears (DESIGN.md: coral means action) */
 .tab:hover { color: var(--ink); background: var(--surface); border-color: var(--accent); }

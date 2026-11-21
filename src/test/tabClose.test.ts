@@ -19,7 +19,7 @@ import * as fs from 'node:fs';
 const app = fs.readFileSync('renderer/app.js', 'utf8');
 
 test('the tab × routes through the gate, not straight into closePane', () => {
-  assert.match(app, /if \(e\.target === tx\) \{ void requestClosePane\(id\); return; \}/);
+  assert.match(app, /if \(e\.target === tx\) \{ (freezeStripForClose\(tab\.parentElement\); )?void requestClosePane\(id\); return; \}/);
   assert.doesNotMatch(app, /if \(e\.target === tx\) \{ closePane\(id\); return; \}/,
     'the direct close is what a stray click used to reach');
 });

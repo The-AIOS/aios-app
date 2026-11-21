@@ -3619,6 +3619,24 @@ function stripOverflowState(strip) {
   const max = strip.scrollWidth - strip.clientWidth;
   return { left: max > 1 && strip.scrollLeft > 1, right: max > 1 && strip.scrollLeft < max - 1 };
 }
+/* #189: does the strip need its COMPACT stage? Pure, for the tests: every tab at its squeezed minimum plus the gaps and
+   whatever else sits in the strip (group pills) no longer fits the width it has. */
+const TAB_SQUEEZE_MIN = 90;
+function tabStripStage(avail, tabCount, extra, gap) {
+  if (tabCount <= 0) return 'fit';
+  const need = tabCount * TAB_SQUEEZE_MIN + Math.max(0, tabCount - 1) * gap + extra;
+  return need > avail ? 'compact' : 'fit';
+}
+function syncStripStage(strip) {
+  if (strip.dataset.tfrozen) return;   // close-in-place: the widths hold until the pointer leaves
+  const tabs = [...strip.querySelectorAll(':scope > .tab')].filter((t) => getComputedStyle(t).display !== 'none');   // a collapsed group's tabs take no room
+  const cs = getComputedStyle(strip);
+  const gap = parseFloat(cs.columnGap || cs.gap) || 0;
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  let extra = 0;
+  for (const c of strip.children) if (!c.classList.contains('tab') && c.offsetWidth) extra += c.offsetWidth + gap;
+  strip.classList.toggle('tcompact', tabStripStage(strip.clientWidth - pad, tabs.length, extra, gap) === 'compact');
+}
 function syncStripOverflow(strip) {
   const st = stripOverflowState(strip);
   strip.classList.toggle('ov-l', st.left);
@@ -3641,13 +3659,56 @@ function setupStripOverflow(strip) {
   strip._ovL = mk('l'); strip._ovR = mk('r');
   strip.before(strip._ovL);
   strip.after(strip._ovR);
-  const sync = () => syncStripOverflow(strip);
+  const sync = () => {
+    const wasCompact = strip.classList.contains('tcompact');
+    syncStripStage(strip);   // #189: the stage first, then the fades it leaves
+    /* #189: the active tab is scrolled into view once it is in the strip (setActive can run before the strip is
+       painted), and again when the stage changes every width. Only on those changes, so the operator's own scrolling
+       is never fought; once more a moment later, for a batch of tabs opening together. */
+    const act = strip.querySelector(':scope > .tab.active');
+    if (act && (act !== strip._lastActive || wasCompact !== strip.classList.contains('tcompact'))) {
+      strip._lastActive = act;
+      revealTab(act);
+      clearTimeout(strip._revealT);
+      strip._revealT = setTimeout(() => { if (strip._lastActive === act) revealTab(act); }, 150);
+    }
+    syncStripOverflow(strip);
+  };
   strip.addEventListener('scroll', sync, { passive: true });
   if (typeof ResizeObserver === 'function') new ResizeObserver(sync).observe(strip);
   if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(strip, { childList: true, subtree: true, characterData: true });
   sync();
 }
 for (const sid of ['tabs', 'ttabs']) setupStripOverflow(document.getElementById(sid));
+/* #189: scroll a strip just enough to show this tab (as Chrome keeps the active tab in view). Only the strip moves. */
+function revealTab(tab) {
+  const s = tab && tab.parentElement;
+  if (!s || !s.classList || !s.classList.contains('tabstrip') || s.scrollWidth <= s.clientWidth) return;
+  /* Measured now (measuring forces layout): an animation frame never comes while the window is in the background,
+     which is exactly when a bus-started session's tab becomes active. */
+  const sr = s.getBoundingClientRect(), tr = tab.getBoundingClientRect(), pad = 28;   // clear of the edge fade
+  let d = 0;
+  if (tr.left < sr.left + pad) d = -(sr.left + pad - tr.left);
+  else if (tr.right > sr.right - pad) d = tr.right - (sr.right - pad);
+  /* An instant jump (the strip's CSS scrolls smoothly, and a smooth scroll never advances in a window that is not
+     painting, and is cut short by the next one). */
+  if (d) s.scrollTo({ left: s.scrollLeft + d, behavior: 'instant' });
+}
+/* #189, close in place (as Chrome does): closing a tab with the mouse keeps every other tab at the width it has, so the
+   next tab's × lands under the pointer and several can be closed in a row; the strip relaxes when the pointer leaves. */
+function freezeStripForClose(strip) {
+  if (!strip || !strip.classList || !strip.classList.contains('tabstrip')) return;
+  for (const t of strip.querySelectorAll(':scope > .tab')) { t.style.width = t.offsetWidth + 'px'; t.classList.add('tfrozen'); }
+  strip.dataset.tfrozen = '1';
+  if (strip._thaw) return;
+  strip._thaw = () => {
+    delete strip.dataset.tfrozen;
+    for (const t of strip.querySelectorAll(':scope > .tab.tfrozen')) { t.style.width = ''; t.classList.remove('tfrozen'); }
+    syncStripStage(strip);
+    syncStripOverflow(strip);
+  };
+  strip.addEventListener('mouseleave', () => { if (strip.dataset.tfrozen) strip._thaw(); });
+}
 
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
    manual order survive the layout churn that used to erase it. */
@@ -3775,6 +3836,7 @@ function setVisible(z) {
     /* `active` marks the FOCUSED tab; `shown` marks every tab on screen. Two classes because the
        operator needs to see both — which panes are up, and which one their keystrokes reach. */
     p.tab.classList.toggle('active', pid === active[z]);
+    if (pid === active[z]) revealTab(p.tab);   // #189: the active tab is never left scrolled out of sight
     p.tab.classList.toggle('shown', on);
     /* Which pane the keystrokes reach — only meaningful, and only marked, while split. */
     p.el.classList.toggle('panefocus', on && pid === active[z] && shown.length > 1);
@@ -4242,9 +4304,11 @@ function makeTab(id, name, iconName) {
   const tx = document.createElement('span'); tx.className = 'tx'; tx.title = t('tab.close'); tx.textContent = '×';
   tab.append(dot, ic, nm, tx);
   tab.addEventListener('click', (e) => {
-    if (e.target === tx) { void requestClosePane(id); return; }
+    if (e.target === tx) { freezeStripForClose(tab.parentElement); void requestClosePane(id); return; }
     setActive(id);
   });
+  /* #189: compact tabs show no title, so the full name rides on hover. */
+  tab.addEventListener('mouseenter', () => { tab.title = nm.textContent || ''; });
 
   /* GESTURE 2 — "Open to the right". Same mechanism as ⌘\ (one splitWithPane), a second entry
      point: the chord is fast once known and invisible until then, a context item is the reverse.
@@ -4428,6 +4492,7 @@ function focusPane(id) {
   for (const [pid, q] of panes) {
     if (zoneOf(q) !== z) continue;
     q.tab.classList.toggle('active', pid === id);
+    if (pid === id) revealTab(q.tab);   // #189
     q.el.classList.toggle('panefocus', split && pid === id);
   }
   paintRunning();   // the RUNNING card marks the focused session too
