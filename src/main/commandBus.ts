@@ -983,7 +983,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
     // background like every other bus path (#47): a fresh spawn was the one that still switched the
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
-    emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, bus: true });
+    emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, color: req.groupColor, bus: true });
     if (req.groupNote) log(`spawn '${req.name}': ${req.groupNote}`);
     log(`spawn '${req.name}'${req.group ? ` in group '${req.group}'` : ''}${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
@@ -1062,7 +1062,7 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).
-      emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, bus: true });
+      emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, color: req.groupColor, bus: true });
       if (req.groupNote) log(`resume '${req.name}': ${req.groupNote}`);
       log(`resume '${req.name}'${req.group ? ` in group '${req.group}'` : ''} → session ${sid.slice(0, 8)}${req.prompt ? ' with prompt' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${taskFile ? ' (via file)' : ''}`);
       try { fs.unlinkSync(heldPath); } catch { /* already gone */ }

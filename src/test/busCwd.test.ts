@@ -119,7 +119,7 @@ test('INVARIANT: the resume fallback goes through fallbackSpawnRequest, and both
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(src, /runSpawn\(win, heldPath, fallbackSpawnRequest\(req\)\)/, 'the fallback must carry the prompt into the spawn');
   assert.equal((src.match(/launchCwd\(heldPath, req\)/g) || []).length, 2, 'spawn and resume both resolve cwd');
-  assert.equal((src.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where(, group: req\.group)?(, bus: true)? \}/g) || []).length, 2,
+  assert.equal((src.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where(, group: req\.group)?(, color: req\.groupColor)?(, bus: true)? \}/g) || []).length, 2,
     'both launches hand the validated cwd to the renderer');
   const mainSrc = fs.readFileSync('src/main/main.ts', 'utf8');
   assert.match(mainSrc, /inAllowed\(opts\.cwd\) \|\| isBusCwdGranted\(opts\.cwd\)/, 'pty:spawn honours a bus-granted cwd');

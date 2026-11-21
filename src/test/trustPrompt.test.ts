@@ -67,7 +67,7 @@ test('wiring: main watches a bus tab started with --add-dir and leaves a dead le
   assert.match(main, /clearTrustLetterWhenLive\(String\(opts\.name\), spawnedAt\)/, 'the dead letter is removed once the session starts');
   assert.match(main, /const live = trustSessionStarted\(aios\.listRunningAgents\(\), name, spawnedAt,/, 'cleared through the tested rule');
   assert.match(bus, /export function clearTrustBlocked/);
-  assert.equal((bus.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group, bus: true \}/g) || []).length, 2, 'spawn and resume mark their tabs');
+  assert.equal((bus.match(/'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group, color: req\.groupColor, bus: true \}/g) || []).length, 2, 'spawn and resume mark their tabs');
   assert.match(main, /isTrustPrompt\(plainForTrust\(/, 'the stream is stripped before matching');
   assert.match(main, /reportTrustBlocked\(/, 'a match is reported to the bus');
   assert.match(bus, /export function reportTrustBlocked/, 'the bus owns the dead letter');

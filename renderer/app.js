@@ -3453,7 +3453,7 @@ function tgAdd(id, gid) {
 /* A bus request names its tab group (`"group": "Release"`): join the group with that name, matched without regard to
    case, or create it with the next free colour, the way tgNew picks one. The name is already cleaned by main (parseGroup);
    it is cut to the editor's 40 again here so nothing else can hand in a longer one. Returns the group id, or ''. */
-function tgJoinByName(id, name) {
+function tgJoinByName(id, name, wantColor) {
   const want = String(name || '').trim().slice(0, 40);
   if (!want || !panes.get(id)) return '';
   const key = want.toLocaleLowerCase();
@@ -3461,7 +3461,9 @@ function tgJoinByName(id, name) {
   for (const [g, v] of tabGroups) if ((v.name || '').trim().toLocaleLowerCase() === key) { gid = g; break; }
   if (!gid) {
     const used = new Set([...tabGroups.values()].map((g) => g.color));
-    const color = TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length];
+    /* #190: the request's colour when it names one (only here, when the group is new: joining never recolours). */
+    const asked = wantColor === 'red' ? 'coral' : wantColor;
+    const color = TG_COLORS.includes(asked) ? asked : (TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length]);
     gid = tgNewId();
     tabGroups.set(gid, { name: want, color, collapsed: false });
   }
@@ -8013,7 +8015,7 @@ window.glassShell.onIntent(async (m) => {
       // cwd: a bus request's validated directory (main/busCwd); absent = the framework root.
       const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m), bus: m.bus === true });   // bus: #182's trust watch
       // group: a bus spawn/resume asked for a tab group by name (core/commandBus parseGroup).
-      if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group);
+      if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group, typeof m.color === 'string' ? m.color : '');   // #190: the colour, only for a new group
       return;
     }
     case 'toggleChatView': void chatSkinToggleMode(); return;
