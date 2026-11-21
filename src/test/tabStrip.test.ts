@@ -28,7 +28,10 @@ test('the CSS: tabs shrink evenly to 90px, compact shows icon and dot, the activ
 });
 
 test('wiring: the stage is recomputed with the overflow, close holds the widths until the pointer leaves', () => {
-  assert.match(app, /const sync = \(\) => \{\n\s+syncStripStage\(strip\);[\s\S]{0,400}if \(act && \(act !== strip\._lastActive \|\| wasCompact !== strip\.classList\.contains\('tcompact'\)\)\) \{[\s\S]{0,300}\n\s+syncStripOverflow\(strip\);/, 'stage, then reveal a newly active tab, then the fades: on resize, scroll and every tab change');
+  const sync = app.slice(app.indexOf('  const sync = () => {'), app.indexOf('  const sync = () => {') + 1200);
+  assert.ok(sync.indexOf('syncStripStage(strip)') < sync.indexOf('revealTab(act)') && sync.indexOf('revealTab(act)') < sync.indexOf('syncStripOverflow(strip)'), 'stage, then reveal, then the fades');
+  assert.match(sync, /act !== strip\._lastActive \|\| wasCompact !== strip\.classList\.contains\('tcompact'\)/, 'only when the active tab or the stage changes');
+  assert.match(app, /s\.scrollTo\(\{ left: s\.scrollLeft \+ d, behavior: 'instant' \}\)/, 'an instant jump, never a smooth scroll a hidden window would not finish');
   assert.match(app, /if \(e\.target === tx\) \{ freezeStripForClose\(tab\.parentElement\); void requestClosePane\(id\); return; \}/);
   assert.match(app, /strip\.addEventListener\('mouseleave', \(\) => \{ if \(strip\.dataset\.tfrozen\) strip\._thaw\(\); \}\);/);
   assert.match(app, /if \(strip\.dataset\.tfrozen\) return;/, 'no stage change while frozen');
