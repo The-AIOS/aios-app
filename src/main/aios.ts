@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { nudgeShort } from '../core/nudgeCommand';
 import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
@@ -823,7 +824,7 @@ function suggestedRitual(md: string): { command: string; short: string; desc: st
     if (!m) continue;
     const command = m[1].trim();
     if (/close-?day|close-?session/i.test(command)) continue;
-    const short = command.replace(/^\/(?:aios:|vault-commands:)?/, '').split(/\s/)[0];
+    const short = nudgeShort(command);   // keeps an agent's name: "Run /agent explainer", never "Run /agent"
     let desc = '';
     for (const im of line.matchAll(/_([^_]+)_/g)) {
       const cand = im[1].trim();
@@ -892,7 +893,9 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
       return { kind: 'plan', icon: '💡', cmdLabel: t('nudge.runCmd', { short: r.short }), label, command: r.command };
     }
   }
-  if (hour < 17 && runningCount > 0) {
+  /* From mid-afternoon only: closing sessions is an end-of-work act, and a nudge shown at 10am whenever anything runs
+     is one the operator learns to ignore (operator, 0.17). */
+  if (hour >= 15 && hour < 17 && runningCount > 0) {
     return { kind: 'sessions', icon: '💬', label: t('nudge.sessions'), command: '/aios:close-session' };
   }
   return null;
