@@ -4847,6 +4847,10 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // drop a file/folder onto THIS terminal → insert its quoted path (not the active one:
   // the pane under the pointer is the one the operator meant)
   attachDropZone(el, (paths) => { dropPathsInto(id, p, paths); setActive(id); });
+  /* Drop onto a session's TAB, as onto a tab in Chrome: the path goes into that session, which comes forward. Holding
+     the drag over the tab for a moment switches to it, so the operator can drop into its pane instead (0.17). */
+  attachDropZone(p.tab, (paths) => { if (panes.get(id) === p && !p.exited) { dropPathsInto(id, p, paths); setActive(id); } });
+  attachTabDragDwell(p.tab, id);
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
   /* The session tells us its own name through the tty title. */
@@ -7029,6 +7033,26 @@ function attachDropZone(elm, onPath, opts = {}) {
     ev.preventDefault(); ev.stopPropagation();
     void onPath(paths, draggedIsDir(ev), { ...opts, source: paths.source, files: paths.files });
   });
+}
+
+/* 0.17: a FILE dragged and held over a session's tab switches to that tab after a short dwell (Chrome does this), so
+   the drop can land in that session's pane. Only file drags: a tab or panel card being reordered never switches tabs. */
+const TAB_DWELL_MS = 550;
+function isFileDrag(ev) {
+  const types = [...(ev.dataTransfer?.types || [])];
+  if (types.includes('application/x-aios-tab') || types.includes('application/x-aios-card')) return false;
+  return ['application/x-aios-path', 'text/uri-list', 'Files'].some((tp) => types.includes(tp));
+}
+function attachTabDragDwell(tab, id) {
+  if (!tab) return;
+  let timer = 0;
+  const stop = () => { clearTimeout(timer); timer = 0; };
+  tab.addEventListener('dragenter', (ev) => {
+    if (!isFileDrag(ev) || timer) return;
+    timer = setTimeout(() => { timer = 0; if (panes.has(id)) setActive(id); }, TAB_DWELL_MS);
+  });
+  tab.addEventListener('dragleave', (ev) => { if (!tab.contains(ev.relatedTarget)) stop(); });
+  tab.addEventListener('drop', stop);
 }
 
 /* right-click context menu — built once, reused */

@@ -3944,7 +3944,7 @@ test('a file dropped on a pane in chat view lands in the chat box, never in the 
   drop('a', { view: 'term', chatSkin: { input: {} } }, ['/tmp/shot.png']);
   assert.deepEqual(typed, ["'/tmp/shot.png' "], 'control: terminal view still types the quoted path');
   assert.deepEqual(drafts, ['drop'], 'and marks it as a draft (#81)');
-  assert.equal((app.match(/dropPathsInto\(/g) || []).length, 3, 'both terminal drop zones go through it (plus its definition)');
+  assert.equal((app.match(/dropPathsInto\(/g) || []).length, 4, 'every terminal drop zone goes through it: the pane, the Running zone, a session tab (0.17), plus its definition');
   assert.doesNotMatch(app, /attachDropZone\([^\n]*ptyWrite/, 'no drop zone writes to a pty directly any more');
 });
 
