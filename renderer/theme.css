@@ -2474,6 +2474,13 @@ body.light .chatskin .cs-sticky { background: color-mix(in srgb, var(--chat-user
 /* a skill loading wears its own mark in the cool hue, so it reads apart from the tools it then calls */
 .chat-tool[data-kind="skill"] .ct-kind { color: var(--chat-model-ink); }
 .chat-tool[data-kind="skill"] .ct-arg { color: var(--ink); }
+/* a skill loaded stands alone (0.17.0): its name in bold, and the skill's own description under it */
+.chat-tool.skill-line .ct-arg { font-weight: 600; }
+.ct-skill { display: flex; align-items: center; gap: 8px; margin: 0 0 4px 26px; min-width: 0; color: var(--subtle); font-size: 12px; }
+.ct-skill-desc { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-skill .ct-file-btn { flex: 0 0 auto; }
+/* a file dragged over a session's tab: the tab it will land in */
+.tab.dropok { box-shadow: inset 0 0 0 2px var(--chat-focus); }   /* neutral, as every drop target but the terminal card */
 /* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
 .cc-box.bang, .cc-box.bang:focus-within { border-color: var(--chat-bang); }
 .cc-box.bang .chat-input { color: var(--chat-bang-ink); }

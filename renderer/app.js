@@ -11522,6 +11522,79 @@ function chatToolInfo(item) {
   const tl = (item && item.tool) || {};
   return { name: String(tl.name || ''), summary: String(tl.summary || ''), status: tl.status === 'ok' || tl.status === 'error' ? tl.status : 'running' };
 }
+/* A skill Claude loads is a step the operator wants to see, the way a hat is (0.17.0): it never folds into "7 tool calls".
+   Its row says what it was, "Loaded skill · brainstorming" or "Ran /aios:today", with the skill's own description under it
+   and a button to open its file. /aios:agent is not here: the hat card and the hat change already show it. Pure, for the tests. */
+function chatSkillOf(info) {
+  if (!info || info.name !== 'Skill' || chatHatWorn(info)) return null;
+  const s = String(info.summary || '').trim();
+  const id = s.split(/\s+/)[0] || '';
+  return id ? { id, args: s.slice(id.length).trim() } : null;
+}
+/** Which skill or command an id names, from the AIOS lists: { kind: 'skill' | 'command', label, desc, filePath }. A plugin's
+    prefix ("superpowers:brainstorming") is matched on the bare name; one the lists do not hold is still a skill, without a
+    description or a file. */
+function chatSkillLookup(id, lists) {
+  const i = id.lastIndexOf(':');
+  const ns = i >= 0 ? id.slice(0, i) : '', bare = i >= 0 ? id.slice(i + 1) : id;
+  const cmds = (lists && Array.isArray(lists.commands)) ? lists.commands : [];
+  const skills = (lists && Array.isArray(lists.skills)) ? lists.skills : [];
+  const cmd = !ns || ns === 'aios' ? cmds.find((c) => c && c.name === bare) : null;
+  const sk = skills.find((s) => s && s.name === bare);
+  if (cmd && (ns === 'aios' || !sk)) return { kind: 'command', label: '/aios:' + bare, desc: String(cmd.description || ''), filePath: String(cmd.filePath || '') };
+  return { kind: 'skill', label: id, desc: sk ? String(sk.description || '') : '', filePath: sk ? String(sk.filePath || '') : '' };
+}
+/** The description's first sentence, so the line stays one line: a SKILL.md description is written for Claude to match on,
+    and runs on. */
+function chatSkillBrief(desc) {
+  const s = String(desc || '').replace(/\s+/g, ' ').trim();
+  const m = /^(.+?[.!?])(?:\s|$)/.exec(s);
+  return (m ? m[1] : s).slice(0, 160);
+}
+let chatSkillLists = null, chatSkillListsLoad = null;
+function chatSkillListsGet() {
+  if (chatSkillLists) return chatSkillLists;
+  if (!chatSkillListsLoad) {
+    chatSkillListsLoad = Promise.resolve(window.glassShell.aiosLists())
+      .then((l) => ({ commands: (l && l.commands) || [], skills: (l && l.skills) || [] }))
+      .catch(() => ({ commands: [], skills: [] }))
+      .then((l) => {
+        chatSkillLists = l;
+        for (const p of panes.values()) if (p.chatSkin) for (const rec of p.chatSkin.items.values()) if (rec.skillBar) chatSkinSkillPaint(rec);
+      });
+  }
+  return null;
+}
+/* Paint a tool row as a skill line, or leave it a plain row. Called after chatSkinPaintTool, every time the row is painted. */
+function chatSkinSkillPaint(rec) {
+  const sk = chatSkillOf(rec.info);
+  rec.node.classList.toggle('skill-line', !!sk);
+  if (!sk) { if (rec.skillBar) { rec.skillBar.remove(); rec.skillBar = null; } return; }
+  const x = rec.tool;
+  const hit = chatSkillLookup(sk.id, chatSkillListsGet());
+  x.name.textContent = t(hit.kind === 'command' ? 'chat.skill.ran' : 'chat.skill.loaded');
+  const label = hit.label + (sk.args ? ' ' + sk.args : '');
+  if (x.arg.textContent !== label) x.arg.textContent = label;
+  x.head.title = x.name.textContent + ' ' + label + ' — ' + t('chat.skin.tool.' + rec.info.status);
+  const brief = chatSkillBrief(hit.desc);
+  const key = brief + '\n' + hit.filePath;
+  if (rec.skillBar && rec.skillBar.dataset.key === key) return;
+  if (rec.skillBar) rec.skillBar.remove();
+  rec.skillBar = null;
+  if (!brief && !hit.filePath) return;
+  const bar = el('div', 'ct-skill');
+  bar.dataset.key = key;
+  if (brief) { const d = el('span', 'ct-skill-desc', brief); d.title = hit.desc; bar.appendChild(d); }
+  if (hit.filePath) {
+    const open = el('button', 'ct-file-btn', t('chat.file.open'));
+    open.type = 'button';
+    open.setAttribute('aria-label', t('chat.skill.openLabel', { name: hit.label }));
+    open.addEventListener('click', (e) => { e.stopPropagation(); void openViewer(hit.filePath); });
+    bar.appendChild(open);
+  }
+  rec.node.insertBefore(bar, rec.node.querySelector('.ct-body'));
+  rec.skillBar = bar;
+}
 /* Runs of consecutive tool calls. `items` is the column in order, each entry { tool, hidden }: a tool call, a
    hidden row (an assistant message that was only tool calls leaves no bubble) or anything else that is visible.
    A run is the indices of the tool calls between two visible non-tool rows; a hidden row does not split it. Pure,
@@ -11647,7 +11720,7 @@ function chatSkinRegroup(cs) {
     if (n.csGroup) flat.push(...n.csGroup.body.children); else flat.push(n);
   }
   const isItem = (n) => n.classList.contains('chat-row') || n.classList.contains('chat-note');
-  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !n.classList.contains('created') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs, and files written, stand alone
+  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !n.classList.contains('created') && !n.classList.contains('skill-line') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs, files written and skills loaded stand alone
   const spans = new Map();
   for (const r of runs) if (r.length > 1) spans.set(r[0], r[r.length - 1]);
   const focus = typeof document !== 'undefined' ? document.activeElement : null;
@@ -12091,6 +12164,7 @@ function chatSkinUpsert(cs, item, animate, before) {
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
     chatSkinPaintTool(rec, item);
+    chatSkinSkillPaint(rec);
     if (CS_HIDDEN_CMD.test(rec.info.name)) rec.node.hidden = true;
     if (!rec.fileCard && rec.info.name === 'Write' && rec.info.status === 'ok' && rec.info.summary) chatSkinFileCard(rec, cs, rec.info.summary);
     const x = rec.tool;
