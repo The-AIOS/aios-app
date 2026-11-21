@@ -8415,7 +8415,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'robot'], [2, 'layout'], [3, 'sync'], [4, 'globe'], [5, 'chat']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'layout'], [2, 'globe'], [3, 'sparkles'], [4, 'robot']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -8460,7 +8460,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0', '0.17.0'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
