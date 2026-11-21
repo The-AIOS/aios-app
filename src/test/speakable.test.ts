@@ -40,3 +40,8 @@ test('the answer\'s language picks the voice; unsure means "use the App\'s"', as
   assert.equal(guessLang('C’est fait. Je vous confirme que les tests passent et que tout est prêt.'), 'fr');
   assert.equal(guessLang('OK.'), undefined);
 });
+
+test('0.17.0 review: Spanish words that contain a French word are not counted as French', () => {
+  const { guessLang } = require('../core/speakable') as { guessLang: (t: string) => string | undefined };
+  assert.notEqual(guessLang('¿Quién está aquí? Aún no pasó nada, está bien.'), 'fr');
+});

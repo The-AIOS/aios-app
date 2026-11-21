@@ -47,3 +47,10 @@ test('the sync runs on boot and when the language changes, and the setup brief n
   const app = read('renderer/app.js');
   assert.match(app, /\+ setupLanguageLine\(\)\s*\n\s*\+ 'Work through it with me interactively\.'/, 'setup brief');
 });
+
+test('0.17.0 review: a settings file that does not parse is never rewritten, and auto never sets a language', () => {
+  const aiosSrc = require('fs').readFileSync('src/main/aios.ts', 'utf8') as string;
+  assert.match(aiosSrc, /const j = readJsonForWrite\(p\);\n  if \(!j\) \{ console\.warn\('\[claude-settings\] not writing'/, 'the local writer refuses an unparseable file');
+  assert.equal((aiosSrc.match(/const j = readJsonForWrite\(p\);/g) || []).length, 2, 'both Claude settings writers');
+  assert.match(aiosSrc, /target: shellSettings\(\)\.locale === 'auto' \? null : claudeLanguageFor\(resolvedLocale\(\)\)/, 'only a language the operator chose');
+});

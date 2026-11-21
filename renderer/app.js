@@ -3628,6 +3628,7 @@ function tabStripStage(avail, tabCount, extra, gap) {
   return need > avail ? 'compact' : 'fit';
 }
 function syncStripStage(strip) {
+  if (strip.dataset.tfrozen && !strip.querySelector(':scope > .tab')) strip._thaw && strip._thaw();   // nothing left to hold
   if (strip.dataset.tfrozen) return;   // close-in-place: the widths hold until the pointer leaves
   const tabs = [...strip.querySelectorAll(':scope > .tab')].filter((t) => getComputedStyle(t).display !== 'none');   // a collapsed group's tabs take no room
   const cs = getComputedStyle(strip);
@@ -4308,7 +4309,7 @@ function makeTab(id, name, iconName) {
     setActive(id);
   });
   /* #189: compact tabs show no title, so the full name rides on hover. */
-  tab.addEventListener('mouseenter', () => { tab.title = nm.textContent || ''; });
+  tab.addEventListener('mouseenter', () => { if (!tab.title) tab.title = nm.textContent || ''; });   // never over a tooltip the tab already has (name — topic)
 
   /* GESTURE 2 — "Open to the right". Same mechanism as ⌘\ (one splitWithPane), a second entry
      point: the chord is fast once known and invisible until then, a context item is the reverse.

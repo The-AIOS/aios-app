@@ -884,7 +884,7 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
   if ((weekday === 1 || weekday === 2) && hour >= 6 && hour < 17 && !weeklyPlanExists()) {
     const r = suggestedRitual(md);
     // command-frontmatter desc stays as authored (vault content); the static fallback is localized
-    const desc = r && r.short === '7plan' && r.desc ? r.desc.charAt(0).toUpperCase() + r.desc.slice(1) : t(weekday === 1 ? 'nudge.planWeekMon' : 'nudge.planWeekTue');
+    const desc = r && r.short.split(' ')[0] === '7plan' && r.desc ? r.desc.charAt(0).toUpperCase() + r.desc.slice(1) : t(weekday === 1 ? 'nudge.planWeekMon' : 'nudge.planWeekTue');
     return { kind: 'week', icon: '🗓️', cmdLabel: t('nudge.runCmd', { short: '7plan' }), label: desc, command: '/aios:7plan' };
   }
   if (hour < 12) {
@@ -1635,7 +1635,10 @@ export function syncClaudeLanguage(): 'set' | 'unset' | 'keep' {
       local: local.language,
       elsewhere: project.language ?? global.language,
       synced: raw[CLAUDE_LANGUAGE_SYNCED],
-      target: claudeLanguageFor(resolvedLocale()),
+      /* Only a language the operator CHOSE: under 'auto' the App follows the system, and an operator who writes in English
+         on a Spanish Mac never asked for every session to answer in Spanish (0.17.0 review). 'auto' therefore means
+         "match the operator", like English, and removes a value the App wrote earlier. */
+      target: shellSettings().locale === 'auto' ? null : claudeLanguageFor(resolvedLocale()),
     });
     if (action.kind === 'set') {
       writeClaudeLocalSettings((j) => { j.language = action.value; });
@@ -2898,6 +2901,14 @@ export const MODE_OPTIONS = ['default', 'auto', 'acceptEdits', 'plan', 'bypassPe
 function readJson(p: string): Record<string, unknown> {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; }
 }
+/* For a WRITER: an absent file is {} (start fresh), but a file that exists and does not parse is null, so the writer
+   refuses rather than replace it, and with it every permission rule the operator had (0.17.0 review: a trailing comma
+   in settings.local.json would have been rewritten on boot as {"language": …}). */
+function readJsonForWrite(p: string): Record<string, unknown> | null {
+  let raw: string;
+  try { raw = fs.readFileSync(p, 'utf8'); } catch { return {}; }
+  try { const j = JSON.parse(raw); return j && typeof j === 'object' && !Array.isArray(j) ? j : null; } catch { return null; }
+}
 /* The framework root's own Claude stores. `<root>/.claude/settings.json` is COMMITTED, so it is
    read and never written — a personal preference does not belong in a shared repo.
    `<root>/.claude/settings.local.json` is machine-local, and it is what `/config` writes and what
@@ -2921,7 +2932,8 @@ function claudeStores(): [Record<string, unknown>, Record<string, unknown>, Reco
 function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void): void {
   const p = claudeLocalSettingsPath();
   if (!p) return;
-  const j = readJson(p);
+  const j = readJsonForWrite(p);
+  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return; }
   mutate(j);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
@@ -2931,7 +2943,8 @@ function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void):
 
 function writeClaudeSettings(mutate: (j: Record<string, unknown>) => void): void {
   const p = claudeSettingsPath();
-  const j = readJson(p);
+  const j = readJsonForWrite(p);
+  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return; }
   mutate(j);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';

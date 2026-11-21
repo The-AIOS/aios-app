@@ -35,6 +35,6 @@ test('wiring: the stage is recomputed with the overflow, close holds the widths 
   assert.match(app, /if \(e\.target === tx\) \{ freezeStripForClose\(tab\.parentElement\); void requestClosePane\(id\); return; \}/);
   assert.match(app, /strip\.addEventListener\('mouseleave', \(\) => \{ if \(strip\.dataset\.tfrozen\) strip\._thaw\(\); \}\);/);
   assert.match(app, /if \(strip\.dataset\.tfrozen\) return;/, 'no stage change while frozen');
-  assert.match(app, /tab\.addEventListener\('mouseenter', \(\) => \{ tab\.title = nm\.textContent/, 'the full name on hover');
+  assert.match(app, /tab\.addEventListener\('mouseenter', \(\) => \{ if \(!tab\.title\) tab\.title = nm\.textContent/, 'the full name on hover, never over an existing tooltip');
   assert.equal((app.match(/revealTab\((p|q)\.tab\)/g) || []).length, 2, 'the active tab is scrolled into view wherever it is marked');
 });

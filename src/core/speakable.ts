@@ -65,7 +65,7 @@ export function guessLang(text: string): 'es' | 'pt' | 'en' | 'fr' | undefined {
   /* French shares `que` and `é` with Spanish, so it is told apart by letters Spanish and Portuguese
      never use and by words they do not have; without it a French answer full of `que` got a
      Spanish voice. `ê`/`ô` are left out: Portuguese uses them (você). */
-  const fr = count(/[èëîïûùœ]|\b(est|une|pour|vous|avec|dans|pas|qui|je|nous|du|au|des)\b/g);
+  const fr = count(/[èëîïûùœ]|(?<![\p{L}])(est|une|pour|vous|avec|dans|pas|qui|je|nous|du|au|des)(?![\p{L}])/gu);   // letter-aware edges: \b is ASCII-only, so "est" matched inside "está"
   const best = Math.max(pt, es, en, fr);
   if (best < 2) return undefined;
   if (fr === best && fr > Math.max(pt, es, en)) return 'fr';
