@@ -11553,19 +11553,23 @@ function chatSkillBrief(desc) {
   const m = /^(.+?[.!?])(?:\s|$)/.exec(s);
   return (m ? m[1] : s).slice(0, 160);
 }
-let chatSkillLists = null, chatSkillListsLoad = null;
+let chatSkillLists = null, chatSkillListsLoad = null, chatSkillListsStale = false;
 function chatSkillListsGet() {
-  if (chatSkillLists) return chatSkillLists;
+  if (chatSkillLists && !chatSkillListsStale) return chatSkillLists;
   if (!chatSkillListsLoad) {
+    chatSkillListsStale = false;
     chatSkillListsLoad = Promise.resolve(window.glassShell.aiosLists())
       .then((l) => {
         chatSkillLists = { commands: (l && l.commands) || [], skills: (l && l.skills) || [] };
-        setTimeout(() => { chatSkillLists = null; chatSkillListsLoad = null; }, 60000);   // read again a minute on, so a skill installed since is found
-        for (const p of panes.values()) if (p.chatSkin) for (const rec of p.chatSkin.items.values()) if (rec.role === 'tool' && rec.node.classList.contains('skill-line')) chatSkinSkillPaint(rec);   // every line painted before the lists landed, bar or not
+        setTimeout(() => { chatSkillListsStale = true; chatSkillListsLoad = null; }, 60000);   // read again a minute on, so a skill installed since is found; the old lists serve until then, so no line flickers
+        for (const p of panes.values()) if (p.chatSkin) for (const rec of p.chatSkin.items.values()) if (rec.role === 'tool' && rec.node.classList.contains('skill-line')) {   // every line painted before the lists landed, bar or not
+          chatSkinSkillPaint(rec);
+          if (rec.tool.argFresh) { rec.tool.argFresh = false; chatLinkPaths(rec.tool.arg, p.chatSkin, { inButton: true }); }   // a finished row may never be painted again: link it here
+        }
       })
       .catch(() => { chatSkillListsLoad = null; });   // a failed read is asked again on the next paint, never cached
   }
-  return null;
+  return chatSkillLists;   // null until the first read lands; the old lists while a newer one is read
 }
 /* Paint a tool row as a skill line, or leave it a plain row. Called after chatSkinPaintTool, every time the row is painted. */
 function chatSkinSkillPaint(rec) {
