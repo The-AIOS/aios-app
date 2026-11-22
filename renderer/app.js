@@ -323,7 +323,7 @@ async function speakAnswer(p, paneId) {
   /* The ANSWER's language picks the voice (a Spanish answer in an English voice is noise); the
      App's language only when the guess is unsure. */
   const loc = (res.lang === 'pt' ? 'pt-br' : res.lang) || (window.i18n && window.i18n.getLocale()) || 'en';
-  const lang = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  const lang = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang;
   const voice = window.speechSynthesis.getVoices().find((v) => v.lang === lang) || window.speechSynthesis.getVoices().find((v) => v.lang.startsWith(lang.slice(0, 2)));
@@ -1313,7 +1313,7 @@ async function openHealthHelp(notGreen, badJobs) {
 /** One line for a scheduled job, in the operator's language (canonical's wording, aios-health.py line()). */
 function routineHealthText(j) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   const when = (ms) => (ms ? new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?');
   const detail = j.detail ? ': ' + j.detail : '';
   switch (j.status) {
@@ -1342,7 +1342,7 @@ const boardCardId = (name) => 'pBoard-' + encodeURIComponent(name);
 
 function boardWhen(ms) {
   const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
-  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : 'en-US';
+  const tag = loc === 'es' ? 'es-MX' : loc === 'pt-br' ? 'pt-BR' : loc === 'el' ? 'el-GR' : loc === 'fr' ? 'fr-FR' : 'en-US';
   return new Date(ms).toLocaleString(tag, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -3453,7 +3453,7 @@ function tgAdd(id, gid) {
 /* A bus request names its tab group (`"group": "Release"`): join the group with that name, matched without regard to
    case, or create it with the next free colour, the way tgNew picks one. The name is already cleaned by main (parseGroup);
    it is cut to the editor's 40 again here so nothing else can hand in a longer one. Returns the group id, or ''. */
-function tgJoinByName(id, name) {
+function tgJoinByName(id, name, wantColor) {
   const want = String(name || '').trim().slice(0, 40);
   if (!want || !panes.get(id)) return '';
   const key = want.toLocaleLowerCase();
@@ -3461,7 +3461,9 @@ function tgJoinByName(id, name) {
   for (const [g, v] of tabGroups) if ((v.name || '').trim().toLocaleLowerCase() === key) { gid = g; break; }
   if (!gid) {
     const used = new Set([...tabGroups.values()].map((g) => g.color));
-    const color = TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length];
+    /* #190: the request's colour when it names one (only here, when the group is new: joining never recolours). */
+    const asked = wantColor === 'red' ? 'coral' : wantColor;
+    const color = TG_COLORS.includes(asked) ? asked : (TG_COLORS.find((c) => !used.has(c)) || TG_COLORS[tabGroups.size % TG_COLORS.length]);
     gid = tgNewId();
     tabGroups.set(gid, { name: want, color, collapsed: false });
   }
@@ -3617,6 +3619,25 @@ function stripOverflowState(strip) {
   const max = strip.scrollWidth - strip.clientWidth;
   return { left: max > 1 && strip.scrollLeft > 1, right: max > 1 && strip.scrollLeft < max - 1 };
 }
+/* #189: does the strip need its COMPACT stage? Pure, for the tests: every tab at its squeezed minimum plus the gaps and
+   whatever else sits in the strip (group pills) no longer fits the width it has. */
+const TAB_SQUEEZE_MIN = 90;
+function tabStripStage(avail, tabCount, extra, gap) {
+  if (tabCount <= 0) return 'fit';
+  const need = tabCount * TAB_SQUEEZE_MIN + Math.max(0, tabCount - 1) * gap + extra;
+  return need > avail ? 'compact' : 'fit';
+}
+function syncStripStage(strip) {
+  if (strip.dataset.tfrozen && !strip.querySelector(':scope > .tab')) strip._thaw && strip._thaw();   // nothing left to hold
+  if (strip.dataset.tfrozen) return;   // close-in-place: the widths hold until the pointer leaves
+  const tabs = [...strip.querySelectorAll(':scope > .tab')].filter((t) => getComputedStyle(t).display !== 'none');   // a collapsed group's tabs take no room
+  const cs = getComputedStyle(strip);
+  const gap = parseFloat(cs.columnGap || cs.gap) || 0;
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  let extra = 0;
+  for (const c of strip.children) if (!c.classList.contains('tab') && c.offsetWidth) extra += c.offsetWidth + gap;
+  strip.classList.toggle('tcompact', tabStripStage(strip.clientWidth - pad, tabs.length, extra, gap) === 'compact');
+}
 function syncStripOverflow(strip) {
   const st = stripOverflowState(strip);
   strip.classList.toggle('ov-l', st.left);
@@ -3639,13 +3660,64 @@ function setupStripOverflow(strip) {
   strip._ovL = mk('l'); strip._ovR = mk('r');
   strip.before(strip._ovL);
   strip.after(strip._ovR);
-  const sync = () => syncStripOverflow(strip);
+  const sync = () => {
+    const wasCompact = strip.classList.contains('tcompact');
+    syncStripStage(strip);   // #189: the stage first, then the fades it leaves
+    /* #189: the active tab is scrolled into view once it is in the strip (setActive can run before the strip is
+       painted), and again when the stage changes every width. Only on those changes, so the operator's own scrolling
+       is never fought; once more a moment later, for a batch of tabs opening together. */
+    const act = strip.querySelector(':scope > .tab.active');
+    if (act && (act !== strip._lastActive || wasCompact !== strip.classList.contains('tcompact'))) {
+      strip._lastActive = act;
+      revealTab(act);
+      clearTimeout(strip._revealT);
+      strip._revealT = setTimeout(() => { if (strip._lastActive === act) revealTab(act); }, 150);
+    }
+    syncStripOverflow(strip);
+  };
   strip.addEventListener('scroll', sync, { passive: true });
   if (typeof ResizeObserver === 'function') new ResizeObserver(sync).observe(strip);
   if (typeof MutationObserver === 'function') new MutationObserver(sync).observe(strip, { childList: true, subtree: true, characterData: true });
   sync();
 }
 for (const sid of ['tabs', 'ttabs']) setupStripOverflow(document.getElementById(sid));
+/* #189: scroll a strip just enough to show this tab (as Chrome keeps the active tab in view). Only the strip moves. */
+function revealTab(tab) {
+  const s = tab && tab.parentElement;
+  if (!s || !s.classList || !s.classList.contains('tabstrip') || s.scrollWidth <= s.clientWidth) return;
+  /* Measured now (measuring forces layout): an animation frame never comes while the window is in the background,
+     which is exactly when a bus-started session's tab becomes active. */
+  const sr = s.getBoundingClientRect(), tr = tab.getBoundingClientRect(), pad = 28;   // clear of the edge fade
+  let d = 0;
+  if (tr.left < sr.left + pad) d = -(sr.left + pad - tr.left);
+  else if (tr.right > sr.right - pad) d = tr.right - (sr.right - pad);
+  /* An instant jump (the strip's CSS scrolls smoothly, and a smooth scroll never advances in a window that is not
+     painting, and is cut short by the next one). */
+  if (d) s.scrollTo({ left: s.scrollLeft + d, behavior: 'instant' });
+}
+/* #189, close in place (as Chrome does): closing a tab with the mouse keeps every other tab at the width it has, so the
+   next tab's × lands under the pointer and several can be closed in a row; the strip relaxes when the pointer leaves. */
+const TAB_THAW_MS = 1000;
+function freezeStripForClose(strip) {
+  if (!strip || !strip.classList || !strip.classList.contains('tabstrip')) return;
+  /* Compact, only the active tab has a ×: there is no next × to keep under the pointer, so nothing is held (hand test). */
+  if (strip.classList.contains('tcompact') && !strip.dataset.tfrozen) return;
+  for (const t of strip.querySelectorAll(':scope > .tab')) { if (!t.offsetWidth) continue; t.style.width = t.offsetWidth + 'px'; t.classList.add('tfrozen'); }   // a tab hidden in a collapsed group is not held at 0px (review)
+  strip.dataset.tfrozen = '1';
+  /* A second without another close and the tabs take their room, pointer still there or not (hand test: they waited for the
+     pointer to leave and looked stuck). Closes in a row each restart the second. */
+  clearTimeout(strip._thawT);
+  strip._thawT = setTimeout(() => { if (strip.dataset.tfrozen && strip._thaw) strip._thaw(); }, TAB_THAW_MS);
+  if (strip._thaw) return;
+  strip._thaw = () => {
+    clearTimeout(strip._thawT);
+    delete strip.dataset.tfrozen;
+    for (const t of strip.querySelectorAll(':scope > .tab.tfrozen')) { t.style.width = ''; t.classList.remove('tfrozen'); }
+    syncStripStage(strip);
+    syncStripOverflow(strip);
+  };
+  strip.addEventListener('mouseleave', () => { if (strip.dataset.tfrozen) strip._thaw(); });
+}
 
 /* Paint the strip from the order model. Called after any re-home, which is what makes a
    manual order survive the layout churn that used to erase it. */
@@ -3773,6 +3845,7 @@ function setVisible(z) {
     /* `active` marks the FOCUSED tab; `shown` marks every tab on screen. Two classes because the
        operator needs to see both — which panes are up, and which one their keystrokes reach. */
     p.tab.classList.toggle('active', pid === active[z]);
+    if (pid === active[z]) revealTab(p.tab);   // #189: the active tab is never left scrolled out of sight
     p.tab.classList.toggle('shown', on);
     /* Which pane the keystrokes reach — only meaningful, and only marked, while split. */
     p.el.classList.toggle('panefocus', on && pid === active[z] && shown.length > 1);
@@ -4240,8 +4313,13 @@ function makeTab(id, name, iconName) {
   const tx = document.createElement('span'); tx.className = 'tx'; tx.title = t('tab.close'); tx.textContent = '×';
   tab.append(dot, ic, nm, tx);
   tab.addEventListener('click', (e) => {
-    if (e.target === tx) { void requestClosePane(id); return; }
+    if (e.target === tx) { freezeStripForClose(tab.parentElement); void requestClosePane(id); return; }
     setActive(id);
+  });
+  /* #189: compact tabs show no title, so the full name rides on hover. */
+  /* The name on hover, kept current after a rename; a tooltip someone else set (name — topic) is left alone. */
+  tab.addEventListener('mouseenter', () => {
+    if (!tab.title || tab.title === tab.dataset.hoverTitle) { tab.title = nm.textContent || ''; tab.dataset.hoverTitle = tab.title; }
   });
 
   /* GESTURE 2 — "Open to the right". Same mechanism as ⌘\ (one splitWithPane), a second entry
@@ -4426,6 +4504,7 @@ function focusPane(id) {
   for (const [pid, q] of panes) {
     if (zoneOf(q) !== z) continue;
     q.tab.classList.toggle('active', pid === id);
+    if (pid === id) revealTab(q.tab);   // #189
     q.el.classList.toggle('panefocus', split && pid === id);
   }
   paintRunning();   // the RUNNING card marks the focused session too
@@ -4776,6 +4855,10 @@ async function createPane({ name = 'terminal', cmd, cwd, bypassReady = false, ba
   // drop a file/folder onto THIS terminal → insert its quoted path (not the active one:
   // the pane under the pointer is the one the operator meant)
   attachDropZone(el, (paths) => { dropPathsInto(id, p, paths); setActive(id); });
+  /* Drop onto a session's TAB, as onto a tab in Chrome: the path goes into that session, which comes forward. Holding
+     the drag over the tab for a moment switches to it, so the operator can drop into its pane instead (0.17). */
+  attachDropZone(p.tab, (paths) => { if (panes.get(id) === p && !p.exited) { dropPathsInto(id, p, paths); setActive(id); } }, { accept: () => panes.get(id) === p && !p.exited });
+  attachTabDragDwell(p.tab, id);
   term.onData((d) => { noteOperatorKeys(p, d); window.glassShell.ptyWrite(id, d); });
   attachPathLinks(term, cwd, id);
   /* The session tells us its own name through the tty title. */
@@ -4953,6 +5036,10 @@ async function requestClosePane(id) {
      lost record is the thing this gate exists to protect. The picker offers capture, so the
      deliberate close keeps the work too. */
   const acted = await endSession({ name: p.name, paneId: id });
+  /* Hand test of 0.17.0 (lag after a close): the picker took the pointer away from the strip, so there is no next × to keep
+     under it. Let the tabs take their room now instead of waiting for the pointer to leave a strip it already left. */
+  const strip = tabsEl(zoneOf(p));
+  if (KILLBEHAVIOR !== 'kill' && KILLBEHAVIOR !== 'capture' && strip && strip.dataset.tfrozen && strip._thaw) strip._thaw();   // only when the picker opened: closing straight away keeps the next × under the pointer (review)
   /* Dismissing has to put the operator back where they were typing. A modal takes focus and
      leaves it on <body> when it closes, and nothing else re-focuses a terminal — so without
      this the pane still LOOKS live (caret blinking, tab highlighted) while every keystroke
@@ -6941,6 +7028,8 @@ function attachDropZone(elm, onPath, opts = {}) {
     // Explicit refusal, not refusal-by-omission: a tab reorder must never be read as a path,
     // even if a future change adds 'text/plain' to a tab's dataTransfer.
     if (types.includes('application/x-aios-tab')) return false;
+    if (types.includes('application/x-aios-card')) return false;   // a panel card being reordered, likewise
+    if (opts.accept && !opts.accept()) return false;   // an exited session's tab
     return types.some((tp) => DROP_TYPES.includes(tp));
   };
   elm.addEventListener('dragover', (ev) => {
@@ -6958,6 +7047,26 @@ function attachDropZone(elm, onPath, opts = {}) {
     ev.preventDefault(); ev.stopPropagation();
     void onPath(paths, draggedIsDir(ev), { ...opts, source: paths.source, files: paths.files });
   });
+}
+
+/* 0.17: a FILE dragged and held over a session's tab switches to that tab after a short dwell (Chrome does this), so
+   the drop can land in that session's pane. Only file drags: a tab or panel card being reordered never switches tabs. */
+const TAB_DWELL_MS = 550;
+function isFileDrag(ev) {
+  const types = [...(ev.dataTransfer?.types || [])];
+  if (types.includes('application/x-aios-tab') || types.includes('application/x-aios-card')) return false;
+  return ['application/x-aios-path', 'text/uri-list', 'Files'].some((tp) => types.includes(tp));
+}
+function attachTabDragDwell(tab, id) {
+  if (!tab) return;
+  let timer = 0;
+  const stop = () => { clearTimeout(timer); timer = 0; };
+  tab.addEventListener('dragenter', (ev) => {
+    if (!isFileDrag(ev) || timer) return;
+    timer = setTimeout(() => { timer = 0; const p = panes.get(id); if (p && !p.exited && active[zoneOf(p)] !== id) setActive(id); }, TAB_DWELL_MS);
+  });
+  tab.addEventListener('dragleave', (ev) => { if (!tab.contains(ev.relatedTarget)) stop(); });
+  tab.addEventListener('drop', stop);
 }
 
 /* right-click context menu — built once, reused */
@@ -7467,6 +7576,7 @@ function paintRailTitles() {
   document.getElementById('railLayout').title = t('rail.layout');
   document.getElementById('railSettings').title = t('rail.settings');
   document.getElementById('dragReadme').title = t('window.manual');
+  document.getElementById('dragSecurity').title = t('window.security');
   document.getElementById('dragHelp').title = t('window.readme');
   document.getElementById('dragCheat').title = t('window.cheatsheet');
   document.getElementById('dragKeys').title = t('window.shortcuts');
@@ -7477,7 +7587,7 @@ function paintRailTitles() {
      listeners on a locale change, so the guard below runs the attach once. */
   if (!tipsAttached) {
     tipsAttached = true;
-    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide', 'railSetup']) {
+    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragSecurity', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide', 'railSetup']) {
       attachTip(document.getElementById(id));
     }
   }
@@ -7515,9 +7625,16 @@ dragPanel.addEventListener('click', () => {
   applyLayout();
 });
 // title-bar README + ? (help) buttons
+const MANUAL_URL = 'https://www.the-aios.com/manual/en';
+const securityBriefUrl = (loc) => 'https://www.the-aios.com/security-brief/' + (loc === 'es' ? 'es' : 'en');
 const dragReadme = document.getElementById('dragReadme');
 dragReadme.innerHTML = icon('book', 15);  // an open book → the ONLINE Operating Manual, in an in-app browser tab (#14)
-dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()));
+dragReadme.addEventListener('click', () => openBrowserPane(MANUAL_URL, t('window.manual').split('—')[0].trim()));
+/* The Security Brief, beside the manual (0.17.0): what each part reaches and whose identity it acts as. A shield, opened the
+   same way. The brief exists in English and Spanish; any other App language gets the English one. */
+const dragSecurity = document.getElementById('dragSecurity');
+dragSecurity.innerHTML = icon('shield', 15);
+dragSecurity.addEventListener('click', () => openBrowserPane(securityBriefUrl(window.i18n ? window.i18n.getLocale() : 'en'), t('window.security')));
 const dragHelp = document.getElementById('dragHelp');
 dragHelp.innerHTML = icon('docText', 15);  // page + i → README.md (this button is NOT the assistant, whatever its id says)
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
@@ -8013,7 +8130,7 @@ window.glassShell.onIntent(async (m) => {
       // cwd: a bus request's validated directory (main/busCwd); absent = the framework root.
       const id = await createPane({ name: m.name || 'terminal', cmd: m.cmd, cwd: typeof m.cwd === 'string' ? m.cwd : undefined, background: busBackground(m), bus: m.bus === true });   // bus: #182's trust watch
       // group: a bus spawn/resume asked for a tab group by name (core/commandBus parseGroup).
-      if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group);
+      if (id && typeof m.group === 'string' && m.group) tgJoinByName(id, m.group, typeof m.color === 'string' ? m.color : '');   // #190: the colour, only for a new group
       return;
     }
     case 'toggleChatView': void chatSkinToggleMode(); return;
@@ -8026,7 +8143,7 @@ window.glassShell.onIntent(async (m) => {
     case 'openToday': { const d = new Date(); window.glassShell.panelSend({ type: 'openDay', date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }); return; }
     case 'designer': openDesignerTab(); return;
     case 'accountSwap': void accountSwapFlow(); return;
-    case 'manual': openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()); return;
+    case 'manual': openBrowserPane(MANUAL_URL, t('window.manual').split('—')[0].trim()); return;
     case 'readme': openFrameworkDoc('README.md'); return;
     case 'cheatsheet': openFrameworkDoc('CHEATSHEET.md'); return;
     case 'primary': void runInPrimary(m.slash); return;
@@ -8269,6 +8386,15 @@ function addDirArgs(...files) {
   for (const f of files) { const s = String(f || ''); const i = xSepIdx(s); if (i > 0) dirs.add(s.slice(0, i)); }
   return [...dirs].map((d) => ' --add-dir ' + shq(d)).join('');
 }
+/* One sentence for the setup brief naming the App's language, or '' for English (Claude then matches the operator). */
+function setupLanguageLine() {
+  const loc = (window.i18n && window.i18n.getLocale && window.i18n.getLocale()) || 'en';
+  if (loc === 'en') return '';
+  const m = (window.i18n.localeMeta ? window.i18n.localeMeta() : []).find((x) => x.code === loc);
+  if (!m) return '';
+  return `My AIOS App is in ${m.name} (${m.nativeName}), so speak ${m.name} with me throughout, and write my notes in ${m.name}. `;
+}
+
 function spawnNamed(name, task, cwd, mode, model, readFiles) {
   const handle = (name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!handle) return;
@@ -8339,7 +8465,7 @@ function openWhatsNewTab() {
        gets the cup — the same glyphs sitting in the title bar — so reading the note teaches the
        operator what to look for afterwards. An arbitrary decorative icon here would be a missed
        chance to connect the words to the surface. */
-    for (const [n, glyph] of [[1, 'robot'], [2, 'layout'], [3, 'sync'], [4, 'globe'], [5, 'chat']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
+    for (const [n, glyph] of [[1, 'layout'], [2, 'file'], [3, 'skill'], [4, 'globe'], [5, 'robot'], [6, 'sparkles']]) {   // one card per subject, each wearing its feature's glyph (0.14.1: voice, screenshots, questions, select to copy, queued, sizes)
       const c = el('div', 'wncard');
       const ic = el('div', 'wnicon'); ic.innerHTML = icon(glyph, 22);
       c.append(ic, el('div', 'wntitle', t('whatsnew.h' + n)), el('div', 'wnbody', t('whatsnew.b' + n)));
@@ -8384,7 +8510,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0', '0.17.0'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -11418,6 +11544,87 @@ function chatToolInfo(item) {
   const tl = (item && item.tool) || {};
   return { name: String(tl.name || ''), summary: String(tl.summary || ''), status: tl.status === 'ok' || tl.status === 'error' ? tl.status : 'running' };
 }
+/* A skill Claude loads is a step the operator wants to see, the way a hat is (0.17.0): it never folds into "7 tool calls".
+   Its row says what it was, "Loaded skill · brainstorming" or "Ran /aios:today", with the skill's own description under it
+   and a button to open its file. /aios:agent is not here: the hat card and the hat change already show it. Pure, for the tests. */
+function chatSkillOf(info) {
+  if (!info || info.name !== 'Skill' || chatHatWorn(info)) return null;
+  const s = String(info.summary || '').trim();
+  const id = s.split(/\s+/)[0] || '';
+  return id ? { id, args: s.slice(id.length).trim() } : null;
+}
+/** Which skill or command an id names, from the AIOS lists: { kind: 'skill' | 'command', label, desc, filePath }. A plugin's
+    prefix ("superpowers:brainstorming") is matched on the bare name; one the lists do not hold is still a skill, without a
+    description or a file. */
+function chatSkillLookup(id, lists) {
+  const i = id.lastIndexOf(':');
+  const ns = i >= 0 ? id.slice(0, i) : '', bare = i >= 0 ? id.slice(i + 1) : id;
+  const cmds = (lists && Array.isArray(lists.commands)) ? lists.commands : [];
+  const skills = (lists && Array.isArray(lists.skills)) ? lists.skills : [];
+  const cmd = !ns || ns === 'aios' ? cmds.find((c) => c && c.name === bare) : null;
+  const sk = skills.find((s) => s && s.name === bare);
+  if (cmd && (ns === 'aios' || !sk)) return { kind: 'command', label: '/aios:' + bare, desc: String(cmd.description || ''), filePath: String(cmd.filePath || '') };
+  return { kind: 'skill', label: id, desc: sk ? String(sk.description || '') : '', filePath: sk ? String(sk.filePath || '') : '' };
+}
+/** The description's first sentence, so the line stays one line: a SKILL.md description is written for Claude to match on,
+    and runs on. */
+function chatSkillBrief(desc) {
+  const s = String(desc || '').replace(/\s+/g, ' ').trim();
+  const m = /^(.+?[.!?])(?:\s|$)/.exec(s);
+  return (m ? m[1] : s).slice(0, 160);
+}
+let chatSkillLists = null, chatSkillListsLoad = null, chatSkillListsStale = false;
+function chatSkillListsGet() {
+  if (chatSkillLists && !chatSkillListsStale) return chatSkillLists;
+  if (!chatSkillListsLoad) {
+    chatSkillListsStale = false;
+    chatSkillListsLoad = Promise.resolve(window.glassShell.aiosLists())
+      .then((l) => {
+        chatSkillLists = { commands: (l && l.commands) || [], skills: (l && l.skills) || [] };
+        setTimeout(() => { chatSkillListsStale = true; chatSkillListsLoad = null; }, 60000);   // read again a minute on, so a skill installed since is found; the old lists serve until then, so no line flickers
+        for (const p of panes.values()) if (p.chatSkin) for (const rec of p.chatSkin.items.values()) if (rec.role === 'tool' && rec.node.classList.contains('skill-line')) {   // every line painted before the lists landed, bar or not
+          chatSkinSkillPaint(rec);
+          if (rec.tool.argFresh) { rec.tool.argFresh = false; chatLinkPaths(rec.tool.arg, p.chatSkin, { inButton: true }); }   // a finished row may never be painted again: link it here
+        }
+      })
+      .catch(() => { chatSkillListsLoad = null; });   // a failed read is asked again on the next paint, never cached
+  }
+  return chatSkillLists;   // null until the first read lands; the old lists while a newer one is read
+}
+/* Paint a tool row as a skill line, or leave it a plain row. Called after chatSkinPaintTool, every time the row is painted. */
+function chatSkinSkillPaint(rec) {
+  const sk = chatSkillOf(rec.info);
+  rec.node.classList.toggle('skill-line', !!sk);
+  if (!sk) { if (rec.skillBar) { rec.skillBar.remove(); rec.skillBar = null; } return; }
+  const x = rec.tool;
+  const hit = chatSkillLookup(sk.id, chatSkillListsGet());
+  x.name.textContent = t(hit.kind === 'command' ? 'chat.skill.ran' : 'chat.skill.loaded');
+  /* An AIOS command wears the AIOS mark, a skill its own (hand test of 0.17.0). */
+  const glyph = hit.kind === 'command' ? 'aios' : 'skill';
+  rec.node.classList.toggle('aios-cmd', hit.kind === 'command');
+  if (x.kindName !== glyph) { x.kind.replaceChildren(csIcon(glyph, 12)); x.kindName = glyph; }
+  const label = hit.label + (sk.args ? ' ' + sk.args : '');
+  if (x.arg.textContent !== label) { x.arg.textContent = label; x.argFresh = true; }   // rewritten: its links are looked for again. argText stays the summary, so the plain paint leaves the label alone
+  x.head.title = x.name.textContent + ' ' + label + ' — ' + t('chat.skin.tool.' + rec.info.status);
+  const brief = chatSkillBrief(hit.desc);
+  const key = brief + '\n' + hit.filePath;
+  if (rec.skillBar && rec.skillBar.dataset.key === key) return;
+  if (rec.skillBar) rec.skillBar.remove();
+  rec.skillBar = null;
+  if (!brief && !hit.filePath) return;
+  const bar = el('div', 'ct-skill');
+  bar.dataset.key = key;
+  if (brief) { const d = el('span', 'ct-skill-desc', brief); d.title = hit.desc; bar.appendChild(d); }
+  if (hit.filePath) {
+    const open = el('button', 'ct-file-btn', t('chat.file.open'));
+    open.type = 'button';
+    open.setAttribute('aria-label', t('chat.skill.openLabel', { name: hit.label }));
+    open.addEventListener('click', (e) => { e.stopPropagation(); void openViewer(hit.filePath); });
+    bar.appendChild(open);
+  }
+  rec.node.insertBefore(bar, rec.node.querySelector('.ct-body'));
+  rec.skillBar = bar;
+}
 /* Runs of consecutive tool calls. `items` is the column in order, each entry { tool, hidden }: a tool call, a
    hidden row (an assistant message that was only tool calls leaves no bubble) or anything else that is visible.
    A run is the indices of the tool calls between two visible non-tool rows; a hidden row does not split it. Pure,
@@ -11543,7 +11750,7 @@ function chatSkinRegroup(cs) {
     if (n.csGroup) flat.push(...n.csGroup.body.children); else flat.push(n);
   }
   const isItem = (n) => n.classList.contains('chat-row') || n.classList.contains('chat-note');
-  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !n.classList.contains('created') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs, and files written, stand alone
+  const runs = chatToolRuns(flat.map((n) => ({ tool: n.classList.contains('chat-tool') && !n.classList.contains('own') && !n.classList.contains('created') && !n.classList.contains('skill-line') && !!n.csRec, hidden: !!n.hidden && isItem(n) })));   // the operator's own runs, files written and skills loaded stand alone
   const spans = new Map();
   for (const r of runs) if (r.length > 1) spans.set(r[0], r[r.length - 1]);
   const focus = typeof document !== 'undefined' ? document.activeElement : null;
@@ -11695,9 +11902,12 @@ function chatHatColorKey(group) {
   for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return 'x' + (h % 4);
 }
-/* The agent's initial on its colour. */
+/* The agent's mark: a robot on its colour. */
 function chatHatAvatar(name, size) {
-  const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
+  /* A coral robot, not the initial on the bundle colour (0.17.0 hand test): what the mark must say first is "an AIOS agent",
+     and the name beside it says which. --ag (the bundle colour) is still set, unused, so a bundle dot is one line away. */
+  const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''));
+  av.appendChild(csIcon('robot', size === 'big' ? 22 : 15));
   av.setAttribute('aria-hidden', 'true');
   const a = chatHatAgent(name, true);
   av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`);
@@ -11987,6 +12197,7 @@ function chatSkinUpsert(cs, item, animate, before) {
   } else if (rec.role === 'tool') {
     rec.info = chatToolInfo(item);
     chatSkinPaintTool(rec, item);
+    chatSkinSkillPaint(rec);
     if (CS_HIDDEN_CMD.test(rec.info.name)) rec.node.hidden = true;
     if (!rec.fileCard && rec.info.name === 'Write' && rec.info.status === 'ok' && rec.info.summary) chatSkinFileCard(rec, cs, rec.info.summary);
     const x = rec.tool;
@@ -13123,6 +13334,66 @@ function row(parent, label, control, hint) {
   return r;
 }
 
+/* Claude's language, its own choice right under the App's (0.17.0, hand test): "the language you write in" (no value in
+   Claude's settings) or one language for every session. Changing the App's language only ASKS whether Claude should
+   match (claudeLangAsk, set by the language row, answered here); it never changes how sessions answer by itself. */
+let claudeLangAsk = null;
+const claudeLangLabel = (value) => {
+  if (value === null) return t('settings.claudeLanguageWrite');
+  const code = { English: 'en', Spanish: 'es', 'Brazilian Portuguese': 'pt-br', Greek: 'el', French: 'fr' }[value];
+  const m = code && window.i18n ? window.i18n.localeMeta().find((x) => x.code === code) : null;
+  return m ? m.nativeName : value;
+};
+function settingsClaudeLanguageRow(wrap) {
+  const sel = document.createElement('select');
+  sel.className = 'tinput';
+  for (const v of [null, 'English', 'Spanish', 'Brazilian Portuguese', 'Greek', 'French']) {
+    const o = document.createElement('option'); o.value = v || ''; o.textContent = claudeLangLabel(v); sel.appendChild(o);
+  }
+  const r = row(wrap, t('settings.claudeLanguage'), sel, t('settings.claudeLanguageHint'));
+  const note = el('div', 'thint', '');
+  note.hidden = true;
+  r.querySelector('.tlabel').appendChild(note);
+  const ask = el('div', 'tlang-ask');
+  ask.hidden = true;
+  r.after(ask);
+  /* The question belongs to the language change that raised it: this Settings tab takes it and it is never shown again on a
+     later open (review). */
+  let asked = claudeLangAsk;
+  claudeLangAsk = null;
+  const paint = (cl) => {
+    const cur = cl ? cl.local : null;
+    for (const o of [...sel.options]) if (o.dataset.custom) o.remove();
+    const known = cur ? [...sel.options].find((o) => o.value && o.value.toLowerCase() === cur.toLowerCase()) : null;   // "spanish" from /config is Español
+    if (cur && !known) { const o = document.createElement('option'); o.value = cur; o.textContent = cur; o.dataset.custom = '1'; sel.appendChild(o); }   // a value set in /config stays visible as it is, until another is picked
+    sel.value = known ? known.value : (cur || '');
+    note.hidden = !(cl && !cl.local && cl.elsewhere);
+    note.textContent = note.hidden ? '' : t('settings.claudeLanguageElsewhere', { lang: cl.elsewhere });
+    const s = asked;
+    ask.hidden = !s;
+    ask.replaceChildren();
+    if (!s) return;
+    const yes = el('button', 'vbtn primary', t('settings.claudeLanguageMatch'));
+    const no = el('button', 'vbtn', t('settings.claudeLanguageKeep'));
+    yes.type = no.type = 'button';
+    ask.append(el('span', 'tlang-q', s.value === null ? t('settings.claudeLanguageSuggestWrite') : t('settings.claudeLanguageSuggest', { lang: claudeLangLabel(s.value) })), yes, no);
+    yes.addEventListener('click', () => void choose(s.value));
+    no.addEventListener('click', () => { asked = null; ask.hidden = true; });
+  };
+  const choose = async (v) => {
+    const cur = sel.options[sel.selectedIndex];
+    if (v !== null && cur && cur.dataset.custom && cur.value === v) return;   // the /config value, re-picked: nothing to write
+    const ok = await window.glassShell.setClaudeLanguage(v).catch(() => false);
+    asked = null;
+    const cl = await window.glassShell.claudeLanguage().catch(() => null);
+    /* "The language you write in" removes only the vault's value: one in Claude's own settings still applies, and says so (review). */
+    toast(!ok ? t('settings.claudeLanguageFailed') : v === null && cl && cl.elsewhere ? t('settings.claudeLanguageStillElsewhere', { lang: cl.elsewhere }) : t('settings.claudeLanguageSaved'));
+    paint(cl);
+  };
+  sel.addEventListener('change', () => void choose(sel.value || null));
+  void window.glassShell.claudeLanguage().then(paint).catch(() => paint(null));
+}
+
 function openSettingsTab() {
   openToolTab('::settings', t('settings.title'), async (body) => {
     const wrap = document.createElement('div');
@@ -13243,10 +13514,15 @@ function openSettingsTab() {
     langSel.addEventListener('change', async () => {
       await window.glassShell.setSetting('locale', langSel.value);
       const c = await window.glassShell.shellConfig();  // re-read so 'auto' resolves to the OS language
+      /* Claude's language is NOT changed with the App's: it is asked, under the next row (hand test of 0.17.0). Set before
+         relocalize, which reopens this tab. */
+      const cl = await window.glassShell.claudeLanguage().catch(() => null);
+      claudeLangAsk = cl && cl.suggest ? cl.suggest : null;
       relocalize(c.localeResolved || 'en');             // re-render every open surface
       toast(t('settings.savedLanguage'));
     });
     row(wrap, t('settings.language'), langSel, t('settings.languageHint'));
+    settingsClaudeLanguageRow(wrap);
 
     const mkToggle = (key, val) => {
       const t = document.createElement('input'); t.type = 'checkbox'; t.className = 'ttoggle'; t.checked = val;
@@ -14068,6 +14344,10 @@ function openSetupTab() {
          lines to paste, which is where first installs stalled. The App runs those four itself behind
          a consented click (Finish setup), so a refusal here points there instead of at a terminal. */
       + 'The App wires the skills, the plugin, the spawn wrapper and the hooks itself. If any of those is refused here, do not hand me commands to paste; tell me to press Finish setup in the App. '
+      /* THE APP'S LANGUAGE. This brief is English and Claude matches the language it is spoken to in,
+         so a French App opened an English setup. The vault's `language` setting cannot carry it yet:
+         on a first install there is no vault for it to live in. So the brief says it. */
+      + setupLanguageLine()
       + 'Work through it with me interactively.', cwd, 'auto', model);
     };
 

@@ -601,7 +601,7 @@ test('every title-bar button has a label that SHOWS, and each names what it does
      the cluster to carry the layout changer only), and a button nobody can hover needs no
      tooltip. It stays in the attach list so that unhiding it is a one-word change rather than a
      one-word change plus a forgotten wiring step. */
-  const visible = ['railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide'];
+  const visible = ['railLayout', 'dragReadme', 'dragSecurity', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide'];
   for (const id of [...visible, 'dragPanel']) {
     assert.ok(ids.includes(id), `${id} must exist in the title bar`);
     assert.ok(attached.includes(`'${id}'`), `${id} must be attached to the hover tip or its label is invisible`);
@@ -696,7 +696,7 @@ test("what's new opens once after an update, and its copy cannot describe the la
   /* THE COPY EXISTS IN EVERY LANGUAGE — this is the only screen that would otherwise ship
      English-only in a three-language app. */
   const KEYS = ['whatsnew.tab', 'whatsnew.title', 'whatsnew.sub', 'whatsnew.more', 'whatsnew.for',
-    'whatsnew.h1', 'whatsnew.b1', 'whatsnew.h2', 'whatsnew.b2', 'whatsnew.h3', 'whatsnew.b3', 'whatsnew.h4', 'whatsnew.b4'];
+    'whatsnew.h1', 'whatsnew.b1', 'whatsnew.h2', 'whatsnew.b2', 'whatsnew.h3', 'whatsnew.b3', 'whatsnew.h4', 'whatsnew.b4', 'whatsnew.h5', 'whatsnew.b5', 'whatsnew.h6', 'whatsnew.b6'];
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version: string };
   for (const loc of ['en', 'es', 'pt-br']) {
     const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
@@ -749,4 +749,14 @@ test('0.15 menu tidy: each item once, and where it belongs', () => {
   assert.match(block('menu.agents'), /^label: t\('menu\.agents'\),\s*submenu: \[\s*\{ label: t\('menu\.askAios'\)/, 'Ask leads Agents');
   assert.match(src, /help\.submenu\.push\(\{ type: 'separator' \}, \{ label: t\('menu\.checkUpdates'\)[^\n]*menu\.updateFramework/, 'Windows and Linux: both updates in Help');
   assert.match(block('menu.aios'), /menu\.checkUpdates'\), click: \(\) => intent\('checkUpdates'\) \},\s*\{ label: t\('menu\.updateFramework'\)/, 'the two updates side by side');
+});
+
+test('0.17.0: the manual and the security brief open their pages, the brief in Spanish for a Spanish App', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /const MANUAL_URL = 'https:\/\/www\.the-aios\.com\/manual\/en';/);
+  assert.doesNotMatch(app, /the-aios\.com\/#manual/, 'the old anchor is gone everywhere');
+  const url = new Function(/const securityBriefUrl = [^\n]*/.exec(app)![0] + '\nreturn securityBriefUrl;')() as (l: string) => string;
+  assert.equal(url('es'), 'https://www.the-aios.com/security-brief/es');
+  assert.equal(url('fr'), 'https://www.the-aios.com/security-brief/en');
+  assert.match(app, /dragSecurity\.innerHTML = icon\('shield', 15\);/);
 });

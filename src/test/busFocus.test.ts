@@ -16,7 +16,7 @@ const aios = fs.readFileSync('src/main/aios.ts', 'utf8');
 const css = fs.readFileSync('renderer/theme.css', 'utf8');
 
 test('the bus marks its spawns and reveals as background', () => {
-  assert.match(bus, /emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true(, \.\.\.where)?(, group: req\.group)?(, bus: true)? \}\)/);
+  assert.match(bus, /emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true(, \.\.\.where)?(, group: req\.group)?(, color: req\.groupColor)?(, bus: true)? \}\)/);
   assert.match(bus, /emit\(win\(\), 'focusByName', \{ name: req\.name, background: true \}\)/);
 });
 

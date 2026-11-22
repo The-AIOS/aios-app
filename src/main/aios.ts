@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { nudgeShort } from '../core/nudgeCommand';
 import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
@@ -32,6 +33,7 @@ import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
 import { FOLDER_SORT_KEY, MASTER_SORT_KEY, normalizeSortMode, setFolderSort, type FolderSortMap, type SortMode } from '../core/sort';
 import { t, setLocale, normalizeLocale, normalizeLocalePref, type Locale, type LocalePref } from '../i18n';
+import { claudeLanguageChoice, claudeLanguageSuggestion } from '../core/claudeLanguage';
 
 /**
  * The shell's AIOS data layer — faithful ports of the extension's fs-only
@@ -823,7 +825,7 @@ function suggestedRitual(md: string): { command: string; short: string; desc: st
     if (!m) continue;
     const command = m[1].trim();
     if (/close-?day|close-?session/i.test(command)) continue;
-    const short = command.replace(/^\/(?:aios:|vault-commands:)?/, '').split(/\s/)[0];
+    const short = nudgeShort(command);   // keeps an agent's name: "Run /agent explainer", never "Run /agent"
     let desc = '';
     for (const im of line.matchAll(/_([^_]+)_/g)) {
       const cand = im[1].trim();
@@ -882,7 +884,7 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
   if ((weekday === 1 || weekday === 2) && hour >= 6 && hour < 17 && !weeklyPlanExists()) {
     const r = suggestedRitual(md);
     // command-frontmatter desc stays as authored (vault content); the static fallback is localized
-    const desc = r && r.short === '7plan' && r.desc ? r.desc.charAt(0).toUpperCase() + r.desc.slice(1) : t(weekday === 1 ? 'nudge.planWeekMon' : 'nudge.planWeekTue');
+    const desc = r && r.short.split(' ')[0] === '7plan' && r.desc ? r.desc.charAt(0).toUpperCase() + r.desc.slice(1) : t(weekday === 1 ? 'nudge.planWeekMon' : 'nudge.planWeekTue');
     return { kind: 'week', icon: '🗓️', cmdLabel: t('nudge.runCmd', { short: '7plan' }), label: desc, command: '/aios:7plan' };
   }
   if (hour < 12) {
@@ -892,7 +894,9 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
       return { kind: 'plan', icon: '💡', cmdLabel: t('nudge.runCmd', { short: r.short }), label, command: r.command };
     }
   }
-  if (hour < 17 && runningCount > 0) {
+  /* From mid-afternoon only: closing sessions is an end-of-work act, and a nudge shown at 10am whenever anything runs
+     is one the operator learns to ignore (operator, 0.17). */
+  if (hour >= 15 && hour < 17 && runningCount > 0) {
     return { kind: 'sessions', icon: '💬', label: t('nudge.sessions'), command: '/aios:close-session' };
   }
   return null;
@@ -1542,7 +1546,7 @@ export function shellSettings(): ShellSettings {
     ignorePaths: Array.isArray(raw.ignorePaths)
       ? raw.ignorePaths.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim())
       : DEFAULT_IGNORE_PATHS,                 // absent → seed defaults; [] → operator cleared it
-    locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el'
+    locale: normalizeLocalePref(raw.locale),  // 'auto' (default) | 'en' | 'es' | 'pt-br' | 'el' | 'fr'
     killBehavior: raw.killBehavior === 'kill' || raw.killBehavior === 'capture' ? raw.killBehavior : 'ask', // Glass parity; default confirm
     terminalMode: raw.terminalMode === 'auto' ? 'auto' : 'ask', // #6: ask where to run (only when live sessions exist); auto = primary/new
     /* `auto` is the default and absent-means-default costs nothing here: the blocker dies
@@ -1607,6 +1611,35 @@ export function resolvedLocale(): Locale {
 /** Load the resolved UI locale into the i18n module. Call on boot + on change. */
 export function applyLocale(): Locale {
   return setLocale(resolvedLocale());
+}
+
+/**
+ * Claude's language, as the operator chose it in Settings (core/claudeLanguage.ts). `local` is the vault's own value,
+ * the one the App writes and every session launched from the vault reads first; `elsewhere` is a value in Claude's
+ * project or user settings, which applies when there is no local one. Never throws.
+ */
+export function getClaudeLanguage(): { local: string | null; elsewhere: string | null; suggest: { value: string | null } | null } {
+  try {
+    const [global, , project, local] = claudeStores();
+    const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const l = s(local.language), e = s(project.language) ?? s(global.language);
+    /* What matching the App's CURRENT language would write: the renderer shows it only right after the operator changed
+       the App's language, as a question. */
+    const sg = claudeLanguageSuggestion(resolvedLocale(), l ?? e);
+    /* Back to "the language you write in" cannot be done from here when the value lives in Claude's own settings: no
+       question the App cannot carry out (review). */
+    return { local: l, elsewhere: e, suggest: sg && sg.value === null && !l ? null : sg };
+  } catch { return { local: null, elsewhere: null, suggest: null }; }
+}
+/** Write the operator's choice: a language from the list, or null to remove the key (Claude then answers in the language
+ *  they write in). Only ever on their pick; nothing calls it on boot or when the App's language changes. False when the
+ *  value is not a choice, there is no vault, or the settings file does not parse (it is then left as it was). */
+export function setClaudeLanguage(v: unknown): boolean {
+  const choice = claudeLanguageChoice(v);
+  if (choice === undefined) return false;
+  try {
+    return writeClaudeLocalSettings((j) => { if (choice === null) delete j.language; else j.language = choice; });
+  } catch { return false; }
 }
 
 export function setShellSetting(key: string, value: unknown): void {
@@ -2857,6 +2890,15 @@ export const MODE_OPTIONS = ['default', 'auto', 'acceptEdits', 'plan', 'bypassPe
 function readJson(p: string): Record<string, unknown> {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; }
 }
+/* For a WRITER: an absent file is {} (start fresh), but a file that exists and does not parse is null, so the writer
+   refuses rather than replace it, and with it every permission rule the operator had (0.17.0 review: a trailing comma
+   in settings.local.json would have been rewritten on boot as {"language": …}). */
+function readJsonForWrite(p: string): Record<string, unknown> | null {
+  let raw: string;
+  try { raw = fs.readFileSync(p, 'utf8'); } catch { return {}; }
+  if (!raw.trim()) return {};   // an empty file holds nothing to lose
+  try { const j = JSON.parse(raw); return j && typeof j === 'object' && !Array.isArray(j) ? j : null; } catch { return null; }
+}
 /* The framework root's own Claude stores. `<root>/.claude/settings.json` is COMMITTED, so it is
    read and never written — a personal preference does not belong in a shared repo.
    `<root>/.claude/settings.local.json` is machine-local, and it is what `/config` writes and what
@@ -2877,25 +2919,29 @@ function claudeStores(): [Record<string, unknown>, Record<string, unknown>, Reco
   return [readJson(claudeSettingsPath()), readJson(claudeJsonPath()), pp ? readJson(pp) : {}, lp ? readJson(lp) : {}];
 }
 
-function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void): void {
+function writeClaudeLocalSettings(mutate: (j: Record<string, unknown>) => void): boolean {
   const p = claudeLocalSettingsPath();
-  if (!p) return;
-  const j = readJson(p);
+  if (!p) return false;
+  const j = readJsonForWrite(p);
+  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return false; }
   mutate(j);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
   fs.renameSync(tmp, p);
+  return true;
 }
 
-function writeClaudeSettings(mutate: (j: Record<string, unknown>) => void): void {
+function writeClaudeSettings(mutate: (j: Record<string, unknown>) => void): boolean {
   const p = claudeSettingsPath();
-  const j = readJson(p);
+  const j = readJsonForWrite(p);
+  if (!j) { console.warn('[claude-settings] not writing', p, ': it does not parse, and rewriting it would drop what it holds'); return false; }
   mutate(j);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(j, null, 2) + '\n');
   fs.renameSync(tmp, p);
+  return true;
 }
 
 /**

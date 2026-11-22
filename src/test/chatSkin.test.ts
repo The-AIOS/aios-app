@@ -1121,7 +1121,7 @@ const coralTokens = (sheet: string): string[] => [...sheet.matchAll(/^\s*(--chat
 
 test('coral is the send button and the working dots, nothing else in the chat: focus, links, rings and tokens are neutral or cool', () => {
   const inView = (sheet: string): string[] => coralUsers(sheet);
-  assert.deepEqual([...new Set(inView(css))].sort(), ['.cc-send', '.cc-send:hover:not(:disabled)', '.cw-dots i'], 'only the send button and the working dots (the brand thinking, 0.14.0 round) may use the accent');
+  assert.deepEqual([...new Set(inView(css))].sort(), ['.cc-send', '.cc-send:hover:not(:disabled)', '.ch-av', '.chat-hat', '.chat-hat .ch-head .cs-ico', '.chat-hat .vbtn.state .cs-ico', '.chat-hat .vbtn.state, .chat-hat .vbtn.chosen', '.chat-hat .vbtn:hover:not(:disabled)', '.chat-note.hat', '.chat-note.hat .cs-ico', '.chat-tool.aios-cmd .ct-kind', '.cw-dots i'], 'only the send button, the working dots (the brand thinking, 0.14.0 round) and the AIOS\'s own features in the column, a command\'s mark and an agent (hat) (0.17.0 hand test), may use the accent');
   assert.deepEqual(coralTokens(css), [], 'no chat token is built from the accent');
   // the composer card keeps a neutral focus (a border and a faint halo), and links use their own cool token
   const rule = (sel: string): string => skinRules(css).find(([s]) => s === sel)?.[1] ?? '';
@@ -3944,7 +3944,7 @@ test('a file dropped on a pane in chat view lands in the chat box, never in the 
   drop('a', { view: 'term', chatSkin: { input: {} } }, ['/tmp/shot.png']);
   assert.deepEqual(typed, ["'/tmp/shot.png' "], 'control: terminal view still types the quoted path');
   assert.deepEqual(drafts, ['drop'], 'and marks it as a draft (#81)');
-  assert.equal((app.match(/dropPathsInto\(/g) || []).length, 3, 'both terminal drop zones go through it (plus its definition)');
+  assert.equal((app.match(/dropPathsInto\(/g) || []).length, 4, 'every terminal drop zone goes through it: the pane, the Running zone, a session tab (0.17), plus its definition');
   assert.doesNotMatch(app, /attachDropZone\([^\n]*ptyWrite/, 'no drop zone writes to a pty directly any more');
 });
 
@@ -4854,7 +4854,7 @@ test('the reason and the purpose are text, never markup', () => {
 });
 
 test('each agent wears its bundle folder\'s colour; a company folder gets a stable one; coral is never an agent colour', () => {
-  const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s initial on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
+  const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s mark: a robot on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
   assert.equal(key('finance-legal'), 'finance-legal');
   assert.equal(key(''), 'custom');
   assert.match(key('sovra'), /^x[0-3]$/);
@@ -4881,4 +4881,11 @@ test('the Skill call\'s summary carries its args, so the hat it loads can be nam
 test('the chip never crowds the bar: its name is cut early, the whole chip last, and the bar is fitted again', () => {
   assert.match(app, /const CHAT_BAR_CUT = \[[^\]]*'\.cb-hat \.cb-v'[^\]]*'\.cb-hat'\]/);
   assert.match(fnBody(app, 'chatSkinHatChip'), /chatSkinFitSoon\(cs\.bar\);/);
+});
+
+test('0.17.0 hand test: an agent\'s mark is a robot on its colour, not its initial', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const body = /function chatHatAvatar\([^)]*\) \{[\s\S]*?\n\}/.exec(app)![0];
+  assert.match(body, /csIcon\('robot', size === 'big' \? 22 : 15\)/);
+  assert.doesNotMatch(body, /charAt\(0\)/, 'negative control: the initial is gone');
 });

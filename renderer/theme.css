@@ -355,8 +355,19 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .zbar > .tsMore:hover { color: var(--ink); border-color: var(--accent); background: var(--surface); }
 .zbar > .tsMore:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
-       border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
-       transition: all .14s; flex: 0 0 auto; }
+       border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer;
+       transition: background .14s, color .14s, border-color .14s; flex: 0 1 150px; min-width: 90px; overflow: hidden; }
+/* #189, Chrome's tab strip: every tab is the same 150px while they fit (hand test: content widths left short names
+   looking shrunk, and sharing the strip up to 190px looked too wide), then all shrink evenly (titles truncate) down to
+   90px; past that the strip goes COMPACT (an icon and a dot, the active tab keeps its title and its ×); only past
+   the compact minimum does it scroll, with the fades and chevrons. A tab frozen by close-in-place keeps the width
+   it had until the pointer leaves the strip, or a second after the last close. */
+.tab .tname { min-width: 0; flex: 0 1 auto; }
+.tab .tx { margin-left: auto; }   /* the × at the tab's right edge, as Chrome: tabs are a fixed width now, so it no longer follows the name (hand test) */
+.tabstrip.tcompact .tab { min-width: 40px; padding: 5px 9px; }
+.tabstrip.tcompact .tab:not(.active) .tname, .tabstrip.tcompact .tab:not(.active) .tx { display: none; }
+.tabstrip.tcompact .tab.active { min-width: 120px; }
+.tabstrip .tab.tfrozen { flex: 0 0 auto; }
 /* tabs pick up the same coral hover outline as the (+) — the invitation reads the same
    wherever it appears (DESIGN.md: coral means action) */
 .tab:hover { color: var(--ink); background: var(--surface); border-color: var(--accent); }
@@ -984,6 +995,10 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 
 /* a setting that cannot take effect says why, in the row itself */
 .thint.twarn { color: var(--st-warn-ink); }
+/* the question after the App's language changed: should Claude match? (0.17.0) */
+.tlang-ask { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 12.5px; }
+.tlang-ask[hidden] { display: none; }
+.tlang-q { flex: 1 1 220px; min-width: 0; }
 
 /* quota */
 #pQuota { display: none; }
@@ -2234,33 +2249,36 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-note.err { --ce: var(--st-error); --ce-ink: var(--st-error-ink); align-self: stretch; text-align: left; white-space: normal; border-radius: 12px; padding: 10px 14px 11px;
                  font-size: .9em; color: var(--ink); background: color-mix(in srgb, var(--ce) 7%, var(--chat-out-bg)); border-color: color-mix(in srgb, var(--ce) 38%, transparent); }
 .chat-note.err.refusal { --ce: var(--st-warn); --ce-ink: var(--st-warn-ink); }
-/* Hats (#109), in the effort's violet (coral stays the send button's): a suggested agent is a card under the reply; putting it on is a line in the column, and a chip in the bar. */
-.chat-hat { margin-top: 10px; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--st-testing) 40%, transparent);
-            background: color-mix(in srgb, var(--st-testing) 6%, var(--chat-out-bg)); }
+/* Hats (#109), in the AIOS coral since 0.17.0 (an agent is an AIOS feature, as a command is): a suggested agent is a card under the reply; putting it on is a line in the column, and a chip in the bar. */
+.chat-hat { margin-top: 10px; padding: 10px 12px 11px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+            background: color-mix(in srgb, var(--accent) 5%, var(--chat-out-bg)); }
 .chat-hat .ch-head { display: flex; align-items: center; gap: 6px; color: var(--subtle); font-size: .82em; }
-.chat-hat .ch-head .cs-ico { color: var(--st-testing); }
+.chat-hat .ch-head .cs-ico { color: var(--accent-ink); }
 .chat-hat .ch-who { display: flex; align-items: center; gap: 10px; margin: 6px 0 9px; }
 .chat-hat .ch-words { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
-.ch-av { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; background: var(--ag, var(--agent-custom));
-         color: var(--agent-ink); font-weight: 700; font-size: 11px; line-height: 1; transition: background-color .2s ease; }
+.ch-av { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; background: none;
+         color: var(--accent-ink); font-weight: 700; font-size: 11px; line-height: 1; transition: background-color .2s ease; }
 .ch-av.big { width: 30px; height: 30px; border-radius: 8px; font-size: 15px; }
+.ch-av .cs-ico, .ch-av svg { display: block; }
+.ch-av .cs-ico, .cb-where .ch-av .cs-ico { color: inherit; }   /* the robot is coral wherever it sits */
+.cb-hat .ch-av svg { width: 13px; height: 13px; }
 .chat-hat .ch-name { font-size: 1.02em; }
 .chat-hat .ch-why { color: var(--subtle); }
 .chat-hat .ch-purpose { margin: -4px 0 9px 40px; color: var(--subtle); font-size: .88em;
                         display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }   /* a long description stays two lines; the full text is its tooltip */
 .chat-note.hat.in-bubble { margin: 0 0 8px; }
-.chat-hat .vbtn:hover:not(:disabled) { border-color: var(--st-testing); }
+.chat-hat .vbtn:hover:not(:disabled) { border-color: var(--accent); }
 .chat-hat .vbtn.state { display: inline-flex; align-items: center; gap: 4px; }
-.chat-hat .vbtn.state .cs-ico { color: var(--st-testing); }
-.chat-hat .vbtn.state, .chat-hat .vbtn.chosen { color: var(--ink); border-color: var(--st-testing); background: color-mix(in srgb, var(--st-testing) 16%, var(--surface-2)); cursor: default; }   /* coral stays the send button's */
+.chat-hat .vbtn.state .cs-ico { color: var(--accent-ink); }
+.chat-hat .vbtn.state, .chat-hat .vbtn.chosen { color: var(--ink); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); cursor: default; }   /* agents are an AIOS feature: coral, as commands (0.17.0 hand test) */
 .chat-hat .ch-acts { display: flex; flex-wrap: wrap; gap: 6px; }
 .chat-hat.answered .ch-acts .vbtn:not(.chosen) { color: var(--faint); }
 .chat-hat.auto .ch-done { margin: 0 0 9px; }
 .chat-hat .ch-moved, .chat-note.hat .ch-moved { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .chat-hat .ch-moved { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--chat-claude-line); color: var(--ink); font-size: .9em; }
 .chat-hat .ch-done { margin-top: 7px; color: var(--subtle); font-size: .85em; }
-.chat-note.hat { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); border-color: color-mix(in srgb, var(--st-testing) 40%, transparent); }
-.chat-note.hat .cs-ico { color: var(--st-testing); }
+.chat-note.hat { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.chat-note.hat .cs-ico { color: var(--accent-ink); }
 .chat-note.hat.off { color: var(--subtle); border-color: var(--chat-claude-line); }
 .chat-note.hat.failed { color: var(--subtle); border-color: var(--chat-claude-line); }
 .chat-note.hat.failed .cs-ico { color: var(--faint); }
@@ -2465,6 +2483,15 @@ body.light .chatskin .cs-sticky { background: color-mix(in srgb, var(--chat-user
 /* a skill loading wears its own mark in the cool hue, so it reads apart from the tools it then calls */
 .chat-tool[data-kind="skill"] .ct-kind { color: var(--chat-model-ink); }
 .chat-tool[data-kind="skill"] .ct-arg { color: var(--ink); }
+/* a skill loaded stands alone (0.17.0): its name in bold, and the skill's own description under it */
+.chat-tool.skill-line .ct-arg { font-weight: 600; }
+.ct-skill { display: flex; align-items: center; gap: 8px; margin: 0 0 4px 26px; min-width: 0; color: var(--subtle); font-size: 12px; }
+.ct-skill-desc { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-skill .ct-file-btn { flex: 0 0 auto; height: 22px; padding: 0 6px; border-color: transparent; background: transparent; color: var(--subtle); font-weight: 400; }   /* there to use, not to invite (hand test) */
+.ct-skill .ct-file-btn:hover { color: var(--ink); background: var(--chat-row-hover); }
+.chat-tool.aios-cmd .ct-kind { color: var(--accent-ink); }   /* the AIOS mark, in the brand's coral (hand test of 0.17.0) */
+/* a file dragged over a session's tab: the tab it will land in */
+.tab.dropok { box-shadow: inset 0 0 0 2px var(--chat-focus); }   /* neutral, as every drop target but the terminal card */
 /* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
 .cc-box.bang, .cc-box.bang:focus-within { border-color: var(--chat-bang); }
 .cc-box.bang .chat-input { color: var(--chat-bang-ink); }

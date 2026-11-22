@@ -121,6 +121,14 @@ test('nudgeState: evening → close-day; morning → the note’s 💡 ritual', 
   assert.equal(morning && morning.cmdLabel, 'Run /7plan');
 });
 
+test('nudgeState: the open-sessions nudge waits until mid-afternoon', () => {
+  const noon = aios.nudgeState(13, 4, 3);
+  assert.notEqual(noon && noon.kind, 'sessions', 'not at 1pm, however many sessions run');
+  const afternoon = aios.nudgeState(15, 4, 3);
+  assert.equal(afternoon && afternoon.kind, 'sessions', 'from 3pm, with sessions running');
+  assert.equal(aios.nudgeState(15, 4, 0), null, 'nothing running, nothing to close');
+});
+
 test('readCompanies parses the USER.md table', () => {
   const c = aios.readCompanies();
   assert.equal(c.length, 1);

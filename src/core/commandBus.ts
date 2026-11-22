@@ -73,6 +73,9 @@ export interface BusRequest {
   group?: string;
   /** Why a written `group` was dropped or cut, for the log. */
   groupNote?: string;
+  /* #190: the colour a NEW group gets (one of GROUP_COLORS; 'red' reads as coral). Ignored when the group already
+     exists, and an unknown value falls back to the next free colour: advisory, like `group`. */
+  groupColor?: string;
 }
 
 /** The longest tab-group name, matching the group editor's own field (renderer tgEdit maxLength). */
@@ -90,6 +93,18 @@ export function parseGroup(raw: unknown): { group?: string; note?: string } {
   if (!s) return { note: 'group ignored: empty' };
   if (s.length > GROUP_MAX) return { group: s.slice(0, GROUP_MAX).trim(), note: `group cut to ${GROUP_MAX} characters` };
   return { group: s };
+}
+
+/** The tab-group colours, in the App's order (renderer TG_COLORS; a test keeps the two identical). */
+export const GROUP_COLORS = ['grey', 'blue', 'indigo', 'purple', 'pink', 'coral', 'orange', 'yellow', 'lime', 'green', 'cyan', 'brown'] as const;
+
+/** #190: the `color` field, read leniently: a known colour name (any case; `red` is coral), else nothing, with a note. */
+export function parseGroupColor(raw: unknown): { color?: string; note?: string } {
+  if (raw === undefined || raw === null || raw === '') return {};
+  const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  const c = s === 'red' ? 'coral' : s;
+  if ((GROUP_COLORS as readonly string[]).includes(c)) return { color: c };
+  return { note: `color ignored: ${typeof raw === 'string' ? `'${raw.slice(0, 20)}'` : typeof raw} is not one of ${GROUP_COLORS.join(', ')}` };
 }
 
 /** kebab-case handle — matches app.js:2568 + Glass's sanitizer exactly. */
@@ -171,7 +186,9 @@ export function parseRequest(raw: string): BusRequest | null {
 function groupOf(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {
   if (action !== 'spawn' && action !== 'resume') return {};
   const g = parseGroup(j.group);
-  return { group: g.group, groupNote: g.note };
+  const col = g.group ? parseGroupColor(j.color) : {};
+  const note = [g.note, col.note].filter(Boolean).join('; ') || undefined;
+  return { group: g.group, groupNote: note, groupColor: col.color };
 }
 
 function contract4Of(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {

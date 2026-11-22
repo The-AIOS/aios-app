@@ -46,7 +46,7 @@ test('a resume that falls back to a spawn keeps its group', () => {
 
 test('main hands the group to the renderer on both launch paths, and says when it did not apply', () => {
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  const emits = src.match(/emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group(, bus: true)? \}\);/g) || [];
+  const emits = src.match(/emit\(win\(\), 'terminal', \{ name: req\.name, cmd, background: true, \.\.\.where, group: req\.group(, color: req\.groupColor)?(, bus: true)? \}\);/g) || [];
   assert.equal(emits.length, 2, 'spawn and resume both pass it');
   assert.match(src, /group '\$\{req\.group\}' NOT applied: a running session keeps its tab where it is/);
   assert.match(src, /if \(req\.groupNote\) log\(`spawn/);
@@ -82,7 +82,7 @@ test('the renderer joins the group with that name, whatever its case, or creates
 });
 
 test('the bus terminal handler puts a launched pane into the requested group', () => {
-  assert.match(app, /const id = await createPane\(\{ name: m\.name \|\| 'terminal'[^\n]*\n[^\n]*\n\s*if \(id && typeof m\.group === 'string' && m\.group\) tgJoinByName\(id, m\.group\);/);
+  assert.match(app, /const id = await createPane\(\{ name: m\.name \|\| 'terminal'[^\n]*\n[^\n]*\n\s*if \(id && typeof m\.group === 'string' && m\.group\) tgJoinByName\(id, m\.group(, typeof m\.color === 'string' \? m\.color : '')?\);/);
 });
 
 test('the inbox README documents group as an App-only, advisory field, and how Glass treats it', () => {

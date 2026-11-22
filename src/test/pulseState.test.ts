@@ -88,6 +88,7 @@ function postStateReads(host: string): string[] {
  * claim about this code, not a category — the whole point is that it took a human read.
  */
 const NO_PUSH: Readonly<Record<string, string>> = {
+  'claude:setLanguage': "Claude Code's own language setting, in its settings file; the pulse shows nothing from it, and Settings repaints its row itself",
   'fs:addFolder':
     'workspace folders are the file tree, which is not on the postState payload; the renderer repaints the tree itself',
   'fs:addFolderPath': 'same as fs:addFolder',
