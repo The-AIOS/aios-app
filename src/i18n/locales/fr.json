@@ -1452,7 +1452,7 @@
   "chat.skin.tg.failed.one": "{n} n’a pas abouti",
   "chat.skin.tg.failed.other": "{n} n’ont pas abouti",
   "chat.usage.none": "aucune mesure",
-  "chat.settings.sample": "Des mots simples, affichés comme vous l’avez choisi.",
+  "chat.settings.sample": "Aperçu : voici comment se lisent les messages dans la vue conversation.",
   "chat.skin.state.connecting.title": "Connexion à {name}",
   "chat.skin.state.connecting.text": "Une session qui vient de démarrer a besoin de quelques secondes avant que sa conversation puisse s’afficher.",
   "chat.skin.state.waiting.title": "En attente de la conversation",

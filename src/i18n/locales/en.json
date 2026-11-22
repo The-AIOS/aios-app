@@ -1452,7 +1452,7 @@
   "chat.skin.tg.failed.one": "{n} didn't go through",
   "chat.skin.tg.failed.other": "{n} didn't go through",
   "chat.usage.none": "no reading",
-  "chat.settings.sample": "Plain words, set the way you chose.",
+  "chat.settings.sample": "Preview: this is how messages read in the chat view.",
   "chat.skin.state.connecting.title": "Connecting to {name}",
   "chat.skin.state.connecting.text": "A session that has just started needs a few seconds before its conversation can be shown.",
   "chat.skin.state.waiting.title": "Waiting for the conversation",

@@ -1465,7 +1465,7 @@
   "chat.skin.tg.failed.one": "{n} δεν ολοκληρώθηκε",
   "chat.skin.tg.failed.other": "{n} δεν ολοκληρώθηκαν",
   "chat.usage.none": "no reading",
-  "chat.settings.sample": "Plain words, set the way you chose.",
+  "chat.settings.sample": "Προεπισκόπηση: έτσι διαβάζονται τα μηνύματα στην προβολή συνομιλίας.",
   "chat.skin.state.connecting.title": "Connecting to {name}",
   "chat.skin.state.connecting.text": "A session that has just started needs a few seconds before its conversation can be shown.",
   "chat.skin.state.waiting.title": "Waiting for the conversation",
