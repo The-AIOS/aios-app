@@ -2259,6 +2259,8 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .ch-av { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; background: var(--ag, var(--agent-custom));
          color: var(--agent-ink); font-weight: 700; font-size: 11px; line-height: 1; transition: background-color .2s ease; }
 .ch-av.big { width: 30px; height: 30px; border-radius: 8px; font-size: 15px; }
+.ch-av .cs-ico, .ch-av svg { display: block; }
+.cb-hat .ch-av svg { width: 11px; height: 11px; }
 .chat-hat .ch-name { font-size: 1.02em; }
 .chat-hat .ch-why { color: var(--subtle); }
 .chat-hat .ch-purpose { margin: -4px 0 9px 40px; color: var(--subtle); font-size: .88em;

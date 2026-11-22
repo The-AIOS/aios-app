@@ -4854,7 +4854,7 @@ test('the reason and the purpose are text, never markup', () => {
 });
 
 test('each agent wears its bundle folder\'s colour; a company folder gets a stable one; coral is never an agent colour', () => {
-  const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s initial on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
+  const key = new Function(app.slice(app.indexOf('const CHAT_HAT_BUNDLES'), app.indexOf('/* The agent\'s mark: a robot on its colour.')) + '\nreturn chatHatColorKey;')() as (g: string) => string;
   assert.equal(key('finance-legal'), 'finance-legal');
   assert.equal(key(''), 'custom');
   assert.match(key('sovra'), /^x[0-3]$/);
@@ -4881,4 +4881,11 @@ test('the Skill call\'s summary carries its args, so the hat it loads can be nam
 test('the chip never crowds the bar: its name is cut early, the whole chip last, and the bar is fitted again', () => {
   assert.match(app, /const CHAT_BAR_CUT = \[[^\]]*'\.cb-hat \.cb-v'[^\]]*'\.cb-hat'\]/);
   assert.match(fnBody(app, 'chatSkinHatChip'), /chatSkinFitSoon\(cs\.bar\);/);
+});
+
+test('0.17.0 hand test: an agent\'s mark is a robot on its colour, not its initial', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  const body = /function chatHatAvatar\([^)]*\) \{[\s\S]*?\n\}/.exec(app)![0];
+  assert.match(body, /csIcon\('robot', size === 'big' \? 18 : 12\)/);
+  assert.doesNotMatch(body, /charAt\(0\)/, 'negative control: the initial is gone');
 });

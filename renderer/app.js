@@ -11894,9 +11894,12 @@ function chatHatColorKey(group) {
   for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return 'x' + (h % 4);
 }
-/* The agent's initial on its colour. */
+/* The agent's mark: a robot on its colour. */
 function chatHatAvatar(name, size) {
-  const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''), String(name || '?').charAt(0).toUpperCase());
+  /* A robot on the agent's colour, not its initial (0.17.0 hand test): what the mark must say first is "an agent", and the
+     name beside it says which. An initial told little: colours are per bundle and two agents can share a letter. */
+  const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''));
+  av.appendChild(csIcon('robot', size === 'big' ? 18 : 12));
   av.setAttribute('aria-hidden', 'true');
   const a = chatHatAgent(name, true);
   av.style.setProperty('--ag', `var(--agent-${chatHatColorKey(a && a.group)})`);
