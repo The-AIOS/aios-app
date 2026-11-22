@@ -1278,7 +1278,7 @@
   "restore.paused": "{name} n’est pas encore lancée",
   "restore.resumeNow": "Reprendre",
   "settings.unattended": "Mode sans surveillance",
-  "settings.unattendedHint": "Pour un ordinateur que personne n’utilise. Désactivé, les onglets rouverts attendent que vous cliquiez dessus. Activé, AIOS lance lui-même chaque session, une à la fois, et quand Claude demande comment reprendre une longue session, il donne la réponse choisie ici. Les mises à jour téléchargées s’installent alors quand rien ne tourne et que personne n’a touché l’ordinateur depuis 10 minutes ; le redémarrage arrête ce qui tourne encore dans un simple onglet de terminal. Cet ordinateur uniquement.",
+  "settings.unattendedHint": "Pour un ordinateur que personne n’utilise : les sessions démarrent seules à la réouverture d’AIOS, et les mises à jour s’installent après 10 minutes d’inactivité. Cet ordinateur uniquement.",
   "unattended.off": "Désactivé : lancer une session quand je clique sur son onglet",
   "unattended.summary": "Activé : tout lancer ; reprendre les longues à partir d’un résumé (recommandé)",
   "unattended.full": "Activé : tout lancer ; reprendre les longues en entier",

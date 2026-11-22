@@ -1278,7 +1278,7 @@
   "restore.paused": "{name} is not running yet",
   "restore.resumeNow": "Resume",
   "settings.unattended": "Unattended mode",
-  "settings.unattendedHint": "For a computer nobody is sitting at. Off, reopened tabs wait until you click them. On, AIOS starts every session itself, one at a time, and when Claude asks how to resume a long session it gives the answer you pick here. Downloaded updates then install once nothing is running and nobody has touched the computer for 10 minutes; the restart stops anything still running in a plain terminal tab. This computer only.",
+  "settings.unattendedHint": "For a computer nobody is sitting at: sessions start by themselves when AIOS reopens, and updates install once it's been idle 10 minutes. This computer only.",
   "unattended.off": "Off — start a session when I click its tab",
   "unattended.summary": "On — start every session; resume long ones from a summary (recommended)",
   "unattended.full": "On — start every session; resume long ones in full",

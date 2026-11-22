@@ -1278,7 +1278,7 @@
   "restore.paused": "{name} ainda não está rodando",
   "restore.resumeNow": "Retomar",
   "settings.unattended": "Modo não assistido",
-  "settings.unattendedHint": "Para um computador que ninguém está usando. Desligado, as abas reabertas esperam você clicar nelas. Ligado, o AIOS inicia cada sessão sozinho, uma de cada vez, e quando o Claude pergunta como retomar uma sessão longa, dá a resposta que você escolher aqui. As atualizações baixadas são instaladas quando nada está rodando e ninguém mexeu no computador por 10 minutos; a reinicialização interrompe o que ainda estiver rodando numa aba de terminal simples. Só neste computador.",
+  "settings.unattendedHint": "Para um computador que ninguém está usando: as sessões iniciam sozinhas quando o AIOS reabre, e as atualizações se instalam após 10 minutos sem atividade. Só neste computador.",
   "unattended.off": "Desligado: iniciar uma sessão quando eu clicar na aba",
   "unattended.summary": "Ligado: iniciar todas; retomar as longas a partir de um resumo (recomendado)",
   "unattended.full": "Ligado: iniciar todas; retomar as longas por completo",
