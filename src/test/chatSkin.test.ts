@@ -1121,7 +1121,7 @@ const coralTokens = (sheet: string): string[] => [...sheet.matchAll(/^\s*(--chat
 
 test('coral is the send button and the working dots, nothing else in the chat: focus, links, rings and tokens are neutral or cool', () => {
   const inView = (sheet: string): string[] => coralUsers(sheet);
-  assert.deepEqual([...new Set(inView(css))].sort(), ['.cc-send', '.cc-send:hover:not(:disabled)', '.cw-dots i'], 'only the send button and the working dots (the brand thinking, 0.14.0 round) may use the accent');
+  assert.deepEqual([...new Set(inView(css))].sort(), ['.cc-send', '.cc-send:hover:not(:disabled)', '.chat-tool.aios-cmd .ct-kind', '.cw-dots i'], 'only the send button, the working dots (the brand thinking, 0.14.0 round) and the AIOS mark on a command\'s line (0.17.0 hand test) may use the accent');
   assert.deepEqual(coralTokens(css), [], 'no chat token is built from the accent');
   // the composer card keeps a neutral focus (a border and a faint halo), and links use their own cool token
   const rule = (sel: string): string => skinRules(css).find(([s]) => s === sel)?.[1] ?? '';

@@ -2484,7 +2484,9 @@ body.light .chatskin .cs-sticky { background: color-mix(in srgb, var(--chat-user
 .chat-tool.skill-line .ct-arg { font-weight: 600; }
 .ct-skill { display: flex; align-items: center; gap: 8px; margin: 0 0 4px 26px; min-width: 0; color: var(--subtle); font-size: 12px; }
 .ct-skill-desc { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ct-skill .ct-file-btn { flex: 0 0 auto; }
+.ct-skill .ct-file-btn { flex: 0 0 auto; height: 22px; padding: 0 6px; border-color: transparent; background: transparent; color: var(--subtle); font-weight: 400; }   /* there to use, not to invite (hand test) */
+.ct-skill .ct-file-btn:hover { color: var(--ink); background: var(--chat-row-hover); }
+.chat-tool.aios-cmd .ct-kind { color: var(--accent-ink); }   /* the AIOS mark, in the brand's coral (hand test of 0.17.0) */
 /* a file dragged over a session's tab: the tab it will land in */
 .tab.dropok { box-shadow: inset 0 0 0 2px var(--chat-focus); }   /* neutral, as every drop target but the terminal card */
 /* "!" at the start runs a shell command: the card takes Claude Code's bash-mode pink, border and text */
