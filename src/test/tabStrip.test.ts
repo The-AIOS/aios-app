@@ -22,7 +22,7 @@ test('tabs fit while each can have at least 90px; past that the strip goes compa
 });
 
 test('the CSS: tabs shrink evenly to 90px, compact shows icon and dot, the active tab keeps its title', () => {
-  assert.match(css, /transition: background \.14s, color \.14s, border-color \.14s; flex: 1 1 0; min-width: 90px; overflow: hidden; \}/, 'equal shares, as Chrome: a short name does not make a narrow tab (hand test)');
+  assert.match(css, /transition: background \.14s, color \.14s, border-color \.14s; flex: 0 1 150px; min-width: 90px; overflow: hidden; \}/, 'one width for every tab while they fit, as Chrome: a short name does not look shrunk, a long one does not stretch (hand test)');
   assert.match(css, /\.tabstrip\.tcompact \.tab:not\(\.active\) \.tname, \.tabstrip\.tcompact \.tab:not\(\.active\) \.tx \{ display: none; \}/);
   assert.match(css, /\.tabstrip\.tcompact \.tab\.active \{ min-width: 120px; \}/);
 });
@@ -42,4 +42,11 @@ test('wiring: the stage is recomputed with the overflow, close holds the widths 
 test('hand test of 0.17.0: a tab takes its new width at once (no width animation), and a close through the picker does not hold the strip', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   assert.match(app, /const acted = await endSession\(\{ name: p\.name, paneId: id \}\);\n[\s\S]{0,400}?if \(KILLBEHAVIOR !== 'kill' && KILLBEHAVIOR !== 'capture' && strip && strip\.dataset\.tfrozen && strip\._thaw\) strip\._thaw\(\);/);
+});
+
+test('hand test of 0.17.0: compact tabs are never held after a close, and a hold ends a second after the last close', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /if \(strip\.classList\.contains\('tcompact'\) && !strip\.dataset\.tfrozen\) return;/);
+  assert.match(app, /const TAB_THAW_MS = 1000;/);
+  assert.match(app, /strip\._thawT = setTimeout\(\(\) => \{ if \(strip\.dataset\.tfrozen && strip\._thaw\) strip\._thaw\(\); \}, TAB_THAW_MS\);/);
 });

@@ -356,9 +356,9 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .zbar > .tsMore:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
        border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
-       transition: background .14s, color .14s, border-color .14s; flex: 1 1 0; min-width: 90px; overflow: hidden; }
-/* #189, Chrome's tab strip: every tab takes the same share of the strip, up to 190px (hand test: a short name left a
-   tab at 90px, and after closing others it looked stuck shrunk), then all shrink evenly (titles truncate) down to
+       transition: background .14s, color .14s, border-color .14s; flex: 0 1 150px; min-width: 90px; overflow: hidden; }
+/* #189, Chrome's tab strip: every tab is the same 150px while they fit (hand test: content widths left short names
+   looking shrunk, and sharing the strip up to 190px looked too wide), then all shrink evenly (titles truncate) down to
    90px; past that the strip goes COMPACT (an icon and a dot, the active tab keeps its title and its ×); only past
    the compact minimum does it scroll, with the fades and chevrons. A tab frozen by close-in-place keeps the width
    it had until the pointer leaves the strip. */

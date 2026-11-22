@@ -3697,12 +3697,20 @@ function revealTab(tab) {
 }
 /* #189, close in place (as Chrome does): closing a tab with the mouse keeps every other tab at the width it has, so the
    next tab's × lands under the pointer and several can be closed in a row; the strip relaxes when the pointer leaves. */
+const TAB_THAW_MS = 1000;
 function freezeStripForClose(strip) {
   if (!strip || !strip.classList || !strip.classList.contains('tabstrip')) return;
+  /* Compact, only the active tab has a ×: there is no next × to keep under the pointer, so nothing is held (hand test). */
+  if (strip.classList.contains('tcompact') && !strip.dataset.tfrozen) return;
   for (const t of strip.querySelectorAll(':scope > .tab')) { t.style.width = t.offsetWidth + 'px'; t.classList.add('tfrozen'); }
   strip.dataset.tfrozen = '1';
+  /* A second without another close and the tabs take their room, pointer still there or not (hand test: they waited for the
+     pointer to leave and looked stuck). Closes in a row each restart the second. */
+  clearTimeout(strip._thawT);
+  strip._thawT = setTimeout(() => { if (strip.dataset.tfrozen && strip._thaw) strip._thaw(); }, TAB_THAW_MS);
   if (strip._thaw) return;
   strip._thaw = () => {
+    clearTimeout(strip._thawT);
     delete strip.dataset.tfrozen;
     for (const t of strip.querySelectorAll(':scope > .tab.tfrozen')) { t.style.width = ''; t.classList.remove('tfrozen'); }
     syncStripStage(strip);
