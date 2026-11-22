@@ -696,7 +696,7 @@ test("what's new opens once after an update, and its copy cannot describe the la
   /* THE COPY EXISTS IN EVERY LANGUAGE — this is the only screen that would otherwise ship
      English-only in a three-language app. */
   const KEYS = ['whatsnew.tab', 'whatsnew.title', 'whatsnew.sub', 'whatsnew.more', 'whatsnew.for',
-    'whatsnew.h1', 'whatsnew.b1', 'whatsnew.h2', 'whatsnew.b2', 'whatsnew.h3', 'whatsnew.b3', 'whatsnew.h4', 'whatsnew.b4'];
+    'whatsnew.h1', 'whatsnew.b1', 'whatsnew.h2', 'whatsnew.b2', 'whatsnew.h3', 'whatsnew.b3', 'whatsnew.h4', 'whatsnew.b4', 'whatsnew.h5', 'whatsnew.b5', 'whatsnew.h6', 'whatsnew.b6'];
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version: string };
   for (const loc of ['en', 'es', 'pt-br']) {
     const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;

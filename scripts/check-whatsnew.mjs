@@ -31,7 +31,7 @@ import { execFileSync } from 'node:child_process';
 
 const LOCALES = ['en', 'es', 'pt-br', 'el', 'fr'];
 const BODY_KEYS = ['whatsnew.sub', 'whatsnew.h1', 'whatsnew.b1', 'whatsnew.h2', 'whatsnew.b2',
-  'whatsnew.h3', 'whatsnew.b3', 'whatsnew.h4', 'whatsnew.b4'];
+  'whatsnew.h3', 'whatsnew.b3', 'whatsnew.h4', 'whatsnew.b4', 'whatsnew.h5', 'whatsnew.b5', 'whatsnew.h6', 'whatsnew.b6'];
 const fail = (m) => { console.error('check:whatsnew ✗ ' + m); process.exit(1); };
 const ok = (m) => console.log('check:whatsnew ✓ ' + m);
 
