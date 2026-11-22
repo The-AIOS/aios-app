@@ -233,6 +233,8 @@ contextBridge.exposeInMainWorld('glassShell', {
   fsRoots: (): Promise<{ framework: string | null; vault: string | null; workspace: { path: string; name: string }[] }> => ipcRenderer.invoke('fs:roots'),
   addFolder: (): Promise<string | { refused: string; path: string } | null> => ipcRenderer.invoke('fs:addFolder'),
   removeFolder: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:removeFolder', p),
+  claudeLanguage: (): Promise<{ local: string | null; elsewhere: string | null; suggest: { value: string | null } | null }> => ipcRenderer.invoke('claude:language'),
+  setClaudeLanguage: (v: string | null): Promise<boolean> => ipcRenderer.invoke('claude:setLanguage', v),
   aiosLists: (): Promise<{ agents: unknown[]; commands: unknown[]; skills: unknown[]; frequent: unknown[]; running: unknown[]; suggestions: unknown[] }> => ipcRenderer.invoke('aios:lists'),
   fsIndex: (): Promise<{ name: string; path: string; root: string }[]> => ipcRenderer.invoke('fs:index'),
   aiosPlugins: (): Promise<{ catalog: unknown[]; installed: unknown[]; marketplaces: unknown[] }> => ipcRenderer.invoke('aios:plugins'),

@@ -22,7 +22,7 @@ test('tabs fit while each can have at least 90px; past that the strip goes compa
 });
 
 test('the CSS: tabs shrink evenly to 90px, compact shows icon and dot, the active tab keeps its title', () => {
-  assert.match(css, /transition: all \.14s; flex: 1 1 0; min-width: 90px; overflow: hidden; \}/, 'equal shares, as Chrome: a short name does not make a narrow tab (hand test)');
+  assert.match(css, /transition: background \.14s, color \.14s, border-color \.14s; flex: 1 1 0; min-width: 90px; overflow: hidden; \}/, 'equal shares, as Chrome: a short name does not make a narrow tab (hand test)');
   assert.match(css, /\.tabstrip\.tcompact \.tab:not\(\.active\) \.tname, \.tabstrip\.tcompact \.tab:not\(\.active\) \.tx \{ display: none; \}/);
   assert.match(css, /\.tabstrip\.tcompact \.tab\.active \{ min-width: 120px; \}/);
 });
@@ -37,4 +37,9 @@ test('wiring: the stage is recomputed with the overflow, close holds the widths 
   assert.match(app, /if \(strip\.dataset\.tfrozen\) return;/, 'no stage change while frozen');
   assert.match(app, /if \(!tab\.title \|\| tab\.title === tab\.dataset\.hoverTitle\) \{ tab\.title = nm\.textContent \|\| ''; tab\.dataset\.hoverTitle = tab\.title; \}/, 'the name on hover, current after a rename, never over another tooltip');
   assert.equal((app.match(/revealTab\((p|q)\.tab\)/g) || []).length, 2, 'the active tab is scrolled into view wherever it is marked');
+});
+
+test('hand test of 0.17.0: a tab takes its new width at once (no width animation), and a close through the picker does not hold the strip', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /const acted = await endSession\(\{ name: p\.name, paneId: id \}\);\n[\s\S]{0,400}?if \(strip && strip\.dataset\.tfrozen && strip\._thaw\) strip\._thaw\(\);/);
 });

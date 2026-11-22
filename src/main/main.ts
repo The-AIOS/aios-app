@@ -1990,6 +1990,9 @@ ipcMain.handle('aios:lists', () => ({
   suggestions: aios.listAgentSuggestions(),
 }));
 ipcMain.handle('fs:index', () => aios.fileIndex());
+/* Claude's language is the operator's own choice in Settings, apart from the App's (core/claudeLanguage.ts). */
+ipcMain.handle('claude:language', () => aios.getClaudeLanguage());
+ipcMain.handle('claude:setLanguage', (_e, v: unknown) => aios.setClaudeLanguage(v));
 ipcMain.handle('aios:plugins', () => ({
   catalog: aios.pluginCatalog(),
   installed: aios.installedPlugins(),
@@ -2427,7 +2430,6 @@ ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNu
   if (key === 'caffeinate') caffeine.modeChanged();
   if (key === 'locale') {
     aios.applyLocale();          // reload i18n for main-process strings (nudges, setup, calendar)
-    aios.syncClaudeLanguage();   // and Claude answers in it (core/claudeLanguage.ts)
     rebuildMenu();               // the native menu can't re-render itself — rebuild it
     menuBar?.relabel();          // nor can the menu-bar icon's
   }
@@ -2820,7 +2822,6 @@ app.whenReady().then(() => {
   installBoardProtocol(protocol, (f) => boardProbeHooks.onServe?.(f));
   aios.setSystemLocale(app.getLocale());  // capture the OS language so `auto` can resolve to it
   aios.applyLocale();            // load the resolved UI locale before building the menu
-  aios.syncClaudeLanguage();     // Claude answers in the App's language (core/claudeLanguage.ts)
   const win = createWindow();
   mainWin = win;
   /* macOS: THE RED BUTTON HIDES, IT DOES NOT QUIT. The Mac convention, and here it protects work:

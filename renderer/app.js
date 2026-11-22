@@ -5028,6 +5028,10 @@ async function requestClosePane(id) {
      lost record is the thing this gate exists to protect. The picker offers capture, so the
      deliberate close keeps the work too. */
   const acted = await endSession({ name: p.name, paneId: id });
+  /* Hand test of 0.17.0 (lag after a close): the picker took the pointer away from the strip, so there is no next × to keep
+     under it. Let the tabs take their room now instead of waiting for the pointer to leave a strip it already left. */
+  const strip = tabsEl(zoneOf(p));
+  if (strip && strip.dataset.tfrozen && strip._thaw) strip._thaw();
   /* Dismissing has to put the operator back where they were typing. A modal takes focus and
      leaves it on <body> when it closes, and nothing else re-focuses a terminal — so without
      this the pane still LOOKS live (caret blinking, tab highlighted) while every keystroke
@@ -13307,6 +13311,56 @@ function row(parent, label, control, hint) {
   return r;
 }
 
+/* Claude's language, its own choice right under the App's (0.17.0, hand test): "the language you write in" (no value in
+   Claude's settings) or one language for every session. Changing the App's language only ASKS whether Claude should
+   match (claudeLangAsk, set by the language row, answered here); it never changes how sessions answer by itself. */
+let claudeLangAsk = null;
+const claudeLangLabel = (value) => {
+  if (value === null) return t('settings.claudeLanguageWrite');
+  const code = { English: 'en', Spanish: 'es', 'Brazilian Portuguese': 'pt-br', Greek: 'el', French: 'fr' }[value];
+  const m = code && window.i18n ? window.i18n.localeMeta().find((x) => x.code === code) : null;
+  return m ? m.nativeName : value;
+};
+function settingsClaudeLanguageRow(wrap) {
+  const sel = document.createElement('select');
+  sel.className = 'tinput';
+  for (const v of [null, 'English', 'Spanish', 'Brazilian Portuguese', 'Greek', 'French']) {
+    const o = document.createElement('option'); o.value = v || ''; o.textContent = claudeLangLabel(v); sel.appendChild(o);
+  }
+  const r = row(wrap, t('settings.claudeLanguage'), sel, t('settings.claudeLanguageHint'));
+  const note = el('div', 'thint', '');
+  note.hidden = true;
+  r.querySelector('.tlabel').appendChild(note);
+  const ask = el('div', 'tlang-ask');
+  ask.hidden = true;
+  r.after(ask);
+  const paint = (cl) => {
+    const cur = cl ? cl.local : null;
+    if (cur && ![...sel.options].some((o) => o.value === cur)) { const o = document.createElement('option'); o.value = cur; o.textContent = cur; sel.appendChild(o); }   // a value set in /config stays visible as it is
+    sel.value = cur || '';
+    note.hidden = !(cl && !cl.local && cl.elsewhere);
+    note.textContent = note.hidden ? '' : t('settings.claudeLanguageElsewhere', { lang: cl.elsewhere });
+    const s = claudeLangAsk;
+    ask.hidden = !s;
+    ask.replaceChildren();
+    if (!s) return;
+    const yes = el('button', 'vbtn primary', t('settings.claudeLanguageMatch'));
+    const no = el('button', 'vbtn', t('settings.claudeLanguageKeep'));
+    yes.type = no.type = 'button';
+    ask.append(el('span', 'tlang-q', s.value === null ? t('settings.claudeLanguageSuggestWrite') : t('settings.claudeLanguageSuggest', { lang: claudeLangLabel(s.value) })), yes, no);
+    yes.addEventListener('click', () => void choose(s.value));
+    no.addEventListener('click', () => { claudeLangAsk = null; ask.hidden = true; });
+  };
+  const choose = async (v) => {
+    const ok = await window.glassShell.setClaudeLanguage(v).catch(() => false);
+    claudeLangAsk = null;
+    toast(t(ok ? 'settings.claudeLanguageSaved' : 'settings.claudeLanguageFailed'));
+    paint(await window.glassShell.claudeLanguage().catch(() => null));
+  };
+  sel.addEventListener('change', () => void choose(sel.value || null));
+  void window.glassShell.claudeLanguage().then(paint).catch(() => paint(null));
+}
+
 function openSettingsTab() {
   openToolTab('::settings', t('settings.title'), async (body) => {
     const wrap = document.createElement('div');
@@ -13427,10 +13481,15 @@ function openSettingsTab() {
     langSel.addEventListener('change', async () => {
       await window.glassShell.setSetting('locale', langSel.value);
       const c = await window.glassShell.shellConfig();  // re-read so 'auto' resolves to the OS language
+      /* Claude's language is NOT changed with the App's: it is asked, under the next row (hand test of 0.17.0). Set before
+         relocalize, which reopens this tab. */
+      const cl = await window.glassShell.claudeLanguage().catch(() => null);
+      claudeLangAsk = cl && cl.suggest ? cl.suggest : null;
       relocalize(c.localeResolved || 'en');             // re-render every open surface
       toast(t('settings.savedLanguage'));
     });
     row(wrap, t('settings.language'), langSel, t('settings.languageHint'));
+    settingsClaudeLanguageRow(wrap);
 
     const mkToggle = (key, val) => {
       const t = document.createElement('input'); t.type = 'checkbox'; t.className = 'ttoggle'; t.checked = val;

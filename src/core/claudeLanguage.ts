@@ -1,51 +1,64 @@
 /**
- * Claude answers in the App's language.
+ * Claude's language: its own choice, beside the App's (0.17.0).
  *
- * Claude Code has its own `language` setting ("Preferred language for Claude responses and voice
- * dictation", read out of its settings schema): set, every session's system prompt says "Always
- * respond in <language>"; unset, Claude matches the language the operator writes in. The App never
- * connected its interface language to it, so an operator who chose French saw a French App and got
- * English answers: every ritual and the setup brief reach Claude as English instructions, and Claude
- * matched those.
+ * Claude Code has a `language` setting ("Preferred language for Claude responses and voice
+ * dictation", from its settings schema): set, every session's system prompt says "Always respond in
+ * <language>", which outranks any CLAUDE.md asking Claude to reply in the operator's language; unset,
+ * Claude matches the language the operator writes in.
  *
- * Pure: no fs, no electron. aios.ts reads the stores, asks `decideClaudeLanguage`, writes the result.
+ * The App's interface language and Claude's language are two choices. An operator can run the App in
+ * Spanish and write to Claude in English, and changing the App's language must never quietly change
+ * how every session answers (hand test of 0.17.0: a first version followed the App's language and a
+ * Spanish App suddenly answered English prompts in Spanish, with nothing saying why). So the App only
+ * writes `language` when the operator picks it in Settings, and after an App language change it
+ * SUGGESTS matching, once, and does nothing unless they say yes.
+ *
+ * Pure: no fs, no electron. aios.ts reads and writes the store; the renderer asks these.
  */
 
-/* The value written into Claude's `language` key, per App locale. English is null on purpose: unset
-   means "match the operator", which is already right for an English App and also for an English App
-   whose operator writes in another language. Names in English, as Claude's own examples are
-   ("japanese", "spanish"); it is inserted into "Always respond in …". */
-export const CLAUDE_LANGUAGE: Record<string, string | null> = {
-  en: null,
-  es: 'Spanish',
-  'pt-br': 'Brazilian Portuguese',
-  el: 'Greek',
-  fr: 'French',
-};
+/* What can be chosen, beside "the language you write in" (no value). The value is what goes into Claude's
+   `language` key, in English, as Claude's own examples are ("japanese", "spanish"); it reads as "Always respond
+   in …". `locale` is the App locale whose native name labels it. */
+export const CLAUDE_LANGUAGES: ReadonlyArray<{ value: string; locale: string }> = [
+  { value: 'English', locale: 'en' },
+  { value: 'Spanish', locale: 'es' },
+  { value: 'Brazilian Portuguese', locale: 'pt-br' },
+  { value: 'Greek', locale: 'el' },
+  { value: 'French', locale: 'fr' },
+];
 
+/* The Claude language that MATCHES an App locale. English is null: unset means "match the operator", which already
+   answers in English to English and leaves an English App's operator free to write in anything else. */
 export function claudeLanguageFor(locale: string): string | null {
-  return Object.prototype.hasOwnProperty.call(CLAUDE_LANGUAGE, locale) ? CLAUDE_LANGUAGE[locale] : null;
+  if (locale === 'en') return null;
+  const hit = CLAUDE_LANGUAGES.find((l) => l.locale === locale);
+  return hit ? hit.value : null;
 }
 
-export type LanguageAction = { kind: 'set'; value: string } | { kind: 'unset' } | { kind: 'keep' };
+const norm = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const same = (a: string | null, b: string | null) => (a === null ? b === null : b !== null && a.toLowerCase() === b.toLowerCase());
 
-const named = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+/** What the App may write: one of the choices, or null to remove the key. Anything else is refused (undefined). */
+export function claudeLanguageChoice(v: unknown): string | null | undefined {
+  if (v === null || v === '') return null;
+  const s = norm(v);
+  if (!s) return undefined;
+  const hit = CLAUDE_LANGUAGES.find((l) => l.value.toLowerCase() === s.toLowerCase());
+  return hit ? hit.value : undefined;
+}
 
 /**
- * What to do with `language` in the vault's LOCAL store (`<root>/.claude/settings.local.json`),
- * the one every session the App launches reads first.
- *
- * The App only ever owns a value it wrote itself, remembered as `synced`:
- *   - a local value the App did not write is the operator's choice (`/config`, by hand): kept;
- *   - a value in the global or project store is also the operator's: the App steps aside, and
- *     removes its own local value, which would otherwise outrank theirs (local wins in Claude);
- *   - otherwise the local value follows the App's language, and is removed for English.
+ * After the operator changes the App's language: is there a suggestion to make? `current` is the language Claude
+ * answers in now (the vault's local value, else the one in Claude's own settings, else null). Returns
+ * `{ value }`, the value matching would write (null = "the language you write in"), or null for nothing to ask:
+ * Claude already matches, or the App language has no Claude counterpart.
  */
-export function decideClaudeLanguage(s: { local?: unknown; elsewhere?: unknown; synced?: unknown; target: string | null }): LanguageAction {
-  const ours = named(s.local) && s.local === s.synced;
-  if (named(s.local) && !ours) return { kind: 'keep' };
-  if (named(s.elsewhere)) return ours ? { kind: 'unset' } : { kind: 'keep' };
-  if (s.target === null) return ours ? { kind: 'unset' } : { kind: 'keep' };
-  if (s.local === s.target) return { kind: 'keep' };
-  return { kind: 'set', value: s.target };
+export function claudeLanguageSuggestion(appLocale: string, current: unknown): { value: string | null } | null {
+  const known = appLocale === 'en' || CLAUDE_LANGUAGES.some((l) => l.locale === appLocale);
+  if (!known) return null;
+  const target = claudeLanguageFor(appLocale);
+  const cur = norm(current);
+  if (same(target, cur)) return null;
+  if (target === null && cur !== null && cur.toLowerCase() === 'english') return null;   // an English App with Claude set to English already matches
+  return { value: target };
 }

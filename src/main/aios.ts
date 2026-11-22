@@ -33,7 +33,7 @@ import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
 import { FOLDER_SORT_KEY, MASTER_SORT_KEY, normalizeSortMode, setFolderSort, type FolderSortMap, type SortMode } from '../core/sort';
 import { t, setLocale, normalizeLocale, normalizeLocalePref, type Locale, type LocalePref } from '../i18n';
-import { claudeLanguageFor, decideClaudeLanguage } from '../core/claudeLanguage';
+import { claudeLanguageChoice, claudeLanguageSuggestion } from '../core/claudeLanguage';
 
 /**
  * The shell's AIOS data layer — faithful ports of the extension's fs-only
@@ -1613,46 +1613,30 @@ export function applyLocale(): Locale {
   return setLocale(resolvedLocale());
 }
 
-/* The App's own memory of the `language` value it last wrote into Claude's local store, so a value
-   the operator set is never mistaken for ours (core/claudeLanguage.ts). Kept in OUR settings, never in
-   Claude's file: a flag of ours there would be a foreign key in someone else's schema. */
-const CLAUDE_LANGUAGE_SYNCED = 'claudeLanguageSynced';
-
 /**
- * Make Claude answer in the App's language: keep Claude Code's `language` setting, in the vault's
- * local store, in step with the resolved UI locale. Call on boot + on change, after applyLocale().
- * Never throws: a settings file that cannot be read or written leaves Claude as it was.
- * Sessions already running pick the change up (Claude watches its settings); new ones start with it.
+ * Claude's language, as the operator chose it in Settings (core/claudeLanguage.ts). `local` is the vault's own value,
+ * the one the App writes and every session launched from the vault reads first; `elsewhere` is a value in Claude's
+ * project or user settings, which applies when there is no local one. Never throws.
  */
-export function syncClaudeLanguage(): 'set' | 'unset' | 'keep' {
+export function getClaudeLanguage(): { local: string | null; elsewhere: string | null; suggest: { value: string | null } | null } {
   try {
-    const r = frameworkRoot();
-    if (!r) return 'keep';   // no vault yet: the setup brief names the language instead (renderer)
-    let raw: Record<string, unknown> = {};
-    try { raw = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'shell.json'), 'utf8')); } catch { raw = {}; }
     const [global, , project, local] = claudeStores();
-    const action = decideClaudeLanguage({
-      local: local.language,
-      elsewhere: project.language ?? global.language,
-      synced: raw[CLAUDE_LANGUAGE_SYNCED],
-      /* Only a language the operator CHOSE: under 'auto' the App follows the system, and an operator who writes in English
-         on a Spanish Mac never asked for every session to answer in Spanish (0.17.0 review). 'auto' therefore means
-         "match the operator", like English, and removes a value the App wrote earlier. */
-      target: shellSettings().locale === 'auto' ? null : claudeLanguageFor(resolvedLocale()),
-    });
-    /* The marker moves only with a write that happened: a refused write must not make the App's value look like the
-       operator's, or the operator's look like the App's (second review of 0.17.0). */
-    if (action.kind === 'set') {
-      if (!writeClaudeLocalSettings((j) => { j.language = action.value; })) return 'keep';
-      setShellSetting(CLAUDE_LANGUAGE_SYNCED, action.value);
-    } else if (action.kind === 'unset') {
-      if (!writeClaudeLocalSettings((j) => { delete j.language; })) return 'keep';
-      setShellSetting(CLAUDE_LANGUAGE_SYNCED, '');
-    }
-    return action.kind;
-  } catch {
-    return 'keep';
-  }
+    const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const l = s(local.language), e = s(project.language) ?? s(global.language);
+    /* What matching the App's CURRENT language would write: the renderer shows it only right after the operator changed
+       the App's language, as a question. */
+    return { local: l, elsewhere: e, suggest: claudeLanguageSuggestion(resolvedLocale(), l ?? e) };
+  } catch { return { local: null, elsewhere: null, suggest: null }; }
+}
+/** Write the operator's choice: a language from the list, or null to remove the key (Claude then answers in the language
+ *  they write in). Only ever on their pick; nothing calls it on boot or when the App's language changes. False when the
+ *  value is not a choice, there is no vault, or the settings file does not parse (it is then left as it was). */
+export function setClaudeLanguage(v: unknown): boolean {
+  const choice = claudeLanguageChoice(v);
+  if (choice === undefined) return false;
+  try {
+    return writeClaudeLocalSettings((j) => { if (choice === null) delete j.language; else j.language = choice; });
+  } catch { return false; }
 }
 
 export function setShellSetting(key: string, value: unknown): void {
