@@ -7576,6 +7576,7 @@ function paintRailTitles() {
   document.getElementById('railLayout').title = t('rail.layout');
   document.getElementById('railSettings').title = t('rail.settings');
   document.getElementById('dragReadme').title = t('window.manual');
+  document.getElementById('dragSecurity').title = t('window.security');
   document.getElementById('dragHelp').title = t('window.readme');
   document.getElementById('dragCheat').title = t('window.cheatsheet');
   document.getElementById('dragKeys').title = t('window.shortcuts');
@@ -7586,7 +7587,7 @@ function paintRailTitles() {
      listeners on a locale change, so the guard below runs the attach once. */
   if (!tipsAttached) {
     tipsAttached = true;
-    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide', 'railSetup']) {
+    for (const id of ['dragPanel', 'railLayout', 'dragReadme', 'dragSecurity', 'dragHelp', 'dragCheat', 'dragKeys', 'dragGuide', 'railSetup']) {
       attachTip(document.getElementById(id));
     }
   }
@@ -7624,9 +7625,16 @@ dragPanel.addEventListener('click', () => {
   applyLayout();
 });
 // title-bar README + ? (help) buttons
+const MANUAL_URL = 'https://www.the-aios.com/manual/en';
+const securityBriefUrl = (loc) => 'https://www.the-aios.com/security-brief/' + (loc === 'es' ? 'es' : 'en');
 const dragReadme = document.getElementById('dragReadme');
 dragReadme.innerHTML = icon('book', 15);  // an open book → the ONLINE Operating Manual, in an in-app browser tab (#14)
-dragReadme.addEventListener('click', () => openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()));
+dragReadme.addEventListener('click', () => openBrowserPane(MANUAL_URL, t('window.manual').split('—')[0].trim()));
+/* The Security Brief, beside the manual (0.17.0): what each part reaches and whose identity it acts as. A shield, opened the
+   same way. The brief exists in English and Spanish; any other App language gets the English one. */
+const dragSecurity = document.getElementById('dragSecurity');
+dragSecurity.innerHTML = icon('shield', 15);
+dragSecurity.addEventListener('click', () => openBrowserPane(securityBriefUrl(window.i18n ? window.i18n.getLocale() : 'en'), t('window.security')));
 const dragHelp = document.getElementById('dragHelp');
 dragHelp.innerHTML = icon('docText', 15);  // page + i → README.md (this button is NOT the assistant, whatever its id says)
 dragHelp.addEventListener('click', () => openFrameworkDoc('README.md'));
@@ -8135,7 +8143,7 @@ window.glassShell.onIntent(async (m) => {
     case 'openToday': { const d = new Date(); window.glassShell.panelSend({ type: 'openDay', date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }); return; }
     case 'designer': openDesignerTab(); return;
     case 'accountSwap': void accountSwapFlow(); return;
-    case 'manual': openBrowserPane('https://www.the-aios.com/#manual', t('window.manual').split('—')[0].trim()); return;
+    case 'manual': openBrowserPane(MANUAL_URL, t('window.manual').split('—')[0].trim()); return;
     case 'readme': openFrameworkDoc('README.md'); return;
     case 'cheatsheet': openFrameworkDoc('CHEATSHEET.md'); return;
     case 'primary': void runInPrimary(m.slash); return;
