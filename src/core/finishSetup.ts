@@ -169,7 +169,7 @@ export function missingHooks(settings: unknown, ships: (rel: string) => boolean,
 }
 
 /* A wired command counts only if it runs the hook where the framework ships it now. After the v0.8.19 regroup (aios#309)
-   a settings.json can still run hooks/provenance.py; that works through a forwarding file until v0.8.20 (aios#330) and
+   a settings.json can still run hooks/provenance.py; that works through a forwarding file until v0.8.21 removes it (aios#330) and
    then points at nothing. When the hook ships in its new folder, a command naming the old flat path is not wired, so
    the row warns and Repair rewrites it (review of the hook moves). */
 /* Only an old path INTO THIS FRAMEWORK is flagged (`frameworkPrefixes`: its root as written, `~/aios`, `$HOME/aios`):
