@@ -686,7 +686,7 @@
   "quickBar.emptyText": "Escribe algo para enviar",
   "quickBar.failed": "No se pudo enviar",
   "settings.quickBarShortcut": "Pregúntale a AIOS desde cualquier app — atajo",
-  "settings.quickBarShortcutHint": "Elige las teclas que abren Pregúntale a AIOS encima de la app en la que estés (Slack, el navegador…), con los mismos destinos que el panel, sin traer AIOS al frente. Un atajo global les quita esas teclas a todas las demás apps, por eso no hay ninguno hasta que tú lo elijas. Quitar lo apaga.",
+  "settings.quickBarShortcutHint": "Abre Pregúntale a AIOS sobre cualquier app (Slack, el navegador…) sin cambiar a AIOS. Esas teclas dejan de funcionar en otras apps, así que no hay ninguna hasta que elijas.",
   "settings.quickBarShortcutConflict": "Otra app tiene este atajo; elige otro.",
   "settings.quickBarShortcutRecord": "Haz clic y presiona las teclas",
   "settings.quickBarShortcutRecording": "Presiona las teclas… (Esc cancela)",

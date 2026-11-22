@@ -686,7 +686,7 @@
   "quickBar.emptyText": "Write something to send",
   "quickBar.failed": "Could not send",
   "settings.quickBarShortcut": "Ask AIOS from any app — shortcut",
-  "settings.quickBarShortcutHint": "Pick keys that open Ask AIOS on top of whatever app you are in (Slack, the browser…), with the same destinations as the Ask panel, without bringing AIOS forward. A global shortcut takes those keys from every other app, so none is set until you choose one. Clear turns it off.",
+  "settings.quickBarShortcutHint": "Opens Ask AIOS over any app (Slack, the browser…) without switching to AIOS. Those keys stop working in other apps, so none is set until you choose.",
   "settings.quickBarShortcutConflict": "Another app holds this shortcut — choose a different one.",
   "settings.quickBarShortcutRecord": "Click, then press the keys",
   "settings.quickBarShortcutRecording": "Press the keys… (Esc cancels)",

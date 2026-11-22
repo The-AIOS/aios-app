@@ -686,7 +686,7 @@
   "quickBar.emptyText": "Écrivez quelque chose à envoyer",
   "quickBar.failed": "Envoi impossible",
   "settings.quickBarShortcut": "Demander à AIOS depuis n’importe quelle app : raccourci",
-  "settings.quickBarShortcutHint": "Choisissez les touches qui ouvrent Demander à AIOS par-dessus l’app où vous êtes (Slack, le navigateur…), avec les mêmes destinations que le panneau Demander, sans mettre AIOS au premier plan. Un raccourci global retire ces touches à toutes les autres apps : aucun n’est donc défini tant que vous n’en choisissez pas. Effacer le désactive.",
+  "settings.quickBarShortcutHint": "Ouvre Demander à AIOS par-dessus n’importe quelle app (Slack, le navigateur…) sans passer à AIOS. Ces touches ne marchent plus dans les autres apps : aucune n’est définie tant que vous n’en choisissez pas.",
   "settings.quickBarShortcutConflict": "Une autre app utilise ce raccourci : choisissez-en un autre.",
   "settings.quickBarShortcutRecord": "Cliquez, puis appuyez sur les touches",
   "settings.quickBarShortcutRecording": "Appuyez sur les touches… (Échap annule)",
