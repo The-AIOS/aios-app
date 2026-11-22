@@ -686,7 +686,7 @@
   "quickBar.emptyText": "Escreva algo para enviar",
   "quickBar.failed": "Não foi possível enviar",
   "settings.quickBarShortcut": "Pergunte ao AIOS de qualquer app — atalho",
-  "settings.quickBarShortcutHint": "Abre o Pergunte ao AIOS sobre qualquer app (Slack, o navegador…) sem trocar para o AIOS. Essas teclas deixam de funcionar nos outros apps, então nenhuma é definida até você escolher.",
+  "settings.quickBarShortcutHint": "Abre o Pergunte ao AIOS sobre qualquer app, como o Spotlight, sem trocar para o AIOS. Essas teclas deixam de funcionar nos outros apps, então nenhuma é definida até você escolher.",
   "settings.quickBarShortcutConflict": "Outro app usa este atalho — escolha outro.",
   "settings.quickBarShortcutRecord": "Clique e pressione as teclas",
   "settings.quickBarShortcutRecording": "Pressione as teclas… (Esc cancela)",
