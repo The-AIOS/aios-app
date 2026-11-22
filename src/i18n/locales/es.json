@@ -1216,7 +1216,7 @@
   "whatsnew.h2": "Suelta un archivo en cualquier pestaña",
   "whatsnew.b2": "Arrastra un archivo desde el explorador o Finder a la pestaña de una sesión y llega a esa sesión. Déjalo un momento sobre una pestaña y esa sesión pasa al frente, para que lo sueltes directo en su chat.",
   "whatsnew.h3": "Mira las skills que usa Claude",
-  "whatsnew.b3": "Cuando Claude carga una skill, aparece en su propia línea del chat: su nombre, para qué sirve y un botón para abrirla. Un comando se lee \"Ejecutó /aios:today\". Ya nada se esconde entre un montón de llamadas a herramientas.",
+  "whatsnew.b3": "En la vista de chat, cada skill que carga Claude tiene su propia línea: su nombre, para qué sirve y un botón para abrirla. Un comando se lee \"Ejecutó /aios:today\". Ya nada se esconde entre un montón de llamadas a herramientas.",
   "whatsnew.h4": "AIOS en francés",
   "whatsnew.b4": "Elige Français en Ajustes y toda la App habla francés, incluida la configuración y el primer arranque. Una contribución de la comunidad. Si eliges un idioma ahí, Claude también te responde en él.",
   "whatsnew.h5": "Un equipo llega con su color",

@@ -1216,7 +1216,7 @@
   "whatsnew.h2": "Déposez un fichier sur n’importe quel onglet",
   "whatsnew.b2": "Faites glisser un fichier depuis l’explorateur ou le Finder sur l’onglet d’une session : il arrive dans cette session. Gardez-le un instant au-dessus d’un onglet et cette session passe au premier plan, pour le déposer directement dans sa conversation.",
   "whatsnew.h3": "Voyez les skills qu’utilise Claude",
-  "whatsnew.b3": "Quand Claude charge une skill, elle a sa propre ligne dans la conversation : son nom, son rôle et un bouton pour l’ouvrir. Une commande s’affiche « A lancé /aios:today ». Plus rien ne se cache dans une pile d’appels d’outils.",
+  "whatsnew.b3": "Dans la vue conversation, chaque skill chargée par Claude a sa propre ligne : son nom, son rôle et un bouton pour l’ouvrir. Une commande s’affiche « A lancé /aios:today ». Plus rien ne se cache dans une pile d’appels d’outils.",
   "whatsnew.h4": "AIOS en français",
   "whatsnew.b4": "Choisissez Français dans les Réglages et toute l’App parle français, configuration et premier démarrage compris. Une contribution de la communauté. Si vous y choisissez une langue, Claude vous répond aussi dans cette langue.",
   "whatsnew.h5": "Une équipe arrive avec sa couleur",

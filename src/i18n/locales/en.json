@@ -1216,7 +1216,7 @@
   "whatsnew.h2": "Drop a file on any tab",
   "whatsnew.b2": "Drag a file from the explorer or Finder onto a session's tab and it lands in that session. Hold it over a tab for a moment and that session comes forward, so you can drop it straight into its chat.",
   "whatsnew.h3": "See the skills Claude uses",
-  "whatsnew.b3": "When Claude loads a skill, it gets its own line in the chat: its name, what it's for, and a button to open it. A command reads \"Ran /aios:today\". Nothing hides in a pile of tool calls anymore.",
+  "whatsnew.b3": "In the chat view, a skill Claude loads gets its own line: its name, what it's for, and a button to open it. A command reads \"Ran /aios:today\". Nothing hides in a pile of tool calls anymore.",
   "whatsnew.h4": "AIOS in French",
   "whatsnew.b4": "Choose Français in Settings and the whole App speaks French, Setup and first-run included. Contributed by a member of the community. If you pick a language there, Claude answers in it too.",
   "whatsnew.h5": "A team arrives in its colour",

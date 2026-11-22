@@ -22,7 +22,7 @@ test('tabs fit while each can have at least 90px; past that the strip goes compa
 });
 
 test('the CSS: tabs shrink evenly to 90px, compact shows icon and dot, the active tab keeps its title', () => {
-  assert.match(css, /transition: all \.14s; flex: 0 1 auto; min-width: 90px; overflow: hidden; \}/);
+  assert.match(css, /transition: all \.14s; flex: 1 1 0; min-width: 90px; overflow: hidden; \}/, 'equal shares, as Chrome: a short name does not make a narrow tab (hand test)');
   assert.match(css, /\.tabstrip\.tcompact \.tab:not\(\.active\) \.tname, \.tabstrip\.tcompact \.tab:not\(\.active\) \.tx \{ display: none; \}/);
   assert.match(css, /\.tabstrip\.tcompact \.tab\.active \{ min-width: 120px; \}/);
 });
