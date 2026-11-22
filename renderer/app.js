@@ -11904,8 +11904,8 @@ function chatHatColorKey(group) {
 }
 /* The agent's mark: a robot on its colour. */
 function chatHatAvatar(name, size) {
-  /* A robot on the agent's colour, not its initial (0.17.0 hand test): what the mark must say first is "an agent", and the
-     name beside it says which. An initial told little: colours are per bundle and two agents can share a letter. */
+  /* A coral robot, not the initial on the bundle colour (0.17.0 hand test): what the mark must say first is "an AIOS agent",
+     and the name beside it says which. --ag (the bundle colour) is still set, unused, so a bundle dot is one line away. */
   const av = el('span', 'ch-av' + (size === 'big' ? ' big' : ''));
   av.appendChild(csIcon('robot', size === 'big' ? 22 : 15));
   av.setAttribute('aria-hidden', 'true');
