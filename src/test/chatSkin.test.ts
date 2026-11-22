@@ -4886,6 +4886,6 @@ test('the chip never crowds the bar: its name is cut early, the whole chip last,
 test('0.17.0 hand test: an agent\'s mark is a robot on its colour, not its initial', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
   const body = /function chatHatAvatar\([^)]*\) \{[\s\S]*?\n\}/.exec(app)![0];
-  assert.match(body, /csIcon\('robot', size === 'big' \? 18 : 12\)/);
+  assert.match(body, /csIcon\('robot', size === 'big' \? 22 : 15\)/);
   assert.doesNotMatch(body, /charAt\(0\)/, 'negative control: the initial is gone');
 });

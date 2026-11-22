@@ -2256,11 +2256,12 @@ body.light .zsplit .pane.termcard.panefocus { border-color: var(--accent); box-s
 .chat-hat .ch-head .cs-ico { color: var(--st-testing); }
 .chat-hat .ch-who { display: flex; align-items: center; gap: 10px; margin: 6px 0 9px; }
 .chat-hat .ch-words { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
-.ch-av { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; background: var(--ag, var(--agent-custom));
-         color: var(--agent-ink); font-weight: 700; font-size: 11px; line-height: 1; transition: background-color .2s ease; }
+.ch-av { display: inline-grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border-radius: 5px; background: none;
+         color: color-mix(in srgb, var(--ag, var(--agent-custom)) 72%, var(--ink)); font-weight: 700; font-size: 11px; line-height: 1; transition: background-color .2s ease; }
 .ch-av.big { width: 30px; height: 30px; border-radius: 8px; font-size: 15px; }
 .ch-av .cs-ico, .ch-av svg { display: block; }
-.cb-hat .ch-av svg { width: 11px; height: 11px; }
+.ch-av .cs-ico, .cb-where .ch-av .cs-ico { color: inherit; }   /* the robot takes the agent's colour, wherever it sits */
+.cb-hat .ch-av svg { width: 13px; height: 13px; }
 .chat-hat .ch-name { font-size: 1.02em; }
 .chat-hat .ch-why { color: var(--subtle); }
 .chat-hat .ch-purpose { margin: -4px 0 9px 40px; color: var(--subtle); font-size: .88em;
