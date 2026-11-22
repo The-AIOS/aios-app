@@ -41,5 +41,5 @@ test('wiring: the stage is recomputed with the overflow, close holds the widths 
 
 test('hand test of 0.17.0: a tab takes its new width at once (no width animation), and a close through the picker does not hold the strip', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  assert.match(app, /const acted = await endSession\(\{ name: p\.name, paneId: id \}\);\n[\s\S]{0,400}?if \(strip && strip\.dataset\.tfrozen && strip\._thaw\) strip\._thaw\(\);/);
+  assert.match(app, /const acted = await endSession\(\{ name: p\.name, paneId: id \}\);\n[\s\S]{0,400}?if \(KILLBEHAVIOR !== 'kill' && KILLBEHAVIOR !== 'capture' && strip && strip\.dataset\.tfrozen && strip\._thaw\) strip\._thaw\(\);/);
 });

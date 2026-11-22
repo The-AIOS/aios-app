@@ -1625,7 +1625,10 @@ export function getClaudeLanguage(): { local: string | null; elsewhere: string |
     const l = s(local.language), e = s(project.language) ?? s(global.language);
     /* What matching the App's CURRENT language would write: the renderer shows it only right after the operator changed
        the App's language, as a question. */
-    return { local: l, elsewhere: e, suggest: claudeLanguageSuggestion(resolvedLocale(), l ?? e) };
+    const sg = claudeLanguageSuggestion(resolvedLocale(), l ?? e);
+    /* Back to "the language you write in" cannot be done from here when the value lives in Claude's own settings: no
+       question the App cannot carry out (review). */
+    return { local: l, elsewhere: e, suggest: sg && sg.value === null && !l ? null : sg };
   } catch { return { local: null, elsewhere: null, suggest: null }; }
 }
 /** Write the operator's choice: a language from the list, or null to remove the key (Claude then answers in the language

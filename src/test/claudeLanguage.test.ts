@@ -42,6 +42,8 @@ test('nothing writes Claude\'s language on boot or when the App language changes
   assert.match(main, /ipcMain\.handle\('claude:setLanguage', \(_e, v: unknown\) => aios\.setClaudeLanguage\(v\)\);/);
   const app = read('renderer/app.js');
   assert.match(app, /claudeLangAsk = cl && cl\.suggest \? cl\.suggest : null;\n\s*relocalize\(/, 'the App language change only ASKS');
+  assert.match(app, /let asked = claudeLangAsk;\n\s*claudeLangAsk = null;/, 'the question is taken by the Settings tab that shows it, never shown again on a later open (review)');
+  assert.match(read('src/main/aios.ts'), /suggest: sg && sg\.value === null && !l \? null : sg/, 'no question the App cannot carry out (review)');
   assert.match(app, /row\(wrap, t\('settings\.language'\), langSel, t\('settings\.languageHint'\)\);\n\s*settingsClaudeLanguageRow\(wrap\);/, 'the choice sits right under the App language');
   assert.match(app, /\+ setupLanguageLine\(\)\s*\n\s*\+ 'Work through it with me interactively\.'/, 'setup brief');
 });

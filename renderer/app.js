@@ -5031,7 +5031,7 @@ async function requestClosePane(id) {
   /* Hand test of 0.17.0 (lag after a close): the picker took the pointer away from the strip, so there is no next × to keep
      under it. Let the tabs take their room now instead of waiting for the pointer to leave a strip it already left. */
   const strip = tabsEl(zoneOf(p));
-  if (strip && strip.dataset.tfrozen && strip._thaw) strip._thaw();
+  if (KILLBEHAVIOR !== 'kill' && KILLBEHAVIOR !== 'capture' && strip && strip.dataset.tfrozen && strip._thaw) strip._thaw();   // only when the picker opened: closing straight away keeps the next × under the pointer (review)
   /* Dismissing has to put the operator back where they were typing. A modal takes focus and
      leaves it on <body> when it closes, and nothing else re-focuses a terminal — so without
      this the pane still LOOKS live (caret blinking, tab highlighted) while every keystroke
@@ -13334,13 +13334,19 @@ function settingsClaudeLanguageRow(wrap) {
   const ask = el('div', 'tlang-ask');
   ask.hidden = true;
   r.after(ask);
+  /* The question belongs to the language change that raised it: this Settings tab takes it and it is never shown again on a
+     later open (review). */
+  let asked = claudeLangAsk;
+  claudeLangAsk = null;
   const paint = (cl) => {
     const cur = cl ? cl.local : null;
-    if (cur && ![...sel.options].some((o) => o.value === cur)) { const o = document.createElement('option'); o.value = cur; o.textContent = cur; sel.appendChild(o); }   // a value set in /config stays visible as it is
-    sel.value = cur || '';
+    for (const o of [...sel.options]) if (o.dataset.custom) o.remove();
+    const known = cur ? [...sel.options].find((o) => o.value && o.value.toLowerCase() === cur.toLowerCase()) : null;   // "spanish" from /config is Español
+    if (cur && !known) { const o = document.createElement('option'); o.value = cur; o.textContent = cur; o.dataset.custom = '1'; sel.appendChild(o); }   // a value set in /config stays visible as it is, until another is picked
+    sel.value = known ? known.value : (cur || '');
     note.hidden = !(cl && !cl.local && cl.elsewhere);
     note.textContent = note.hidden ? '' : t('settings.claudeLanguageElsewhere', { lang: cl.elsewhere });
-    const s = claudeLangAsk;
+    const s = asked;
     ask.hidden = !s;
     ask.replaceChildren();
     if (!s) return;
@@ -13349,13 +13355,17 @@ function settingsClaudeLanguageRow(wrap) {
     yes.type = no.type = 'button';
     ask.append(el('span', 'tlang-q', s.value === null ? t('settings.claudeLanguageSuggestWrite') : t('settings.claudeLanguageSuggest', { lang: claudeLangLabel(s.value) })), yes, no);
     yes.addEventListener('click', () => void choose(s.value));
-    no.addEventListener('click', () => { claudeLangAsk = null; ask.hidden = true; });
+    no.addEventListener('click', () => { asked = null; ask.hidden = true; });
   };
   const choose = async (v) => {
+    const cur = sel.options[sel.selectedIndex];
+    if (v !== null && cur && cur.dataset.custom && cur.value === v) return;   // the /config value, re-picked: nothing to write
     const ok = await window.glassShell.setClaudeLanguage(v).catch(() => false);
-    claudeLangAsk = null;
-    toast(t(ok ? 'settings.claudeLanguageSaved' : 'settings.claudeLanguageFailed'));
-    paint(await window.glassShell.claudeLanguage().catch(() => null));
+    asked = null;
+    const cl = await window.glassShell.claudeLanguage().catch(() => null);
+    /* "The language you write in" removes only the vault's value: one in Claude's own settings still applies, and says so (review). */
+    toast(!ok ? t('settings.claudeLanguageFailed') : v === null && cl && cl.elsewhere ? t('settings.claudeLanguageStillElsewhere', { lang: cl.elsewhere }) : t('settings.claudeLanguageSaved'));
+    paint(cl);
   };
   sel.addEventListener('change', () => void choose(sel.value || null));
   void window.glassShell.claudeLanguage().then(paint).catch(() => paint(null));
