@@ -3702,7 +3702,7 @@ function freezeStripForClose(strip) {
   if (!strip || !strip.classList || !strip.classList.contains('tabstrip')) return;
   /* Compact, only the active tab has a ×: there is no next × to keep under the pointer, so nothing is held (hand test). */
   if (strip.classList.contains('tcompact') && !strip.dataset.tfrozen) return;
-  for (const t of strip.querySelectorAll(':scope > .tab')) { t.style.width = t.offsetWidth + 'px'; t.classList.add('tfrozen'); }
+  for (const t of strip.querySelectorAll(':scope > .tab')) { if (!t.offsetWidth) continue; t.style.width = t.offsetWidth + 'px'; t.classList.add('tfrozen'); }   // a tab hidden in a collapsed group is not held at 0px (review)
   strip.dataset.tfrozen = '1';
   /* A second without another close and the tabs take their room, pointer still there or not (hand test: they waited for the
      pointer to leave and looked stuck). Closes in a row each restart the second. */

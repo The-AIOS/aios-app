@@ -355,13 +355,13 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .zbar > .tsMore:hover { color: var(--ink); border-color: var(--accent); background: var(--surface); }
 .zbar > .tsMore:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tab { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; color: var(--subtle);
-       border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer; max-width: 190px;
+       border-radius: 8px; padding: 5px 11px; font-size: 12px; font-family: var(--font); cursor: pointer;
        transition: background .14s, color .14s, border-color .14s; flex: 0 1 150px; min-width: 90px; overflow: hidden; }
 /* #189, Chrome's tab strip: every tab is the same 150px while they fit (hand test: content widths left short names
    looking shrunk, and sharing the strip up to 190px looked too wide), then all shrink evenly (titles truncate) down to
    90px; past that the strip goes COMPACT (an icon and a dot, the active tab keeps its title and its ×); only past
    the compact minimum does it scroll, with the fades and chevrons. A tab frozen by close-in-place keeps the width
-   it had until the pointer leaves the strip. */
+   it had until the pointer leaves the strip, or a second after the last close. */
 .tab .tname { min-width: 0; flex: 0 1 auto; }
 .tab .tx { margin-left: auto; }   /* the × at the tab's right edge, as Chrome: tabs are a fixed width now, so it no longer follows the name (hand test) */
 .tabstrip.tcompact .tab { min-width: 40px; padding: 5px 9px; }
