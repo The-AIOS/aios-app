@@ -11591,6 +11591,10 @@ function chatSkinSkillPaint(rec) {
   const x = rec.tool;
   const hit = chatSkillLookup(sk.id, chatSkillListsGet());
   x.name.textContent = t(hit.kind === 'command' ? 'chat.skill.ran' : 'chat.skill.loaded');
+  /* An AIOS command wears the AIOS mark, a skill its own (hand test of 0.17.0). */
+  const glyph = hit.kind === 'command' ? 'aios' : 'skill';
+  rec.node.classList.toggle('aios-cmd', hit.kind === 'command');
+  if (x.kindName !== glyph) { x.kind.replaceChildren(csIcon(glyph, 12)); x.kindName = glyph; }
   const label = hit.label + (sk.args ? ' ' + sk.args : '');
   if (x.arg.textContent !== label) { x.arg.textContent = label; x.argFresh = true; }   // rewritten: its links are looked for again. argText stays the summary, so the plain paint leaves the label alone
   x.head.title = x.name.textContent + ' ' + label + ' — ' + t('chat.skin.tool.' + rec.info.status);

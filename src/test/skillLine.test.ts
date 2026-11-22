@@ -54,3 +54,7 @@ test('review: lines painted before the lists landed are painted again, and a fai
   assert.doesNotMatch(load, /chatSkillLists = null;/, 'negative control: emptying the lists dropped every description for a moment');
   assert.match(load, /if \(rec\.tool\.argFresh\) \{ rec\.tool\.argFresh = false; chatLinkPaths\(/, 'the repaint links the rewritten label itself');
 });
+
+test('hand test: an AIOS command wears the AIOS mark', () => {
+  assert.match(app, /const glyph = hit\.kind === 'command' \? 'aios' : 'skill';/);
+});
