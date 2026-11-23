@@ -13761,7 +13761,9 @@ function openSettingsTab() {
       if (!claudeViewSel.isConnected && claudeViewSel.dataset.painted) { chatModeSubs.delete(paintClaudeView); return; }   // the page was closed
       claudeViewSel.dataset.painted = '1';
       claudeViewSel.value = chatMode;
-      for (const n of [chatFontRow, chatSizeRow, chatBubbleRow, chatSample]) n.hidden = chatMode !== 'chat';
+      /* 0.17.1: the chat's own rows stay visible in either view (hand test): a setting you cannot see is one you cannot find,
+         and they apply the moment the view is Chat. */
+      for (const n of [chatFontRow, chatSizeRow, chatBubbleRow, chatSample]) n.hidden = false;
     };
     chatModeSubs.add(paintClaudeView);
     paintClaudeView();
