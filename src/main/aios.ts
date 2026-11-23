@@ -1490,7 +1490,7 @@ export function normalizeClaudeView(raw: { claudeView?: unknown; chatViewDefault
   return fresh ? 'chat' : 'terminal';
 }
 
-export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: LidMode; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; chatBubble: string; }
+export interface ShellSettings { claudeCmd: string; showHints: boolean; showNudges: boolean; showMemory: boolean; theme: string; termFontSize: number; chatFontFamily: string; chatFontSize: number; claudeView: ClaudeView; appFontSize: number; hiddenCards: string[]; showHidden: boolean; fileIcons: boolean; autoReveal: boolean; openExports: ExportOpenMode; showWeekNumbers: boolean; killBehavior: 'ask' | 'kill' | 'capture'; terminalMode: 'auto' | 'ask'; caffeinate: CaffeinateMode; lidAwake: LidMode; lidAsked: boolean; openNotesIn: 'rendered' | 'source'; tabSizing: 'scroll' | 'shrink'; ignorePaths: string[]; locale: LocalePref; attention: NotifyLevel; busFocus: 'stay' | 'follow'; menuBar: boolean; quickBarShortcut: string; chatBubble: string; }
 
 /** Operator-defined names/globs the explorer hides AND git status ignores
  *  (no pending-commit bubble) — the desktop analog of VS Code's `files.exclude`
@@ -1568,6 +1568,7 @@ export function shellSettings(): ShellSettings {
        shortcut takes its keys from every other app, and ⇧⌘A is already Slack's *All unreads* and Finder's
        *Applications*. Inside the App, the Ask panel has the same destinations, and ⇧⌘A stays *Launch agent*. */
     quickBarShortcut: typeof raw.quickBarShortcut === 'string' ? raw.quickBarShortcut.trim() : '',
+    tabSizing: raw.tabSizing === 'shrink' ? 'shrink' : 'scroll', // 0.17.1: tabs as wide as their names and the strip scrolls (default, as before 0.17), or Chrome-style shrinking
     openNotesIn: raw.openNotesIn === 'source' ? 'source' : 'rendered', // Glass "Open files in": rendered preview (default) or raw source
   };
 }

@@ -629,7 +629,7 @@ guarded('the chat font and size are chosen in Settings, in the same section as t
     return together
       && /chatPrefs\.family = chatFontSel\.value/.test(fontHandler) && /chatApplyPrefs\(\)/.test(fontHandler) && /setSetting\('chatFontFamily', chatPrefs\.family\)/.test(fontHandler)
       && /chatPrefs\.size = v/.test(sizeHandler) && /chatApplyPrefs\(\)/.test(sizeHandler) && /setSetting\('chatFontSize', v\)/.test(sizeHandler)
-      && /for \(const n of \[chatFontRow, chatSizeRow, chatBubbleRow, chatSample\]\) n\.hidden = chatMode !== 'chat';/.test(st)   // only meaningful in Chat
+      && /for \(const n of \[chatFontRow, chatSizeRow, chatBubbleRow, chatSample\]\) n\.hidden = false;/.test(st)   // 0.17.1: shown in either view
       && /chatReadPrefs\(cfg\)/.test(st)   // seeded from the config this page was built from, not from whatever a chat view last read
       && /CHAT_FONTS\.map/.test(st) && /CHAT_SIZES\.map/.test(st);
   },

@@ -507,7 +507,11 @@ test('release gate (review blocker): every feed must be USABLE before publishing
   const j = gate.indexOf("'--draft=false'");
   assert.ok(i > 0 && j > i, 'all three feeds are asserted BEFORE the draft is flipped');
   assert.match(gate, /execFileSync\('node', \['scripts\/assert-release-assets\.mjs', '--tag', tag, '--platform', platform\]/);
-  assert.match(gate, /process\.exit\(1\);\s*\}\s*\}\s*execFileSync\('gh', \['release', 'edit'/, 'a failing feed exits before publishing');
+  assert.match(gate, /await failUnlessPublishedElsewhere\([^\n]*\);\s*\}\s*\}\s*try \{\s*execFileSync\('gh', \['release', 'edit'/, 'a failing feed exits before publishing');
+  /* #194: that exit first looks again, in case the other lane just published; it always ends the process (0 only for a release
+     already public with every manifest, which is the other lane's publish, never this lane's). */
+  const fn = gate.slice(gate.indexOf('async function failUnlessPublishedElsewhere'), gate.indexOf('let rel;'));
+  assert.match(fn, /process\.exit\(0\);[\s\S]*console\.error\(message\); process\.exit\(1\);\n\}/, 'it always exits');
   for (const f of ['release.yml', 'release-linux.yml', 'release-windows.yml']) {
     const wf = fs.readFileSync(path.join(ROOT, '.github', 'workflows', f), 'utf8');
     const up = wf.indexOf('gh release upload');

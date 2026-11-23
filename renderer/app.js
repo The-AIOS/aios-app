@@ -351,10 +351,27 @@ function applyTheme(mode) {
 let SHOWWK = true; // calendar week numbers (Glass parity; Settings toggle repaints live)
 let KILLBEHAVIOR = 'ask'; // Glass parity: how the trash button behaves — ask | kill | capture (Settings changes it live)
 let OPENNOTESIN = 'rendered'; // Glass "Open files in": a note opens rendered (default) or as raw source
+/* 0.17.1: how tabs size. 'scroll' (default, as before 0.17): each tab as wide as its name, up to 190px, and the strip scrolls.
+   'shrink': 0.17's Chrome-style strip, every tab 150px, shrinking evenly, then compact. Operators did not like shrinking
+   as the default, so it became a choice. */
+let TABSIZING = 'scroll';
+function applyTabSizing(v) {
+  TABSIZING = v === 'shrink' ? 'shrink' : 'scroll';
+  document.body.classList.toggle('tabs-shrink', TABSIZING === 'shrink');
+  for (const sid of ['tabs', 'ttabs']) {
+    const s = document.getElementById(sid);
+    if (!s) continue;
+    if (s.dataset.tfrozen && s._thaw) s._thaw();
+    syncStripStage(s);
+    syncStripOverflow(s);
+    revealTab(s.querySelector(':scope > .tab.active'));   // the widths changed under it; the strip's box did not, so no observer fires (review)
+  }
+}
 void window.glassShell.shellConfig().then((c) => {
   CLAUDE = c.claudeCmd || 'claude';
   KILLBEHAVIOR = c.killBehavior || 'ask';
   OPENNOTESIN = c.openNotesIn || 'rendered';
+  applyTabSizing(c.tabSizing);
   appScale = Math.min(18, Math.max(10, Number(c.appFontSize) || 13));
   applyAppScale(c.appFontSize);
   applyHiddenCards(c.hiddenCards);
@@ -3628,6 +3645,7 @@ function tabStripStage(avail, tabCount, extra, gap) {
   return need > avail ? 'compact' : 'fit';
 }
 function syncStripStage(strip) {
+  if (TABSIZING !== 'shrink') { strip.classList.remove('tcompact'); return; }   // 0.17.1: shrinking is a choice in Settings
   if (strip.dataset.tfrozen && !strip.querySelector(':scope > .tab')) strip._thaw && strip._thaw();   // nothing left to hold
   if (strip.dataset.tfrozen) return;   // close-in-place: the widths hold until the pointer leaves
   const tabs = [...strip.querySelectorAll(':scope > .tab')].filter((t) => getComputedStyle(t).display !== 'none');   // a collapsed group's tabs take no room
@@ -3700,6 +3718,7 @@ function revealTab(tab) {
 const TAB_THAW_MS = 1000;
 function freezeStripForClose(strip) {
   if (!strip || !strip.classList || !strip.classList.contains('tabstrip')) return;
+  if (TABSIZING !== 'shrink') return;   // tabs as wide as their names: closing one moves nothing under the pointer that holding would fix
   /* Compact, only the active tab has a ×: there is no next × to keep under the pointer, so nothing is held (hand test). */
   if (strip.classList.contains('tcompact') && !strip.dataset.tfrozen) return;
   for (const t of strip.querySelectorAll(':scope > .tab')) { if (!t.offsetWidth) continue; t.style.width = t.offsetWidth + 'px'; t.classList.add('tfrozen'); }   // a tab hidden in a collapsed group is not held at 0px (review)
@@ -8510,7 +8529,7 @@ function openWhatsNewTab() {
    cannot tell you whether a 0.9.10 exists). Add the new version here at each cut; a test fails
    if package.json names a version that is missing. */
 const RELEASES = ['0.6.0', '0.7.0', '0.7.1', '0.7.2', '0.8.0', '0.8.1', '0.8.2', '0.8.3', '0.8.4', '0.8.5', '0.8.6', '0.8.7',
-  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0', '0.17.0'];
+  '0.9.0', '0.9.1', '0.9.2', '0.9.3', '0.9.4', '0.9.5', '0.9.6', '0.9.7', '0.9.8', '0.9.9', '0.10.0', '0.10.1', '0.11.0', '0.11.1', '0.12.0', '0.13.0', '0.14.0', '0.14.1', '0.15.0', '0.15.1', '0.15.2', '0.16.0', '0.17.0', '0.17.1'];
 let whatsNewFrom = null;
 /** Releases strictly between the one they had and the one they now run. [] when none, or unknown. */
 function skippedReleases(from, to) {
@@ -13542,6 +13561,12 @@ function openSettingsTab() {
       toast(t('settings.saved'));
     });
     row(wrap, t('settings.theme'), themeSel, t('settings.themeHint'));
+    const tabSel = document.createElement('select');
+    tabSel.className = 'tinput';
+    for (const [l, v] of [[t('tabSizing.scroll'), 'scroll'], [t('tabSizing.shrink'), 'shrink']]) { const o = document.createElement('option'); o.textContent = l; o.value = v; tabSel.appendChild(o); }
+    tabSel.value = cfg.tabSizing || 'scroll';
+    tabSel.addEventListener('change', async () => { await window.glassShell.setSetting('tabSizing', tabSel.value); applyTabSizing(tabSel.value); toast(t('settings.saved')); });
+    row(wrap, t('settings.tabSizing'), tabSel, t('settings.tabSizingHint'));
 
     // killBehavior (Glass parity): what the session trash button does.
     const killSel = document.createElement('select');
@@ -13736,7 +13761,9 @@ function openSettingsTab() {
       if (!claudeViewSel.isConnected && claudeViewSel.dataset.painted) { chatModeSubs.delete(paintClaudeView); return; }   // the page was closed
       claudeViewSel.dataset.painted = '1';
       claudeViewSel.value = chatMode;
-      for (const n of [chatFontRow, chatSizeRow, chatBubbleRow, chatSample]) n.hidden = chatMode !== 'chat';
+      /* 0.17.1: the chat's own rows stay visible in either view (hand test): a setting you cannot see is one you cannot find,
+         and they apply the moment the view is Chat. */
+      for (const n of [chatFontRow, chatSizeRow, chatBubbleRow, chatSample]) n.hidden = false;
     };
     chatModeSubs.add(paintClaudeView);
     paintClaudeView();

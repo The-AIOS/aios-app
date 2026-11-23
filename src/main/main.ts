@@ -2416,12 +2416,13 @@ ipcMain.handle('ask:send', (_e, dest: QuickBarDestination, text: unknown) => wri
   log: (m) => appLog('ask', m),
 }));
 ipcMain.handle('quickBar:status', () => ({ available: QUICK_BAR_ALLOWED(), shortcut: aios.shellSettings().quickBarShortcut, held: quickBar?.shortcut ?? '', ok: quickBarShortcutOk }));
-ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'menuBar' | 'quickBarShortcut' | 'chatBubble' | 'lidAsked' | 'claudeView', value: unknown) => {
+ipcMain.handle('shell:setSetting', (_e, key: 'claudeCmd' | 'showHints' | 'showNudges' | 'showMemory' | 'theme' | 'termFontSize' | 'chatFontFamily' | 'chatFontSize' | 'showHidden' | 'fileIcons' | 'autoReveal' | 'openExports' | 'showWeekNumbers' | 'killBehavior' | 'terminalMode' | 'openNotesIn' | 'appFontSize' | 'hiddenCards' | 'ignorePaths' | 'locale' | 'caffeinate' | 'attention' | 'busFocus' | 'menuBar' | 'quickBarShortcut' | 'chatBubble' | 'lidAsked' | 'claudeView' | 'tabSizing', value: unknown) => {
   if (key === 'chatBubble' && (typeof value !== 'string' || !/^[a-z]{3,12}$/.test(value))) return aios.shellSettings();   // a palette id, nothing else
   if (key === 'menuBar' && typeof value !== 'boolean') return aios.shellSettings();   // a boolean or nothing
   if (key === 'quickBarShortcut' && typeof value !== 'string') return aios.shellSettings();   // an accelerator, or '' for none
   /* claudeView is a closed set. Anything else is refused rather than stored: normalizeClaudeView would ignore it on read and fall
      back to the old chatViewDefault, so a bad write could silently resurrect a value the operator had moved on from. */
+  if (key === 'tabSizing' && value !== 'scroll' && value !== 'shrink') return aios.shellSettings();   // a closed set
   if (key === 'claudeView' && value !== 'chat' && value !== 'terminal') return aios.shellSettings();
   aios.setShellSetting(key, value);
   /* Changing the RULE retires any override — otherwise you switch manual→auto and watch

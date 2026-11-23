@@ -24,3 +24,15 @@ export function gateDecision(release: { isDraft: boolean; assets: string[] }): G
   const missing = REQUIRED_MANIFESTS.filter((m) => !have.has(m));
   return missing.length ? { do: 'wait', missing } : { do: 'publish' };
 }
+
+/**
+ * #194: two lanes can reach the gate in the same second. The one that loses the race reads the release while the other
+ * is publishing it, gets "not found" or a failed feed check, and used to fail its run on a good release. So when a
+ * lane's read or check fails, it reads again: a release that is now PUBLIC with every manifest attached was published
+ * by the other lane, and that is success. Anything else is still a failure. Pure: the caller does the reading.
+ */
+export function publishedByAnotherLane(release: { isDraft: boolean; assets: string[] } | null): boolean {
+  if (!release || release.isDraft) return false;
+  const have = new Set(release.assets);
+  return REQUIRED_MANIFESTS.every((m) => have.has(m));
+}
