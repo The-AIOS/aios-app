@@ -430,7 +430,7 @@ test('shellSettings reads claudeView from the stored file, migrating the old key
   }
   // the door: only the two values are stored, and the old key is no longer writable from the renderer
   const door = /ipcMain\.handle\('shell:setSetting'[\s\S]*?\n\}\);/.exec(main)?.[0] ?? '';
-  assert.match(door, /'lidAsked' \| 'claudeView', value: unknown\)/);
+  assert.match(door, /'lidAsked' \| 'claudeView'( \| 'tabSizing')?, value: unknown\)/);
   assert.doesNotMatch(door.split('=> {')[0], /chatViewDefault/);
   assert.match(door, /if \(key === 'claudeView' && value !== 'chat' && value !== 'terminal'\) return aios\.shellSettings\(\);\n\s+aios\.setShellSetting\(key, value\);/);
   assert.match(aios, /claudeView: ClaudeView;/);

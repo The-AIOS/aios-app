@@ -22,7 +22,8 @@ test('tabs fit while each can have at least 90px; past that the strip goes compa
 });
 
 test('the CSS: tabs shrink evenly to 90px, compact shows icon and dot, the active tab keeps its title', () => {
-  assert.match(css, /transition: background \.14s, color \.14s, border-color \.14s; flex: 0 1 150px; min-width: 90px; overflow: hidden; \}/, 'one width for every tab while they fit, as Chrome: a short name does not look shrunk, a long one does not stretch (hand test)');
+  assert.match(css, /transition: background \.14s, color \.14s, border-color \.14s; flex: 0 0 auto; max-width: 190px; \}/, '0.17.1: by default a tab is as wide as its name, as before 0.17');
+  assert.match(css, /body\.tabs-shrink \.tab \{ flex: 0 1 150px; min-width: 90px; max-width: none; overflow: hidden; \}/, 'shrinking, when chosen: one width for every tab while they fit');
   assert.match(css, /\.tabstrip\.tcompact \.tab:not\(\.active\) \.tname, \.tabstrip\.tcompact \.tab:not\(\.active\) \.tx \{ display: none; \}/);
   assert.match(css, /\.tabstrip\.tcompact \.tab\.active \{ min-width: 120px; \}/);
 });
@@ -49,4 +50,14 @@ test('hand test of 0.17.0: compact tabs are never held after a close, and a hold
   assert.match(app, /if \(strip\.classList\.contains\('tcompact'\) && !strip\.dataset\.tfrozen\) return;/);
   assert.match(app, /const TAB_THAW_MS = 1000;/);
   assert.match(app, /strip\._thawT = setTimeout\(\(\) => \{ if \(strip\.dataset\.tfrozen && strip\._thaw\) strip\._thaw\(\); \}, TAB_THAW_MS\);/);
+});
+
+test('0.17.1: shrinking is a setting, off by default; off, the strip never goes compact and a close holds nothing', () => {
+  const app = fs.readFileSync('renderer/app.js', 'utf8');
+  assert.match(app, /let TABSIZING = 'scroll';/);
+  assert.match(app, /function syncStripStage\(strip\) \{\n  if \(TABSIZING !== 'shrink'\) \{ strip\.classList\.remove\('tcompact'\); return; \}/);
+  assert.match(app, /if \(TABSIZING !== 'shrink'\) return;   \/\/ tabs as wide as their names/);
+  const aios = fs.readFileSync('src/main/aios.ts', 'utf8');
+  assert.match(aios, /tabSizing: raw\.tabSizing === 'shrink' \? 'shrink' : 'scroll',/, 'anything but shrink reads as the default');
+  assert.match(fs.readFileSync('src/main/main.ts', 'utf8'), /if \(key === 'tabSizing' && value !== 'scroll' && value !== 'shrink'\) return aios\.shellSettings\(\);/);
 });
