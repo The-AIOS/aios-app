@@ -22,8 +22,8 @@ test('tabs fit while each can have at least 90px; past that the strip goes compa
 });
 
 test('the CSS: tabs shrink evenly to 90px, compact shows icon and dot, the active tab keeps its title', () => {
-  assert.match(css, /transition: background \.14s, color \.14s, border-color \.14s; flex: 0 0 auto; max-width: 190px; \}/, '0.17.1: by default a tab is as wide as its name, as before 0.17');
-  assert.match(css, /body\.tabs-shrink \.tab \{ flex: 0 1 150px; min-width: 90px; max-width: none; overflow: hidden; \}/, 'shrinking, when chosen: one width for every tab while they fit');
+  assert.match(css, /transition: all \.14s; flex: 0 0 auto; max-width: 190px; \}/, '0.17.1: by default a tab is as wide as its name, as before 0.17');
+  assert.match(css, /body\.tabs-shrink \.tab \{ flex: 0 1 150px; min-width: 90px; max-width: none; overflow: hidden; transition: background \.14s, color \.14s, border-color \.14s; \}/, 'shrinking, when chosen: one width for every tab while they fit');
   assert.match(css, /\.tabstrip\.tcompact \.tab:not\(\.active\) \.tname, \.tabstrip\.tcompact \.tab:not\(\.active\) \.tx \{ display: none; \}/);
   assert.match(css, /\.tabstrip\.tcompact \.tab\.active \{ min-width: 120px; \}/);
 });

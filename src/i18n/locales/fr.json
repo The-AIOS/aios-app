@@ -1226,7 +1226,7 @@
   "shortcut.save": "Enregistrer le fichier ouvert",
   "whatsnew.tab": "Nouveautés",
   "whatsnew.title": "Nouveautés d’AIOS {version}",
-  "whatsnew.sub": "Les onglets reprennent la largeur de leur nom, et rétrécir comme dans Chrome devient votre choix.",
+  "whatsnew.sub": "Tout ce qu’apporte la 0.17.0, et des onglets qui reprennent la largeur de leur nom : rétrécir comme dans Chrome devient un réglage.",
   "whatsnew.h1": "Des onglets à votre goût",
   "whatsnew.b1": "Les onglets reprennent la largeur de leur nom, et la barre défile quand ils ne tiennent pas, comme avant la 0.17. Vous préférez des onglets qui rétrécissent comme dans Chrome ? Réglages → Onglets → Rétrécir comme dans Chrome.",
   "whatsnew.h2": "Déposez un fichier sur n’importe quel onglet",

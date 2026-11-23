@@ -1226,7 +1226,7 @@
   "shortcut.save": "Save the open file",
   "whatsnew.tab": "What's new",
   "whatsnew.title": "What's new in AIOS {version}",
-  "whatsnew.sub": "Tabs fit their names again, and shrinking like Chrome is now your choice.",
+  "whatsnew.sub": "Everything in 0.17.0, and tabs that fit their names again: shrinking like Chrome is now a setting.",
   "whatsnew.h1": "Tabs your way",
   "whatsnew.b1": "Tabs are back to fitting their names, and the strip scrolls when they don't fit, as before 0.17. Prefer Chrome-style tabs that shrink as you open more? Settings → Tabs → Shrink like Chrome.",
   "whatsnew.h2": "Drop a file on any tab",

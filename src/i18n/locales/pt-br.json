@@ -1226,7 +1226,7 @@
   "shortcut.save": "Salvar o arquivo aberto",
   "whatsnew.tab": "Novidades",
   "whatsnew.title": "Novidades do AIOS {version}",
-  "whatsnew.sub": "As abas voltam ao tamanho do nome, e encolher como no Chrome agora é escolha sua.",
+  "whatsnew.sub": "Tudo da 0.17.0, e abas que voltam ao tamanho do nome: encolher como no Chrome agora é uma configuração.",
   "whatsnew.h1": "Abas do seu jeito",
   "whatsnew.b1": "As abas voltam a ter o tamanho do nome, e a barra rola quando não cabem, como antes da 0.17. Prefere abas que encolhem como no Chrome? Configurações → Abas → Encolher como no Chrome.",
   "whatsnew.h2": "Solte um arquivo em qualquer aba",

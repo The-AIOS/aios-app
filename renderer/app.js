@@ -364,6 +364,7 @@ function applyTabSizing(v) {
     if (s.dataset.tfrozen && s._thaw) s._thaw();
     syncStripStage(s);
     syncStripOverflow(s);
+    revealTab(s.querySelector(':scope > .tab.active'));   // the widths changed under it; the strip's box did not, so no observer fires (review)
   }
 }
 void window.glassShell.shellConfig().then((c) => {
