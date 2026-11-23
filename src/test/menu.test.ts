@@ -760,3 +760,13 @@ test('0.17.0: the manual and the security brief open their pages, the brief in S
   assert.equal(url('fr'), 'https://www.the-aios.com/security-brief/en');
   assert.match(app, /dragSecurity\.innerHTML = icon\('shield', 15\);/);
 });
+
+test('0.17.1: every Settings hint starts with a capital, in every language', () => {
+  const en = JSON.parse(fs.readFileSync('src/i18n/locales/en.json', 'utf8')) as Record<string, string>;
+  const keys = Object.keys(en).filter((k) => /^(chat\.)?settings\..*Hint$/.test(k));
+  assert.ok(keys.length > 40, 'the hints were found');
+  for (const l of ['en', 'es', 'pt-br', 'el', 'fr']) {
+    const d = JSON.parse(fs.readFileSync(`src/i18n/locales/${l}.json`, 'utf8')) as Record<string, string>;
+    for (const k of keys) if (d[k]) assert.ok(!/^\p{Ll}/u.test(d[k]), `${l} ${k} starts lowercase: "${d[k].slice(0, 40)}"`);
+  }
+});
