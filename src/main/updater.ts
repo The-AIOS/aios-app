@@ -9,6 +9,7 @@ import { lastPanelStatuses } from './panelHost';
 import { heldSendCount } from './commandBus';
 import { installStep, mayAutoInstall, SAMPLE_MS, NEVER_QUIET_WARN_MS } from '../core/autoInstall';
 import { shouldNotifyUpdate, parseNotified } from '../core/updateNotice';
+import { formatUpdaterLine, shouldRotateUpdaterLog, quitInstallPlan, ownsQuitInstall } from '../core/updaterLog';
 import { t } from '../i18n';
 
 /**
@@ -63,6 +64,22 @@ const unattended: {
   lastBlocker: string;
 } = { wanted: false, readyVersion: '', install: null, timer: null, quietSince: 0, lastSampleAt: 0, armedAt: 0, warned: false, lastBlocker: '' };
 
+/* #201: every updater line also goes to `<userData>/updater.log`. The quit-time install runs after
+   the window is gone, so the console is read by nobody; a file under the App's data folder survives
+   the uninstaller (it never touches that folder) and is what a failed install leaves behind.
+   Synchronous on purpose: the lines that matter most are written from the 'quit' handler, and the
+   process exits right after it — an async write would be lost exactly when it is needed.
+   Packaged only, like the updater itself: a dev run has no updater to trace. */
+function updaterLogFile(): string { return path.join(app.getPath('userData'), 'updater.log'); }
+function ulog(level: 'info' | 'warn' | 'error', message: string): void {
+  (level === 'error' ? console.error : console.log)('[updater]', message);
+  if (app.isPackaged) try {
+    const file = updaterLogFile();
+    try { if (shouldRotateUpdaterLog(fs.statSync(file).size)) fs.renameSync(file, file + '.1'); } catch { /* no file yet */ }
+    fs.appendFileSync(file, formatUpdaterLine(level, message, new Date()));
+  } catch { /* a full or read-only disk must never break the updater */ }
+}
+
 export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   /* The single renderer sender. Kept above the isPackaged return so any future dev-side emit
      can use it without reintroducing a TDZ: a `const` referenced above its own declaration
@@ -100,8 +117,26 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   // teardown warns against. isPackaged is the single honest gate.
   if (!app.isPackaged) return;
 
-  autoUpdater.autoDownload = true;          // fetch in the background…
-  autoUpdater.autoInstallOnAppQuit = true;  // …install on the next quit (no forced restart)
+  /* A line per launch, so the file reads as a story: "installing X on quit" followed by
+     "AIOS X started" is an install that took; followed by the OLD version, or by nothing, is one
+     that did not. */
+  ulog('info', `AIOS ${app.getVersion()} started (${process.platform} ${process.arch})`);
+
+  /* #201: on Windows the quit-time install is ours, not the library's, for one reason — the
+     library's handler hard-codes `install(silent, NO run-after)`, so the App never came back on
+     its own after an update and nothing told the operator one was running. Ours is the same
+     install with `--force-run` (see src/core/updaterLog.ts). Taken over only when the updater
+     really exposes `install` (NsisUpdater does); otherwise the library's handler stays, because
+     switching it off without a replacement would mean no install on quit at all. */
+  const nsis = autoUpdater as unknown as {
+    install?: (isSilent: boolean, isForceRunAfter: boolean) => boolean;   // public on BaseUpdater
+    quitAndInstallCalled?: boolean;                                        // protected there; read only
+  };
+  const ownQuit = ownsQuitInstall(process.platform) && typeof nsis.install === 'function';
+  const quitState = { downloaded: false, triggered: false, version: '' };
+
+  autoUpdater.autoDownload = true;              // fetch in the background…
+  autoUpdater.autoInstallOnAppQuit = !ownQuit;  // …install on the next quit (no forced restart)
 
   const emit = send;
 
@@ -112,16 +147,16 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
      feed is the expected state before the first release, so it is reported as one line and
      everything else is passed through untouched. */
   autoUpdater.logger = {
-    info: (m: unknown) => console.log('[updater]', String(m)),
-    warn: (m: unknown) => console.log('[updater]', String(m)),
+    info: (m: unknown) => ulog('info', String(m)),
+    warn: (m: unknown) => ulog('warn', String(m)),
     debug: () => { /* too chatty for a shipped log */ },
     error: (m: unknown) => {
       const msg = String(m);
       if (/404/.test(msg) && /releases/.test(msg)) {
-        console.log('[updater] no published releases yet — nothing to update to (expected)');
+        ulog('info', 'no published releases yet — nothing to update to (expected)');
         return;
       }
-      console.log('[updater] error:', msg.split('\n')[0]);
+      ulog('error', `error: ${msg.split('\n')[0]}`);
     },
   } as never;
   autoUpdater.on('checking-for-update', () => emit('checking'));
@@ -129,6 +164,8 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   autoUpdater.on('update-not-available', () => emit('none'));
   autoUpdater.on('download-progress', (p) => emit('progress', { percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', (info) => {
+    quitState.downloaded = true;
+    quitState.version = String(info.version || '');
     emit('ready', { version: info.version });
     notifyReadyOnce(String(info.version || ''));
     unattended.readyVersion = String(info.version || '');
@@ -146,6 +183,26 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
   const install = (): void => { markQuitting(); autoUpdater.quitAndInstall(); };
   ipcMain.handle('updater:quitAndInstall', install);
   unattended.install = install;
+
+  if (ownQuit) {
+    /* Same event and same exit-code rule as the library's own handler. "Already triggered" is the
+       library's flag: the pill and unattended mode go through quitAndInstall(), which sets it (and
+       logs "Install on explicit quitAndInstall" to the file) — non-silent on Windows, which
+       already reopens the App — so the quit it causes must not start a second install. */
+    app.on('quit', (_e, exitCode) => {
+      const alreadyTriggered = quitState.triggered || nsis.quitAndInstallCalled === true;
+      const plan = quitInstallPlan({ platform: process.platform, downloaded: quitState.downloaded, alreadyTriggered, exitCode });
+      if (!plan) {
+        if (quitState.downloaded && !alreadyTriggered) ulog('info', `quitting with exit code ${exitCode} — ${quitState.version} not installed`);
+        return;
+      }
+      quitState.triggered = true;
+      ulog('info', `installing ${quitState.version} on quit — silent, AIOS reopens when it is done`);
+      try {
+        if (!nsis.install!(plan.silent, plan.runAfter)) ulog('error', 'the installer did not start');
+      } catch (e) { ulog('error', `the installer did not start: ${String((e as Error)?.message ?? e)}`); }
+    });
+  }
 
   // Check on boot, then every 6h while the app stays open. The check auto-downloads; the
   // NATIVE OS notification is raised once per version by notifyReadyOnce (#183), not by
@@ -166,7 +223,7 @@ export function initAutoUpdater(getWin: () => BrowserWindow | undefined): void {
     const now = Date.now();
     if (!force && now - lastCheck.at < MIN_GAP) return;
     lastCheck.at = now;
-    console.log(`[updater] checking (${why})`);
+    ulog('info', `checking (${why})`);
     void autoUpdater.checkForUpdates().catch(() => { /* offline / no release yet — silent */ });
   };
   check('boot', true);
@@ -218,7 +275,7 @@ function syncUnattended(): void {
   if (!mayAutoInstall(v, attemptedVersion())) {
     /* Already tried once and we are still here, so that install did not take. Never loop:
        the pill stays, and a person decides. */
-    console.log(`[updater] unattended: ${v} was already tried once — leaving it to the pill`);
+    ulog('info', `unattended: ${v} was already tried once — leaving it to the pill`);
     stopUnattended();
     return;
   }
@@ -226,7 +283,7 @@ function syncUnattended(): void {
   unattended.armedAt = Date.now();
   unattended.warned = false;
   unattended.lastBlocker = '';
-  console.log(`[updater] unattended: ${v} is downloaded — installing at the first quiet moment`);
+  ulog('info', `unattended: ${v} is downloaded — installing at the first quiet moment`);
   unattended.timer = setInterval(sampleUnattended, SAMPLE_MS);
 }
 
@@ -241,7 +298,7 @@ function sampleUnattended(): void {
       idleSec: powerMonitor.getSystemIdleTime(),
     }, { quietSince: unattended.quietSince, lastSampleAt: unattended.lastSampleAt }, now);
   } catch (e) {
-    console.log('[updater] unattended: could not read the machine state —', String((e as Error)?.message ?? e));
+    ulog('error', `unattended: could not read the machine state — ${String((e as Error)?.message ?? e)}`);
     unattended.quietSince = 0;
     unattended.lastSampleAt = now;
     return;
@@ -250,22 +307,22 @@ function sampleUnattended(): void {
   unattended.lastSampleAt = now;
   const b = step.blocker || '';
   if (b !== unattended.lastBlocker) {
-    console.log(`[updater] unattended: ${b ? `waiting — ${b}` : 'quiet, counting'}`);
+    ulog('info', `unattended: ${b ? `waiting — ${b}` : 'quiet, counting'}`);
     unattended.lastBlocker = b;
   }
   if (!unattended.warned && now - unattended.armedAt > NEVER_QUIET_WARN_MS) {
     unattended.warned = true;
-    console.error(`[updater] unattended: ${unattended.readyVersion} has waited 12 h for a quiet moment (last: ${b || 'quiet'}) — still waiting; the pill installs it now`);
+    ulog('error', `unattended: ${unattended.readyVersion} has waited 12 h for a quiet moment (last: ${b || 'quiet'}) — still waiting; the pill installs it now`);
   }
   if (!step.install) return;
   const v = unattended.readyVersion;
   try { fs.writeFileSync(attemptFile(), JSON.stringify({ version: v, at: now }) + '\n'); } catch (e) {
     /* Without the record a failed install could loop. Not installing is the safe side. */
-    console.error('[updater] unattended: could not record the attempt — not installing', String((e as Error)?.message ?? e));
+    ulog('error', `unattended: could not record the attempt — not installing: ${String((e as Error)?.message ?? e)}`);
     stopUnattended();
     return;
   }
-  console.log(`[updater] unattended: quiet — restarting to install ${v}`);
+  ulog('info', `unattended: quiet — restarting to install ${v}`);
   stopUnattended();
   unattended.install?.();
 }
