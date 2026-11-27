@@ -19,10 +19,11 @@
 import { powerSaveBlocker, powerMonitor } from 'electron';
 import { execFile } from 'child_process';
 import {
-  BLOCKER_TYPE, anyBusy, sessionsAwaitingShells, shellStillCounts, desiredBlocker, caffeinateReason, nextOverride,
+  BLOCKER_TYPE, anyBusy, sessionsAwaitingShells, sessionsHoldAwake, desiredBlocker, caffeinateReason, nextOverride,
   type CaffeinateMode, type CaffeinateOverride,
 } from '../core/caffeinate';
 import * as aios from './aios';
+import { effectiveSessions } from './sessionStatus';
 import * as lid from './lidAwake';
 import { desiredLidHold, type LidMode } from '../core/lidAwake';
 
@@ -70,13 +71,17 @@ function probeShells(pids: number[]): void {
   });
 }
 
-/** Busy = a session says so, or one went idle under an hour ago and is waiting on a shell it started. */
+/** Busy = a session says so, or one went idle under an hour ago and is waiting on a shell it started.
+ *  "Says so" is the status the panel shows (./sessionStatus): a session in one of the App's tabs is
+ *  read from its own terminal signal when that is newer than the registry, so a registry that lags
+ *  or stops updating cannot hold the machine awake for a turn that ended, nor let it sleep through one
+ *  that started. A session waiting on a permission prompt is not busy, from either source; it holds the
+ *  machine only through the shell grace, as before. The decision itself is core's sessionsHoldAwake. */
 export function busyNow(): boolean {
-  const agents = aios.listRunningAgents();
-  if (anyBusy(agents.map((a) => a.status))) return true;
+  const agents = effectiveSessions(aios.listRunningAgents());
+  if (anyBusy(agents.map((a) => a.status))) return true;   // the probe is only worth running when nothing says busy
   probeShells(agents.map((a) => a.pid));
-  const now = Date.now();
-  return agents.some((a) => awaiting.has(a.pid) && shellStillCounts(a.statusUpdatedAt || a.updatedAt || 0, now));
+  return sessionsHoldAwake(agents, awaiting, Date.now());
 }
 
 /**

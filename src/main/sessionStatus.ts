@@ -12,9 +12,9 @@
  * overridden) is core/programStatus's own, unchanged. A session outside the App's terminals has no
  * signal and keeps its registry status.
  *
- * Not a reader here, on purpose: the keep-awake driver and the command bus still read the registry.
- * For them the fresher signal would change WHEN the machine sleeps and WHEN a message is typed,
- * which are decisions of their own.
+ * The keep-awake driver reads through it too (caffeinate.busyNow), over every registered session.
+ * Not a reader, on purpose: the command bus, which still decides from the registry whether to deliver
+ * or hold. For it the fresher signal would change WHEN a message is typed, a decision of its own.
  */
 import { parseProgramStatus, overlayProgramStatus, type ProgramStatus } from '../core/programStatus';
 

@@ -92,6 +92,19 @@ export function shellStillCounts(idleSince: number, now: number): boolean {
 }
 
 /**
+ * The keep-awake decision over a session list: a session says it is busy, or one went idle under
+ * SHELL_GRACE_MS ago and still runs a shell it started (`awaiting`, by pid). The driver hands it the
+ * list it reads (the effective statuses, main/sessionStatus) and the last shell probe.
+ */
+export function sessionsHoldAwake(
+  agents: ReadonlyArray<{ pid: number; status: string; statusUpdatedAt?: number; updatedAt?: number }>,
+  awaiting: ReadonlySet<number>, now: number,
+): boolean {
+  if (anyBusy(agents.map((a) => a.status))) return true;
+  return agents.some((a) => awaiting.has(a.pid) && shellStillCounts(a.statusUpdatedAt || a.updatedAt || 0, now));
+}
+
+/**
  * Should the power blocker be held?
  *
  * `override` wins in BOTH modes, and that is a requirement rather than a convenience — the
