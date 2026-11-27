@@ -6561,7 +6561,7 @@ async function openViewer(p, o = {}) {
   /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
      leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
   paneObj.onDiskMaybeChanged = async () => {
-    if (ro || paneObj.dirty || paneObj.asking || !editable) return;   // a session's snapshot never reloads from disk
+    if (paneObj.dirty || paneObj.asking || !editable) return;   // a session's snapshot is never editable, so it never reloads from disk
     const f = await window.glassShell.fsRead(file.path).catch(() => null);
     if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
     base = file.content = f.content;
