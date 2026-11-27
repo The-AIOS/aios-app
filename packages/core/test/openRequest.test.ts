@@ -274,7 +274,8 @@ test('the secret rule: what it refuses and what it leaves alone', () => {
     assert.equal(isSecretPath(s), true, s);
   }
   for (const s of ['/v/id_card.md', '/r/id_ed25519.pub', '/v/notes.md', '/v/tokenomics.md', '/v/secrets-of-sales.md', '/v/cookie-recipes.md',
-    '/r/.github/ci.yml', '/r/known_hosts', '/r/tokenizer.json', '/v/auth/notes.md', '/v/.envelope.md', '/v/.environment-notes.md']) {
+    '/r/.github/ci.yml', '/r/known_hosts', '/r/tokenizer.json', '/v/auth/notes.md', '/v/.envelope.md', '/v/.environment-notes.md',
+    '/r/token-store.js', '/r/secret-scan.sh', '/r/password_reset.py']) {
     assert.equal(isSecretPath(s), false, s);
   }
 });

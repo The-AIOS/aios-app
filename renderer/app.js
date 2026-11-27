@@ -6420,7 +6420,7 @@ function holdSnapshotImage(img, s, dir, holds) {
   let abs = s;
   try {
     if (/^file:/i.test(s)) { abs = decodeURIComponent(new URL(s).pathname); if (/^\/[A-Za-z]:/.test(abs)) abs = abs.slice(1); }
-    else abs = dir + '/' + s;
+    else { let rel = s; try { rel = decodeURIComponent(s); } catch { /* keep as written */ } abs = dir + '/' + rel; }   // marked percent-encodes spaces and accents
   } catch { abs = ''; }
   const deny = () => { const n = document.createElement('span'); n.className = 'vchip'; n.textContent = t('viewer.imageHeld'); img.replaceWith(n); };
   if (!abs) { deny(); return; }
@@ -6627,10 +6627,10 @@ async function openViewer(p, o = {}) {
     /* The real file is checked again first: a session that swapped it after the snapshot does not get
        the swapped file opened for editing. */
     edit.addEventListener('click', () => {
-      void (window.glassShell.busRecheckSnapshot?.(o.snap || '') ?? Promise.resolve(null)).then((real) => {
-        if (!real) { toast(t('viewer.changedSinceSnapshot')); return; }
-        closePane(id); void openViewer(real);
-      }).catch(() => toast(t('viewer.changedSinceSnapshot')));
+      void (window.glassShell.busRecheckSnapshot?.(o.snap || '') ?? Promise.resolve({ reason: 'old' })).then((r) => {
+        if (!r || !r.real) { toast(t(r && r.reason === 'changed' ? 'viewer.changedSinceSnapshot' : 'viewer.snapshotTooOld')); return; }
+        closePane(id); void openViewer(r.real);
+      }).catch(() => toast(t('viewer.snapshotTooOld')));
     });
     head.append(badge, edit);
   }

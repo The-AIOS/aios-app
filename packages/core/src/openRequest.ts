@@ -91,6 +91,8 @@ const SECRET_NAMES = new Set(['.netrc', '.pgpass', '.npmrc', '.pypirc', '.git-cr
   'auth.json', '.htpasswd', '.vault-token', '.yarnrc.yml', '.s3cfg', '.my.cnf']);
 const SECRET_EXT = /\.(asc|pem|key|p12|pfx|p8|kdbx|ovpn|ppk|jks|keystore|tfstate|tfvars)$/;
 const PROSE_EXT = /\.(md|markdown|html?|pdf|png|jpe?g|gif|webp|svg)$/;
+/* Source code is shown, whatever words its name has: a token-store.js handles tokens, it holds none. */
+const CODE_EXT = /\.(py|js|mjs|cjs|ts|tsx|jsx|sh|bash|zsh|go|rs|rb|swift|kt|java|c|h|cpp|cs|php|css|scss|lua|pl)$/;
 const BACKUP_SUFFIX = ['.bak', '.old', '.orig', '.backup', '~'];
 const WORDS = new Set(['token', 'tokens', 'credential', 'credentials', 'oauth', 'secret', 'secrets', 'cookie', 'cookies', 'password', 'passwords', 'apikey', 'apikeys']);
 const EXEC_EXT = new RegExp('\\.(' + ['exe', 'com', 'bat', 'cmd', 'ps1', 'msi', 'scr', 'app', 'command', 'lnk', 'url', 'webloc', 'desktop',
@@ -114,13 +116,13 @@ export function isSecretPath(p: string): boolean {
   const sfx = BACKUP_SUFFIX.find((x) => fold(rb).endsWith(x) && rb.length > x.length);   // one backup suffix comes off first
   if (sfx) rb = rb.slice(0, -sfx.length);
   const b = fold(rb);
-  if (b === '.env' || b === '.envrc' || b.startsWith('.env_') || b.startsWith('.env-') || b.includes('.env.') || b.endsWith('.env')
+  if ((b.startsWith('.env') && !PROSE_EXT.test(b)) || b.includes('.env.') || b.endsWith('.env')
     || SECRET_NAMES.has(b)) return true;
   if (SECRET_EXT.test(b)) return true;
   if (b.endsWith('.json') && (b.startsWith('service-account') || b.includes('firebase-adminsdk'))) return true;
   if (segs.length > 1 && segs[segs.length - 2] === 'auth' && b.endsWith('.json')) return true;
   const hasExt = b.replace(/^\.+/, '').includes('.');
-  if (!PROSE_EXT.test(b)) {
+  if (!PROSE_EXT.test(b) && !CODE_EXT.test(b)) {
     const stem = hasExt ? rb.slice(0, rb.lastIndexOf('.')) : rb;
     const w = fold(stem.replace(/([a-z])([A-Z])/g, '$1 $2')).match(/[a-z]+|[0-9]+/g) ?? [];
     if (w.some((x) => WORDS.has(x)) || w.some((x, i) => x === 'api' && (w[i + 1] === 'key' || w[i + 1] === 'keys'))) return true;
@@ -134,7 +136,7 @@ export function windowsShape(p: string): 'bad-path' | 'not-absolute' | null {
   if (/^[\\/]{2}/.test(p)) return 'bad-path';
   if (!/^[A-Za-z]:[\\/]/.test(p)) return 'not-absolute';
   const rest = p.slice(2);
-  if (p.length > MAX_PATH || /[\\/]$/.test(p) || rest.includes(':')) return 'bad-path';
+  if ([...p].length > MAX_PATH || /[\\/]$/.test(p) || rest.includes(':')) return 'bad-path';
   for (const seg of rest.split(/[\\/]+/).filter(Boolean)) {
     if (seg === '.' || seg === '..' || /[. ]$/.test(seg) || /~[0-9]/.test(seg) || RESERVED.test(fold(seg.split('.')[0].replace(/ +$/, '')))) return 'bad-path';
   }
@@ -151,7 +153,8 @@ function form(p: string, platform: NodeJS.Platform): string {
  *  Windows a segment of the resolved path may also be a short name the stored one spells out. */
 function sameButCase(stored: string, real: string, platform: NodeJS.Platform): boolean {
   const a = stored.split(/[\\/]+/).filter(Boolean), b = real.split(/[\\/]+/).filter(Boolean);
-  return a.length === b.length && a.every((x, i) => fold(x) === fold(b[i]) || (platform === 'win32' && /~[0-9]/.test(b[i])));
+  const same = (x: string, y: string): boolean => fold(x.normalize('NFC')) === fold(y.normalize('NFC'));   // macOS may store a name decomposed
+  return a.length === b.length && a.every((x, i) => same(x, b[i]) || (platform === 'win32' && /~[0-9]/.test(b[i])));
 }
 
 function under(p: string, root: string): boolean {
@@ -271,7 +274,7 @@ export function decideOpen(i: OpenInput): OpenDecision {
     if (p.startsWith('~') || !p.startsWith('/')) return no('not-absolute', `'path' must be absolute: ${p}`, name);
     if (p.split('/').some((s) => s === '.' || s === '..')) return no('bad-path', `'path' must not contain . or .. segments: ${p}`, name);
   }
-  if (p.length > MAX_PATH || /[\\/]$/.test(p)) return no('bad-path', `'path' must name a file, in at most ${MAX_PATH} characters`, name);
+  if ([...p].length > MAX_PATH || /[\\/]$/.test(p)) return no('bad-path', `'path' must name a file, in at most ${MAX_PATH} characters`, name);
   // 6. line
   const hasLine = Object.prototype.hasOwnProperty.call(b, 'line');
   const line = b.line;
@@ -305,7 +308,7 @@ export function decideOpen(i: OpenInput): OpenDecision {
   if (!sameButCase(stored, real, platform)) return no('unavailable', 'that file changed while it was being checked', name);
   // 12. kind
   const cls = fs.classify(real);
-  if (cls === 'binary' || cls === 'large') return no('unreadable', `the viewer cannot show it (${cls})`, name);
+  if (cls === 'binary' || cls === 'large') return no('unreadable', 'the viewer cannot show it (binary, or too large)', name);   // one reason: which one could describe a swapped-in outside file
   // 13. executable
   const low = fold(real);
   if (EXEC_EXT.test(low) || (st.executable && !DOC_EXT.test(low))) return no('executable', 'that file is executable, and is never opened on request', name);

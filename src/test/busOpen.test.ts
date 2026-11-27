@@ -86,7 +86,7 @@ test('the age is this App\'s own clock from first sight, never the file\'s times
 test('a flood is dropped without a dead letter for each request', () => {
   assert.match(runOpen, /if \(d\.why === 'flood'\) \{ noteFlood\(heldPath, req\); return; \}/);
   const flood = between(bus, 'function noteFlood(', "\nipcMain.handle('bus:imageBytes'");
-  assert.match(flood, /if \(now - floodLastAt > 60_000\) floodDropped = 0;/, 'a new flood starts its own count');
+  assert.doesNotMatch(flood, /floodDropped = 0;\s*\n\s*floodLastAt/, 'a flood\'s tail is carried to the next notice, never thrown away');
   assert.equal((flood.match(/markUndelivered\(/g) ?? []).length, 1, 'one dead letter a minute, not one per request');
 });
 
@@ -95,7 +95,7 @@ test('a local image in a session\'s note is shown only if it passes the note\'s 
   assert.match(h, /path\.posix\.normalize\(/, '.. is applied as text first, as a browser would');
   assert.match(h, /decideOpen\(/);
   assert.match(h, /readChecked\(d\.path, d\.identity, \{ roots: openRoots, asBytes: true, limit: IMAGE_LIMIT \}\)/, 'a smaller bound for note images');
-  assert.match(h, /if \(imageReads\.length >= IMAGE_RATE\) return null;/, 'and a rate of its own');
+  assert.match(h, /if \(imageReads\.length >= IMAGE_RATE \|\| imageReads\.reduce\(\(n, r\) => n \+ r\.bytes, 0\) >= IMAGE_BYTES_PER_MINUTE\) return null;/, 'a rate of its own, in reads and in bytes');
   assert.match(app, /if \(holds\.by\.size >= IMAGE_PER_NOTE\) \{ deny\(\); return; \}/, 'each path asked once, at most 50 a note');
   assert.match(app, /const blobUrl = \(img, blob\) => \{ const u = URL\.createObjectURL\(blob\); img\.addEventListener\('load', \(\) => URL\.revokeObjectURL\(u\)/, 'object URLs are revoked');
   assert.match(app, /function holdSnapshotImage\(img, s, dir, holds\)/);
@@ -134,14 +134,15 @@ test('a session\'s pane is a snapshot: its text comes from main, it never reads 
 
 test('the snapshot says so on screen, and "Open to edit" reopens it as the operator\'s own', () => {
   assert.match(viewer, /t\('viewer\.readOnlyBadge', \{ by:/);
-  assert.match(viewer, /window\.glassShell\.busRecheckSnapshot\?\.\(o\.snap \|\| ''\)[\s\S]{0,120}if \(!real\) \{ toast\(t\('viewer\.changedSinceSnapshot'\)\); return; \}\s*closePane\(id\); void openViewer\(real\);/, 'the real file is checked again before it opens for editing');
+  assert.match(viewer, /window\.glassShell\.busRecheckSnapshot\?\.\(o\.snap \|\| ''\)[\s\S]{0,160}if \(!r \|\| !r\.real\) \{ toast\([^\n]*\); return; \}\s*closePane\(id\); void openViewer\(r\.real\);/, 'the real file is checked again before it opens for editing');
   const re = between(bus, "ipcMain.handle('bus:recheckSnapshot'", '\n});');
-  assert.match(re, /readChecked\(s\.path, s\.identity, \{ roots: openRoots, asBytes: s\.asset \}\)\.ok \? s\.path : null/);
+  assert.match(re, /readChecked\(s\.path, s\.identity, \{ roots: openRoots, asBytes: s\.asset \}\)\.ok \? \{ real: s\.path \} : \{ reason: 'changed' \}/);
+  assert.match(re, /if \(!s\) return \{ reason: 'old' \};/, 'a forgotten token says so, it is not "changed"');
   assert.match(viewer, /if \(HTML_EXT\.test\(name\) && !ro\)/, 'no PNG render of an HTML file a session asked for');
   assert.match(viewer, /if \(!ro\) head\.appendChild\(rev\);/, 'no reveal button on a snapshot');
   for (const loc of ['en', 'es', 'fr', 'el', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
-    for (const k of ['viewer.readOnlyBadge', 'viewer.openToEdit', 'viewer.openToEditTip', 'viewer.imageHeld', 'viewer.openedBehind', 'viewer.changedSinceSnapshot']) {
+    for (const k of ['viewer.readOnlyBadge', 'viewer.openToEdit', 'viewer.openToEditTip', 'viewer.imageHeld', 'viewer.openedBehind', 'viewer.changedSinceSnapshot', 'viewer.snapshotTooOld']) {
       assert.ok(j[k] && j[k].length > 3, `${loc} has ${k}`);
     }
     assert.ok(j['viewer.readOnlyBadge'].includes('{by}') && j['viewer.openedBehind'].includes('{by}'), `${loc} names who opened it`);

@@ -279,6 +279,6 @@ contextBridge.exposeInMainWorld('glassShell', {
      a request for it would not pass the note's own checks. */
   busImageBytes: (p: string): Promise<{ bytes: Uint8Array; type: string } | null> => ipcRenderer.invoke('bus:imageBytes', p),
   /** Contract 5: before "Open to edit", main checks the real file is still the one shown; null if not. */
-  busRecheckSnapshot: (token: string): Promise<string | null> => ipcRenderer.invoke('bus:recheckSnapshot', token),
+  busRecheckSnapshot: (token: string): Promise<{ real: string } | { reason: 'old' | 'changed' }> => ipcRenderer.invoke('bus:recheckSnapshot', token),
   onRootsChanged: (cb: (m: { framework: string; vault: string }) => void) => ipcRenderer.on('shell:rootsChanged', (_e, m) => cb(m)),
 });

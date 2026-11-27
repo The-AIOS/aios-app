@@ -1242,8 +1242,8 @@ function rememberSnapshot(s: { path: string; identity: { dev: number; ino: numbe
 }
 ipcMain.handle('bus:recheckSnapshot', (_e, token: unknown) => {
   const s = typeof token === 'string' ? snapshotChecks.get(token) : undefined;
-  if (!s) return null;
-  return readChecked(s.path, s.identity, { roots: openRoots, asBytes: s.asset }).ok ? s.path : null;
+  if (!s) return { reason: 'old' };
+  return readChecked(s.path, s.identity, { roots: openRoots, asBytes: s.asset }).ok ? { real: s.path } : { reason: 'changed' };
 });
 function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen: { seenAgoMs: number; atStart: boolean }): void {
   const now = Date.now();
@@ -1278,15 +1278,12 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
    own, so a flood cannot bury the dead letters that matter; one dead letter a minute says how many. */
 let floodDropped = 0;
 let floodLetterAt = 0;
-let floodLastAt = 0;
 function noteFlood(heldPath: string, req: BusRequest): void {
   const now = Date.now();
-  if (now - floodLastAt > 60_000) floodDropped = 0;   // a new flood starts its own count
-  floodLastAt = now;
-  floodDropped++;
+  floodDropped++;   // carried until the next notice, so a flood's tail is counted there
   if (now - floodLetterAt >= 60_000) {
     floodLetterAt = now;
-    markUndelivered(heldPath, req, `open refused (flood): ${floodDropped} open request(s) dropped in the last minute; more than 20 a minute are not shown`);
+    markUndelivered(heldPath, req, `open refused (flood): ${floodDropped} open request(s) dropped since the last notice; more than 20 a minute are not shown`);
     floodDropped = 0;
     return;
   }
@@ -1304,21 +1301,22 @@ ipcMain.handle('bus:imageBytes', (_e, p: unknown) => {
      at most IMAGE_PER_NOTE times a note; here, at most IMAGE_RATE checked reads a minute, each at most
      IMAGE_LIMIT bytes. */
   const now = Date.now();
-  imageReads = imageReads.filter((t) => t > now - 60_000);
-  if (imageReads.length >= IMAGE_RATE) return null;
-  imageReads.push(now);
+  imageReads = imageReads.filter((r) => r.at > now - 60_000);
+  if (imageReads.length >= IMAGE_RATE || imageReads.reduce((n, r) => n + r.bytes, 0) >= IMAGE_BYTES_PER_MINUTE) return null;
   const norm = path.posix.normalize(p.replace(/\\/g, '/'));
   const d = decideOpen({ body: { name: 'viewer', path: norm }, seenAgoMs: 0, nowMs: now, roots: openRoots, decided: [] });
   if (d.do !== 'open' || !/\.(png|jpe?g|gif|webp|svg)$/i.test(d.path)) return null;
   const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: true, limit: IMAGE_LIMIT });
+  imageReads.push({ at: now, bytes: r.ok ? (r.content as Buffer).length : 0 });
   return r.ok ? { bytes: new Uint8Array(r.content as Buffer), type: mimeOf(d.path) } : null;
 });
 const IMAGE_RATE = 300;
 const IMAGE_LIMIT = 8 * 1024 * 1024;
-let imageReads: number[] = [];
+const IMAGE_BYTES_PER_MINUTE = 64 * 1024 * 1024;
+let imageReads: { at: number; bytes: number }[] = [];
 function mimeOf(p: string): string {
   const e = path.extname(p).toLowerCase();
-  return e === '.svg' ? 'image/svg+xml' : e === '.pdf' ? 'application/pdf' : e === '.jpg' || e === '.jpeg' ? 'image/jpeg' : 'image/' + e.slice(1);
+  return e === '.svg' ? 'image/svg+xml' : e === '.jpg' || e === '.jpeg' ? 'image/jpeg' : 'image/' + e.slice(1);
 }
 
 /* `seen` defaults to TOO OLD: only consume() knows when a request was first seen, and an `open` reaching
