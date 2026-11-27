@@ -181,9 +181,14 @@ jobs:
           fi
           echo "no arm64 executables in the x64 package"
 
-      - name: Say plainly when this build is unsigned
+      # Fails closed. Every release since 0.16.0 is signed, so an unsigned one now means the secrets
+      # did not reach this job (the `release` environment is missing them), never a choice: stop
+      # before anything is attached, and the release stays a draft nobody's updater sees.
+      - name: Say plainly when this build is unsigned, and stop
         if: env.ESIGNER != 'yes'
-        run: echo "::warning::No eSigner secrets in this repo, so the Windows installer is UNSIGNED (issue #42). Smart App Control will block it on a clean Windows 11 machine."
+        run: |
+          echo "::error::No eSigner secrets reached this job, so the Windows installer is UNSIGNED (issue #42) and is not attached. Smart App Control blocks an unsigned app on a clean Windows 11 machine. Enter the ES_* secrets in Settings > Environments > release, then re-run this lane for the tag."
+          exit 1
 
       - name: Is the feed this build produced usable?
         run: node scripts/assert-release-assets.mjs --tag "$RELEASE_TAG" --platform win32 --local

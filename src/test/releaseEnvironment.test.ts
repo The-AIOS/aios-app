@@ -52,3 +52,14 @@ test('the rule fails a job that reads a secret without the environment (control)
   assert.ok(/secrets\.(?!GITHUB_TOKEN\b)[A-Z_]+/.test(bare) && !inRelease(bare));
   assert.ok(inRelease(bare.replace('    runs-on:', '    environment: release\n    runs-on:')));
 });
+
+test('an unsigned Windows build stops the lane before anything is attached, so it never reaches a user', () => {
+  const wf = fs.readFileSync(path.join(DIR, 'release-windows.yml'), 'utf8');
+  const at = wf.indexOf('- name: Say plainly when this build is unsigned');
+  assert.ok(at > 0, 'the unsigned step exists');
+  const step = wf.slice(at, wf.indexOf('- name:', at + 1));
+  assert.match(step, /if: env\.ESIGNER != 'yes'/, 'it runs exactly when the build is unsigned');
+  assert.match(step, /::error::/, 'an error, not a warning');
+  assert.match(step, /^\s+exit 1\s*$/m, 'and it stops the lane');
+  assert.ok(at < wf.indexOf('- name: Attach the Windows artifacts'), 'before the installer is attached');
+});

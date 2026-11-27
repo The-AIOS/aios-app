@@ -103,6 +103,11 @@ approved much later than the others makes them time out. Before approving a run 
 not start yourself, read its branch and inputs on the run page: the Linux and Windows
 lanes take a `ref` input that builds any commit.
 
+A secret missing from the environment never ships a worse build: macOS stops at its
+credentials preflight and Windows at its unsigned check, both before anything is
+attached, so the release stays a draft, which no updater reads. Enter the secret and
+re-run that lane for the tag.
+
 `.github/workflows/release.yml` then, on `macos-14`:
 **build → Apple codesign + notarize → `verify-signing.mjs` → assert
 `latest-mac.yml` exists → publish** the `.dmg` + `.blockmap` + `latest-mac.yml`

@@ -102,9 +102,9 @@ jobs:
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
-            echo "::error::Cannot sign — these repository secrets are not set:$missing"
+            echo "::error::Cannot sign — these secrets are not set in the release environment:$missing"
             echo ""
-            echo "Set them under Settings → Secrets and variables → Actions:"
+            echo "Set them under Settings → Environments → release → Environment secrets:"
             echo "  MAC_CSC_LINK                 base64 of the Developer ID Application .p12"
             echo "  MAC_CSC_KEY_PASSWORD         that .p12's export password"
             echo "  APPLE_ID                     Apple ID used for notarization"
