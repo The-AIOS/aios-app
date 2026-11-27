@@ -412,7 +412,7 @@ test('The App waits for the next idle, in order, superseding, aged — and verif
   assert.match(bus, /deliverText = stampAge\(rawDeliver, Date\.now\(\) - queuedAt, req\.from\);\s*needle = safeNeedle\(deliverText\);/, 'needle comes from the stamped text');
   assert.match(bus, /heldMs: Date\.now\(\) - firstTypedAt,/, 'a message that queued for hours still gets its whole verification window');
   assert.doesNotMatch(bus, /Date\.now\(\) - claimedAt >= MAX_HOLD_MS/);
-  const readme = fs.readFileSync(path.join(ROOT, 'src', 'core', 'inboxReadme.ts'), 'utf8');
+  const readme = fs.readFileSync(path.join(ROOT, 'packages', 'core', 'src', 'inboxReadme.ts'), 'utf8');
   assert.match(readme, /\*\*In order, latest wins\.\*\*/);
 });
 
