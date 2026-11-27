@@ -48,7 +48,13 @@ test('model: a value the App will not pass is REFUSED by name, never dropped', (
   }
   assert.deepEqual(modelField(undefined), {});
   /* A resume may fall back to a spawn, so it is read there too; a send starts nothing. */
-  assert.equal(parseRequest('{"action":"resume","name":"x","model":"$(id)"}')?.fieldError?.field, 'model');
+  assert.equal(parseRequest('{"action":"resume","name":"x","fallback":"spawn","model":"$(id)"}')?.fieldError?.field, 'model');
+  assert.equal(parseRequest('{"action":"resume","name":"x","fallback":"spawn","model":"opus"}')?.model, 'opus');
+  /* A plain resume starts nothing new: the fields mean nothing to it, and are no reason to refuse it. */
+  const plain = parseRequest('{"action":"resume","name":"x","model":"$(id)","tier":"$(id)"}');
+  assert.equal(plain?.fieldError, undefined);
+  assert.equal(plain?.model, undefined);
+  assert.equal(plain?.tier, undefined);
   assert.equal(parseRequest('{"action":"send","name":"x","prompt":"hi","model":"$(id)"}')?.fieldError, undefined);
 });
 
@@ -131,13 +137,22 @@ test('command: the launcher\'s default is written for the pane\'s shell to decid
   assert.equal(buildSpawnCmd('claude', 'heron', { model: 'opus' }), 'claude --model opus --name heron');
 });
 
-test('command: a real shell expands it the way the wrapper does', { skip: process.platform === 'win32' }, () => {
+test('command: real shells expand it the way the wrapper does, and run nothing a value carries', { skip: process.platform === 'win32' }, (t) => {
   const { execFileSync } = require('child_process') as typeof import('child_process');
   const arg = launcherModelArg('model-pinned[1m]', 'posix');
-  const out = (env: NodeJS.ProcessEnv) => execFileSync('/bin/sh', ['-c', `printf %s ${arg}`], { encoding: 'utf8', env });
-  assert.equal(out({ PATH: process.env.PATH }), 'model-pinned[1m]');
-  assert.equal(out({ PATH: process.env.PATH, CLAUDE_MODEL: '' }), 'model-pinned[1m]', 'set but empty falls back, as ${VAR:-x} does in the wrapper');
-  assert.equal(out({ PATH: process.env.PATH, CLAUDE_MODEL: 'mine' }), 'mine');
+  let ran = 0;
+  for (const sh of ['/bin/sh', '/bin/bash', '/bin/zsh']) {
+    if (!fs.existsSync(sh)) continue;
+    ran++;
+    const out = (env: NodeJS.ProcessEnv) => execFileSync(sh, ['-c', `printf %s ${arg}`], { encoding: 'utf8', env });
+    assert.equal(out({ PATH: process.env.PATH }), 'model-pinned[1m]', sh);
+    assert.equal(out({ PATH: process.env.PATH, CLAUDE_MODEL: '' }), 'model-pinned[1m]', `${sh}: set but empty falls back, as in the wrapper`);
+    assert.equal(out({ PATH: process.env.PATH, CLAUDE_MODEL: 'mine' }), 'mine', sh);
+    assert.equal(out({ PATH: process.env.PATH, CLAUDE_MODEL: 'a b;$(echo PWN)*' }), 'a b;$(echo PWN)*', `${sh}: the operator's value is one word, never run or globbed`);
+    /* An explicit model with [1m] is one literal word too (bare, zsh reads [ as a glob). */
+    assert.equal(execFileSync(sh, ['-c', `printf %s ${buildSpawnCmd('echo', 'n', { model: 'model-pinned[1m]' }).split(' ')[2]}`], { encoding: 'utf8' }), 'model-pinned[1m]', sh);
+  }
+  if (!ran) t.skip('no POSIX shell at the usual paths');
 });
 
 test('wiring: main asks both questions through the core, and holds no model id', () => {
@@ -145,6 +160,7 @@ test('wiring: main asks both questions through the core, and holds no model id',
   assert.match(main, /resolveTierWith\(tier, \(args\) =>/);
   assert.match(main, /execFileSync\(bash, \[hook, \.\.\.args\]/);
   assert.match(main, /envModelWins = paneShellKind\(process\.platform, process\.env\.SHELL\)/);
+  assert.match(main, /buildSpawnCmd\([^;]*\bmodel, envModelWins, taskFile\b/, 'and the launch command is built with it: without the hand-off $CLAUDE_MODEL is never read');
   const core = fs.readFileSync('src/core/tierResolve.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(core, /run\(\['--launch-model', tier\]\)/);
   assert.doesNotMatch(core, /claude-(opus|sonnet|haiku|fable)/, 'the id comes from the framework, never from here');

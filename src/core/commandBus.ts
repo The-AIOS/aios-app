@@ -224,12 +224,14 @@ export function parseRequest(raw: string): BusRequest | null {
 }
 
 /**
- * `model` and `tier` decide what a NEW session runs on, so they are read for spawn and for resume
- * (whose fallback is a spawn). A value that cannot be used is a refusal naming the field, placed
- * before the contract-4 fields so theirs, when there is one too, is the one reported.
+ * `model` and `tier` decide what a NEW session runs on, so they are read where one can start: a
+ * spawn, and a resume that asked for `"fallback":"spawn"`. A value that cannot be used there is a
+ * refusal naming the field. A plain resume starts nothing new (the session keeps the model it
+ * had), so the fields mean nothing to it and are not a reason to refuse it. Placed before the
+ * contract-4 fields so theirs, when there is one too, is the one reported.
  */
 function modelAndTierOf(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {
-  if (action !== 'spawn' && action !== 'resume') return {};
+  if (action !== 'spawn' && !(action === 'resume' && j.fallback === 'spawn')) return {};
   const m = modelField(j.model);
   const t = tierField(j.tier);
   const fieldError = m.fieldError ?? t.fieldError;
@@ -351,6 +353,8 @@ export function paneShellKind(platform: string, shell: string | undefined): Pane
  * operator's own $CLAUDE_MODEL wins, the pin is the fallback. The variable lives in the pane's
  * shell (its rc file sets it), not in this process, so the expansion is written for that shell
  * to perform. A shell with neither syntax gets the id alone, and the caller says so in the log.
+ * One difference from the wrapper remains: a command long enough to be spilled to a script runs
+ * in a child shell, which sees $CLAUDE_MODEL only when the operator's rc file EXPORTS it.
  * `id` must already have MODEL_SHAPE: nothing in it can end the quoting.
  */
 export function launcherModelArg(id: string, shell: PaneShell): string {

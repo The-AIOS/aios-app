@@ -952,19 +952,25 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
        can turn a short inline task into a multi-line one that must spill to a file.
        An explicit `model` wins over `tier`, matching the `spawn` wrapper
        (`[ -n "$model" ] && spawn_model="$model"`) — so a caller pinning an id is never
-       second-guessed, and only a bare `tier` is resolved. */
+       second-guessed. */
     /* Set when the rung names the launcher's default (`judgment`): the operator's $CLAUDE_MODEL,
        read by the pane's own shell, wins over the id, exactly as in the wrapper (#230). */
     let envModelWins: PaneShell | undefined;
     let model = req.model;
-    if (!model && req.tier) {
+    /* A written tier is always put to the script, even beside a model that will win over it: the
+       wrapper refuses an unknown --tier before it looks at --model, and a rung nobody checked is a
+       rung dropped in silence. */
+    if (req.tier) {
       const r = resolveTier(req.tier);
       if ('error' in r) { markUndelivered(heldPath, req, r.error); return; }
-      model = r.model;                    // undefined only on a framework without --launch-model
-      if (r.note) log(`spawn '${req.name}': ${r.note}`);
-      if (r.launcherDefault) {
+      if (model) { /* the caller's pin stands */ }
+      else if (r.launcherDefault) {
+        model = r.model;
         envModelWins = paneShellKind(process.platform, process.env.SHELL);
         if (envModelWins === 'other') log(`spawn '${req.name}': this shell is not one whose syntax the App writes, so $CLAUDE_MODEL is not read; started on ${model}`);
+      } else {
+        model = r.model;                  // undefined only on a framework without --launch-model
+        if (r.note) log(`spawn '${req.name}': ${r.note}`);
       }
     }
     if (needsConsultBlock(model, advisorModelFor(req.advisor, req.advisorRung))) {

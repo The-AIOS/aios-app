@@ -141,7 +141,10 @@ test('an unresolvable rung REFUSES the spawn — defaulting on a typo is the bug
   // (#230), where every branch is exercised by workerModel.test.ts; main only runs the script
   assert.match(main, /return resolveTierWith\(tier, \(args\) =>/);
   // explicit model wins, exactly as the wrapper does it
-  assert.match(main, /let model = req\.model;\s*\n\s*if \(!model && req\.tier\)/);
+  assert.match(main, /let model = req\.model;/);
+  assert.match(main, /if \(model\) \{ \/\* the caller's pin stands \*\/ \}/);
+  // and a tier written beside a model is still put to the script (#230): unknown is refused, not ignored
+  assert.match(main, /if \(req\.tier\) \{\s*\n\s*const r = resolveTier\(req\.tier\);\s*\n\s*if \('error' in r\)/);
 });
 
 test('parseRequest: spawn is the default action (back-compat {name,task})', () => {
