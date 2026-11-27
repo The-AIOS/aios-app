@@ -389,6 +389,42 @@ const sendVerdicts = new Map<string, { ok: boolean; reason: string; at: number }
 ipcMain.on('bus:sendResult', (_e, v: { name: string; ok: boolean; reason: string }) => {
   if (v && v.name) sendVerdicts.set(v.name, { ok: !!v.ok, reason: String(v.reason || ''), at: Date.now() });
 });
+/* What the renderer did with the last `closeByName`: tabs closed, and tabs left because a command is
+   running in their shell. Without it the bus logged "closed any pane of that name" whether or not a
+   pane was found, and a kill for a session that had already ended retired as done with its tab open. */
+type BusyTab = { shell: number; child: number };
+type CloseVerdict = { closed: number; busy: BusyTab[]; refused: boolean };
+/* Keyed by a token per request, not by name: two kills for one name in a row must each read their
+   own answer. Taken once and removed, so the map does not grow. */
+const closeVerdicts = new Map<string, CloseVerdict>();
+let closeAsks = 0;
+/* Asks the bus stopped waiting for. A late answer is logged for what it says and never stored, so the
+   map cannot grow with kills nobody is waiting on any more. */
+const abandonedAsks = new Set<string>();
+ipcMain.on('bus:closeResult', (_e, v: { ask: string; closed: number; busy: BusyTab[]; refused: boolean }) => {
+  if (!v || !v.ask) return;
+  const ask = String(v.ask);
+  const busy = (Array.isArray(v.busy) ? v.busy : []).map((b) => ({ shell: Number(b?.shell) || 0, child: Number(b?.child) || 0 }));
+  if (abandonedAsks.delete(ask)) {
+    log(`late answer for ${ask}: closed ${Number(v.closed) || 0} terminal(s)${busy.length ? `, left ${busy.length} open` : ''}`);
+    return;
+  }
+  closeVerdicts.set(ask, { closed: Number(v.closed) || 0, busy, refused: !!v.refused });
+});
+/** Wait for the renderer's answer about the tabs. Undefined means no window answered (none is open,
+ *  or it is slow): "no information", which is logged as such and never read as "closed". */
+async function awaitCloseVerdict(ask: string): Promise<CloseVerdict | undefined> {
+  /* Up to 40 s: on Windows the renderer waits for a PowerShell scan of the process table, which takes
+     seconds and has its own 30 s timeout. The request stays held meanwhile. */
+  for (let i = 0; i < 800; i++) {
+    const v = closeVerdicts.get(ask);
+    if (v) { closeVerdicts.delete(ask); return v; }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  abandonedAsks.add(ask);
+  return undefined;
+}
+
 /** Wait briefly for the renderer's verdict. Undefined means it never answered — treat that as
  *  "no information", never as failure: a slow renderer must not retire a good request. */
 async function awaitSendVerdict(name: string, since: number): Promise<{ ok: boolean; reason: string } | undefined> {
@@ -1152,9 +1188,14 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
         return;
       }
       if (t) { try { process.kill(t.pid, 'SIGTERM'); } catch { /* already gone */ } }
-      emit(win(), 'closeByName', { name: t ? t.name : req.name });
-      log(`kill '${req.name}'${t ? `${renamed ? ` → renamed '${t.name}'` : ''} (pid ${t.pid})`
-        : ' — no live session has that name or was renamed from it; closed any pane of that name'}`);
+      const ask = `close-${process.pid}-${++closeAsks}`;
+      const w = win();
+      const windowOpen = !!w && !w.isDestroyed() && !w.webContents.isDestroyed();
+      emit(w, 'closeByName', { name: t ? t.name : req.name, ask });
+      /* The request is settled when the window says what it did with the tabs: settleKill owns the
+         held file from here. */
+      void settleKill(heldPath, req, t ? { name: t.name, pid: t.pid, renamed: !!renamed } : undefined, windowOpen ? ask : undefined);
+      return;
     } else if (req.action === 'resume') {
       void resumeOrReveal(win, heldPath, req);
       return;              // resumeOrReveal owns the held file from here
@@ -1166,11 +1207,69 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
     } else {
       runSpawn(win, heldPath, req);
     }
-    /* One cleanup for every branch that did NOT already return — kill and spawn. The branches
-       that return (resume included, which hands its held file to runResume) clean up their own. */
+    /* One cleanup for every branch that did NOT already return: spawn, and a reveal. The branches
+       that return (kill, which hands its held file to settleKill; resume, to runResume) clean up their own. */
     try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
   } catch (e) {
     markUndelivered(heldPath, req, `${req.action} failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/**
+ * Finish a kill once the window has said what it did with the tabs.
+ *
+ * A kill is asked to do two things: end the session, and close its tab. The second used to be sent
+ * to the window and assumed: the log said "closed any pane of that name" whatever happened. For a
+ * session that had already ended it did nothing, because the tab a finished session leaves is
+ * renamed "<name> (ended)" and was looked up by the session's name. The window now closes those
+ * too, reports the count, and this says what happened:
+ *   · the session was live: it was signalled; the tabs closed are logged.
+ *   · no live session, and a tab it left was closed: done.
+ *   · no live session, and its tab was LEFT because a command is running in that shell: a dead
+ *     letter, with that reason. Closing an idle shell is what was asked; taking a running command
+ *     with it is not.
+ *   · no live session and no tab of that name: nothing to do, and the log says so.
+ */
+async function settleKill(
+  heldPath: string, req: BusRequest,
+  killed: { name: string; pid: number; renamed: boolean } | undefined,
+  /** Undefined when no window is open: there is no tab to close and nobody to wait for. */
+  ask: string | undefined,
+): Promise<void> {
+  /* The same sentences as Glass, so the bus log reads the same whichever surface took the request. */
+  const leftLine = (busy: BusyTab[]): string => {
+    const known = busy.filter((b) => b.shell && b.child);
+    const unknown = busy.length - known.length;
+    const parts: string[] = [];
+    if (known.length) parts.push(`left ${known.length} open because something is running in it (${known.map((b) => `shell ${b.shell} is running pid ${b.child}`).join('; ')})`);
+    if (unknown) parts.push(`left ${unknown} open because what is running in it could not be read`);
+    return parts.join('; ');
+  };
+  try {
+    const v = ask === undefined ? undefined : await awaitCloseVerdict(ask);
+    const who = `kill '${req.name}'`;
+    if (v?.refused) {
+      const why = `more than one terminal is named '${req.name}': none was closed`;
+      log(`${who}: ${killed ? `pid ${killed.pid} signalled; ` : 'no live session; '}${why}`);
+      if (!killed) { markUndelivered(heldPath, req, `no live session is named '${req.name}', and ${why}. Close the right one by hand`); return; }
+    } else if (killed) {
+      const tabs = v === undefined ? 'no window answered about its terminal'
+        : `closed ${v.closed} terminal(s)${v.busy.length ? `; ${leftLine(v.busy)}` : ''}`;
+      log(`${who}${killed.renamed ? ` → renamed '${killed.name}'` : ''} (pid ${killed.pid}); ${tabs}`);
+    } else if (v && v.closed > 0) {
+      log(`${who}: no live session; closed the terminal it left${v.closed > 1 ? ` (${v.closed})` : ''}${v.busy.length ? `; ${leftLine(v.busy)}` : ''}`);
+    } else if (v && v.busy.length > 0) {
+      log(`${who}: no live session; ${leftLine(v.busy)}`);
+      markUndelivered(heldPath, req, `no live session is named '${req.name}', and the terminal it left was not closed: ${leftLine(v.busy)}. Close it by hand when it is free`);
+      return;
+    } else {
+      log(v === undefined
+        ? `${who}: no live session, and no window answered about the terminal it may have left: nothing closed`
+        : `${who}: no live session and no terminal left by one: nothing to close`);
+    }
+    try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+  } catch (e) {
+    markUndelivered(heldPath, req, `kill failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 

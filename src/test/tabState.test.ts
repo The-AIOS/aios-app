@@ -144,7 +144,10 @@ test('a name alone never decides a DESTRUCTIVE action on a duplicate', () => {
     ["closeByName", 'closing the wrong session is not recoverable'],
     ["escByName", 'interrupting the wrong session throws away work in flight'],
   ] as const) {
-    const block = src.slice(src.indexOf(`case '${intent}':`), src.indexOf(`case '${intent}':`) + 400);
+    /* closeByName's body lives in closeTabsByName (it also closes the tabs a finished session left). */
+    const at = intent === 'closeByName' ? src.indexOf('async function closeTabsByName(m) {') : src.indexOf(`case '${intent}':`);
+    assert.ok(at > 0, `${intent} must exist`);
+    const block = src.slice(at, at + 400);
     assert.match(block, /if \(!m\.id && ambiguous\(m\.name\)\)/, `${intent} refuses an ambiguous name — ${why}`);
   }
 

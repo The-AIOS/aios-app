@@ -2367,6 +2367,30 @@ ipcMain.handle('aios:removeFrequent', (_e, id: string) => {
 });
 // AIOS's own auto-update preference (USER.md), deliberately NOT on the claude:* channel
 ipcMain.handle('shell:setAutoUpdates', (_e, on: boolean) => { aios.setAutoUpdates(!!on); return aios.claudeConfig().autoUpdates; });
+/* Is a command running in a pane's shell? The renderer asks before it closes a tab a finished session
+   left behind: an idle shell is closed, a shell with something running in it is not. Answer by pane
+   handle: `{ shell, child }`, where `child` is a process running under the shell (0 when idle); or
+   null when it cannot be told (no pty for that handle, or the process table could not be read),
+   which the caller treats as "do not close". */
+ipcMain.handle('pty:busy', async (_e, paneIds: number[]) => {
+  const ids = (Array.isArray(paneIds) ? paneIds : []).map(Number).filter((n) => Number.isInteger(n));
+  const pidOf = new Map<number, number>();
+  for (const id of ids) {
+    const pid = ptys.get(id)?.pid;
+    if (Number.isInteger(pid) && (pid as number) > 0) pidOf.set(id, pid as number);
+  }
+  /* A table read for this question, never the background one: on Windows that is a minute old at
+     worst and keeps its last table when a scan fails, so a command started since would read as idle
+     and closing the tab would kill it. Unreadable → null → the tab stays. */
+  const table = pidOf.size ? await aios.processTableNow() : null;
+  const first = table === null ? null : aios.firstChildOf([...pidOf.values()], table);
+  const out: Record<number, { shell: number; child: number } | null> = {};
+  for (const id of ids) {
+    const pid = pidOf.get(id);
+    out[id] = pid === undefined || first === null ? null : { shell: pid, child: first[pid] };
+  }
+  return out;
+});
 /* Which live session runs under a pane's pty — exact identity, where a name cannot be.
    The renderer asks when a pane confirms itself, so two same-named sessions land on the
    right tabs instead of both adopting whichever the name matched first. */

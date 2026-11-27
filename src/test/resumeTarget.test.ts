@@ -146,8 +146,10 @@ test('no path leaves runImmediate without disposing the held request', () => {
   const body = runImmediateBody();
   /* Handing the request to runResume is a transfer of ownership, not a leak: runResume disposes
      it on every path, which this same loop checks because its body is part of `body`. */
+  /* settleKill (a kill waits for the window's answer about its tab) disposes on every path too; its
+     own test (killClosesEndedTab) checks that. */
   const disposes = (s: string) =>
-    /unlinkSync\(heldPath\)|markUndelivered\(heldPath|runResume\(win, heldPath, req\)|resumeOrReveal\(win, heldPath, req\)|runSend\(win, heldPath|launchCwd\(heldPath, req\)/.test(s);   // launchCwd dead-letters when it returns null
+    /unlinkSync\(heldPath\)|markUndelivered\(heldPath|runResume\(win, heldPath, req\)|resumeOrReveal\(win, heldPath, req\)|runSend\(win, heldPath|launchCwd\(heldPath, req\)|settleKill\(heldPath, req/.test(s);   // launchCwd dead-letters when it returns null
   let from = 0, seen = 0;
   for (;;) {
     const at = body.indexOf('return', from);

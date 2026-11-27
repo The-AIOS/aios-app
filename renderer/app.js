@@ -2150,6 +2150,9 @@ function renderPulseRunning(m) {
       }
       pane.isSession = false;
       const was = pane.confirmedName;
+      /* Whose tab this was. The tab is renamed "<name> (ended)" below, so a later `kill` for that
+         session could not find it by name and left it open; closeTabsByName looks here. */
+      pane.endedName = was;
       pane.confirmedName = null;
       pane.sessionId = null;
       pane.chatEnded = true;   // Claude is gone and a shell is left: the chat view has nothing to show
@@ -4240,6 +4243,10 @@ if (window.glassShell.onUpdater) {
 function renamePane(id, name) {
   const p = panes.get(id);
   if (!p || !name || name === p.name) return;
+  /* A tab a finished session left is matched by that session's name (closeTabsByName) only while it
+     still carries the "(ended)" label. Renamed to anything else (by the operator, or adopted by a new
+     session), it is somebody's tab now, and a kill for the old session must not close it. */
+  if (p.endedName && name !== t('tab.endedSession', { name: p.endedName })) p.endedName = null;
   p.name = name;
   persistSessions();
   const nm = p.tab.querySelector('.tname');
@@ -8143,6 +8150,53 @@ const paneOf = (name, id) => {
   return name && !ambiguous(name) ? byName(name) : undefined;
 };
 
+/* The tabs a finished session of that name left behind: its Claude is gone, a shell remains, and the
+   tab is now called "<name> (ended)". A tab that became a session again is not one of them. */
+function tabsLeftBy(name) {
+  const want = String(name || '').trim().toLowerCase();
+  return [...panes.entries()].filter(([, p]) => p.kind === 'term' && !p.isSession && p.endedName && String(p.endedName).toLowerCase() === want).map(([id]) => id);
+}
+
+/* `closeByName`, from a bus kill: close the session's tab, AND the tabs a finished session of that
+   name left. The second half is what was missing: a kill for a session that had already ended found
+   no tab called "<name>" (it is "<name> (ended)" by then) and closed nothing.
+   A left-behind tab is closed only when its shell is idle. If a command is running in it, someone is
+   using that shell: it stays, and the bus is told which shell and which process, so the kill says so
+   instead of claiming it closed. When that cannot be told, the tab stays too (shell and child 0).
+   Reports what it did: tabs closed, and the tabs left with what was running in each. */
+async function closeTabsByName(m) {
+  let closed = 0, refused = false;
+  const busy = [];
+  try {
+    // Closing the wrong session is not recoverable by a keystroke. Refuse rather than guess.
+    if (!m.id && ambiguous(m.name)) {
+      toast(t('pane.ambiguous', { name: m.name }));
+      refused = true;
+      return;
+    }
+    const hit = byName(m.name, m.id);
+    if (hit) { closePane(hit[0]); closed++; }
+    const left = tabsLeftBy(m.name);
+    if (left.length) {
+      const live = left.filter((id) => !panes.get(id).exited);   // a tab whose shell already exited has nothing running
+      let state = {};
+      try { state = live.length ? await window.glassShell.ptyBusy(live) : {}; } catch { state = {}; }
+      for (const id of left) {
+        const p = panes.get(id);
+        /* Looked at again after the wait: closed, renamed (endedName cleared), or adopted by a new
+           session meanwhile, it is not the tab that session left any more. */
+        if (!p || p.isSession || !tabsLeftBy(m.name).includes(id)) continue;
+        const s = state[id];
+        if (p.exited || (s && s.child === 0)) { closePane(id); closed++; }
+        else busy.push(s ? { shell: s.shell, child: s.child } : { shell: 0, child: 0 });   // running, or unknown: leave it
+      }
+    }
+  } finally {
+    // Always answer, even if a close threw: the bus settles the request on this.
+    window.glassShell.busCloseResult(m.ask || m.name, closed, busy, refused);
+  }
+}
+
 window.glassShell.onIntent(async (m) => {
   switch (m.kind) {
     case 'terminal': {
@@ -8177,13 +8231,9 @@ window.glassShell.onIntent(async (m) => {
       else toast(`"${m.name ?? m.pid}" isn't a pane in this window`);
       return;
     }
-    case 'closeByName': {
-      const hit = byName(m.name, m.id);
-      // Closing the wrong session is not recoverable by a keystroke. Refuse rather than guess.
-      if (!m.id && ambiguous(m.name)) { toast(t('pane.ambiguous', { name: m.name })); return; }
-      if (hit) closePane(hit[0]);
+    case 'closeByName':
+      await closeTabsByName(m);
       return;
-    }
     /* Hand-driven (a menu item), so it is gated like the × — the "only programmatic callers
        are exempt" rule has to mean every hand. */
     case 'closeTerminal':
