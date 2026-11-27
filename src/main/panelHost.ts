@@ -2,7 +2,7 @@ import { usageChip, type ToolUsage } from '../core/toolUse';
 import { UsageReader } from '../core/usageReader';
 import { fsUsageIo } from './usageIo';
 import { latestSwitches, switchParts, type ModelSwitch } from '../core/modelSwitch';
-import { parseProgramStatus, overlayProgramStatus, type ProgramStatus } from '../core/programStatus';
+import { noteProgramStatus, forgetEndedSessions, effectiveSessions } from './sessionStatus';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -319,16 +319,9 @@ export class PanelHost {
     ]).catch(() => null);
   }
 
-  /** The latest OSC 7501 status per session id, as reported by the renderer. */
-  private readonly programStatus = new Map<string, ProgramStatus>();
-
+  /** A terminal's OSC 7501 status, as reported by the renderer. Kept in ./sessionStatus, the one store every list reads. */
   setProgramStatus(sessionId: string, data: string, at: number): void {
-    const id = String(sessionId || '').trim();
-    if (!id) return;
-    const s = parseProgramStatus(data, Number(at) || Date.now());
-    if (s === null || s === 'query') return;
-    if (s === 'clear') this.programStatus.delete(id); else this.programStatus.set(id, s);
-    this.postRunning();   // the point of the signal is that it is immediate — don't wait for the 2s poll
+    if (noteProgramStatus(sessionId, data, at)) this.postRunning();   // the point of the signal is that it is immediate — don't wait for the 2s poll
   }
 
   /** The model-switch log, re-read only when it changed. */
@@ -366,8 +359,8 @@ export class PanelHost {
 
   postRunning(): void {
     const registry = aios.listOperatorSessions();   // never a daemon spare
-    for (const id of this.programStatus.keys()) if (!registry.some((a) => a.sessionId === id)) this.programStatus.delete(id);
-    const running = overlayProgramStatus(registry, this.programStatus);
+    forgetEndedSessions(registry.map((a) => a.sessionId));
+    const running = effectiveSessions(registry);
     lastShownStatuses = running.map((a) => a.status);
     this.attention.tick(running, aios.shellSettings().attention);
     try { this.onRunning?.(running); } catch { /* a listener never stops the pulse */ }
