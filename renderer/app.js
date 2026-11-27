@@ -5818,6 +5818,17 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
     hl(); refreshGutter();
   };
   wrap.stepChange = step;               // the header stepper drives the same path as ⌥↑/⌥↓
+  /* A session's snapshot (contract 5): shown and selectable, never typed into, never saved. */
+  wrap.setReadOnly = (on) => { ta.readOnly = !!on; wrap.classList.toggle('readonly', !!on); };
+  /* The caret at the start of line n, centred; focus is not taken (the bus's `open` with a line). */
+  wrap.goToLine = (n) => {
+    const lines = ta.value.split('\n');
+    const k = Math.min(Math.max(1, Math.floor(n)), lines.length);
+    let at = 0;
+    for (let i = 0; i < k - 1; i++) at += lines[i].length + 1;
+    ta.selectionStart = ta.selectionEnd = at;
+    requestAnimationFrame(() => centerLine(k));
+  };
   return wrap;
 }
 
@@ -6390,16 +6401,50 @@ async function openRecents() {
    never through marked.use(), which would also change every other marked caller. */
 const NOTE_MD = { gfm: true, breaks: true };
 
-async function openViewer(p) {
+/* A local image in a note a SESSION opened is shown only if main says it passes the same checks as the
+   note (inside the roots once resolved, not a secret by name, one link). Until then it has no source,
+   so nothing is fetched; refused, it says why in one line. Remote images keep their usual chip. */
+function holdSnapshotImage(img, s, dir) {
+  if (!s || /^(https?|data):/i.test(s)) return;
+  img.removeAttribute('src');
+  let abs = s;
+  try {
+    if (/^file:/i.test(s)) { abs = decodeURIComponent(new URL(s).pathname); if (/^\/[A-Za-z]:/.test(abs)) abs = abs.slice(1); }
+    else abs = dir + '/' + s;
+  } catch { abs = ''; }
+  const deny = () => { const n = document.createElement('span'); n.className = 'vchip'; n.textContent = t('viewer.imageHeld'); img.replaceWith(n); };
+  if (!abs) { deny(); return; }
+  void window.glassShell.busImageAllowed?.(abs).then((ok) => { if (ok) img.src = fileUrl(abs); else deny(); }).catch(deny);
+}
+
+/* `o` comes from the bus's `open` verb (contract 5) and is empty for everything the operator does:
+   { bus: true, by: '<session>', background, mode: 'source' | 'auto', line, content, asset }.
+   A file a SESSION asked for is a snapshot (decision of 27/11): main read and checked the content and
+   sends it here; this pane never reads the path, never reloads from disk, cannot be edited, and says
+   so on screen. "Open to edit" reopens it as the operator's own file. It opens in front unless main
+   saw the operator typing (background), never hands a file to the desktop, and puts the cursor on
+   `line` (which needs the source view). */
+async function openViewer(p, o = {}) {
   seenExport(p);   // an opened export is no longer new
+  const behind = o.bus && busBackground(o);
+  const ro = !!o.bus;
   for (const [id, pane] of panes) {
-    if (pane.kind === 'view' && pane.path === p) { setActive(id); return; }
+    if (pane.kind === 'view' && pane.path === p && !!pane.readOnly === ro) {
+      if (behind) markActivity(id); else setActive(id);
+      if (o.line) pane.goToLine?.(o.line);
+      return;
+    }
   }
-  const file = await window.glassShell.fsRead(p);
+  const file = ro
+    ? (typeof o.content === 'string' ? { path: p, content: o.content } : (o.asset ? { path: p, content: '' } : null))
+    : await window.glassShell.fsRead(p);
   if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
   /* A file the pane cannot SHOW is handed to the desktop, not frozen into a pane: main did not
      read it (binary, or too large for the editor) and says so. The folder is where a .dmg or a
-     .zip is useful anyway — the same "reveal" the header button below offers for every file. */
+     .zip is useful anyway — the same "reveal" the header button below offers for every file.
+     Never for a session's request: the bus decided the file was showable, and if it changed since,
+     the answer is "cannot open", not the desktop. */
+  if (file.unreadable && o.bus) { toast(t('viewer.cannotOpen', { name: xBase(file.path) })); return; }
   if (file.unreadable) { toast(t('viewer.revealedInstead', { name: xBase(file.path) })); void window.glassShell.revealInOS(file.path); return; }
   const name = xBase(file.path);
   noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
@@ -6420,16 +6465,17 @@ async function openViewer(p) {
   el.append(head, body);
 
   const tab = makeTab(id, name, fileIconName(name));
-  const paneObj = { kind: 'view', name, el, tab, path: file.path };
+  const paneObj = { kind: 'view', name, el, tab, path: file.path, readOnly: ro };
   panes.set(id, paneObj);
   attachPaneDropTarget(paneObj, id);   // any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
 
   const renderable = MD_EXT.test(name) || HTML_EXT.test(name) || IMG_EXT.test(name) || PDF_EXT.test(name);
-  const editable = !(IMG_EXT.test(name) || PDF_EXT.test(name));
+  const editable = !ro && !(IMG_EXT.test(name) || PDF_EXT.test(name));
   // the operator's "Open files in" preference decides the initial mode (a non-renderable
   // file is always source regardless)
   let mode = renderable && OPENNOTESIN !== 'source' ? 'rendered' : 'source';
+  if (o.mode === 'source' || o.line) mode = 'source';   // HTML a session asked for never runs; a line needs the source
   let saveTimer = null;
   const setDirty = (on) => { paneObj.dirty = on; tab.classList.toggle('dirty', on); };
   /* SAVING AGAINST THE DISK (#159). Agents write to open notes all the time (the daily-note ledger, /close-session), and an
@@ -6443,6 +6489,9 @@ async function openViewer(p) {
   const toEditor = (v) => String(v).replace(/\r\n/g, '\n');
   let base = file.content;
   let editorRef = null;
+  let pendingLine = o.line || 0;
+  /* Asked again for a file already open (the bus's `open` with a line): move there in Edit mode. */
+  paneObj.goToLine = (n) => { if (mode !== 'source') { mode = 'source'; pendingLine = n; paint(); } else editorRef?.goToLine?.(n); };
   let saveChain = Promise.resolve();
   const shownNow = () => (editorRef ? editorRef.value() : file.content);
   /* content null = whatever is on screen when this save's turn comes. */
@@ -6495,7 +6544,7 @@ async function openViewer(p) {
   /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
      leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
   paneObj.onDiskMaybeChanged = async () => {
-    if (paneObj.dirty || paneObj.asking || !editable) return;
+    if (ro || paneObj.dirty || paneObj.asking || !editable) return;   // a session's snapshot never reloads from disk
     const f = await window.glassShell.fsRead(file.path).catch(() => null);
     if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
     base = file.content = f.content;
@@ -6507,8 +6556,10 @@ async function openViewer(p) {
     body.scrollTop = top;
   };
   /* #177: watched on its own, through its real folder, for as long as the tab is open. */
-  void window.glassShell.fsWatchFile?.(file.path).catch(() => false);
-  paneObj.unwatch = () => { void window.glassShell.fsUnwatchFile?.(file.path).catch(() => null); };
+  if (!ro) {
+    void window.glassShell.fsWatchFile?.(file.path).catch(() => false);
+    paneObj.unwatch = () => { void window.glassShell.fsUnwatchFile?.(file.path).catch(() => null); };
+  }
   /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
   paneObj.flushSave = (quitting) => {
     if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
@@ -6545,8 +6596,21 @@ async function openViewer(p) {
     sync();
     head.appendChild(seg);
   }
+  /* A session's snapshot says what it is, in words: who opened it, that it cannot be edited here, and
+     the one way to edit it. The PNG export and "reveal" below are the operator's tools for the
+     operator's own files; on a snapshot the edit button is the way to them. */
+  if (ro) {
+    const badge = document.createElement('span'); badge.className = 'vro';
+    badge.textContent = t('viewer.readOnlyBadge', { by: String(o.by || '?') });
+    const edit = document.createElement('button'); edit.className = 'vbtn'; edit.type = 'button';
+    edit.innerHTML = icon('design', 13) + ' ';
+    edit.append(document.createTextNode(t('viewer.openToEdit')));
+    edit.title = t('viewer.openToEditTip');
+    edit.addEventListener('click', () => { closePane(id); void openViewer(file.path); });
+    head.append(badge, edit);
+  }
   // HTML deliverables → download as a high-res PNG
-  if (HTML_EXT.test(name)) {
+  if (HTML_EXT.test(name) && !ro) {
     const png = document.createElement('button'); png.className = 'vbtn'; png.innerHTML = icon('download', 13) + ' PNG'; png.title = t('viewer.pngTitle');
     png.addEventListener('click', async () => {
       const label = png.innerHTML; png.disabled = true; png.textContent = t('viewer.rendering');
@@ -6564,7 +6628,7 @@ async function openViewer(p) {
      preview is a dead end (images, PDFs — the non-editable kinds). */
   const rev = document.createElement('button'); rev.className = 'vbtn'; rev.innerHTML = icon('folder', 13) + ' ' + t(IS_WIN ? 'ctx.revealWin' : 'ctx.reveal'); rev.title = t('viewer.revealTitle');
   rev.addEventListener('click', () => { void window.glassShell.revealInOS(file.path); });
-  head.appendChild(rev);
+  if (!ro) head.appendChild(rev);
 
   function paint() {
     editorRef = null;   // set again below when Edit mode builds its editor
@@ -6602,6 +6666,8 @@ async function openViewer(p) {
       head.appendChild(chg);
       body.appendChild(editor);
       editorRef = editor;
+      if (ro) { editor.setReadOnly?.(true); chg.hidden = true; }
+      if (pendingLine) { editor.goToLine?.(pendingLine); pendingLine = 0; }
       return;
     }
     if (IMG_EXT.test(name)) {
@@ -6661,11 +6727,13 @@ async function openViewer(p) {
     const dir = xDirOf(file.path);
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
+      if (ro) { holdSnapshotImage(img, s, dir); continue; }
       if (s && !/^(https?|file|data):/.test(s)) img.src = fileUrl(dir + '/' + s);
     }
     // live task checkboxes — click toggles [ ]/[x] in the FILE (Obsidian-style)
     const boxes = md.querySelectorAll('input[type="checkbox"]');
     boxes.forEach((box, i) => {
+      if (ro) { box.disabled = true; return; }   // a snapshot writes nothing
       box.disabled = false;
       box.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -6695,7 +6763,8 @@ async function openViewer(p) {
   }
 
   paint();
-  setActive(id);
+  if (behind) { markActivity(id); toast(t('viewer.openedBehind', { by: String(o.by || ''), name })); }
+  else setActive(id);
 }
 
 /* Vault-note sanitizer. Same shape as chatSanitize (inert <template>, walk, rebuild), but a looser
@@ -8246,7 +8315,7 @@ window.glassShell.onIntent(async (m) => {
     }
     case 'ask': void onIntentAsk(); return;   // the menu bar's Ask AIOS… and the bus: destinations included
     case 'openFile':
-      if (m.path) void openViewer(m.path);
+      if (m.path) void openViewer(m.path, m.bus ? { bus: true, by: m.by, background: m.background, mode: m.mode, line: m.line, content: m.content, asset: m.asset } : {});
       return;
     case 'exportReady':   // a new export in badge mode — counted, never opened, no focus taken
       if (m.path) noteExport(m.path, m.name);

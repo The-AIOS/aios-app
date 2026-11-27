@@ -14,7 +14,7 @@
  *                           `--advisor <model>` flag also exists; the documented route is used).
  * Verbs are unchanged. A contract-3 request decides exactly as before.
  */
-import { normalizeVerb, type BusVerbResult } from './busVerbs';
+import { normalizeVerb, type BusVerb, type BusVerbResult } from './busVerbs';
 
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = typeof EFFORT_LEVELS[number];
@@ -63,7 +63,7 @@ export function contract4LaunchArgs(c: { effort?: string; advisorModel?: string 
 }
 
 export type Contract4Decision =
-  | { accept: true; verb: 'spawn' | 'send' | 'resume' | 'kill'; launchArgs: string[]; record?: { to: string; action: string; via: 'surface'; from?: string } }
+  | { accept: true; verb: BusVerb; launchArgs: string[]; record?: { to: string; action: string; via: 'surface'; from?: string } }
   | { accept: false; field: string; value: string; reason: string };
 
 /** The advisor model a request names: a rung via the contract's table, else the id as given. */
@@ -84,6 +84,7 @@ export function contract4Decide(j: Record<string, unknown>): Contract4Decision {
   const advisorModel = advisorModelFor(f.advisor, f.advisorRung);
   const name = typeof j.name === 'string' ? j.name : '';
   const launchArgs = verb === 'spawn' || verb === 'resume' ? contract4LaunchArgs({ effort: f.effort, advisorModel }) : [];
-  const record = verb === 'kill' ? undefined : { to: name, action: verb, via: 'surface' as const, ...(f.from ? { from: f.from } : {}) };
+  /* Nothing is typed into a session by a kill or an open (contract 5), so neither has a delivery record. */
+  const record = verb === 'kill' || verb === 'open' ? undefined : { to: name, action: verb, via: 'surface' as const, ...(f.from ? { from: f.from } : {}) };
   return { accept: true, verb, launchArgs, record };
 }

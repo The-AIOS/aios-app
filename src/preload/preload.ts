@@ -275,5 +275,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   fsUnwatchFile: (p: string): Promise<void> => ipcRenderer.invoke('fs:unwatchFile', p),
   fsUnwatchAll: (): Promise<void> => ipcRenderer.invoke('fs:unwatchAll'),
   onFileChanged: (cb: (m: { path: string }) => void) => ipcRenderer.on('shell:fileChanged', (_e, m) => cb(m)),
+  /* Contract 5: may a local image in a note a SESSION opened be shown? Main applies the same checks as the note. */
+  busImageAllowed: (p: string): Promise<boolean> => ipcRenderer.invoke('bus:imageAllowed', p),
   onRootsChanged: (cb: (m: { framework: string; vault: string }) => void) => ipcRenderer.on('shell:rootsChanged', (_e, m) => cb(m)),
 });

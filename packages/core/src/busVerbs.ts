@@ -19,8 +19,8 @@
  * input and must not get the same answer.
  */
 
-/** Every verb a fulfiller implements. */
-export const BUS_VERBS = ['spawn', 'kill', 'send', 'resume'] as const;
+/** Every verb a fulfiller implements. `open` arrives with contract 5 (openRequest.ts). */
+export const BUS_VERBS = ['spawn', 'kill', 'send', 'resume', 'open'] as const;
 export type BusVerb = (typeof BUS_VERBS)[number];
 
 /** A verb that was written but is not implemented. Never silently coerced to a real one. */

@@ -39,6 +39,8 @@ import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from 
 import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
+import { decideOpen, readChecked, rememberDecided, type DecidedOpen } from '@the-aios/core/openRequest';
+import { ASSET_EXT } from '@the-aios/core/readClass';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -1206,7 +1208,68 @@ function contract4Args(req: BusRequest): { args: string[] } | { error: string } 
   return { args: settingsToFile(contract4LaunchArgs({ effort: req.effort, advisorModel: advisorModelFor(req.advisor, req.advisorRung) })) };
 }
 
-function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>): void {
+/* Contract 5: show a file in the viewer for a session that asked (@the-aios/core/openRequest holds
+   the checks; inbox-contract-5.md in the framework is the rule). The roots are the framework root and
+   the workspace folders, NOT the files the operator dropped onto the App: that grant is for the
+   operator's own work.
+   What the operator gets (decision of 27/11): a SNAPSHOT, read only, never reloaded from disk. Main
+   reads the content here, from the file it checked (readChecked: same file, one link, still inside
+   the roots), and sends the text itself; the renderer never reads that path for this pane. A button
+   reopens the file as the operator's own, and from then on it is the operator's path, not the bus's.
+   In front inside the App unless the operator is typing in a session (then in a background tab, with
+   a notice). The App window is never raised. */
+let decidedOpens: DecidedOpen[] = [];
+function busOpenRoots(): string[] {
+  return [aios.frameworkRoot(), ...aios.workspaceFolders()].filter((r): r is string => !!r);
+}
+function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen: { seenAgoMs: number; atStart: boolean }): void {
+  const now = Date.now();
+  const roots = busOpenRoots();
+  const home = os.homedir();
+  const d = decideOpen({ body, seenAgoMs: seen.seenAgoMs, presentAtStart: seen.atStart, nowMs: now, roots, home, decided: decidedOpens });
+  decidedOpens = rememberDecided(decidedOpens, { name: d.do === 'open' ? d.name : (d.name ?? req.name), at: now }, now);
+  if (d.do === 'refuse') {
+    if (d.why === 'flood') { noteFlood(heldPath, req); return; }
+    markUndelivered(heldPath, req, `open refused (${d.why}): ${d.reason}`);
+    return;
+  }
+  let content: string | undefined;
+  const asset = ASSET_EXT.test(d.path);
+  if (!asset) {
+    const r = readChecked(d.path, d.identity, { roots, home });
+    if (!r.ok) { markUndelivered(heldPath, req, `open refused (unavailable): ${r.reason}`); return; }
+    content = r.content;
+  }
+  const typing = [...composing.values()].some((rec) => operatorComposing(rec, now));
+  emit(win(), 'openFile', { path: d.path, line: d.line, mode: d.mode, background: typing, bus: true, by: d.name, content, asset });
+  log(`open ${path.basename(d.path)} for '${d.name}', read only${typing ? ', in the background (the operator is typing)' : ''}`);
+  try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+}
+/* A flood (20 open requests a minute): each extra request is removed WITHOUT a dead letter of its
+   own, so a flood cannot bury the dead letters that matter; one dead letter a minute says how many. */
+let floodDropped = 0;
+let floodLetterAt = 0;
+function noteFlood(heldPath: string, req: BusRequest): void {
+  floodDropped++;
+  const now = Date.now();
+  if (now - floodLetterAt >= 60_000) {
+    floodLetterAt = now;
+    markUndelivered(heldPath, req, `open refused (flood): ${floodDropped} open request(s) dropped in the last minute; more than 20 a minute are not shown`);
+    floodDropped = 0;
+    return;
+  }
+  try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+}
+/* A local image in a note a session opened is shown only when it passes the same checks as the note
+   itself (inside the roots once resolved, not a secret by name, one link). Remote images keep waiting
+   for the operator's click, as in every note. */
+ipcMain.handle('bus:imageAllowed', (_e, p: unknown) => {
+  if (typeof p !== 'string') return false;
+  const d = decideOpen({ body: { name: 'viewer', path: p }, seenAgoMs: 0, nowMs: Date.now(), roots: busOpenRoots(), home: os.homedir(), decided: [] });
+  return d.do === 'open' && /\.(png|jpe?g|gif|webp|svg)$/i.test(d.path);
+});
+
+function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen = { seenAgoMs: 0, atStart: false }): void {
   try {
     if (req.fieldError) {
       /* Contract 4: a field we cannot honour is dead-lettered NAMING it, never silently dropped —
@@ -1217,10 +1280,12 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
     if (req.action === 'unknown') {
       /* Refuse a verb we do not implement rather than defaulting it to spawn — see BusAction. */
       markUndelivered(heldPath, req,
-        `unknown action '${req.rawAction ?? ''}' — this surface implements spawn, kill, send and `
-        + `resume. Omit "action" entirely for a plain spawn.`);
+        `unknown action '${req.rawAction ?? ''}' — this surface implements spawn, kill, send, `
+        + `resume and open. Omit "action" entirely for a plain spawn.`);
       return;
     }
+    /* Contract 5. `name` is who ASKS, not a target, so the ambiguity rule below does not apply. */
+    if (req.action === 'open') { runOpen(win, heldPath, req, body, seen); return; }
     /* An ambiguous name is refused for every verb, naming the sessions that collided. A kill used
        to find "no target", close any pane of that name and retire as done; a spawn found "not
        running" and started one more session under a name two already shared. */
@@ -1320,12 +1385,20 @@ function withRealName(req: BusRequest): BusRequest {
   return real && real !== req.name ? { ...req, name: real } : req;
 }
 
+/* When THIS App first saw each request file, by its own clock: contract 5 drops an `open` seen more
+   than a minute ago, and one already waiting at startup. Never the file's timestamps, which whoever
+   writes the request sets. Forgotten once the request is claimed or gone. */
+const firstSeen = new Map<string, number>();
+const presentAtStart = new Set<string>();
 function consume(win: () => BrowserWindow | undefined, fsPath: string): void {
+  if (!firstSeen.has(fsPath)) firstSeen.set(fsPath, Date.now());
+  const seen = { seenAgoMs: Date.now() - (firstSeen.get(fsPath) as number), atStart: presentAtStart.has(fsPath) };
   const held0 = claim(fsPath);
+  if (held0 || !fs.existsSync(fsPath)) { firstSeen.delete(fsPath); presentAtStart.delete(fsPath); }
   if (!held0) return;
   const held = { ...held0, req: withRealName(held0.req) };
   if (held.req.action === 'send') void runSend(win, held.heldPath, held.req, held.at);
-  else runImmediate(win, held.heldPath, held.req, held.body);
+  else runImmediate(win, held.heldPath, held.req, held.body, seen);
 }
 
 /** Recover `.holding` files left by a crash — but never steal a live sibling's hold. */
@@ -1470,7 +1543,7 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   // Requests dropped while the app was closed, then holds left behind by a crash.
   try {
     for (const f of fs.readdirSync(dir)) {
-      if (f.endsWith('.json')) consume(getWin, path.join(dir, f));
+      if (f.endsWith('.json')) { presentAtStart.add(path.join(dir, f)); consume(getWin, path.join(dir, f)); }
     }
   } catch { /* empty/absent inbox */ }
   adoptHolds(getWin, dir);

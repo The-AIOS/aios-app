@@ -60,8 +60,8 @@ test('main gates fs:read with it, and hands the renderer a flag rather than a st
 
 test('the viewer reveals an unreadable file instead of building a pane', () => {
   const app = fs.readFileSync('renderer/app.js', 'utf8');
-  const v = app.slice(app.indexOf('async function openViewer(p) {'), app.indexOf('async function openViewer(p) {') + 1500);
-  const flag = v.indexOf('if (file.unreadable)');
+  const v = app.slice(app.indexOf('async function openViewer(p, o = {}) {'), app.indexOf('async function openViewer(p, o = {}) {') + 2600);
+  const flag = v.indexOf('if (file.unreadable) {');   // the operator's own open (a session's is refused just above, never revealed)
   const pane = v.indexOf("el.className = 'pane viewer'");
   assert.ok(flag >= 0 && pane > flag, 'the check comes before any pane exists');
   assert.ok(v.slice(flag, flag + 300).includes('window.glassShell.revealInOS(file.path)'), 'and it reveals');
