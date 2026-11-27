@@ -18,7 +18,7 @@ import {
   type OpenFs, type OpenClass, type OpenStat,
 } from '../src/openRequest';
 
-type Entry = { kind: 'file'; class: OpenClass; executable?: boolean; links?: number } | { kind: 'dir' } | { kind: 'other' } | { kind: 'symlink'; to: string };
+type Entry = { kind: 'file'; class: OpenClass; executable?: boolean; links?: number; stored?: string } | { kind: 'dir' } | { kind: 'other' } | { kind: 'symlink'; to: string };
 interface Fixture {
   contract: number;
   constants: Record<string, number>;
@@ -67,7 +67,8 @@ function fixtureFs(e: Record<string, Entry>): OpenFs & { touched: string[] } {
         }
         out.push(c);
       }
-      return '/' + out.join('/');
+      const r = '/' + out.join('/'); const f = e[r];
+      return f && f.kind === 'file' && typeof f.stored === 'string' ? (f.stored || null) : r;   // the name the disk stores, when the fixture gives one
     },
     classify(p) { const n = e[p]; return n && n.kind === 'file' ? n.class : 'binary'; },
   };
@@ -255,11 +256,12 @@ test('the secret rule: what it refuses and what it leaves alone', () => {
     '/r/id_rsa_work', '/a/.claude/settings.local.json', '/a/mcps/playwright-mcp/auth/site.json', '/r/token-usage.json']) {
     assert.equal(isSecretPath(s), true, s);
   }
-  for (const s of ['/r/.ßh/x.md', '/v/.obſidian/plugins/x/data.json', '/r/accessTokens.json', '/r/oauth2.json', '/r/api-key.txt', '/r/.env_prod']) {
+  for (const s of ['/r/.ßh/x.md', '/r/.ẞh/x.md', '/r/.gıt/config', '/v/.obſidian/plugins/x/data.json', '/r/accessTokens.json', '/r/oauth2.json',
+    '/r/api-key.txt', '/r/api_keys.json', '/r/.env_prod', '/r/prod.env.local', '/r/token.json.bak', '/r/secrets.ini', '/r/private.asc']) {
     assert.equal(isSecretPath(s), true, s);
   }
   for (const s of ['/v/id_card.md', '/r/id_ed25519.pub', '/v/notes.md', '/v/tokenomics.md', '/v/secrets-of-sales.md', '/v/cookie-recipes.md',
-    '/r/.github/ci.yml', '/r/known_hosts', '/r/tokenizer.json', '/v/auth/notes.md']) {
+    '/r/.github/ci.yml', '/r/known_hosts', '/r/tokenizer.json', '/v/auth/notes.md', '/v/.envelope.md', '/v/.environment-notes.md']) {
     assert.equal(isSecretPath(s), false, s);
   }
 });

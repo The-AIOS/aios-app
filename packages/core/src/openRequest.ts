@@ -89,16 +89,17 @@ const SECRET_SEGMENTS = new Set(['.ssh', '.gnupg', '.aws', '.docker', '.kube', '
 const SECRET_NAMES = new Set(['.netrc', '.pgpass', '.npmrc', '.pypirc', '.git-credentials', '.dockercfg', '.mcp.json',
   'storage_state.json', 'spotify-cache.json', '.dev.vars', 'credentials', 'kubeconfig',
   'auth.json', '.htpasswd', '.vault-token', '.yarnrc.yml', '.s3cfg', '.my.cnf']);
-const SECRET_EXT = /\.(pem|key|p12|pfx|p8|kdbx|ovpn|ppk|jks|keystore|tfstate|tfvars)$/;
-const WORD_EXT = /\.(json|ya?ml|toml|txt)$/;
-const WORDS = new Set(['token', 'tokens', 'credential', 'credentials', 'oauth', 'secret', 'secrets', 'cookie', 'cookies', 'password', 'passwords', 'apikey']);
+const SECRET_EXT = /\.(asc|pem|key|p12|pfx|p8|kdbx|ovpn|ppk|jks|keystore|tfstate|tfvars)$/;
+const PROSE_EXT = /\.(md|markdown|html?|pdf|png|jpe?g|gif|webp|svg)$/;
+const BACKUP_SUFFIX = ['.bak', '.old', '.orig', '.backup', '~'];
+const WORDS = new Set(['token', 'tokens', 'credential', 'credentials', 'oauth', 'secret', 'secrets', 'cookie', 'cookies', 'password', 'passwords', 'apikey', 'apikeys']);
 const EXEC_EXT = new RegExp('\\.(' + ['exe', 'com', 'bat', 'cmd', 'ps1', 'msi', 'scr', 'app', 'command', 'lnk', 'url', 'webloc', 'desktop',
   'terminal', 'jar', 'vbs', 'hta', 'reg', 'scpt', 'workflow', 'pkg', 'dmg', 'appimage', 'jse', 'vbe', 'wsf', 'wsh', 'cpl', 'msc', 'pif',
   'scf', 'appref-ms', 'application', 'appinstaller', 'msix', 'appx', 'msp', 'settingcontent-ms', 'library-ms', 'searchconnector-ms',
   'fileloc', 'inetloc', 'afploc', 'mobileconfig', 'jnlp'].join('|') + ')$');
-const BAD_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
-/** Full Unicode case folding, as a case-insensitive file system compares names (ſ is s, ß is ss). */
-export const fold = (s: string): string => s.toUpperCase().toLowerCase();
+const BAD_CHARS = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+/** Lower, upper, lower: what the framework's reference computes too (ſ is s, ß and ẞ are ss, ı is i). */
+export const fold = (s: string): string => s.toLowerCase().toUpperCase().toLowerCase();
 const DOC_EXT = /\.(md|markdown|txt|json|ya?ml|toml|csv|log|html?|png|jpe?g|gif|webp|svg|pdf)$/i;
 const SOURCE_EXT = /\.(html?|xhtml?|xht|shtml|mht|mhtml)$/i;
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i;
@@ -109,29 +110,33 @@ export function isSecretPath(p: string): boolean {
   const segs = raw.map(fold);
   if (!segs.length) return false;
   if (segs.some((s) => SECRET_SEGMENTS.has(s))) return true;
-  const b = segs[segs.length - 1];
-  if (b.startsWith('.env') || b.endsWith('.env') || SECRET_NAMES.has(b)) return true;
+  let rb = raw[raw.length - 1];
+  const sfx = BACKUP_SUFFIX.find((x) => fold(rb).endsWith(x) && rb.length > x.length);   // one backup suffix comes off first
+  if (sfx) rb = rb.slice(0, -sfx.length);
+  const b = fold(rb);
+  if (b === '.env' || b === '.envrc' || b.startsWith('.env_') || b.startsWith('.env-') || b.includes('.env.') || b.endsWith('.env')
+    || SECRET_NAMES.has(b)) return true;
   if (SECRET_EXT.test(b)) return true;
   if (b.endsWith('.json') && (b.startsWith('service-account') || b.includes('firebase-adminsdk'))) return true;
   if (segs.length > 1 && segs[segs.length - 2] === 'auth' && b.endsWith('.json')) return true;
   const hasExt = b.replace(/^\.+/, '').includes('.');
-  if (WORD_EXT.test(b) || !hasExt) {
-    const rb = raw[raw.length - 1];
+  if (!PROSE_EXT.test(b)) {
     const stem = hasExt ? rb.slice(0, rb.lastIndexOf('.')) : rb;
     const w = fold(stem.replace(/([a-z])([A-Z])/g, '$1 $2')).match(/[a-z]+|[0-9]+/g) ?? [];
-    if (w.some((x) => WORDS.has(x)) || w.some((x, i) => x === 'api' && w[i + 1] === 'key')) return true;
+    if (w.some((x) => WORDS.has(x)) || w.some((x, i) => x === 'api' && (w[i + 1] === 'key' || w[i + 1] === 'keys'))) return true;
   }
   return /^id_(rsa|dsa|ecdsa|ed25519)/.test(b) && !b.endsWith('.pub');
 }
 
 /** The Windows path-shape checks of check 5; null when they pass. */
 export function windowsShape(p: string): 'bad-path' | 'not-absolute' | null {
+  if (!p || BAD_CHARS.test(p)) return 'bad-path';
   if (/^[\\/]{2}/.test(p)) return 'bad-path';
   if (!/^[A-Za-z]:[\\/]/.test(p)) return 'not-absolute';
   const rest = p.slice(2);
-  if (rest.includes(':')) return 'bad-path';
+  if (p.length > MAX_PATH || /[\\/]$/.test(p) || rest.includes(':')) return 'bad-path';
   for (const seg of rest.split(/[\\/]+/).filter(Boolean)) {
-    if (seg === '.' || seg === '..' || /[. ]$/.test(seg) || /~\d/.test(seg) || RESERVED.test(fold(seg.split('.')[0].replace(/ +$/, '')))) return 'bad-path';
+    if (seg === '.' || seg === '..' || /[. ]$/.test(seg) || /~[0-9]/.test(seg) || RESERVED.test(fold(seg.split('.')[0].replace(/ +$/, '')))) return 'bad-path';
   }
   return null;
 }
@@ -142,6 +147,13 @@ function form(p: string, platform: NodeJS.Platform): string {
   const s = (platform === 'win32' ? fold(p.replace(/\\/g, '/')) : p).replace(/\/+/g, '/');
   return s.length > 1 ? s.replace(/\/+$/, '') : s;
 }
+/** The stored name names the same file as the resolved one: equal once folded, segment by segment; on
+ *  Windows a segment of the resolved path may also be a short name the stored one spells out. */
+function sameButCase(stored: string, real: string, platform: NodeJS.Platform): boolean {
+  const a = stored.split(/[\\/]+/).filter(Boolean), b = real.split(/[\\/]+/).filter(Boolean);
+  return a.length === b.length && a.every((x, i) => fold(x) === fold(b[i]) || (platform === 'win32' && /~[0-9]/.test(b[i])));
+}
+
 function under(p: string, root: string): boolean {
   return p === root || p.startsWith(root === '/' ? '/' : root + '/');
 }
@@ -287,7 +299,10 @@ export function decideOpen(i: OpenInput): OpenDecision {
   // 11. secret, resolved, and by the name the file system stores (a case-insensitive file system
   //     matches more spellings than folding does; on Windows this also expands a short name)
   const stored = fs.realpath(real);
-  if (isSecretPath(real) || !stored || isSecretPath(stored)) return no('secret', SECRET, name);
+  if (isSecretPath(real)) return no('secret', SECRET, name);
+  if (!stored) return no('unavailable', 'that file changed while it was being checked', name);
+  if (isSecretPath(stored)) return no('secret', SECRET, name);
+  if (!sameButCase(stored, real, platform)) return no('unavailable', 'that file changed while it was being checked', name);
   // 12. kind
   const cls = fs.classify(real);
   if (cls === 'binary' || cls === 'large') return no('unreadable', `the viewer cannot show it (${cls})`, name);
