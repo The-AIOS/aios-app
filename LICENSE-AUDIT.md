@@ -19,7 +19,8 @@ Three sources must stay in sync:
 - `package.json` → `"license": "GPL-2.0-or-later"`
 - the footer of [`README.md`](./README.md)
 
-That covers `src/` (main · preload · core · tests), `renderer/`, `scripts/`, `build/`,
+That covers `src/` (main · preload · core · tests), `packages/core/` (the shared package, which
+carries its own copy of the licence text because it is published on its own), `renderer/`, `scripts/`, `build/`,
 `.github/workflows/`, and every document at the repo root.
 
 **Why GPL and not MIT:** the app is a *surface for the framework*, not a library meant to be
@@ -28,9 +29,16 @@ the whole stack stays open. (The website, `The-AIOS/site`, is MIT — different 
 
 ## 2. Shared code — `src/core/`
 
-`src/core/` is intentionally pure TypeScript with no Electron imports, and some of it is shared
-with the [Glass extension](https://github.com/The-AIOS/aios-glass) through `npm run sync-core`.
-Both repos are GPL-2.0-or-later, so the sharing raises no licensing question in either direction.
+`src/core/` is intentionally pure TypeScript with no Electron imports. What the App shares with
+the [Glass extension](https://github.com/The-AIOS/aios-glass) lives in `packages/core/`, published
+to npm as `@the-aios/core` under GPL-2.0-or-later, the licence of both repos, with its own copy of
+the licence text in the tarball. One file is still shared as a copy, `src/core/sort.ts`, through
+`npm run sync-core`. The sharing raises no licensing question in either direction.
+
+`packages/core/cases/` holds files copied byte for byte from the framework
+([The-AIOS/aios](https://github.com/The-AIOS/aios)) at the commit `packages/core/cases.lock.json`
+names. The framework is GPL-2.0-or-later as well, and the files are redistributed unmodified.
+
 The purity constraint is architectural, not legal: it keeps the logic unit-testable outside an
 Electron process.
 
