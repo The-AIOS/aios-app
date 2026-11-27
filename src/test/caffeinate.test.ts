@@ -385,5 +385,6 @@ test('a waiting shell keeps the Mac awake for an hour after its session went idl
   assert.equal(shellStillCounts(now - 20 * 60 * 1000, now), true, 'a CI watch 20 min in still counts');
   assert.equal(shellStillCounts(now - 61 * 60 * 1000, now), false, 'past the hour it no longer holds');
   assert.equal(shellStillCounts(0, now), false, 'an unknown idle time never holds');
-  assert.ok(/awaiting\.has\(a\.pid\) && shellStillCounts\(/.test(fs.readFileSync('src/main/caffeinate.ts', 'utf8')), 'the driver applies the bound');
+  assert.ok(/awaiting\.has\(a\.pid\) && shellStillCounts\(/.test(fs.readFileSync('src/core/caffeinate.ts', 'utf8')), 'the decision applies the bound');
+  assert.ok(/return sessionsHoldAwake\(agents, awaiting, Date\.now\(\)\);/.test(fs.readFileSync('src/main/caffeinate.ts', 'utf8')), 'the driver decides through it');
 });

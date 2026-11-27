@@ -6,6 +6,7 @@ import { markQuitting } from './quitState';
 import { busyNow } from './caffeinate';
 import { listRunningAgents } from './aios';
 import { lastPanelStatuses } from './panelHost';
+import { effectiveSessions } from './sessionStatus';
 import { heldSendCount } from './commandBus';
 import { installStep, mayAutoInstall, SAMPLE_MS, NEVER_QUIET_WARN_MS } from '../core/autoInstall';
 import { shouldNotifyUpdate, parseNotified } from '../core/updateNotice';
@@ -236,7 +237,10 @@ function sampleUnattended(): void {
   try {
     step = installStep({
       busy: busyNow(),
-      statuses: [...listRunningAgents().map((a) => a.status), ...lastPanelStatuses()],   // registry AND what the panel shows
+      /* The registry, the effective statuses (a permission prompt a session's own terminal reported, even one the
+         panel's scope filter hides: busyNow() no longer counts it as busy) and what the panel shows. Any one of them
+         saying "waiting" keeps the install off. */
+      statuses: [...listRunningAgents().map((a) => a.status), ...effectiveSessions(listRunningAgents()).map((a) => a.status), ...lastPanelStatuses()],
       heldSends: heldSendCount(),
       idleSec: powerMonitor.getSystemIdleTime(),
     }, { quietSince: unattended.quietSince, lastSampleAt: unattended.lastSampleAt }, now);

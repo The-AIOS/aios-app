@@ -359,7 +359,7 @@ export class PanelHost {
 
   postRunning(): void {
     const registry = aios.listOperatorSessions();   // never a daemon spare
-    forgetEndedSessions(registry.map((a) => a.sessionId));
+    forgetEndedSessions(aios.listRunningAgents().map((a) => a.sessionId));   // every registered session: keep-awake reads ones the scope filter hides
     const running = effectiveSessions(registry);
     lastShownStatuses = running.map((a) => a.status);
     this.attention.tick(running, aios.shellSettings().attention);

@@ -393,7 +393,7 @@ test('Settings offers the three values, labelled in every locale', () => {
 
 test('0.15.0 review: the unattended installer also reads the statuses the panel shows (registry overlaid with the sessions\' own signals)', () => {
   const up = fs.readFileSync('src/main/updater.ts', 'utf8');
-  assert.match(up, /statuses: \[\.\.\.listRunningAgents\(\)\.map\(\(a\) => a\.status\), \.\.\.lastPanelStatuses\(\)\]/);
+  assert.match(up, /statuses: \[\.\.\.listRunningAgents\(\)\.map\(\(a\) => a\.status\), \.\.\.effectiveSessions\(listRunningAgents\(\)\)\.map\(\(a\) => a\.status\), \.\.\.lastPanelStatuses\(\)\]/);
   const ph = fs.readFileSync('src/main/panelHost.ts', 'utf8');
   assert.match(ph, /const running = effectiveSessions\(registry\);\s*lastShownStatuses = running\.map\(\(a\) => a\.status\);/);
 });
