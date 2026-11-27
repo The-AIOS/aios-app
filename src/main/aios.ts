@@ -815,6 +815,15 @@ function latestDailyNote(): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether a daily note is closed: it carries the `## Close of Day` heading /aios:close-day writes. The same
+ * line /aios:today's precondition greps for (`^## Close of Day`), so the nudge and the morning guard cannot
+ * disagree about one note. Only the heading counts: a task or a tip that mentions closing the day is not it.
+ */
+export function isDayClosed(md: string): boolean {
+  return /(?:^|\n)## Close of Day/.test(md);   // a line starts after \n only, as it does for grep
+}
+
 export interface Nudge { kind: string; icon: string; label: string; command?: string; cmdLabel?: string; }
 
 function suggestedRitual(md: string): { command: string; short: string; desc: string } | null {
@@ -866,7 +875,7 @@ export function nudgeState(hour: number, weekday: number, runningCount: number):
   if (!isToday) return { kind: 'plan', icon: '☀️', label: t('nudge.plan'), command: '/aios:today' };
   let md = '';
   try { md = fs.readFileSync(note as string, 'utf8'); } catch { return null; }
-  const isClosed = /close[\s-]?of[\s-]?day|^#{1,4}.*\bclose\b.*\bday\b/im.test(md);
+  const isClosed = isDayClosed(md);
   if (hour >= 17 && !isClosed) {
     /* NOT ALWAYS CLOSE-DAY. This branch owned every evening hour, so from 17:00 until the day
        was closed the whisper said the same sentence — and a nudge that never varies stops being
