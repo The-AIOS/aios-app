@@ -159,7 +159,9 @@ for (const w of fx.windows_roots) {
 const made: string[] = [];
 after(() => { for (const d of made) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* gone */ } } });
 function disk(): { home: string; root: string; at: (rel: string, text?: string) => string } {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aios-open-')));
+  /* realpath NATIVE: on Windows the temp folder is often a short 8.3 name (C:\Users\RUNNER~1\...), which
+     check 5 refuses, as the spec says; the native call spells out the long name. */
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'aios-open-')));
   made.push(base);
   const home = path.join(base, 'home'); const root = path.join(home, 'aios');
   for (const d of ['aios/vault', 'aios/plugins/aios', 'outside']) fs.mkdirSync(path.join(home, d), { recursive: true });
@@ -168,11 +170,13 @@ function disk(): { home: string; root: string; at: (rel: string, text?: string) 
 const ask = (p: string, d: { home: string; root: string }, extra: Record<string, unknown> = {}) =>
   decideOpen({ body: { action: 'open', name: 'w1', path: p, ...extra }, seenAgoMs: 1000, nowMs: Date.now(), roots: prepareRoots([d.root], d.home), decided: [] });
 const posix = process.platform !== 'win32';
+/* A decided path on Windows is compared folded and with forward slashes (the module's own form). */
+const asDecided = (p: string): string => (posix ? p : p.replace(/\\/g, '/').toLowerCase());
 
 test('real disk: a note inside the root opens, at its resolved path, with its identity', () => {
   const d = disk(); const p = d.at('aios/vault/note.md');
   const r = ask(p, d);
-  assert.equal(r.do === 'open' && r.path, p);
+  assert.equal(r.do === 'open' && r.path, asDecided(p));
   assert.ok(r.do === 'open' && r.identity.ino > 0);
   assert.equal(looksLikeFramework(d.root), true);
   assert.equal(looksLikeFramework(path.join(d.home, 'outside')), false);
@@ -208,7 +212,7 @@ test('real disk: a link inside the root that points outside is refused', { skip:
 test('real disk: a relative link inside the root is followed', { skip: !posix && 'symlinks need privileges on Windows' }, () => {
   const d = disk(); const p = d.at('aios/vault/real/note.md');
   fs.symlinkSync('real', path.join(d.root, 'vault', 'alias'));
-  assert.equal((ask(path.join(d.root, 'vault', 'alias', 'note.md'), d) as { path?: string }).path, p);
+  assert.equal((ask(path.join(d.root, 'vault', 'alias', 'note.md'), d) as { path?: string }).path, asDecided(p));
 });
 
 test('real disk: a link loop is unavailable, and does not hang', { skip: !posix && 'symlinks need privileges on Windows' }, () => {
@@ -245,7 +249,7 @@ test('real disk: a pipe is not a file, and deciding on it does not block', { ski
 test('real disk: roots listed as home, a hidden home folder, or an ancestor of home are dropped', () => {
   const d = disk(); fs.mkdirSync(path.join(d.home, '.config', 'gh'), { recursive: true });
   const r = prepareRoots([d.home, path.join(d.home, '.config'), path.dirname(d.home), '/', d.root], d.home);
-  assert.deepEqual(r.map((x) => x.real), [d.root]);
+  assert.deepEqual(r.map((x) => x.real), [asDecided(d.root)]);
 });
 
 test('readChecked shows the file that was checked, and refuses a swap made after the decision', { skip: !posix && 'symlinks need privileges on Windows' }, () => {
