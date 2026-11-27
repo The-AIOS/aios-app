@@ -7,9 +7,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { decideSend, queueTurn, stampAge, TIMINGS, type QueuedSend } from '../core/sendQueue';
+import { decideSend, queueTurn, stampAge, TIMINGS, type QueuedSend } from '../src/sendQueue';
 
-const FIX = path.join(__dirname, '..', '..', 'src', 'test', 'fixtures', 'inbox-queue.conformance.json');
+const FIX = path.join(__dirname, '..', '..', 'cases', 'inbox-queue.conformance.json');
 const fx = JSON.parse(fs.readFileSync(FIX, 'utf8')) as { cases: Record<string, unknown>[] };
 
 for (const c of fx.cases) {
@@ -32,7 +32,7 @@ test('the old 30-min hold no longer decides a send to a live busy session', () =
 });
 
 test('review blocker 5: an adopted hold keeps its FIRST queue time, so a correction is never overtaken', async () => {
-  const { withQueuedAt, queuedAtOf } = await import('../core/sendQueue');
+  const { withQueuedAt, queuedAtOf } = await import('../src/sendQueue');
   const A = withQueuedAt({ action: 'send', name: 'w', from: 'buddai', prompt: 'old' }, 10 * 60_000);     // 10:00
   const B = withQueuedAt({ action: 'send', name: 'w', from: 'buddai', prompt: 'correction' }, 20 * 60_000);   // 10:20
   withQueuedAt(A, 30 * 60_000);   // the App restarts at 10:30 and ADOPTS A — re-claiming must not move it

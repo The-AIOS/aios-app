@@ -28,7 +28,7 @@ Electron apps have two kinds of code. Knowing which half a bug lives in saves mo
 | The **file viewer / editor** | `renderer/app.js`: `openViewer`, sections *viewers* and *syntax-highlighted editor*; notes are sanitized by `vaultSanitize` before showing |
 | The **explorer** (file tree) | `renderer/app.js`, section *explorer* |
 | The **sidebar** cards | `renderer/app.js`: *the pulse renderer*, *Health*, *BOARDS* (`src/core/boards.ts`, `src/main/boards.ts`), *CONNECTORS* |
-| The **bus** (spawn / send / kill / resume between sessions) | `src/main/commandBus.ts`, `src/core/commandBus.ts`, `src/core/busVerbs.ts`, `src/core/sendQueue.ts` |
+| The **bus** (spawn / send / kill / resume between sessions) | `src/main/commandBus.ts`, `src/core/commandBus.ts`; the protocol both surfaces run is the shared package, `packages/core/src/busVerbs.ts` and `packages/core/src/sendQueue.ts` |
 | **Settings**, What's New, the shortcut map | `renderer/app.js`: search `settings.`, *WHAT'S NEW*, *THE SHORTCUT MAP* |
 | The App **menu**, menu-bar icon, Ask AIOS from any app | `src/main/menu.ts`, `src/main/menuBar.ts`, `src/main/quickBar.ts` with `renderer/quickbar.*` |
 | **Updates** | `src/main/updater.ts`, and *APP UPDATE PILL* in `renderer/app.js` |

@@ -7,10 +7,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { contract4Decide } from '../core/contract4';
-import { busSentLine } from '../core/busLog';
+import { contract4Decide } from '../src/contract4';
+import { busSentLine } from '../src/busLog';
 
-const FIX = path.join(__dirname, '..', '..', 'src', 'test', 'fixtures', 'inbox-contract-4.conformance.json');
+const FIX = path.join(__dirname, '..', '..', 'cases', 'inbox-contract-4.conformance.json');
 const fx = JSON.parse(fs.readFileSync(FIX, 'utf8')) as { contract: number; cases: { case: string; request: Record<string, unknown>; expect: Record<string, unknown> }[] };
 
 test('the fixture is contract 4 and has cases', () => {

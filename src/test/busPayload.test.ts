@@ -6,7 +6,7 @@ import * as os from 'os';
 import {
   INLINE_LIMIT, PAYLOAD_TTL_MS, byteLength, needsPointer, pointerText,
   isStalePayload, assertDeliverable,
-} from '../core/busPayload';
+} from '@the-aios/core/busPayload';
 
 /* The bug was SILENT truncation: a 2.6KB send arrived cut at 2043 with no error on any
    surface. So these tests are written to a higher bar than "the happy path works" — the point

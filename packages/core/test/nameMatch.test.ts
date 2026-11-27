@@ -1,7 +1,7 @@
 /** app#58's idea, both surfaces: a request reaches a session whatever its name's case. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sessionKey, resolveSessionName } from '../core/nameMatch';
+import { sessionKey, resolveSessionName } from '../src/nameMatch';
 
 test('an exact name wins; otherwise the one live session with the same handle', () => {
   assert.equal(resolveSessionName('market-desk', ['Market-desk', 'buddai']), 'Market-desk', 'capitals in the registry');
@@ -19,7 +19,7 @@ test('security: a registry name with shell characters is never returned', () => 
 });
 
 test('app#65: a kill can reach a renamed session by its former name — only when unambiguous', async () => {
-  const { resolveFormerName } = await import('../core/nameMatch');
+  const { resolveFormerName } = await import('../src/nameMatch');
   const live = [{ name: 'atlas-11-10-26', formerNames: ['atlas'] }, { name: 'buddai' }];
   assert.equal(resolveFormerName('atlas', live), 'atlas-11-10-26');
   assert.equal(resolveFormerName('Atlas', live), 'atlas-11-10-26', 'case-insensitive like current names');

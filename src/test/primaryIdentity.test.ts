@@ -8,7 +8,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { identityRowsIn, choosePrimaryIdentity } from '../core/primaryIdentity';
+import { identityRowsIn, choosePrimaryIdentity } from '@the-aios/core/primaryIdentity';
 
 const USER_MD = [
   '# USER', '', '## Identity', '', '> Named sessions.', '',
@@ -76,7 +76,7 @@ test('Settings shows the picker only with two or more identities, in place of th
 });
 
 test('0.15.0 review 2: the template\'s *example* rows are not identities, and the rename field stays beside the picker', async () => {
-  const { identityRowsIn } = await import('../core/primaryIdentity');
+  const { identityRowsIn } = await import('@the-aios/core/primaryIdentity');
   const md = ['## Identity', '', '| Name | Role | Greeting |', '|---|---|---|', '| *buddy* | *My main session* | hi |', '| *ops* | *Always-on* | hi |', ''].join('\n');
   assert.deepEqual(identityRowsIn(md), [], 'an unedited template offers no picker');
   const real = md.replace('| *buddy* | *My main session* | hi |', '| buddai | main | hi |').replace('| *ops* | *Always-on* | hi |', '| sarah | mini | hi |');

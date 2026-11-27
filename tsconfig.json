@@ -11,5 +11,5 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "exclude": ["node_modules", "out", "panel", "renderer"]
+  "exclude": ["node_modules", "out", "panel", "renderer", "packages"]
 }

@@ -22,7 +22,7 @@
  * contract, not prose, and tell the other side before changing what you match.
  */
 
-import { INBOX_CONTRACT } from './sendQueue';
+import { INBOX_CONTRACT } from '@the-aios/core/sendQueue';
 
 export { INBOX_CONTRACT };
 

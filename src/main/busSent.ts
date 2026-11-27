@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { busSentLine } from '../core/busLog';
+import { busSentLine } from '@the-aios/core/busLog';
 
 export function busLogPath(): string {
   return process.env.AIOS_BUS_LOG || path.join(os.homedir(), '.aios', 'bus-sent.jsonl');

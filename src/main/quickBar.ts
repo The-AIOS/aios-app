@@ -11,8 +11,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { t } from '../i18n';
 import { quickBarRequest, type QuickBarDestination } from '../core/quickBar';
-import { askSessionName, uniqueName } from '../core/sessionName';
-import { isBlockedStatus } from '../core/attention';
+import { askSessionName, uniqueName } from '@the-aios/core/sessionName';
+import { isBlockedStatus } from '@the-aios/core/attention';
 
 export interface QuickBarDeps {
   appRoot: string;

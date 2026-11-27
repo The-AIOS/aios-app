@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
-import { pickBash, gitBashCandidates } from '../core/bashResolve';
+import { pickBash, gitBashCandidates } from '@the-aios/core/bashResolve';
 
 /**
  * Where is a `bash` this process can actually run? (canonical issue #116)

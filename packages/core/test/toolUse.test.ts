@@ -1,7 +1,7 @@
 /** Skills and agents a session used, from real transcript record shapes. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { usageIn, usageChip } from '../core/toolUse';
+import { usageIn, usageChip } from '../src/toolUse';
 
 const use = (name: string, input: object) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
 
@@ -34,4 +34,22 @@ test('a compaction summary is not a new prompt: the chip survives it, a typed pr
   assert.deepEqual(u.skills, ['a']);
   const control = usageIn([use('Skill', { skill: 'a' }), prompt({})].join('\n'));
   assert.deepEqual(control.skills, [], 'control: the same line, not flagged, clears it');
+});
+
+const ask = (text: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: text } });
+test('operator test: the chip is the LATEST turn — a new prompt clears it, tool results do not', () => {
+  const u = usageIn([ask('use comprehension-debt'), use('Skill', { skill: 'comprehension-debt' }), use('Agent', { subagent_type: 'Explore', prompt: 'p' })].join('\n'));
+  assert.equal(usageChip(u), 'comprehension-debt +1');
+  // a tool result (a user-role record) inside the same turn changes nothing
+  usageIn(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] } }), u);
+  assert.equal(usageChip(u), 'comprehension-debt +1');
+  // meta records (hooks, reminders) are not the operator asking
+  usageIn(JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'reminder' } }), u);
+  assert.equal(usageChip(u), 'comprehension-debt +1');
+  // "what time is it?" — a new turn that uses nothing → no chip
+  usageIn(ask('what time is it?'), u);
+  assert.equal(usageChip(u), '');
+  // an assistant line that merely CONTAINS the word "user" is still read for tool uses
+  usageIn(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'the "user" asked' }, { type: 'tool_use', name: 'Skill', input: { skill: 'x' } }] } }), u);
+  assert.equal(usageChip(u), 'x');
 });

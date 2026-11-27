@@ -1,0 +1,51 @@
+{
+  "name": "@the-aios/core",
+  "version": "0.1.0",
+  "description": "What the AIOS App and AIOS Glass both decide: the spawn-inbox protocol and the pure rules around it. One version, run by both surfaces.",
+  "license": "GPL-2.0-or-later",
+  "author": "The AIOS",
+  "homepage": "https://www.the-aios.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/The-AIOS/aios-app.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/The-AIOS/aios-app/issues"
+  },
+  "files": [
+    "dist",
+    "cases",
+    "cases.lock.json"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./cases/*": "./cases/*",
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "dist/*.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/clean.mjs dist && tsc -p tsconfig.json",
+    "test": "node scripts/clean.mjs .test-out && tsc -p tsconfig.test.json && node --test --test-timeout=120000 \".test-out/test/*.test.js\"",
+    "cases:sync": "node scripts/cases.mjs sync",
+    "cases:check": "node scripts/cases.mjs check",
+    "prepack": "npm run build",
+    "pack:check": "node scripts/pack-check.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  }
+}

@@ -25,7 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
-import { agentNamesIn, pickResume, type ResumeCandidate } from '../core/resumeTarget';
+import { agentNamesIn, pickResume, type ResumeCandidate } from '@the-aios/core/resumeTarget';
 
 const INDEX_VERSION = 1;
 /** A record is ~150 bytes; re-reading this much before the old end catches one cut mid-write. */

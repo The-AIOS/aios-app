@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { routineRows, routineNeedsAttention } from '../core/routineHealth';
+import { routineRows, routineNeedsAttention } from '@the-aios/core/routineHealth';
 
 const NOW = Date.parse('2026-10-16T21:00:00Z');
 const rec = (name: string, state: string, written: string, until: string, detail = '') =>

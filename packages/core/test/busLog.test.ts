@@ -3,9 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { busFingerprint, busSentLine, BUS_LOG_KEEP_SECONDS } from '../core/busLog';
+import { busFingerprint, busSentLine, BUS_LOG_KEEP_SECONDS } from '../src/busLog';
 
-const FIX = path.join(__dirname, '..', '..', 'src', 'test', 'fixtures', 'bus-fingerprints.json');
+const FIX = path.join(__dirname, '..', '..', 'test', 'fixtures', 'bus-fingerprints.json');
 const { vectors } = JSON.parse(fs.readFileSync(FIX, 'utf8')) as { vectors: { text: string; fp: string }[] };
 
 test('every vector from bus_log.py fingerprints identically — emoji cut, Python-only/JS-only whitespace, final sigma', () => {

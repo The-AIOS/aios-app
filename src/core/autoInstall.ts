@@ -33,7 +33,7 @@
  */
 
 /** Quiet must hold this long, unbroken, before the restart. */
-import { isBlockedStatus } from './attention';
+import { isBlockedStatus } from '@the-aios/core/attention';
 
 export const QUIET_MS = 2 * 60 * 1000;
 /** Seconds without keyboard or mouse input on the machine before it counts as unattended. */

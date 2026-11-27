@@ -19,11 +19,11 @@
  * session lives IN the app grid, never a detached window, and no shell-wrapper
  * marker is involved.
  */
-import { addDirArgs } from './addDir';
-import { contract4Fields } from './contract4';
-import { normalizeVerb, type BusVerbResult } from './busVerbs';
+import { addDirArgs } from '@the-aios/core/addDir';
+import { contract4Fields } from '@the-aios/core/contract4';
+import { normalizeVerb, type BusVerbResult } from '@the-aios/core/busVerbs';
 
-import { isSurface, type Surface } from './sendQueue';
+import { isSurface, type Surface } from '@the-aios/core/sendQueue';
 
 /* 'unknown' is a PARSED verb the bus refuses, not a parse failure. Absent action still means
    'spawn' (contract-1 `{name, task}` back-compat), but a verb that was WRITTEN and not recognised

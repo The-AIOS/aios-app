@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { claudeLanguageFor, claudeLanguageChoice, claudeLanguageSuggestion, CLAUDE_LANGUAGES } from '../core/claudeLanguage';
+import { claudeLanguageFor, claudeLanguageChoice, claudeLanguageSuggestion, CLAUDE_LANGUAGES } from '@the-aios/core/claudeLanguage';
 import { LOCALES } from '../i18n';
 
 const ROOT = path.join(__dirname, '..', '..');

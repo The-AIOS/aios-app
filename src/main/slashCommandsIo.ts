@@ -14,7 +14,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseFrontmatter } from '../core/frontmatter';
+import { parseFrontmatter } from '@the-aios/core/frontmatter';
 import { builtinCommands, mergeSlashCommands, type SlashCommand, type SlashSource } from '../core/slashCommands';
 import { isSameOrInside, type PathRules } from './pathResolve';
 

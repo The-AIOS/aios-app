@@ -23,7 +23,7 @@ const skip = pty
       ? 'raw-pty round-trip uses /bin/sh + stty (POSIX); ConPTY has no MAX_CANON buffer, and Windows pty delivery is covered by the packaged --smoke pty gate'
       : false)
   : `no node-pty prebuild on ${process.platform}; pty round-trips run on macOS`;
-import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '../core/busPayload';
+import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '@the-aios/core/busPayload';
 
 /* Pointer delivery, end-to-end. The other suite reasons about the RULE; this one puts bytes through a real
    pty, because the incident was not a logic error — it was a delivery that silently lost its

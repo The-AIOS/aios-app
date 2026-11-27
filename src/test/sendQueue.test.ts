@@ -9,14 +9,14 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
-import { TIMINGS } from '../core/sendQueue';
+import { TIMINGS } from '@the-aios/core/sendQueue';
 import { MY_SURFACE } from '../main/surface';
 import {
   INBOX_CONTRACT, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor,
   isHoldPath, isBusy, isDeliverable, decideSend, safeNeedle, isSurface, claimVerdict,
   canAdoptHold, parseClaim, shouldReleaseForSibling, shouldWriteDoc,
   countUserTurnsContaining, verifyVerdict, type SendTarget,
-} from '../core/sendQueue';
+} from '@the-aios/core/sendQueue';
 
 const target = (over: Partial<SendTarget> = {}): SendTarget =>
   ({ name: 'designer', pid: 4242, status: 'idle', sessionId: 'sess-1', ...over });
@@ -203,7 +203,7 @@ test('protocol timings are READ from the contract, never re-declared locally', (
   }
   assert.doesNotMatch(src, /const (MAX_HOLD_MS|HOLD_STALE_MS|RETIRE_TTL_MS) = \d+ \* 60_000/,
     'no local literal may shadow a contract value — that is how the two surfaces drifted');
-  assert.match(fs.readFileSync('src/core/sendQueue.ts', 'utf8'), /CONTRACT, not local tuning/,
+  assert.match(fs.readFileSync('packages/core/src/sendQueue.ts', 'utf8'), /CONTRACT, not local tuning/,
     'say why, so nobody re-tunes one side');
 });
 /* ── delivery verification: the rule that makes "exactly 1" measurable ───────── */
@@ -352,7 +352,7 @@ test('KNOWN LIMIT: an invocation inside our own hold window is still indistingui
     'still counted — documented, bounded to the hold window, and the reason release was removed');
 });
 
-import { isQueuedDelivery, queueTurn as queueTurn11 } from '../core/sendQueue';
+import { isQueuedDelivery, queueTurn as queueTurn11 } from '@the-aios/core/sendQueue';
 test('should-fix 11: a resume to a LIVE session is a queued delivery — it waits its turn and is waited on', () => {
   assert.equal(isQueuedDelivery('send', { name: 'w' }), true);
   assert.equal(isQueuedDelivery('resume', { name: 'w', prompt: 'carry on' }), true, 'a resume with a prompt delivers like a send');
@@ -366,7 +366,7 @@ test('should-fix 11: a resume to a LIVE session is a queued delivery — it wait
   assert.equal(queueTurn11(held[0], held).do, 'go', 'the resume goes first');
 });
 
-import { supersedes as supersedes64, queueTurn as queueTurn64 } from '../core/sendQueue';
+import { supersedes as supersedes64, queueTurn as queueTurn64 } from '@the-aios/core/sendQueue';
 test('operator test 6.4: a correction retires the older message itself, whatever order the checks run in', () => {
   // The run that failed: an older RESUME (prompt) and a newer SEND, same sender, same busy target.
   const older = { key: 'q-resume.json.holding', target: 'stamp-target', from: 'bus-tester', queuedAt: 1000 };

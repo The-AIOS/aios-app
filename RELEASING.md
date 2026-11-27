@@ -182,6 +182,53 @@ build *may* need one or more of the candidates documented in that file
 evidence** — a real sign or launch failure — never preemptively; each one weakens
 the hardened runtime.
 
+## Publishing @the-aios/core (the package the App and Glass share)
+
+`packages/core` is published to the public npm registry as `@the-aios/core`. It has its own
+version and its own tag series: **`core-v<version>`**. An App release (`v*`) does not publish it,
+and a `core-v*` tag starts none of the App's release workflows. The App resolves the package from
+this repository, so an App release never waits on npm; Glass installs it from npm, so Glass can
+move to a version only after it is published.
+
+**Per release:**
+
+```bash
+# packages/core/package.json already says 0.1.0, merged to main
+git tag -a core-v0.1.0 -m "@the-aios/core 0.1.0" && git push origin core-v0.1.0
+```
+
+`.github/workflows/publish-core.yml` checks that the tag names the version, runs the package's
+tests, the cases check and the tarball check, and publishes. Re-running it for a version that is
+already on npm does nothing. Run it by hand (Actions → Publish @the-aios/core) for a dry run that
+builds and packs and publishes nothing; started by hand from anything but a `core-v` tag it can
+only rehearse.
+
+**Once, before the first publish (maintainers only):**
+
+1. Create the npm organisation `the-aios`, which owns the `@the-aios` scope.
+2. Let the `release` environment admit the new tags: Settings → Environments → `release` →
+   Deployment branches and tags → add `core-v*`. Without it the job is refused before it starts.
+3. Publish without a stored token, by npm trusted publishing: npmjs.com → Packages →
+   `@the-aios/core` → Settings → Trusted publishing → GitHub Actions, with organisation
+   `The-AIOS`, repository `aios-app`, workflow file `publish-core.yml` and environment `release`.
+   The workflow already asks for the `id-token` permission and runs on Node 24, which carries an
+   npm new enough for it.
+
+**The first version.** npm's documentation places that setting inside the package's own settings
+page and does not say how it is reached for a package that has never been published. If npm does
+not offer it before the package exists, make the first publish with a token and switch afterwards:
+
+- store a granular npm token allowed to publish `@the-aios/core` as `NPM_TOKEN` in the `release`
+  environment (never as a repository secret), push `core-v0.1.0`, and let the workflow publish
+  with it; or publish that one version from a maintainer's machine with
+  `npm publish -w @the-aios/core --access public`;
+- then add the trusted publisher as in step 3 and delete the token. The workflow uses a stored
+  token only when one exists, so removing it needs no change here.
+
+npm's documentation says a newly created trusted publisher has to complete its first publish
+within two days or it expires and has to be created again, so set it up when a version is ready
+to tag.
+
 ## Supply-chain hygiene (the release path ships to non-technical users)
 
 `persist-credentials: false` on checkout keeps no token in `.git`. Adopt further

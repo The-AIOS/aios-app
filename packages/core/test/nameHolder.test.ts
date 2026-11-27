@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nameStartedBy, heldElsewhere, type NameEntry } from '../core/nameHolder';
+import { nameStartedBy, heldElsewhere, type NameEntry } from '../src/nameHolder';
 
 test('the name a command starts a session under', () => {
   assert.equal(nameStartedBy(`claude --remote-control --name AIOS-Main-Session 'Start session'`), 'AIOS-Main-Session');

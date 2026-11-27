@@ -16,7 +16,7 @@ import {
   attentionTick, markNotified, badgeText, mayBanner, normalizeNotifyLevel, sessionKey,
   BLOCKED_STATUS_RE, isBlockedStatus,
   EMPTY_ATTENTION, NOTIFY_DEFAULT, type AttentionSession, type AttentionState,
-} from '../core/attention';
+} from '@the-aios/core/attention';
 /* TYPE-ONLY, so it is erased at compile time and never pulls `electron` in at require time —
    the runtime copy comes from loadAttention() below, with the loader stubbed. */
 import type { Attention as AttentionClass, AttentionHooks, overlayText as OverlayTextFn, shouldFlash as ShouldFlashFn } from '../main/attention';

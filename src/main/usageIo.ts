@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { UsageIo } from '../core/usageReader';
+import type { UsageIo } from '@the-aios/core/usageReader';
 
 /** Claude Code's projects folder — honours CLAUDE_CONFIG_DIR, like Claude Code itself. */
 export function projectsDir(): string {

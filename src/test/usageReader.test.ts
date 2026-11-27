@@ -1,7 +1,7 @@
 /** Review should-fix 17 — the shared usage reader: async, bounded, pruned, and whole characters. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { UsageReader, feedUsage, type UsageIo } from '../core/usageReader';
+import { UsageReader, feedUsage, type UsageIo } from '@the-aios/core/usageReader';
 import { parseStatuslinePayload, mergeStatus, scopeStatusToSession } from '../core/chatEvents';
 
 const skill = (name: string) => JSON.stringify({ message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: name } }] } }) + '\n';

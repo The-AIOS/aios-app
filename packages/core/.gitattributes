@@ -1,0 +1,2 @@
+# The cases are the framework's bytes, verified by sha256 (scripts/cases.mjs): never normalise them.
+cases/** -text

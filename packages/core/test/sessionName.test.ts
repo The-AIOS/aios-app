@@ -1,7 +1,7 @@
 /** app#66, both surfaces: an Ask AIOS session is named for the identity it asks for, and keeps its letters. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { askSessionName, askSlug, foldName, datedIdentity, identityNamesIn, explicitName, uniqueName } from '../core/sessionName';
+import { askSessionName, askSlug, foldName, datedIdentity, identityNamesIn, explicitName, uniqueName } from '../src/sessionName';
 
 const OCT16 = new Date(2026, 9, 16);
 const USER_MD = [
