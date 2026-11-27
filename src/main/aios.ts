@@ -986,8 +986,9 @@ export function recentReports(limit = 5): ReportFile[] {
 
 // ── go-with-agents parsing (Glass-parity: pure, list-item guarded) ──────────
 //
-// Ported from aios-glass `src/tasks/agentParse.ts`; the two are now held to the same
-// rule by the framework's shared cases file (see parseAgentSection). Both the bubble
+// Ported from aios-glass `src/tasks/agentParse.ts`. This copy is now held to the framework's
+// rule by its shared cases file (see parseAgentSection); Glass still carries the older text
+// until the parser moves into the surfaces' shared package. Both the bubble
 // (countAgentSuggestions) and the picker (listAgentSuggestions) derive from this
 // ONE parser, so they can no longer disagree, and both inherit the two guards the
 // desktop was missing: the list-item guard (a routed task is always a `- `/`* `
@@ -1020,23 +1021,38 @@ export function doneIdentities(md: string): string[] {
   for (const line of md.split(/\r?\n/)) {
     if (!(/^\s*[-*]\s*\[[xX]\]/.test(line) || /~~[^~]+~~/.test(line))) continue;
     const id = taskIdentity(line);
-    if (id.length >= 4) out.push(id);
+    if ([...id].length >= 4) out.push(id);
   }
   return out;
 }
 
-const ROUTE_MARK = ' _(→';
+const ROUTE_MARK = ' _(\u2192';
+
+/**
+ * True when a done line IS this task: the same identity, or one that contains it as whole words.
+ * `Draft the deck` is done by `[x] Draft the deck for Ana`; `Review PR` is not done by
+ * `[x] Review PRD`.
+ */
+function doneCovers(done: string, id: string): boolean {
+  const word = /[\p{L}\p{N}]/u;
+  for (let at = done.indexOf(id); at >= 0; at = done.indexOf(id, at + 1)) {
+    const before = [...done.slice(0, at)].pop();
+    const after = [...done.slice(at + id.length)][0];
+    if (!(before && word.test(before)) && !(after && word.test(after))) return true;
+  }
+  return false;
+}
 
 /**
  * Extract the "Agents can handle" section's open, routed suggestions.
  *
  * The rule is the framework's, and `src/test/fixtures/agents-can-handle.cases.json` (a copy of
- * the framework's cases file) is what holds this to it. A line's ROUTE is what follows its last
+ * the framework's cases file) is what holds this to it. A line's ROUTE is what follows its first
  * ` _(→`. When it has one, the agent and the command are read from the route and nowhere else:
  * the agent is the wikilink after `agent:`, never a project wikilink in the task text (that
  * dispatched a project note as if it were an agent), and a backticked command in the task text
- * never beats the one after `command:`. A line with no route is read whole, as older notes wrote
- * them, and still needs `agent:` before a wikilink for it to be an agent.
+ * never beats the one after `command:`. A line with no route is read whole, and it too needs
+ * `agent:` before a wikilink: the short `→ [[name]]` form some older notes used no longer binds.
  */
 export function parseAgentSection(md: string): ParsedSuggestion[] {
   const lines = md.split(/\r?\n/);
@@ -1055,7 +1071,7 @@ export function parseAgentSection(md: string): ParsedSuggestion[] {
     if (/^\s*[-*]\s*\[[xX]\]/.test(line)) continue;             // done: checkbox form
     if (/^\s*[-*]\s*(?:\u{1F916}\s*)*~~/u.test(line)) continue; // done: struck-title form
     if (line.includes('\u{1F680}')) continue;                  // 🚀 already spawned (in flight)
-    const cut = line.lastIndexOf(ROUTE_MARK);
+    const cut = line.indexOf(ROUTE_MARK);
     const route = cut >= 0 ? line.slice(cut + ROUTE_MARK.length) : line;
     const at = /\bagent:/i.exec(route);
     const agents = at
@@ -1071,7 +1087,7 @@ export function parseAgentSection(md: string): ParsedSuggestion[] {
     const task = bold ? bold[1].trim() : label;
     // Done elsewhere? Canonical task checked/struck in another section → skip.
     const sId = taskIdentity(task);
-    if (sId.length >= 6 && done.some((d) => d === sId || d.includes(sId))) continue;
+    if ([...sId].length >= 6 && done.some((d) => doneCovers(d, sId))) continue;
     const sug: ParsedSuggestion = { task, agents, raw: line.trim() };
     if (!agents.length && cmd) {
       sug.command = cmd[1];

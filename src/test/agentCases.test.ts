@@ -25,7 +25,7 @@ import * as aios from '../main/aios';
 
 const REPO = path.join(__dirname, '..', '..');
 const FIX = path.join(REPO, 'src', 'test', 'fixtures', 'agents-can-handle.cases.json');
-const PIN = 'eac737fe9d01bc1f696afa496dc4e049e704cc506a51c71f1590d44e7d6fe343';
+const PIN = '6a9f95eee4ec1cd8f6c4343b32a2e91b09e90a97114c0586acfa1a4a1376718d';
 
 interface Expected { task: string; agents: string[]; command?: string; arg?: string }
 interface Case { case: string; note: string[]; expect: { count: number; suggestions: Expected[] } }
@@ -121,13 +121,13 @@ test('stampAgentSuggestion: the dispatched line leaves the list and the count', 
   process.env.GLASS_FRAMEWORK_PATH = root;
   try {
     fs.writeFileSync(notePath, NOTE);
-    const before = aios.listAgentSuggestions();
-    assert.equal(before.length, 2);
+    const open = aios.listAgentSuggestions();
+    assert.equal(open.length, 2);
     const fn = aios.stampAgentSuggestion;
-    assert.equal(fn(before[0].raw), true);
+    assert.equal(fn(open[0].raw), true);
     assert.equal(aios.countAgentSuggestions(), 1);
     assert.deepEqual(aios.listAgentSuggestions().map((s) => s.task), ['Ingest the keynote']);
-    assert.equal(fn(before[0].raw), false, 'dispatching it again finds nothing to stamp');
+    assert.equal(fn(open[0].raw), false, 'dispatching it again finds nothing to stamp');
     assert.equal(fs.readFileSync(notePath, 'utf8').split(ROCKET).length - 1, 1);
   } finally {
     if (prev === undefined) delete process.env.GLASS_FRAMEWORK_PATH; else process.env.GLASS_FRAMEWORK_PATH = prev;
@@ -173,9 +173,51 @@ test('picker: backing out of "run where?" stamps nothing', async () => {
   assert.deepEqual(h.stamped, [], 'nothing was handed to an agent, so the line stays open');
 });
 
-test('runWhere says whether it dispatched: false only when the picker is dismissed', () => {
+test('the stamp is wired end to end: one channel name, and the badge is re-posted', () => {
+  const main = fs.readFileSync(path.join(REPO, 'src', 'main', 'main.ts'), 'utf8');
+  const preload = fs.readFileSync(path.join(REPO, 'src', 'preload', 'preload.ts'), 'utf8');
+  const handler = /ipcMain\.handle\('aios:stampSuggestion',[^\n]*/.exec(main);
+  assert.ok(handler, 'main.ts handles aios:stampSuggestion');
+  assert.match(handler![0], /aios\.stampAgentSuggestion\(/);
+  assert.match(handler![0], /; if \(r\) host\?\.postState\(\); return r; \}\);$/, 'the count is displayed state: re-post it when a line was stamped');
+  assert.match(preload, /aiosStampSuggestion: \(raw: string\)[^\n]*ipcRenderer\.invoke\('aios:stampSuggestion', raw\)/);
+  assert.match(app, /window\.glassShell\.aiosStampSuggestion\(v\.raw\)/);
+});
+
+// runWhere tells the picker whether anything was handed over. EXECUTED, path by path: a regex
+// over its source cannot tell `return true` from a path that falls off the end.
+function runWhereHarness(mode: string, live: string[], choice: string | null, openPane: string | null) {
   const m = /async function runWhere\(slash, name\) \{[\s\S]*?\n\}/.exec(app);
   if (!m) assert.fail('runWhere must be findable in renderer/app.js');
-  assert.match(m[0], /if \(!choice\) return false;/);
-  assert.doesNotMatch(m[0], /return;/, 'every other path reports a dispatch');
-});
+  const did: string[] = [];
+  const panes = new Map<string, { exited: boolean }>();
+  if (openPane) panes.set('p1', { exited: false });
+  const run = new Function(
+    'window', 'pulse', 'runInPrimary', 't', 'statusInfo', 'listModal', 'createPane', 'CLAUDE', 'shq', 'byName', 'panes', 'submitToPty', 'setActive',
+    m[0] + '\nreturn runWhere;',
+  )(
+    { glassShell: { shellConfig: async () => ({ terminalMode: mode }) } },
+    { lastRunning: { running: live.map((name) => ({ name, status: 'idle' })) } },
+    async () => { did.push('primary'); },
+    (k: string) => k, () => ({ label: '' }), async () => choice,
+    () => { did.push('pane'); }, 'claude', (x: string) => x,
+    (n: string) => (openPane === n ? ['p1'] : null), panes,
+    () => { did.push('typed'); }, () => undefined,
+  ) as (slash: string, name: string) => Promise<unknown>;
+  return { run, did };
+}
+
+for (const [what, mode, live, choice, open, want, did] of [
+  ['no live session: runs in the primary', 'ask', [], null, null, true, ['primary']],
+  ['terminal mode is not "ask": runs in the primary', 'primary', ['a'], null, null, true, ['primary']],
+  ['picker dismissed', 'ask', ['a'], null, null, false, []],
+  ['"new terminal" picked', 'ask', ['a'], '__new', null, true, ['pane']],
+  ['a live session picked', 'ask', ['a'], 'a', 'a', true, ['typed']],
+  ['a session picked that has no open pane', 'ask', ['a'], 'a', null, true, ['pane']],
+] as [string, string, string[], string | null, string | null, boolean, string[]][]) {
+  test(`runWhere reports a dispatch — ${what}`, async () => {
+    const h = runWhereHarness(mode, live, choice, open);
+    assert.equal(await h.run('/aios:today', 'today'), want);
+    assert.deepEqual(h.did, did);
+  });
+}
