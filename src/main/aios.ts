@@ -1015,11 +1015,23 @@ export function taskIdentity(s: string): string {
     .toLowerCase();
 }
 
-/** Identities of every task the note marks done anywhere (`[x]` or ~~struck~~). */
+/**
+ * Whether a strike makes this line done: ✅ is on the line, or no live text is left beside the strike. Live text is any
+ * letter or digit that remains once the bullet, the checkbox, emojis, time slots, the struck spans and the `_(…)_`
+ * annotations (the route is one) are taken away. A strike with live text beside it and no ✅ is an edit or a
+ * reschedule (`~~Call Bob Tue~~ → Thu`): that task is still open. The framework's rule, held by its cases file.
+ */
+function struckDone(line: string): boolean {
+  if (!/~~[^~]+~~/.test(line)) return false;
+  if (line.includes('\u2705')) return true;
+  return !/[\p{L}\p{N}]/u.test(taskIdentity(line.replace(/~~[^~]+~~/g, '').replace(/_\([\s\S]*?\)_/g, '')));
+}
+
+/** Identities of every task the note marks done anywhere (`[x]`, or struck as struckDone says). */
 export function doneIdentities(md: string): string[] {
   const out: string[] = [];
   for (const line of md.split(/\r?\n/)) {
-    if (!(/^\s*[-*]\s*\[[xX]\]/.test(line) || /~~[^~]+~~/.test(line))) continue;
+    if (!(/^\s*[-*]\s*\[[xX]\]/.test(line) || struckDone(line))) continue;
     const id = taskIdentity(line);
     if ([...id].length >= 4) out.push(id);
   }
@@ -1069,7 +1081,7 @@ export function parseAgentSection(md: string): ParsedSuggestion[] {
     // `/command` in passing (the over-count bug behind the bubble).
     if (!/^\s*[-*]\s/.test(line)) continue;
     if (/^\s*[-*]\s*\[[xX]\]/.test(line)) continue;             // done: checkbox form
-    if (/^\s*[-*]\s*(?:\u{1F916}\s*)*~~/u.test(line)) continue; // done: struck-title form
+    if (struckDone(line)) continue;                             // done: struck with ✅, or struck whole (a strike beside live text is an edit)
     if (line.includes('\u{1F680}')) continue;                  // 🚀 already spawned (in flight)
     const cut = line.indexOf(ROUTE_MARK);
     const route = cut >= 0 ? line.slice(cut + ROUTE_MARK.length) : line;

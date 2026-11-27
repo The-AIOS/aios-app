@@ -25,7 +25,7 @@ import * as aios from '../main/aios';
 
 const REPO = path.join(__dirname, '..', '..');
 const FIX = path.join(REPO, 'src', 'test', 'fixtures', 'agents-can-handle.cases.json');
-const PIN = '7d7f8d7dd5bd307cbb850dfa717260bfc511ea43931a66aadaf0e23bd53148d9';
+const PIN = '1fab9364afa50166a71f4d2eb5d5c98acde903970fcbc8576e55eecbf3b8cbf0';
 
 interface Expected { task: string; agents: string[]; command?: string; arg?: string }
 interface Case { case: string; note: string[]; expect: { count: number; suggestions: Expected[] } }
