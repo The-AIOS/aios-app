@@ -1011,6 +1011,11 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 .qrow { display: flex; align-items: center; gap: 8px; }
 .qrow .qbar { flex: 1; }
 .qlabel { color: var(--subtle); font-size: 10.5px; font-family: var(--mono); white-space: nowrap; }
+.qswaprow { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.vbtn.qswap { font-size: 11px; padding: 2px 9px; }
+.vbtn.qswap:disabled { cursor: default; color: var(--faint); }
+#pRun .qswapwrap { margin: 4px 0 11px; }
+#pRun .qswapwrap .qrow { margin: 0; }
 
 /* sessions (registry-wide, beyond this window's dock) */
 .prow2 { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; cursor: pointer;

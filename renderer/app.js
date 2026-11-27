@@ -2380,6 +2380,7 @@ function runSection(parent, label, key, count, onAdd, addTitle, fill, extra) {
   if (!collapsed) { const box = el('div', 'psubbox'); fill(box); parent.appendChild(box); }
 }
 
+let quotaSwapping = false;   // a swap from the running card is in flight
 function buildQuotaRow(q) {
   const row = el('div', 'qrow');
   const bar = el('div', 'qbar');
@@ -2397,7 +2398,33 @@ function buildQuotaRow(q) {
   };
   const reset = (f >= 85 && fmtIn(q.fr)) ? t('pulse.resetsIn', { time: fmtIn(q.fr) }) : '';
   row.appendChild(el('span', 'qlabel', '5h ' + f + '% (7d ' + s7 + '%)' + reset));
-  return row;
+  if (!q.showSwap) return row;
+  /* The account swap, offered at the framework's own usage (main/swapOffer.ts): the same button Glass
+     shows. With nowhere to go it still shows, saying so: hiding it would read as nothing being wrong. */
+  const wrap = el('div', 'qswapwrap');
+  wrap.appendChild(row);
+  const b = el('button', 'vbtn qswap', q.to ? t('pulse.swapTo', { name: q.to.split('@')[0] }) : t('pulse.noAccount'));
+  /* The card is rebuilt on every push, so "in flight" lives outside the button: a rebuilt button
+     must not start a second switch while the first is running. */
+  b.disabled = !q.to || quotaSwapping;
+  if (q.to) b.addEventListener('click', async () => {
+    if (quotaSwapping) return;
+    quotaSwapping = true;
+    b.disabled = true;
+    toast(t('account.swapping', { email: q.to }));
+    try {
+      const r = await window.glassShell.accountsSwap(q.to).catch(() => ({ ok: false, message: 'failed' }));
+      toast(r.ok ? t('account.swapped', { email: q.to }) : t('account.swapFailed', { message: r.message }));
+    } finally { quotaSwapping = false; }
+  });
+  const line = el('div', 'qswaprow');
+  line.appendChild(b);
+  if (q.pausedUntil && q.pausedUntil * 1000 > Date.now()) {   // the answer can be a minute old: an ended pause is not shown
+    const until = new Date(q.pausedUntil * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    line.appendChild(el('span', 'qlabel', t('pulse.rotationPaused', { time: until })));
+  }
+  wrap.appendChild(line);
+  return wrap;
 }
 /* ═══ ENDING A LIVE SESSION — one decision, one dialog, every entry point ═══
    `killBehavior` is the operator's answer to "when you kill a session, then what": ask
