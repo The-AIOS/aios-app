@@ -64,13 +64,27 @@ test('the dispatcher sends the SIGTERM only after decideKill, and has no other p
   assert.ok(start > 0, 'the kill branch must exist');
   const branch = src.slice(start, src.indexOf("} else if (req.action === 'resume')", start));
   const guard = branch.indexOf('decideKill(');
-  const sigterm = branch.indexOf("process.kill(t.pid, 'SIGTERM')");
+  const sigterm = branch.indexOf('closeSession(t.name, t.pid)');
   assert.ok(guard > 0 && sigterm > guard, 'decideKill runs before the SIGTERM');
   const refusal = branch.slice(guard, sigterm);
   assert.match(refusal, /if \(!verdict\.kill\) \{[\s\S]*?return;\s*\}/, 'a refusal returns before the SIGTERM');
   assert.match(refusal, /if \(verdict\.byExpect\) \{[^\n]*archiveRefusedKill\(heldPath, verdict\.reason\); \}\s*else markUndelivered\(heldPath, req, verdict\.reason\);/,
     '#70: refused by expect → archived; any other refusal → dead letter');
-  assert.equal((src.match(/process\.kill\(t\.pid, 'SIGTERM'\)/g) || []).length, 1, 'one SIGTERM site');
+  /* The kill itself is the shared one (@the-aios/core/killSession). One call site, behind the guard;
+     and the only `process.kill` that can carry a real signal in this file is the one inside killIo. */
+  assert.equal((src.match(/closeSession\(t\.name, t\.pid\)/g) || []).length, 1, 'one kill site');
+  assert.equal((src.match(/closeSession\(/g) || []).length, 2, 'the definition and that one call');
+  assert.equal((src.match(/process\.kill\(/g) || []).length, 1, 'no other signal is sent from this file');
+  assert.match(src, /const scope = killScope\(rows, pid, process\.pid, others, process\.platform, parentCommand\);/, 'what is signalled is decided by the shared rule, with its default rules (a session is `claude`; a parent that leads the group must be the wrapper\'s launcher)');
+  assert.match(src, /signal: \(pidOrGroup, sig\) => \{ process\.kill\(pidOrGroup, sig\); \},/);
+  /* And a SIGKILL can only follow while the SAME process is still there: its start time is taken
+     when the kill begins, and a pid that now belongs to something else reads as "not running". */
+  assert.match(src, /const born = procIdentity\(pid\)\?\.startedAt;/);
+  const cs = src.slice(src.indexOf('function closeSession('));
+  assert.ok(cs.indexOf('const born = procIdentity(pid)?.startedAt;') > 0 && cs.indexOf('const born = procIdentity(pid)?.startedAt;') < cs.indexOf('processTable()'), 'the identity is read BEFORE the process table, so a pid reused in between is caught');
+  assert.match(src, /if \(p !== pid \|\| born === undefined\) return false;/);
+  assert.match(src, /return !!now && !now\.zombie && now\.startedAt === born;/);
+  assert.match(src, /void terminate\(scope, pid, killIoFor\(pid, born\)\)/);
   assert.doesNotMatch(branch, /catch \{ \/\* parsed once already \*\/ \}/, 'the swallowed re-read is gone');
 });
 

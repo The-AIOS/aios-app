@@ -35,7 +35,7 @@ export { INBOX_CONTRACT };
 const MARK = 'aios-spawn-inbox: contract';
 
 /** Bumped whenever the body below changes. A test pins the body to it, so the two cannot part. */
-export const README_TEXT_REVISION = 1;
+export const README_TEXT_REVISION = 2;
 
 export interface ReadmeWriter {
   surface: 'app' | 'glass';
@@ -135,6 +135,12 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
 **kill** — close that session (shell + claude + respawn loop):
 
     { "action": "kill", "name": "designer" }
+
+- **What a kill closes.** The session is resolved to its pid in the registry. When that pid's **process group** is nothing but the session (\`claude\` leads it; or the \`spawn\` wrapper's launcher does, with only the session inside), the App sends SIGTERM to the group, and SIGKILL if the session is still running five seconds later. That takes the session with its MCP servers and helpers, and the launcher's respawn loop when the launcher leads the group. In every other case (the session shares its group with an editor, an app, a script or a terminal's own shell; another session is in it; Windows) the pid gets one SIGTERM, as before. A session started by the wrapper inside an interactive shell keeps that shell's loop: the loop may start it again.
+- **Commands a session ran through its Bash tool are not in that group**: each runs in a group of its own, and a kill sends them nothing. Claude Code may still end them when it exits. **To be sure something outlives its session, start it in a session of its own.** \`nohup cmd &\` does not do that. These do (measured from a non-interactive \`zsh\`, which is what the Bash tool runs):
+
+      perl -MPOSIX -e 'setsid() or die; exec @ARGV' your-command &
+      setsid your-command &          # Linux only: macOS has no setsid command
 
 - **Conditional kill** (\`expect\`, AIOS App): say what you saw when you decided the session was done, and the App checks it immediately before killing. That reduces the risk of killing a session someone just wrote to; it does not remove it. If the session changed since, it is **left running** and the request is archived with the reason in \`_archive/<name>-<time>.refused.json\` (\`_refused.reason\`, kept a week). That is the guard working, so it is not a dead letter. A malformed \`expect\`, or a request rewritten after it was claimed, is still dead-lettered (\`kill refused …\`). Keys, each optional but at least one:
   - \`sessionId\` — the registry's.
