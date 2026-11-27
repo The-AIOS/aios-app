@@ -1989,6 +1989,10 @@ ipcMain.handle('aios:lists', () => ({
   running: aios.listOperatorSessions(),
   suggestions: aios.listAgentSuggestions(),
 }));
+/* A suggestion handed to an agent is stamped on its line, as Glass does, so the count drops and
+   the same line cannot be handed out twice. The calendar watcher would re-post too; the explicit
+   push keeps the badge from waiting on it. */
+ipcMain.handle('aios:stampSuggestion', (_e, raw: string) => { const r = aios.stampAgentSuggestion(String(raw ?? '')); if (r) host?.postState(); return r; });
 ipcMain.handle('fs:index', () => aios.fileIndex());
 /* Claude's language is the operator's own choice in Settings, apart from the App's (core/claudeLanguage.ts). */
 ipcMain.handle('claude:language', () => aios.getClaudeLanguage());

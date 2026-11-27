@@ -236,6 +236,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   claudeLanguage: (): Promise<{ local: string | null; elsewhere: string | null; suggest: { value: string | null } | null }> => ipcRenderer.invoke('claude:language'),
   setClaudeLanguage: (v: string | null): Promise<boolean> => ipcRenderer.invoke('claude:setLanguage', v),
   aiosLists: (): Promise<{ agents: unknown[]; commands: unknown[]; skills: unknown[]; frequent: unknown[]; running: unknown[]; suggestions: unknown[] }> => ipcRenderer.invoke('aios:lists'),
+  aiosStampSuggestion: (raw: string): Promise<boolean> => ipcRenderer.invoke('aios:stampSuggestion', raw),
   fsIndex: (): Promise<{ name: string; path: string; root: string }[]> => ipcRenderer.invoke('fs:index'),
   aiosPlugins: (): Promise<{ catalog: unknown[]; installed: unknown[]; marketplaces: unknown[] }> => ipcRenderer.invoke('aios:plugins'),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke('shell:openExternal', url),
