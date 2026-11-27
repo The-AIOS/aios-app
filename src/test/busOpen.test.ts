@@ -36,21 +36,26 @@ test('the dispatcher sends open to runOpen before the ambiguous-name rule (the n
   assert.match(ri, /implements spawn, kill, send, `\s*\+ `resume and open/, 'the unknown-verb dead letter lists open');
 });
 
-test('runOpen decides with the shared module, on the framework root and the workspace folders only', () => {
-  assert.match(runOpen, /decideOpen\(\{ body, seenAgoMs: seen\.seenAgoMs, presentAtStart: seen\.atStart,/);
-  const roots = between(bus, 'function busOpenRoots(', '\n}');
-  assert.match(roots, /aios\.frameworkRoot\(\), \.\.\.aios\.workspaceFolders\(\)/);
-  assert.doesNotMatch(roots, /dropped|grant/i, 'files the operator dropped are not a root for an agent');
+test('runOpen decides with the shared module, on the framework root only, prepared once at bus start', () => {
+  assert.match(runOpen, /decideOpen\(\{ body, seenAgoMs: seen\.seenAgoMs, presentAtStart: seen\.atStart, nowMs: now, roots: openRoots,/);
+  const prep = between(bus, 'function prepareOpenRoots(', '\n}');
+  assert.match(prep, /prepareRoots\(\[fw\], os\.homedir\(\)\)/, 'one root: the framework root');
+  assert.doesNotMatch(prep, /workspaceFolders|dropped|grant/i, 'workspace folders and dropped files are not roots for an agent (their lists are session-writable)');
+  assert.match(prep, /looksLikeFramework\(openRoots\[0\]\.real\)/, 'a root that does not look like a framework turns open off');
+  const init = between(bus, 'export function initCommandBus(', '\n}');
+  assert.match(init, /prepareOpenRoots\(\);/, 'prepared when the bus starts, not per request');
+  assert.match(runOpen, /if \(openOff\) \{ markUndelivered\(/, 'open off is a dead letter that says why');
 });
 
-test('runOpen counts every decision, refused ones included, before acting on it', () => {
+test('runOpen counts every decision except a too-old one, refused ones included, before acting on it', () => {
+  assert.match(runOpen, /if \(d\.do === 'open' \|\| d\.counted\) decidedOpens = rememberDecided\(/);
   const remember = runOpen.indexOf('rememberDecided(');
   const refuse = runOpen.indexOf("if (d.do === 'refuse')");
   assert.ok(remember > 0 && refuse > remember);
 });
 
 test('the content shown is read by main, from the file the decision checked', () => {
-  assert.match(runOpen, /readChecked\(d\.path, d\.identity, \{ roots, home \}\)/);
+  assert.match(runOpen, /readChecked\(d\.path, d\.identity, \{ roots: openRoots \}\)/);
   assert.match(runOpen, /emit\(win\(\), 'openFile', \{[^}]*bus: true[^}]*content[^}]*\}\)/);
 });
 
@@ -64,7 +69,9 @@ test('the age is this App\'s own clock from first sight, never the file\'s times
   assert.doesNotMatch(runOpen, /mtime|statSync/);
   const consume = between(bus, 'function consume(', '\n}');
   assert.match(consume, /firstSeen\.set\(fsPath, Date\.now\(\)\)/);
-  assert.match(bus, /presentAtStart\.add\(path\.join\(dir, f\)\); consume\(getWin, path\.join\(dir, f\)\)/, 'a request already waiting at startup is marked');
+  assert.match(consume, /if \(draining\) presentAtStart\.add\(fsPath\);/);
+  const drain = between(bus, 'draining = true;', 'draining = false;');
+  assert.match(drain, /if \(f\.endsWith\('\.json'\)\) consume\(getWin, path\.join\(dir, f\)\);/, 'a request already waiting at startup is marked');
 });
 
 test('a flood is dropped without a dead letter for each request', () => {

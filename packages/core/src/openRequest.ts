@@ -4,28 +4,28 @@
  * A session asks a surface to show a file in the surface's own viewer, with
  * `{"action":"open","name":"<who asks>","path":"/abs","line":12}`. Any session can write that
  * request, and a session may have read someone else's text (an email, a page) that tries to get a
- * file opened. Opening only SHOWS the file to the operator; nothing goes back to the session. What
- * is at stake is putting something on the screen that should not be there, putting something
- * runnable one click away, and taking the operator's attention.
+ * file opened. Opening only SHOWS the file to the operator; nothing goes back to the session.
  *
  * The rule is the framework's: skills/aios/orchestration-ladder/inbox-contract-5.md, thirteen checks
  * in order, the first that fails refuses. Its fixture, cases/inbox-contract-5.conformance.json, runs
  * against `decideOpen` in this package's tests, so the App and Glass make the same decision from the
- * same bytes. Each surface supplies only what is its own: its roots, the requests it has already
- * decided, when it first saw this one, and the file system.
+ * same bytes. In proportion: this is not a boundary against a session determined to rewrite a
+ * surface's configuration or a link in the home folder (it could read those files itself); it keeps
+ * `open` from becoming a comfortable way to put them on screen, or something a confused session
+ * triggers with one JSON file.
  *
- * Checks 1 to 7 make no file system call. Secrets are decided by NAME, of the path as written and of
- * the resolved path; nothing here reads a file's content to decide whether it is a secret.
- * `classify` reads at most the first 8 KB of a file that has already passed every name and root
- * check, to tell text from binary.
+ * THE ROOT is the framework root only (the vault included): the workspace-folder list lives in files
+ * any session can write. A surface prepares it ONCE, at start (`prepareRoots`), and passes the result
+ * to every decision. Checks 1 to 8 make no file system call. Links are followed one segment at a time
+ * from the root (`resolveWithin`), and a link whose target is outside the root stops the walk without
+ * the target being touched. Secrets are decided by NAME; nothing here reads a file's content to decide
+ * one. `classify` reads at most the first 8 KB of a file that has passed every name and root check.
  *
  * SHOWING IT. The decision hands back the file's identity (device and inode). `readChecked` reads the
- * content again only if the same path still resolves, inside the roots, to that same regular file
- * with one link and a name that is not a secret, so a surface can read once, or re-read on every
- * change, and in both cases show only what was checked.
+ * content only if the path still walks, inside the root, to that same regular file with one link and a
+ * name that is not a secret.
  */
 import * as nodeFs from 'node:fs';
-import * as nodePath from 'node:path';
 import { sanitizeName } from './nameResolve';
 import { classifyForRead } from './readClass';
 
@@ -35,27 +35,32 @@ export const OPEN_FLOOD_MAX = 20;
 export const OPEN_RATE_WINDOW_MS = 60_000;
 export const OPEN_MAX_LINE = 10_000_000;
 export const OPEN_MAX_NAME = 64;
+const MAX_HOPS = 40;
 
 export type OpenWhy =
-  | 'bad-name' | 'flood' | 'rate-limited' | 'bad-path' | 'not-absolute' | 'too-old' | 'bad-line' | 'secret'
+  | 'too-old' | 'flood' | 'bad-name' | 'rate-limited' | 'bad-path' | 'not-absolute' | 'bad-line' | 'secret'
   | 'unavailable' | 'not-a-file' | 'hard-link' | 'unreadable' | 'executable';
 
 export type OpenClass = 'text' | 'asset' | 'binary' | 'large';
 
-/** What a resolved path is, from metadata only (lstat: a link is not followed). */
-export interface OpenStat { kind: 'file' | 'dir' | 'other'; links: number; dev: number; ino: number; executable: boolean }
+/** What a path is, from metadata only: a link is reported as a link, never followed. */
+export interface OpenStat { kind: 'file' | 'dir' | 'symlink' | 'other'; links: number; dev: number; ino: number; executable: boolean }
 
 /** The file system as the decision sees it. `nodeOpenFs` is the real one. */
 export interface OpenFs {
-  /** The path with every link resolved, in every segment, to the stored name; null when it does
-   *  not exist or loops. */
+  lstat(p: string): OpenStat | null;
+  /** A link's target as written in the link (not followed). */
+  readlink(p: string): string | null;
+  /** Full resolution, used ONLY by `prepareRoots` for the operator's own configured root. */
   realpath(p: string): string | null;
-  stat(real: string): OpenStat | null;
   /** For a regular file: what the viewer can do with it. */
-  classify(real: string): OpenClass;
+  classify(p: string): OpenClass;
 }
 
-/** An `open` request this surface already decided, refused or not. */
+/** A root as configured and as it resolved when the surface started, in comparable form. */
+export interface PreparedRoot { written: string; real: string }
+
+/** An `open` request this surface counted. */
 export interface DecidedOpen { name: string; at: number }
 
 export interface OpenInput {
@@ -65,10 +70,9 @@ export interface OpenInput {
   /** The request was already in the inbox when the surface started. */
   presentAtStart?: boolean;
   nowMs: number;
-  /** The surface's roots: the framework root and the operator's workspace folders. */
-  roots: readonly string[];
-  home: string;
-  /** Requests decided in the last minute, by this surface. */
+  /** From `prepareRoots`, computed once at surface start. */
+  roots: readonly PreparedRoot[];
+  /** Requests counted in the last minute, by this surface. */
   decided: readonly DecidedOpen[];
   fs?: OpenFs;
   platform?: NodeJS.Platform;
@@ -78,17 +82,18 @@ export interface OpenIdentity { dev: number; ino: number }
 
 export type OpenDecision =
   | { do: 'open'; name: string; path: string; mode: 'source' | 'auto'; line?: number; identity: OpenIdentity }
-  | { do: 'refuse'; why: OpenWhy; reason: string; name?: string };
+  | { do: 'refuse'; why: OpenWhy; reason: string; name?: string; counted: boolean };
 
-const SECRET_SEGMENTS = new Set(['.ssh', '.gnupg', '.aws', '.docker', '.kube', '.git', '.obsidian', 'agent-secrets']);
-const SECRET_NAMES = new Set(['.envrc', '.netrc', '.pgpass', '.npmrc', '.pypirc', '.git-credentials', '.dockercfg', '.mcp.json', 'storage_state.json']);
-const SECRET_EXT = /\.(pem|key|p12|pfx|kdbx|ovpn|ppk|jks|keystore)$/;
-const DATA_SECRET = /\.(json|ya?ml|toml)$/;
-const DATA_WORD = /token|credential|oauth|secret|cookie/;
-const SECRET_KEY = /^id_(rsa|dsa|ecdsa|ed25519)(_sk)?$/;
+const SECRET_SEGMENTS = new Set(['.ssh', '.gnupg', '.aws', '.docker', '.kube', '.git', '.obsidian', '.claude', 'agent-secrets']);
+const SECRET_NAMES = new Set(['.envrc', '.netrc', '.pgpass', '.npmrc', '.pypirc', '.git-credentials', '.dockercfg', '.mcp.json',
+  'storage_state.json', 'spotify-cache.json', '.dev.vars', 'credentials', 'kubeconfig']);
+const SECRET_EXT = /\.(pem|key|p12|pfx|p8|kdbx|ovpn|ppk|jks|keystore|tfstate|tfvars)$/;
+const DATA_EXT = /\.(json|ya?ml|toml)$/;
+const DATA_WORDS = new Set(['token', 'credential', 'credentials', 'oauth', 'secret', 'secrets', 'cookie', 'cookies']);
 const EXEC_EXT = /\.(exe|com|bat|cmd|ps1|msi|scr|app|command|lnk|url|webloc|desktop|terminal|jar|vbs|hta|reg|scpt|workflow|pkg|dmg|appimage)$/i;
+const DOC_EXT = /\.(md|markdown|txt|json|ya?ml|toml|csv|log|html?|png|jpe?g|gif|webp|svg|pdf)$/i;
 const SOURCE_EXT = /\.(html?|xhtml?|xht|shtml|mht|mhtml)$/i;
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i;
 
 /** A secret by NAME (inbox-contract-5.md § Secrets). Both separators are read. */
 export function isSecretPath(p: string): boolean {
@@ -99,59 +104,115 @@ export function isSecretPath(p: string): boolean {
   if (b === '.env' || b.startsWith('.env.') || b.endsWith('.env') || SECRET_NAMES.has(b)) return true;
   if (SECRET_EXT.test(b)) return true;
   if (b.startsWith('service-account') && b.endsWith('.json')) return true;
-  if (DATA_SECRET.test(b) && DATA_WORD.test(b)) return true;
-  return SECRET_KEY.test(b);
+  if (segs.length > 1 && segs[segs.length - 2] === 'auth' && b.endsWith('.json')) return true;
+  if (DATA_EXT.test(b)) {
+    const stem = b.slice(0, b.lastIndexOf('.'));
+    if (stem.split(/[^a-z0-9]+/).some((w) => DATA_WORDS.has(w))) return true;
+  }
+  return /^id_(rsa|dsa|ecdsa|ed25519)/.test(b) && !b.endsWith('.pub');
 }
 
-/** The Windows path-shape checks of check 3; null when they pass. */
+/** The Windows path-shape checks of check 5; null when they pass. */
 export function windowsShape(p: string): 'bad-path' | 'not-absolute' | null {
   if (/^[\\/]{2}/.test(p)) return 'bad-path';
   if (!/^[A-Za-z]:[\\/]/.test(p)) return 'not-absolute';
   const rest = p.slice(2);
   if (rest.includes(':')) return 'bad-path';
   for (const seg of rest.split(/[\\/]+/).filter(Boolean)) {
-    if (/[. ]$/.test(seg) || RESERVED.test(seg.split('.')[0])) return 'bad-path';
+    if (seg === '.' || seg === '..' || /[. ]$/.test(seg) || RESERVED.test(seg.split('.')[0].replace(/ +$/, ''))) return 'bad-path';
   }
   return null;
 }
 
-/* A path in one comparable form: forward slashes; on Windows, without case. */
-function cmp(p: string, platform: NodeJS.Platform): string {
-  const s = platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p;
+/* A path in the form compared and walked here: forward slashes, separators collapsed, no trailing
+   slash; on Windows, without case. Node's fs accepts forward slashes on Windows. */
+function form(p: string, platform: NodeJS.Platform): string {
+  const s = (platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p).replace(/\/+/g, '/');
   return s.length > 1 ? s.replace(/\/+$/, '') : s;
 }
 function under(p: string, root: string): boolean {
   return p === root || p.startsWith(root === '/' ? '/' : root + '/');
 }
-/** `.` and `..` applied as text, separators collapsed. */
-function lexical(p: string, platform: NodeJS.Platform): string {
-  const s = cmp(p, platform);
-  const drive = platform === 'win32' ? (s.match(/^[a-z]:/) ?? [''])[0] : '';
+function joinTarget(dir: string, target: string, platform: NodeJS.Platform): string {
+  const t = target.replace(/\\/g, '/');
+  const abs = platform === 'win32' ? /^[A-Za-z]:\//.test(t) : t.startsWith('/');
+  const full = abs ? t : dir + '/' + t;
+  const drive = platform === 'win32' ? (full.match(/^[A-Za-z]:/) ?? [''])[0] : '';
   const out: string[] = [];
-  for (const c of s.slice(drive.length).split('/')) {
+  for (const c of full.slice(drive.length).split('/')) {
     if (!c || c === '.') continue;
     if (c === '..') { out.pop(); continue; }
     out.push(c);
   }
-  return drive + '/' + out.join('/');
+  return form(drive + '/' + out.join('/'), platform);
 }
 
-/** The roots that may be used, both forms of each, compared form. A root that is the file-system
- *  root, the home folder or one of its ancestors is never used, whatever a configuration says. */
-export function usableRoots(roots: readonly string[], home: string, fs: OpenFs, platform: NodeJS.Platform): { written: string; real: string }[] {
-  const h = cmp(fs.realpath(home) ?? home, platform);
-  const out: { written: string; real: string }[] = [];
+/**
+ * The roots a surface may use, prepared ONCE at start: each configured root resolved, and dropped if
+ * it is the file-system root, the home folder, a folder that contains the home folder, or a folder
+ * inside a hidden folder of the home (a segment below home starting with a dot).
+ */
+export function prepareRoots(roots: readonly string[], home: string, o: { fs?: OpenFs; platform?: NodeJS.Platform } = {}): PreparedRoot[] {
+  const fs = o.fs ?? nodeOpenFs;
+  const platform = o.platform ?? process.platform;
+  const h = form(fs.realpath(home) ?? home, platform);
+  const out: PreparedRoot[] = [];
   for (const r of roots) {
     const rr = fs.realpath(r);
     if (!rr) continue;
-    const real = cmp(rr, platform);
+    const real = form(rr, platform);
     if (real === '/' || /^[a-z]:$/.test(real) || under(h, real)) continue;
-    out.push({ written: lexical(r, platform), real });
+    if (under(real, h) && real.slice(h.length).split('/').some((s) => s.startsWith('.'))) continue;
+    out.push({ written: form(r, platform), real });
   }
   return out;
 }
 
-const no = (why: OpenWhy, reason: string, name?: string): OpenDecision => ({ do: 'refuse', why, reason, name });
+/** Does this resolved root look like a framework root? A surface turns `open` off when it does not. */
+export function looksLikeFramework(root: string, fs: OpenFs = nodeOpenFs): boolean {
+  const d = (p: string) => fs.lstat(p)?.kind === 'dir';
+  return d(root + '/vault') && d(root + '/plugins/aios');
+}
+
+/**
+ * Check 9: walk `p` (already inside a root as text) one segment at a time from the resolved root. A
+ * link is read, not followed; if its target, as text, is outside every resolved root the walk stops
+ * there and the target is never touched. Null for a missing segment, a loop, or a way out.
+ */
+export function resolveWithin(p: string, roots: readonly PreparedRoot[], fs: OpenFs, platform: NodeJS.Platform): string | null {
+  const f = form(p, platform);
+  let base = ''; let cur = '';
+  for (const r of roots) {
+    for (const b of [r.written, r.real]) {
+      if (under(f, b) && b.length > base.length) { base = b; cur = r.real; }
+    }
+  }
+  if (!cur) return null;
+  const queue = f.slice(base.length).split('/').filter(Boolean);
+  let hops = 0;
+  while (queue.length) {
+    const c = queue.shift() as string;
+    const cand = cur === '/' ? '/' + c : cur + '/' + c;
+    const st = fs.lstat(cand);
+    if (!st) return null;
+    if (st.kind === 'symlink') {
+      if (++hops > MAX_HOPS) return null;
+      const raw = fs.readlink(cand);
+      if (raw === null) return null;
+      const t = joinTarget(cur, raw, platform);
+      const holders = roots.filter((r) => under(t, r.real));
+      if (!holders.length) return null;
+      const r0 = holders.reduce((a, b) => (b.real.length > a.real.length ? b : a)).real;
+      queue.unshift(...t.slice(r0.length).split('/').filter(Boolean));
+      cur = r0;
+      continue;
+    }
+    cur = cand;
+  }
+  return cur;
+}
+
+const no = (why: OpenWhy, reason: string, name?: string): OpenDecision => ({ do: 'refuse', why, reason, name, counted: why !== 'too-old' });
 
 /** The thirteen checks of inbox-contract-5.md, in order. */
 export function decideOpen(i: OpenInput): OpenDecision {
@@ -159,72 +220,59 @@ export function decideOpen(i: OpenInput): OpenDecision {
   const platform = i.platform ?? process.platform;
   const b = i.body ?? {};
 
-  // 1. name
+  // 1. age, by this surface's own clock; not counted
+  if (i.presentAtStart || i.seenAgoMs > OPEN_MAX_AGE_MS) {
+    return no('too-old', i.presentAtStart ? 'the request was already waiting when this surface started; an open is never shown late' : `this surface saw the request ${Math.round(i.seenAgoMs / 1000)} s ago; an open is shown within ${OPEN_MAX_AGE_MS / 1000} s or not at all`);
+  }
+  // 2. flood: needs no field
+  const recent = i.decided.filter((d) => d.at >= i.nowMs - OPEN_RATE_WINDOW_MS);
+  if (recent.length >= OPEN_FLOOD_MAX) return no('flood', `${OPEN_FLOOD_MAX} open requests in the last minute; this one is dropped`);
+  // 3. name
   const name = typeof b.name === 'string' ? sanitizeName(b.name) : '';
   if (!name || name.length > OPEN_MAX_NAME) return no('bad-name', `an open request needs a 'name' (the session asking), at most ${OPEN_MAX_NAME} characters`);
-
-  // 2. rate: every decided request counts
-  const recent = i.decided.filter((d) => d.at >= i.nowMs - OPEN_RATE_WINDOW_MS);
-  if (recent.length >= OPEN_FLOOD_MAX) return no('flood', `${OPEN_FLOOD_MAX} open requests in the last minute; this one is dropped`, name);
+  // 4. rate for this name
   if (recent.filter((d) => sanitizeName(d.name) === name).length >= OPEN_RATE_MAX) {
     return no('rate-limited', `'${name}' already asked to open ${OPEN_RATE_MAX} files in the last minute`, name);
   }
-
-  // 3. path shape
+  // 5. path shape
   const raw = b.path;
-  if (typeof raw !== 'string' || /[\0\r\n]/.test(raw) || !raw.trim()) return no('bad-path', "'path' must be one absolute path", name);
-  const p = raw.trim();
+  if (typeof raw !== 'string' || /[\0\r\n]/.test(raw)) return no('bad-path', "'path' must be one absolute path", name);
+  const p = raw.replace(/^[ \t]+|[ \t]+$/g, '');
+  if (!p) return no('bad-path', "'path' must be one absolute path", name);
   if (platform === 'win32') {
     const w = windowsShape(p);
     if (w) return no(w, w === 'bad-path' ? `that path form is never opened: ${p}` : `'path' must be absolute: ${p}`, name);
-  } else if (p.startsWith('~') || !p.startsWith('/')) {
-    return no('not-absolute', `'path' must be absolute: ${p}`, name);
+  } else {
+    if (p.startsWith('~') || !p.startsWith('/')) return no('not-absolute', `'path' must be absolute: ${p}`, name);
+    if (p.split('/').some((s) => s === '.' || s === '..')) return no('bad-path', `'path' must not contain . or .. segments: ${p}`, name);
   }
-
-  // 4. age, by this surface's own clock
-  if (i.presentAtStart || i.seenAgoMs > OPEN_MAX_AGE_MS) {
-    return no('too-old', i.presentAtStart ? 'the request was already waiting when this surface started; an open is never shown late' : `this surface saw the request ${Math.round(i.seenAgoMs / 1000)} s ago; an open is shown within ${OPEN_MAX_AGE_MS / 1000} s or not at all`, name);
-  }
-
-  // 5. line
+  // 6. line
   const hasLine = Object.prototype.hasOwnProperty.call(b, 'line');
   const line = b.line;
   if (hasLine && !(typeof line === 'number' && Number.isFinite(line) && Number.isInteger(line) && line >= 1 && line <= OPEN_MAX_LINE)) {
     return no('bad-line', `'line' must be a whole number from 1 to ${OPEN_MAX_LINE}`, name);
   }
-
-  // 6. secret, as written
+  // 7. secret, as written
   const SECRET = 'that file is a secret by its name, and is never shown on request';
   if (isSecretPath(p)) return no('secret', SECRET, name);
-
-  // 7. roots, as text: no file system call for a path outside them
+  // 8. root, as text: no file system call for a path outside it
   const UNAVAILABLE = `not available to open: ${p}`;
-  const roots = usableRoots(i.roots, i.home, fs, platform);
-  const lp = lexical(p, platform);
-  if (!roots.some((r) => under(lp, r.written) || under(lp, r.real))) return no('unavailable', UNAVAILABLE, name);
-
-  // 8. resolve
-  const real = fs.realpath(p);
+  const f = form(p, platform);
+  if (!i.roots.some((r) => under(f, r.written) || under(f, r.real))) return no('unavailable', UNAVAILABLE, name);
+  // 9. resolve, one segment at a time, never out of the root
+  const real = resolveWithin(p, i.roots, fs, platform);
   if (!real) return no('unavailable', UNAVAILABLE, name);
-
-  // 9. roots, resolved
-  const rc = cmp(real, platform);
-  if (!roots.some((r) => under(rc, r.real))) return no('unavailable', UNAVAILABLE, name);
-
   // 10. a regular file, with one link
-  const st = fs.stat(real);
+  const st = fs.lstat(real);
   if (!st || st.kind !== 'file') return no('not-a-file', 'that is not a regular file', name);
   if (st.links > 1) return no('hard-link', 'that file has another hard link elsewhere on the disk, so its name does not say what it is; a session cannot ask for it. You can still open it yourself', name);
-
   // 11. secret, resolved
   if (isSecretPath(real)) return no('secret', SECRET, name);
-
   // 12. kind
   const cls = fs.classify(real);
   if (cls === 'binary' || cls === 'large') return no('unreadable', `the viewer cannot show it (${cls})`, name);
-
   // 13. executable
-  if (EXEC_EXT.test(real) || st.executable) return no('executable', 'that file is executable, and is never opened on request', name);
+  if (EXEC_EXT.test(real) || (st.executable && !DOC_EXT.test(real))) return no('executable', 'that file is executable, and is never opened on request', name);
 
   const out: OpenDecision = { do: 'open', name, path: real, mode: SOURCE_EXT.test(real) ? 'source' : 'auto', identity: { dev: st.dev, ino: st.ino } };
   if (hasLine) out.line = line as number;
@@ -232,34 +280,38 @@ export function decideOpen(i: OpenInput): OpenDecision {
 }
 
 /**
- * Read a file the decision let through, again, showing it only if it is still what was checked:
- * the same path still resolves, inside the roots, to the SAME regular file (device and inode) with
- * one link, whose resolved name is not a secret and which the viewer can show. The content comes
- * from a descriptor opened on that resolved path without following a final link, and checked with
- * fstat, so a swap between the check and the read is caught.
+ * Read a file the decision let through, showing it only if it is still what was checked: the path
+ * still walks, inside the root, to the SAME regular file (device and inode) with one link, whose name
+ * is not a secret. Text is read from a descriptor opened without following a final link and checked
+ * with fstat; an asset (`asBytes`) is read the same way, up to 32 MB.
  */
 export function readChecked(
   path: string,
   identity: OpenIdentity,
-  o: { roots: readonly string[]; home: string; platform?: NodeJS.Platform; fs?: OpenFs },
-): { ok: true; path: string; content: string } | { ok: false; reason: string } {
+  o: { roots: readonly PreparedRoot[]; platform?: NodeJS.Platform; fs?: OpenFs; asBytes?: boolean },
+): { ok: true; path: string; content: string | Buffer } | { ok: false; reason: string } {
   const fs = o.fs ?? nodeOpenFs;
   const platform = o.platform ?? process.platform;
-  const real = fs.realpath(path);
-  if (!real) return { ok: false, reason: 'the file is gone' };
-  if (!usableRoots(o.roots, o.home, fs, platform).some((r) => under(cmp(real, platform), r.real))) return { ok: false, reason: 'the file now resolves outside the roots' };
+  const real = resolveWithin(path, o.roots, fs, platform);
+  if (!real) return { ok: false, reason: 'the file is gone, or now leads outside the root' };
   if (isSecretPath(real)) return { ok: false, reason: 'the file now resolves to a secret' };
-  const st = fs.stat(real);
-  if (!st || st.kind !== 'file' || st.links > 1 || st.dev !== identity.dev || st.ino !== identity.ino) return { ok: false, reason: 'the file was replaced since it was opened' };
+  const st = fs.lstat(real);
+  if (!st || st.kind !== 'file' || st.links > 1 || st.dev !== identity.dev || st.ino !== identity.ino) return { ok: false, reason: 'the file was replaced since it was checked' };
   const cls = fs.classify(real);
-  if (cls !== 'text') return { ok: false, reason: `the viewer cannot show it now (${cls})` };
+  if (o.asBytes ? cls !== 'asset' : cls !== 'text') return { ok: false, reason: `the viewer cannot show it now (${cls})` };
   let fd: number | undefined;
   try {
     const flags = nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NOFOLLOW ?? 0) | (nodeFs.constants.O_NONBLOCK ?? 0);
     fd = nodeFs.openSync(real, flags);
     const f = nodeFs.fstatSync(fd);
-    if (!f.isFile() || f.nlink > 1 || f.dev !== identity.dev || f.ino !== identity.ino) return { ok: false, reason: 'the file was replaced since it was opened' };
-    return { ok: true, path: real, content: nodeFs.readFileSync(fd, 'utf8') };
+    if (!f.isFile() || f.nlink > 1 || f.dev !== identity.dev || f.ino !== identity.ino) return { ok: false, reason: 'the file was replaced since it was checked' };
+    const limit = o.asBytes ? 32 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (f.size > limit) return { ok: false, reason: 'the file grew past what the viewer shows' };
+    const buf = Buffer.alloc(f.size);
+    let n = 0;
+    while (n < f.size) { const k = nodeFs.readSync(fd, buf, n, f.size - n, n); if (k <= 0) break; n += k; }
+    const data = buf.subarray(0, n);
+    return { ok: true, path: real, content: o.asBytes ? data : data.toString('utf8') };
   } catch {
     return { ok: false, reason: 'the file could not be read' };
   } finally {
@@ -269,23 +321,24 @@ export function readChecked(
 
 /** The real file system. */
 export const nodeOpenFs: OpenFs = {
-  realpath(p) {
-    try { return nodeFs.realpathSync.native(p); } catch { return null; }
-  },
-  stat(real) {
+  lstat(p) {
     try {
-      const st = nodeFs.lstatSync(real);
+      const st = nodeFs.lstatSync(p);
       return {
-        kind: st.isFile() ? 'file' : st.isDirectory() ? 'dir' : 'other',
-        links: st.nlink,
-        dev: st.dev,
-        ino: st.ino,
-        executable: process.platform !== 'win32' && (st.mode & 0o111) !== 0,   // the extension rule covers Windows
+        kind: st.isSymbolicLink() ? 'symlink' : st.isFile() ? 'file' : st.isDirectory() ? 'dir' : 'other',
+        links: st.nlink, dev: st.dev, ino: st.ino,
+        executable: process.platform !== 'win32' && (st.mode & 0o111) !== 0,
       };
     } catch { return null; }
   },
-  classify(real) {
-    try { return classifyForRead(real).kind; } catch { return 'binary'; }
+  readlink(p) {
+    try { return nodeFs.readlinkSync(p); } catch { return null; }
+  },
+  realpath(p) {
+    try { return nodeFs.realpathSync.native(p); } catch { return null; }
+  },
+  classify(p) {
+    try { return classifyForRead(p).kind; } catch { return 'binary'; }
   },
 };
 
@@ -295,6 +348,3 @@ export function rememberDecided(decided: DecidedOpen[], d: DecidedOpen, nowMs: n
   keep.push(d);
   return keep.slice(-200);
 }
-
-export const isAbsoluteForOpen = (p: string, platform: NodeJS.Platform): boolean =>
-  platform === 'win32' ? windowsShape(p) === null : nodePath.posix.isAbsolute(p);
