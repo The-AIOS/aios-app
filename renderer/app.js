@@ -6630,7 +6630,7 @@ async function openViewer(p, o = {}) {
       void (window.glassShell.busRecheckSnapshot?.(o.snap || '') ?? Promise.resolve({ reason: 'old' })).then((r) => {
         if (!r || !r.real) { toast(t(r && r.reason === 'changed' ? 'viewer.changedSinceSnapshot' : 'viewer.snapshotTooOld')); return; }
         closePane(id); void openViewer(r.real);
-      }).catch(() => toast(t('viewer.snapshotTooOld')));
+      }).catch(() => toast(t('viewer.changedSinceSnapshot')));
     });
     head.append(badge, edit);
   }

@@ -86,7 +86,7 @@ test('the age is this App\'s own clock from first sight, never the file\'s times
 test('a flood is dropped without a dead letter for each request', () => {
   assert.match(runOpen, /if \(d\.why === 'flood'\) \{ noteFlood\(heldPath, req\); return; \}/);
   const flood = between(bus, 'function noteFlood(', "\nipcMain.handle('bus:imageBytes'");
-  assert.doesNotMatch(flood, /floodDropped = 0;\s*\n\s*floodLastAt/, 'a flood\'s tail is carried to the next notice, never thrown away');
+  assert.match(flood, /floodTimer = setTimeout\(\(\) => \{[\s\S]*markUndelivered\(k\.heldPath, k\.req, `open refused \(flood\): \$\{n\}/, 'written at the END of the minute, with the full count, on the newest dropped request');
   assert.equal((flood.match(/markUndelivered\(/g) ?? []).length, 1, 'one dead letter a minute, not one per request');
 });
 
