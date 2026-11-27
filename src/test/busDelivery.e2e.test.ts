@@ -87,17 +87,28 @@ interface RoundTripOptions {
   mutate?: (s: string) => string;
   /** Shell run before `stty` — models a shell that is slow to reach raw mode. */
   prelude?: string;
-  /** What reads the pty once it is raw; `cat` echoes the payload back. */
+  /** What reads the pty once its mode is confirmed; `cat` echoes the payload back. */
   reader?: string;
+  /** The tty mode confirmed before READY. `canonical` exists only to reproduce the original bug. */
+  mode?: 'raw' | 'canonical';
   ceilingMs?: number;
 }
 
-/** Write `payload` into a raw-mode pty and return exactly what came back out of it. */
+/* Each mode is applied AND confirmed from `stty -a` before READY prints, so the write can never race
+   the mode switch. That race is not hypothetical: switching a pty to canonical mode AFTER the write
+   landed makes Linux hand the pending bytes to the reader as a completed line (when they fit its
+   4096-byte buffer), while macOS keeps holding them — measured, and it turned a canonical-mode case
+   green on Linux CI. */
+const MODE = {
+  raw: `stty raw -echo && stty -a | grep -q -- '-icanon'`,
+  canonical: `stty -echo icanon && stty -a | grep -qE '(^|[ :])icanon'`,
+} as const;
+
+/** Write `payload` into a pty in the given mode (raw by default) and return exactly what came back out of it. */
 function roundTrip(payload: string, opts: RoundTripOptions = {}): Promise<string> {
-  const { mutate = (s: string) => s, prelude = '', reader = 'cat', ceilingMs = CEILING_MS } = opts;
+  const { mutate = (s: string) => s, prelude = '', reader = 'cat', mode = 'raw', ceilingMs = CEILING_MS } = opts;
   return new Promise((resolve, reject) => {
-    const raw = `stty raw -echo && stty -a | grep -q -- '-icanon'`;   // raw mode applied, and the tty says so
-    const p = pty!.spawn('/bin/sh', ['-c', `${prelude}${raw} && printf '%s' '${READY}' && ${reader}`], {
+    const p = pty!.spawn('/bin/sh', ['-c', `${prelude}${MODE[mode]} && printf '%s' '${READY}' && ${reader}`], {
       name: 'xterm-256color', cols: 200, rows: 50,
     });
     let got = '';
@@ -114,14 +125,14 @@ function roundTrip(payload: string, opts: RoundTripOptions = {}): Promise<string
     const timer = setTimeout(() => settle(() => reject(new Error(written
       ? `PTY CHANNEL TIMEOUT — the fence written after the payload did not come back within ${ceilingMs} ms `
         + `(${byteLength(afterReady())} payload bytes back of ${byteLength(mutate(payload))} written; `
-        + `head ${afterReady().includes(payload.slice(0, 16)) ? 'back' : 'not back'}). Two causes fit: a stalled `
-        + 'channel or machine, or the pty left raw mode and its line discipline swallowed the tail with '
+        + `head ${afterReady().includes(mutate(payload).slice(0, 16)) ? 'back' : 'not back'}). Two causes fit: a stalled `
+        + 'channel or machine, or the pty was in (or fell back to) canonical mode and its line discipline swallowed the tail with '
         + 'the fence — the lost-tail bug this file guards. Not a pass either way.'
-      : `PTY SETUP TIMEOUT — the shell did not report raw mode within ${ceilingMs} ms `
+      : `PTY SETUP TIMEOUT — the shell did not report ${mode} mode within ${ceilingMs} ms `
         + `(${byteLength(got)} bytes of output so far). Nothing was written; this is not the lost-tail bug.`))), ceilingMs);
     p.onExit(({ exitCode }) => settle(() => reject(new Error(written
       ? `PTY EXITED — the shell exited (code ${exitCode}) before the fence came back; ${byteLength(afterReady())} payload bytes back.`
-      : `PTY EXITED — the shell exited (code ${exitCode}) before confirming raw mode; nothing was written, `
+      : `PTY EXITED — the shell exited (code ${exitCode}) before confirming ${mode} mode; nothing was written, `
         + 'so this is a setup failure, not the lost-tail bug.'))));
     p.onData((d) => {
       got += d;
@@ -204,12 +215,14 @@ test('E2E HARNESS: a failed `stty` never lets the payload be written into a cano
     /PTY EXITED — the shell exited \(code \d+\) before confirming raw mode; nothing was written/);
 });
 
-test('E2E HARNESS: a pty that falls back to canonical mode is a red that names the lost-tail bug', { skip }, async () => {
-  /* The original bug's shape, through this harness: the reader turns canonical mode back on after
-     READY, so the 2.6 KB line (no newline) is held by the line discipline and neither the tail nor
-     the fence ever reaches `cat`. That must be red — and its message must not blame the machine alone. */
+test('E2E HARNESS: a write into a canonical-mode pty is a red that names the lost-tail bug', { skip }, async () => {
+  /* The original bug's shape, through this harness: the pty is confirmed CANONICAL before the write,
+     so the 2.6 KB line (no newline) is held by the line discipline and neither the tail nor the fence
+     ever reaches `cat`, on macOS and on Linux alike. That must be red — and its message must not blame
+     the machine alone. (It used to switch to canonical AFTER the write, which Linux CI resolved green:
+     see MODE.) */
   const sent = 'AI66-HEAD ' + 'x'.repeat(2600) + ' AI66-TAIL-do-NOT-push';
-  await assert.rejects(roundTrip(sent, { reader: 'stty icanon; cat', ceilingMs: 500 }),
+  await assert.rejects(roundTrip(sent, { mode: 'canonical', ceilingMs: 500 }),
     /PTY CHANNEL TIMEOUT[\s\S]*the lost-tail bug this file guards/);
 });
 
