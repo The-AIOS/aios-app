@@ -157,7 +157,7 @@ test('command: real shells expand it the way the wrapper does, and run nothing a
 
 test('no tier and no model: a plain claude, so the operator\'s saved model (the rule both surfaces follow)', () => {
   /* The request asked for nothing, so nothing is pinned: no --model, and the session runs on the
-     model the operator saved. Glass starts the same (it tells the spawn wrapper --inherit-model).
+     model the operator saved. Glass is being changed to start the same (through the spawn wrapper).
      Pinned here so neither surface changes it on its own: `"tier":"judgment"` is the request that
      gets the launcher's model, not an absent tier. */
   const r = parseRequest('{"name":"plain","task":"go"}');
@@ -182,7 +182,13 @@ test('no tier and no model: a plain claude, so the operator\'s saved model (the 
   const resolveAt = main.indexOf('const r = resolveTier(req.tier);');
   const guard = main.lastIndexOf('if (req.tier) {', resolveAt);
   assert.ok(guard > 0 && resolveAt - guard < 200, 'resolveTier runs only inside `if (req.tier)`');
-  assert.equal((main.match(/envModelWins = /g) || []).length, 1, 'envModelWins is set in one place, inside the tier branch');
+  /* And nothing after that branch gives `model` a default: between its declaration and the launch
+     command, the only assignments are the two inside the tier branch. */
+  const from = main.indexOf('let model = req.model;');
+  const body = main.slice(from, main.indexOf('const cmd = buildSpawnCmd(', from)).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.ok(body.indexOf('if (req.tier) {') > 0, 'the tier branch sits between the declaration and the launch');
+  assert.deepEqual(body.match(/\bmodel\s*(?:\?\?=|\|\|=|=)(?!=)[^;]*;/g), ['model = req.model;', 'model = r.model;', 'model = r.model;'], 'no default model is assigned on the way to the command');
+  assert.deepEqual(body.match(/\benvModelWins\s*=(?!=)[^;]*;/g), ['envModelWins = paneShellKind(process.platform, process.env.SHELL);'], 'and the launcher form is chosen in one place, inside the tier branch');
 });
 
 test('wiring: main asks both questions through the core, and holds no model id', () => {
