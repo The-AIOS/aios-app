@@ -598,7 +598,7 @@
   "viewer.readOnlyBadge": "Sólo lectura: lo abrió {by}. Para escribir, usá «Abrir para editar».",
   "viewer.openToEdit": "Abrir para editar",
   "viewer.openToEditTip": "Cierra esta copia y abre el archivo como si lo hubieras abierto vos, para que puedas editarlo y ver los cambios en vivo.",
-  "viewer.imageHeld": "Imagen no mostrada: está fuera del vault y de tus carpetas de trabajo.",
+  "viewer.imageHeld": "Imagen no mostrada: una nota que abrió una sesión sólo muestra imágenes de dentro de la carpeta de AIOS.",
   "viewer.rendering": "Renderizando…",
   "viewer.savedPng": "PNG guardado · {w}×{h}",
   "viewer.pngFailed": "Error al exportar PNG",
@@ -1685,5 +1685,6 @@
   "term.recordCapped": "La grabación se detuvo al llegar a 100 MB y se guardó: {name}",
   "term.recordBroken": "La grabación se detuvo: no se pudo escribir ({name}). Lo que se escribió antes se conserva.",
   "update.readyTitle": "Hay una actualización lista para instalar",
-  "update.readyBody": "{name} {version} ya se descargó y se instalará cuando salgas."
+  "update.readyBody": "{name} {version} ya se descargó y se instalará cuando salgas.",
+  "viewer.changedSinceSnapshot": "El archivo cambió desde que se tomó esta copia, así que no se abrió."
 }

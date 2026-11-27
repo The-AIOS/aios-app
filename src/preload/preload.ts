@@ -278,5 +278,7 @@ contextBridge.exposeInMainWorld('glassShell', {
   /* Contract 5: a local image in a note a SESSION opened, as the checked file's bytes, or null when
      a request for it would not pass the note's own checks. */
   busImageBytes: (p: string): Promise<{ bytes: Uint8Array; type: string } | null> => ipcRenderer.invoke('bus:imageBytes', p),
+  /** Contract 5: before "Open to edit", main checks the real file is still the one shown; null if not. */
+  busRecheckSnapshot: (token: string): Promise<string | null> => ipcRenderer.invoke('bus:recheckSnapshot', token),
   onRootsChanged: (cb: (m: { framework: string; vault: string }) => void) => ipcRenderer.on('shell:rootsChanged', (_e, m) => cb(m)),
 });

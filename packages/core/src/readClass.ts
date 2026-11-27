@@ -18,15 +18,25 @@ export const ASSET_EXT = /\.(png|jpe?g|gif|svg|webp|pdf)$/i;
 export const TEXT_LIMIT = 4 * 1024 * 1024;
 const SNIFF = 8192;
 export type ReadClass = { kind: 'text' } | { kind: 'asset' } | { kind: 'binary' | 'large'; size: number };
-export function classifyForRead(abs: string, limit = TEXT_LIMIT): ReadClass {
-  if (ASSET_EXT.test(abs)) return { kind: 'asset' };
+/* Above this an image a SESSION asked for is not read either (the bus's `open`; the operator's own
+   viewer renders assets from their path and never reads them). */
+export const ASSET_LIMIT = 32 * 1024 * 1024;
+/**
+ * `o.noFollow` opens without following a final link (the bus's checks resolved every link already, so
+ * one appearing now is a swap); `o.assetLimit` sizes an asset too, from the same descriptor, instead of
+ * passing it unread. The operator's own viewer passes neither.
+ */
+export function classifyForRead(abs: string, limit = TEXT_LIMIT, o: { noFollow?: boolean; assetLimit?: number } = {}): ReadClass {
+  const asset = ASSET_EXT.test(abs);
+  if (asset && o.assetLimit === undefined) return { kind: 'asset' };
   /* One descriptor, opened WITHOUT blocking, and the kind and size taken from it (fstat): a file
      swapped for a pipe between a stat and the open would otherwise block this process on the open
      until someone wrote to the pipe. */
-  const fd = fs.openSync(abs, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+  const fd = fs.openSync(abs, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (o.noFollow ? (fs.constants.O_NOFOLLOW ?? 0) : 0));
   try {
     const st = fs.fstatSync(fd);
     if (!st.isFile()) throw new Error('not a file');
+    if (asset) return st.size > (o.assetLimit as number) ? { kind: 'large', size: st.size } : { kind: 'asset' };
     if (st.size > limit) return { kind: 'large', size: st.size };
     const buf = Buffer.alloc(Math.min(SNIFF, st.size));
     const n = buf.length ? fs.readSync(fd, buf, 0, buf.length, 0) : 0;

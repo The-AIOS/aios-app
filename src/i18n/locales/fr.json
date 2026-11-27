@@ -598,7 +598,7 @@
   "viewer.readOnlyBadge": "Lecture seule : {by} l’a ouvert. Pour écrire, utilisez « Ouvrir pour modifier ».",
   "viewer.openToEdit": "Ouvrir pour modifier",
   "viewer.openToEditTip": "Ferme cette copie et ouvre le fichier comme si vous l’aviez ouvert vous-même, pour le modifier et voir les changements en direct.",
-  "viewer.imageHeld": "Image non affichée : elle est hors du coffre et de vos dossiers de travail.",
+  "viewer.imageHeld": "Image non affichée : une note ouverte par une session n'affiche que les images du dossier AIOS.",
   "viewer.rendering": "Rendu en cours…",
   "viewer.savedPng": "PNG enregistré · {w}×{h}",
   "viewer.pngFailed": "Échec de l’export PNG",
@@ -1685,5 +1685,6 @@
   "term.recordCapped": "Enregistrement arrêté à 100 Mo et sauvegardé : {name}",
   "term.recordBroken": "L’enregistrement s’est arrêté : impossible de l’écrire ({name}). Ce qui avait déjà été écrit est conservé.",
   "update.readyTitle": "Une nouvelle mise à jour est prête à être installée",
-  "update.readyBody": "{name} {version} a été téléchargé et sera installé quand vous quitterez l’app."
+  "update.readyBody": "{name} {version} a été téléchargé et sera installé quand vous quitterez l’app.",
+  "viewer.changedSinceSnapshot": "Le fichier a changé depuis que cette copie a été prise, il n'a donc pas été ouvert."
 }

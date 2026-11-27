@@ -6410,7 +6410,11 @@ const NOTE_MD = { gfm: true, breaks: true };
 /* A local image in a note a SESSION opened is shown only if main says it passes the same checks as the
    note (inside the roots once resolved, not a secret by name, one link). Until then it has no source,
    so nothing is fetched; refused, it says why in one line. Remote images keep their usual chip. */
-function holdSnapshotImage(img, s, dir) {
+/* At most this many local images per snapshot are asked of main, each path once: a note can name one
+   image a hundred thousand times. */
+const IMAGE_PER_NOTE = 50;
+const blobUrl = (img, blob) => { const u = URL.createObjectURL(blob); img.addEventListener('load', () => URL.revokeObjectURL(u), { once: true }); img.addEventListener('error', () => URL.revokeObjectURL(u), { once: true }); return u; };
+function holdSnapshotImage(img, s, dir, holds) {
   if (!s || /^(https?|data):/i.test(s)) return;
   img.removeAttribute('src');
   let abs = s;
@@ -6420,7 +6424,12 @@ function holdSnapshotImage(img, s, dir) {
   } catch { abs = ''; }
   const deny = () => { const n = document.createElement('span'); n.className = 'vchip'; n.textContent = t('viewer.imageHeld'); img.replaceWith(n); };
   if (!abs) { deny(); return; }
-  void window.glassShell.busImageBytes?.(abs).then((r) => { if (r && r.bytes) img.src = URL.createObjectURL(new Blob([r.bytes], { type: r.type })); else deny(); }).catch(deny);
+  if (!holds.by.has(abs)) {
+    if (holds.by.size >= IMAGE_PER_NOTE) { deny(); return; }
+    holds.by.set(abs, (window.glassShell.busImageBytes?.(abs) ?? Promise.resolve(null))
+      .then((r) => (r && r.bytes ? new Blob([r.bytes], { type: r.type }) : null)).catch(() => null));
+  }
+  void holds.by.get(abs).then((b) => { if (b) img.src = blobUrl(img, b); else deny(); });
 }
 
 /* `o` comes from the bus's `open` verb (contract 5) and is empty for everything the operator does:
@@ -6445,7 +6454,7 @@ async function openViewer(p, o = {}) {
     ? (typeof o.content === 'string' ? { path: p, content: o.content } : (o.asset && o.bytes ? { path: p, content: '' } : null))
     : await window.glassShell.fsRead(p);
   /* An image or PDF a session asked for is shown from the bytes main read from the checked file. */
-  const roBlob = ro && o.asset && o.bytes ? URL.createObjectURL(new Blob([o.bytes], { type: PDF_EXT.test(p) ? 'application/pdf' : (/\.svg$/i.test(p) ? 'image/svg+xml' : 'image/' + (p.split('.').pop() || 'png').toLowerCase().replace('jpg', 'jpeg')) })) : '';
+  const roBlob = ro && o.asset && o.bytes ? new Blob([o.bytes], { type: /\.svg$/i.test(p) ? 'image/svg+xml' : 'image/' + (p.split('.').pop() || 'png').toLowerCase().replace('jpg', 'jpeg') }) : null;
   if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
   /* A file the pane cannot SHOW is handed to the desktop, not frozen into a pane: main did not
      read it (binary, or too large for the editor) and says so. The folder is where a .dmg or a
@@ -6570,6 +6579,7 @@ async function openViewer(p, o = {}) {
   }
   /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
   paneObj.flushSave = (quitting) => {
+    if (ro) return;   // a snapshot is never saved
     if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     if (!quitting) { void save(null); return; }
@@ -6614,7 +6624,14 @@ async function openViewer(p, o = {}) {
     edit.innerHTML = icon('design', 13) + ' ';
     edit.append(document.createTextNode(t('viewer.openToEdit')));
     edit.title = t('viewer.openToEditTip');
-    edit.addEventListener('click', () => { closePane(id); void openViewer(file.path); });
+    /* The real file is checked again first: a session that swapped it after the snapshot does not get
+       the swapped file opened for editing. */
+    edit.addEventListener('click', () => {
+      void (window.glassShell.busRecheckSnapshot?.(o.snap || '') ?? Promise.resolve(null)).then((real) => {
+        if (!real) { toast(t('viewer.changedSinceSnapshot')); return; }
+        closePane(id); void openViewer(real);
+      }).catch(() => toast(t('viewer.changedSinceSnapshot')));
+    });
     head.append(badge, edit);
   }
   // HTML deliverables → download as a high-res PNG
@@ -6681,7 +6698,7 @@ async function openViewer(p, o = {}) {
     if (IMG_EXT.test(name)) {
       const img = document.createElement('img');
       img.className = 'imgview';
-      img.src = roBlob || fileUrl(file.path);
+      img.src = ro ? (roBlob ? blobUrl(img, roBlob) : '') : fileUrl(file.path);   // a snapshot only from its checked bytes
       body.appendChild(img);
       return;
     }
@@ -6689,7 +6706,7 @@ async function openViewer(p, o = {}) {
       // Chromium's built-in PDF viewer (no sandbox attr — it blocks the plugin)
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
-      fr.src = roBlob || fileUrl(file.path);
+      fr.src = fileUrl(file.path);   // never a snapshot: main does not send a PDF a session asks for
       body.appendChild(fr);
       return;
     }
@@ -6733,9 +6750,10 @@ async function openViewer(p, o = {}) {
     md.replaceChildren(vaultSanitize(marked.parse(src, NOTE_MD)));
     vaultHeldBanner(md);
     const dir = xDirOf(file.path);
+    const holds = { by: new Map() };   // this paint's image requests, one per path
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
-      if (ro) { holdSnapshotImage(img, s, dir); continue; }
+      if (ro) { holdSnapshotImage(img, s, dir, holds); continue; }
       if (s && !/^(https?|file|data):/.test(s)) img.src = fileUrl(dir + '/' + s);
     }
     // live task checkboxes — click toggles [ ]/[x] in the FILE (Obsidian-style)
@@ -8323,7 +8341,7 @@ window.glassShell.onIntent(async (m) => {
     }
     case 'ask': void onIntentAsk(); return;   // the menu bar's Ask AIOS… and the bus: destinations included
     case 'openFile':
-      if (m.path) void openViewer(m.path, m.bus ? { bus: true, by: m.by, background: m.background, mode: m.mode, line: m.line, content: m.content, asset: m.asset } : {});
+      if (m.path) void openViewer(m.path, m.bus ? { bus: true, by: m.by, background: m.background, mode: m.mode, line: m.line, content: m.content, asset: m.asset, bytes: m.bytes, snap: m.snap } : {});
       return;
     case 'exportReady':   // a new export in badge mode — counted, never opened, no focus taken
       if (m.path) noteExport(m.path, m.name);

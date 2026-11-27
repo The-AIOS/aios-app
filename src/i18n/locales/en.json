@@ -598,7 +598,7 @@
   "viewer.readOnlyBadge": "Read only: {by} opened this. To write in it, use “Open to edit”.",
   "viewer.openToEdit": "Open to edit",
   "viewer.openToEditTip": "Closes this copy and opens the file as if you had opened it yourself, so you can edit it and see changes as they happen.",
-  "viewer.imageHeld": "Image not shown: it is outside the vault and your work folders.",
+  "viewer.imageHeld": "Image not shown: a note a session opened shows only images inside the AIOS folder.",
   "viewer.rendering": "Rendering…",
   "viewer.savedPng": "Saved PNG · {w}×{h}",
   "viewer.pngFailed": "PNG export failed",
@@ -1685,5 +1685,6 @@
   "term.recordCapped": "Recording stopped at 100 MB and saved: {name}",
   "term.recordBroken": "The recording stopped: it could not be written ({name}). What was written before is kept.",
   "update.readyTitle": "A new update is ready to install",
-  "update.readyBody": "{name} {version} has been downloaded and will be installed when you quit."
+  "update.readyBody": "{name} {version} has been downloaded and will be installed when you quit.",
+  "viewer.changedSinceSnapshot": "The file changed since this copy was taken, so it was not opened."
 }

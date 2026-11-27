@@ -27,7 +27,7 @@
  */
 import * as nodeFs from 'node:fs';
 import { sanitizeName } from './nameResolve';
-import { classifyForRead } from './readClass';
+import { classifyForRead, ASSET_LIMIT, TEXT_LIMIT } from './readClass';
 
 export const OPEN_MAX_AGE_MS = 60_000;
 export const OPEN_RATE_MAX = 5;
@@ -324,7 +324,7 @@ export function decideOpen(i: OpenInput): OpenDecision {
 export function readChecked(
   path: string,
   identity: OpenIdentity,
-  o: { roots: readonly PreparedRoot[]; platform?: NodeJS.Platform; fs?: OpenFs; asBytes?: boolean },
+  o: { roots: readonly PreparedRoot[]; platform?: NodeJS.Platform; fs?: OpenFs; asBytes?: boolean; limit?: number },
 ): { ok: true; path: string; content: string | Buffer } | { ok: false; reason: string } {
   const fs = o.fs ?? nodeOpenFs;
   const platform = o.platform ?? process.platform;
@@ -345,7 +345,7 @@ export function readChecked(
     if (!f.isFile() || f.nlink > 1 || f.dev !== identity.dev || f.ino !== identity.ino) return NO;
     /* The parent-folder swap again, now on the descriptor: the path must still walk to this file. */
     if (resolveWithin(path, o.roots, fs, platform) !== real) return NO;
-    const limit = o.asBytes ? 32 * 1024 * 1024 : 4 * 1024 * 1024;
+    const limit = Math.min(o.limit ?? Infinity, o.asBytes ? ASSET_LIMIT : TEXT_LIMIT);
     /* At most limit + 1 bytes into a fixed buffer, whatever the size says now: a file that grows
        between the fstat and the read is never read past the bound. */
     const buf = Buffer.alloc(Math.min(f.size, limit) + 1);
@@ -380,7 +380,7 @@ export const nodeOpenFs: OpenFs = {
     try { return nodeFs.realpathSync.native(p); } catch { return null; }
   },
   classify(p) {
-    try { return classifyForRead(p).kind; } catch { return 'binary'; }
+    try { return classifyForRead(p, TEXT_LIMIT, { noFollow: true, assetLimit: ASSET_LIMIT }).kind; } catch { return 'binary'; }
   },
 };
 
