@@ -112,10 +112,42 @@ export function sanitizeName(raw: unknown): string {
   return String(raw ?? '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '');
 }
 
-/** Model ids are whitelisted before they ever touch a command line. */
+/**
+ * What a `model` may look like, and the ONLY thing that decides it: letters, digits, dot, dash and
+ * underscore, starting with a letter or digit, optionally ending in the literal `[1m]`.
+ *
+ * It used to be `^claude-…`, and a value that failed was dropped with nothing said (#230): the
+ * worker started on the default model and the request looked fulfilled. `opus` is a model the
+ * binary takes, and the id the framework itself pins ends in `[1m]`; neither passed. So the shape
+ * is wider, and a value outside it is now REFUSED by name (modelField below), never dropped.
+ *
+ * Strict on purpose: the value lands on a command line typed into a live shell. Anchored at both
+ * ends, no whitespace, no quotes, no shell metacharacters, and no leading dash (a `--flag` is not
+ * a model). Glass holds the same expression; it moves into the shared package with #229.
+ */
+export const MODEL_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(?:\[1m\])?$/;
+
+/** The model as it may be passed, or undefined. */
 export function whitelistModel(raw: unknown): string | undefined {
-  const s = String(raw ?? '').trim();
-  return /^claude-[a-z0-9.\-]{1,40}$/i.test(s) ? s : undefined;
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  return MODEL_SHAPE.test(s) ? s : undefined;
+}
+
+/** How a refused value is quoted in a dead letter: cut, and with no control characters. */
+function quoted(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw : JSON.stringify(raw) ?? String(raw);
+  return s.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 60);
+}
+
+type FieldError = { field: string; value: string; reason: string };
+
+/** `model` as written: absent, passable, or a refusal that names it. Never a silent drop. */
+export function modelField(raw: unknown): { model?: string; fieldError?: FieldError } {
+  if (raw === undefined || raw === null || raw === '') return {};
+  const model = whitelistModel(raw);
+  if (model) return { model };
+  const value = quoted(raw);
+  return { fieldError: { field: 'model', value, reason: `model '${value}' was not passed: a model is letters, digits, dot, dash and underscore, optionally ending in [1m] (a model id, or an alias the claude binary takes). Not started on another model instead` } };
 }
 
 /**
@@ -137,6 +169,15 @@ export function whitelistModel(raw: unknown): string | undefined {
 export function whitelistTier(raw: unknown): string | undefined {
   const s = String(raw ?? '').trim().toLowerCase();
   return /^[a-z][a-z0-9-]{1,23}$/.test(s) ? s : undefined;
+}
+
+/** `tier` as written: absent, a safe token for resolve-tier, or a refusal that names it (#230). */
+export function tierField(raw: unknown): { tier?: string; fieldError?: FieldError } {
+  if (raw === undefined || raw === null || raw === '') return {};
+  const tier = typeof raw === 'string' ? whitelistTier(raw) : undefined;
+  if (tier) return { tier };
+  const value = quoted(raw);
+  return { fieldError: { field: 'tier', value, reason: `tier '${value}' is not a rung name: hooks/pipeline/resolve-tier --list prints the valid ones. Not started on the default model instead` } };
 }
 
 /**
@@ -161,8 +202,7 @@ export function parseRequest(raw: string): BusRequest | null {
     name,
     task: typeof j.task === 'string' ? j.task : undefined,
     prompt: typeof j.prompt === 'string' ? j.prompt : (typeof j.task === 'string' ? j.task : undefined),
-    model: whitelistModel(j.model),
-    tier: whitelistTier(j.tier),
+    ...modelAndTierOf(j, action),
     surface: isSurface(j.surface) ? j.surface : undefined,
     /* `_releases` is the fulfillers' bookkeeping name (Glass and the inbox README use it; underscore
        = never hand-written). Older Apps wrote `releases`, so both are read and the larger wins —
@@ -181,6 +221,19 @@ export function parseRequest(raw: string): BusRequest | null {
     ...contract4Of(j, action),
     ...groupOf(j, action),
   };
+}
+
+/**
+ * `model` and `tier` decide what a NEW session runs on, so they are read for spawn and for resume
+ * (whose fallback is a spawn). A value that cannot be used is a refusal naming the field, placed
+ * before the contract-4 fields so theirs, when there is one too, is the one reported.
+ */
+function modelAndTierOf(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {
+  if (action !== 'spawn' && action !== 'resume') return {};
+  const m = modelField(j.model);
+  const t = tierField(j.tier);
+  const fieldError = m.fieldError ?? t.fieldError;
+  return { model: m.model, tier: t.tier, ...(fieldError ? { fieldError } : {}) };
 }
 
 function groupOf(j: Record<string, unknown>, action: BusAction): Partial<BusRequest> {
@@ -280,14 +333,42 @@ export function buildResumeCmd(
   return parts.join(' ');
 }
 
+/** The shell a pane types its command into, as far as the model argument cares. */
+export type PaneShell = 'posix' | 'powershell' | 'other';
+
+/** Which of the three the pane's shell is: PowerShell on Windows (main/defaultShell), else by $SHELL's name. */
+export function paneShellKind(platform: string, shell: string | undefined): PaneShell {
+  if (platform === 'win32') return 'powershell';
+  const base = String(shell ?? '').split('/').pop() ?? '';
+  /* No $SHELL: main/defaultShell falls back to zsh, bash or sh, all of which expand ${VAR:-x}. */
+  return base === '' || /^(zsh|bash|sh|dash|ksh)$/.test(base) ? 'posix' : 'other';
+}
+
+/**
+ * The `--model` value for a rung whose model is the LAUNCHER'S DEFAULT (#230).
+ *
+ * The `spawn` wrapper starts such a rung as `--model "${CLAUDE_MODEL:-<its pinned id>}"`: the
+ * operator's own $CLAUDE_MODEL wins, the pin is the fallback. The variable lives in the pane's
+ * shell (its rc file sets it), not in this process, so the expansion is written for that shell
+ * to perform. A shell with neither syntax gets the id alone, and the caller says so in the log.
+ * `id` must already have MODEL_SHAPE: nothing in it can end the quoting.
+ */
+export function launcherModelArg(id: string, shell: PaneShell): string {
+  if (!MODEL_SHAPE.test(id)) throw new Error(`not a model id: ${quoted(id)}`);
+  if (shell === 'posix') return `"\${CLAUDE_MODEL:-${id}}"`;
+  if (shell === 'powershell') return `$(if ($env:CLAUDE_MODEL) { $env:CLAUDE_MODEL } else { '${id}' })`;
+  return shq(id);
+}
+
 export function buildSpawnCmd(
   claudeCmd: string,
   name: string,
-  opts: { task?: string; model?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[] } = {},
+  opts: { task?: string; model?: string; envModelWins?: PaneShell; taskFile?: string; addDirs?: string[]; extraArgs?: string[] } = {},
 ): string {
   const model = opts.model && opts.model.trim() ? opts.model.trim() : undefined;
   const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(shq)];   // aios#231, variadic: first
-  if (model) parts.push('--model', model);
+  /* Quoted only when it holds more than plain word characters ([1m]): a bare `[` is a glob to zsh. */
+  if (model) parts.push('--model', opts.envModelWins ? launcherModelArg(model, opts.envModelWins) : (/^[A-Za-z0-9._-]+$/.test(model) ? model : shq(model)));
   parts.push('--name', name);
   for (const a of opts.extraArgs ?? []) parts.push(shq(a));   // contract 4: --effort / --settings
   const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.task;

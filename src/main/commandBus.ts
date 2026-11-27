@@ -6,7 +6,8 @@ import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as aios from './aios';
 import { resolveBash } from './resolveBash';
-import { parseRequest, buildSpawnCmd, buildResumeCmd, needsTaskFile, taskFileInstruction, fallbackSpawnRequest, type BusRequest } from '../core/commandBus';
+import { parseRequest, buildSpawnCmd, buildResumeCmd, needsTaskFile, taskFileInstruction, fallbackSpawnRequest, paneShellKind, type BusRequest, type PaneShell } from '../core/commandBus';
+import { resolveTierWith, type TierAnswer } from '../core/tierResolve';
 import { recordTyped } from './busSent';
 import { settingsToFile } from './advisorFile';
 import { contract4LaunchArgs, cleanFrom, advisorModelFor } from '../core/contract4';
@@ -507,8 +508,11 @@ export function heldSendCount(): number {
  *
  * Its contract, and every branch below exists because getting one wrong reproduces the bug:
  *  · exit 0 + text   → pass `--model <text>`
- *  · exit 0 + EMPTY  → a REAL answer (`judgment` = inherit the binary's default). Pass no
- *                      flag at all — never `--model ""`, which pins the empty string.
+ *  · exit 0 + EMPTY  → a REAL answer (`judgment` = the launcher's default). Ask the script a
+ *                      second question, `--launch-model`, for the id the wrapper would start,
+ *                      and let the operator's $CLAUDE_MODEL win over it as the wrapper does
+ *                      (#230). A framework without that question: no flag at all, as before —
+ *                      never `--model ""`, which pins the empty string.
  *  · exit 2          → an unknown rung. REFUSE the spawn and surface the script's stderr,
  *                      which lists the valid rungs. Defaulting on a typo IS this bug.
  *  · script absent   → also refuse. The App auto-updates itself, the hook arrives with
@@ -516,7 +520,7 @@ export function heldSendCount(): number {
  *                      the script — and a silent default there is the same silent default we
  *                      are removing. Say what is missing and how to get it.
  */
-function resolveTier(tier: string): { model?: string } | { error: string } {
+function resolveTier(tier: string): TierAnswer {
   const root = aios.frameworkRoot();
   if (!root) return { error: `cannot resolve tier '${tier}': no framework root found` };
   /* hooks/pipeline/resolve-tier since v0.8.19, hooks/resolve-tier before (aios#309): the new place first. */
@@ -536,17 +540,19 @@ function resolveTier(tier: string): { model?: string } | { error: string } {
       + `Install Git for Windows, or pass an explicit "model" instead — resolve-tier is a bash hook `
       + `and a Node process inherits no shell.` };
   }
-  try {
-    const out = execFileSync(bash, [hook, tier], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
-    const model = out.trim();
-    return model ? { model } : {};          // empty + exit 0 = inherit the default
-  } catch (e) {
-    /* execFileSync throws on any non-zero exit. The script puts the reason AND the valid rungs
-       on stderr, so quote it rather than inventing a message of our own. */
-    const err = e as { stderr?: Buffer | string; status?: number; message?: string };
-    const why = String(err.stderr ?? '').trim() || err.message || 'resolve-tier failed';
-    return { error: `tier '${tier}' rejected (exit ${err.status ?? '?'}): ${why.split('\n').join(' · ')}` };
-  }
+  /* Both questions go through the pure core (core/tierResolve): the plain one, and for a rung that
+     answers empty, `--launch-model`, which names what the launcher starts (#230). */
+  return resolveTierWith(tier, (args) => {
+    try {
+      const out = execFileSync(bash, [hook, ...args], { encoding: 'utf8', timeout: 10_000, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      return { status: 0, stdout: out, stderr: '' };
+    } catch (e) {
+      /* execFileSync throws on any non-zero exit. The script puts the reason AND the valid rungs
+         on stderr, so it is quoted rather than replaced by a message of our own. */
+      const err = e as { stderr?: Buffer | string; status?: number; message?: string };
+      return { status: typeof err.status === 'number' && err.status !== 0 ? err.status : 1, stdout: '', stderr: String(err.stderr ?? '').trim() || err.message || '' };
+    }
+  });
 }
 
 
@@ -947,11 +953,19 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
        An explicit `model` wins over `tier`, matching the `spawn` wrapper
        (`[ -n "$model" ] && spawn_model="$model"`) — so a caller pinning an id is never
        second-guessed, and only a bare `tier` is resolved. */
+    /* Set when the rung names the launcher's default (`judgment`): the operator's $CLAUDE_MODEL,
+       read by the pane's own shell, wins over the id, exactly as in the wrapper (#230). */
+    let envModelWins: PaneShell | undefined;
     let model = req.model;
     if (!model && req.tier) {
       const r = resolveTier(req.tier);
       if ('error' in r) { markUndelivered(heldPath, req, r.error); return; }
-      model = r.model;                    // may be undefined — that is `judgment`
+      model = r.model;                    // undefined only on a framework without --launch-model
+      if (r.note) log(`spawn '${req.name}': ${r.note}`);
+      if (r.launcherDefault) {
+        envModelWins = paneShellKind(process.platform, process.env.SHELL);
+        if (envModelWins === 'other') log(`spawn '${req.name}': this shell is not one whose syntax the App writes, so $CLAUDE_MODEL is not read; started on ${model}`);
+      }
     }
     if (needsConsultBlock(model, advisorModelFor(req.advisor, req.advisorRung))) {
       req = { ...req, task: (req.task || 'Start session') + '\n' + ADVISOR_CONSULT_BLOCK };   // canonical's block, verbatim
@@ -977,7 +991,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     const c4 = contract4Args(req);
     if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
     const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
-      task: req.task || 'Start session', model, taskFile, addDirs, extraArgs: c4.args,
+      task: req.task || 'Start session', model, envModelWins, taskFile, addDirs, extraArgs: c4.args,
     });
     // the first prompt the worker receives is bus-typed too — record exactly that text.
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
@@ -985,7 +999,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     // operator's screen, whatever busFocus said (operator-tested on 0.10.1).
     emit(win(), 'terminal', { name: req.name, cmd, background: true, ...where, group: req.group, color: req.groupColor, bus: true });
     if (req.groupNote) log(`spawn '${req.name}': ${req.groupNote}`);
-    log(`spawn '${req.name}'${req.group ? ` in group '${req.group}'` : ''}${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ?? 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
+    log(`spawn '${req.name}'${req.group ? ` in group '${req.group}'` : ''}${req.task ? ' with task' : ''}${where.cwd ? ` in ${where.cwd}` : ''}${addDirs.length ? ` (+${addDirs.length} add-dir)` : ''}${req.tier && !req.model ? ` [tier ${req.tier} → ${model ? (envModelWins && envModelWins !== 'other' ? `$CLAUDE_MODEL, else ${model}` : model) : 'default'}]` : model ? ` [model ${model}]` : ''}${taskFile ? ' (task via file)' : ''}`);
 }
 
 /**
