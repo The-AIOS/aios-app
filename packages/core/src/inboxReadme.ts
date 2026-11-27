@@ -35,7 +35,7 @@ export { INBOX_CONTRACT };
 const MARK = 'aios-spawn-inbox: contract';
 
 /** Bumped whenever the body below changes. A test pins the body to it, so the two cannot part. */
-export const README_TEXT_REVISION = 3;
+export const README_TEXT_REVISION = 4;
 
 export interface ReadmeWriter {
   surface: 'app' | 'glass';
@@ -195,6 +195,24 @@ Why this exists: Claude's auto-mode classifier gates agent-invoked \`spawn\`/\`s
   your prompt delivered, without them.
 - No \`--name\` and no \`--model\` are passed: a resumed session keeps the identity and the model
   it already had.
+
+**open** (contract 5) — show a file in this surface's viewer, beside the sessions:
+
+    { "action": "open", "name": "<your session>", "path": "/absolute/path/inside/the/framework/note.md", "line": 12 }
+
+- \`name\` is **who asks** (your own session), not a target. \`line\` is optional.
+- Only a file inside the **framework folder** (the vault included) is opened, decided on the path with
+  every link resolved; never a secret by its name (environment files, keys, tokens, anything under
+  \`.git\`, \`.obsidian\` or \`agent-secrets\`), a binary, an executable, a file with a second hard link, or a
+  PDF (no surface can keep one inert today).
+  A request older than a minute is dropped, and a session gets five a minute. Over twenty a minute from all
+  sessions together, the extras are dropped with no dead letter each; one
+  \`open-flood-<time>-<pid>.json.undelivered\` gives the count and the last request's \`name\` and \`path\`.
+- The file opens as a **read-only copy**; the operator can open it to edit. It never runs, is never handed
+  to another application, and the surface never takes the screen from someone typing.
+- A refusal is a dead letter that names the check. The full rule is the framework's
+  \`skills/aios/orchestration-ladder/inbox-contract-5.md\`.
+- Inside a surface (\`$AIOS_GLASS_TERM\` is set), show a file this way instead of \`open\` / \`xdg-open\` / \`start\`.
 
 ### An absent action is spawn; an unrecognised one is refused
 

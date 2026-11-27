@@ -25,7 +25,7 @@ test('this build declares contract 4 and the app surface', () => {
   /* 3 since the verb contract (`resume`, unknown verbs refused); 4 since 0.11.0: `from`, `effort`, `advisor`
      and the send queue — stamped only once BOTH surfaces honour every field. Bumped in both
      repos in one push: a surface claiming a contract it does not implement lies to a reading agent. */
-  assert.equal(INBOX_CONTRACT, 4);
+  assert.equal(INBOX_CONTRACT, 5);
   assert.equal(MY_SURFACE, 'app');
 });
 

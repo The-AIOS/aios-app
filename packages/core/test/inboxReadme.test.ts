@@ -29,7 +29,7 @@ test('the body is pinned to its revision: change the text and the revision moves
   /* shouldWrite compares REVISIONS, so a changed body under an unchanged revision would never
      replace the old text on a machine where the other surface wrote it. */
   const sha = crypto.createHash('sha256').update(readmeBody(A)).digest('hex').slice(0, 16);
-  assert.deepEqual({ rev: README_TEXT_REVISION, sha }, { rev: 3, sha: '14f0c7cc18b425db' },
+  assert.deepEqual({ rev: README_TEXT_REVISION, sha }, { rev: 4, sha: 'b136f97fe333d55d' },
     'the README text changed: bump README_TEXT_REVISION and record the new digest here, together');
 });
 
@@ -38,7 +38,7 @@ test('it documents the fields only one surface implements, whoever writes it', (
      following the file CLAUDE.md calls the authority concluded they did not exist. */
   for (const doc of [A, G]) {
     for (const field of ['`cwd`', '`addDirs`', '`group`', '"expect"', '"kill-expect"']) assert.ok(doc.includes(field), `${field} is documented`);
-    for (const verb of ['spawn', 'send', 'kill', 'resume']) assert.match(doc, new RegExp(`\\*\\*${verb}\\*\\*`));
+    for (const verb of ['spawn', 'send', 'kill', 'resume', 'open']) assert.match(doc, new RegExp(`\\*\\*${verb}\\*\\*`));
     assert.match(doc, /resolve-tier --list/);
     assert.match(doc, /\.claude\/sessions/);
   }
