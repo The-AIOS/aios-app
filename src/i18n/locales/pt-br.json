@@ -598,7 +598,7 @@
   "viewer.readOnlyBadge": "Somente leitura: {by} abriu isto. Para escrever, use “Abrir para editar”.",
   "viewer.openToEdit": "Abrir para editar",
   "viewer.openToEditTip": "Fecha esta cópia e abre o arquivo como se você mesmo tivesse aberto, para editar e ver as mudanças ao vivo.",
-  "viewer.imageHeld": "Imagem não exibida: uma nota aberta por uma sessão só mostra imagens de dentro da pasta do AIOS.",
+  "viewer.imageHeld": "Imagem não exibida numa cópia aberta por uma sessão.",
   "viewer.rendering": "Renderizando…",
   "viewer.savedPng": "PNG salvo · {w}×{h}",
   "viewer.pngFailed": "Falha ao exportar o PNG",
@@ -1686,5 +1686,6 @@
   "term.recordBroken": "A gravação parou: não foi possível gravar ({name}). O que foi gravado antes é mantido.",
   "update.readyTitle": "Há uma atualização pronta para instalar",
   "update.readyBody": "{name} {version} foi baixado e será instalado quando você sair.",
-  "viewer.changedSinceSnapshot": "O arquivo mudou desde que esta cópia foi feita, por isso não foi aberto."
+  "viewer.changedSinceSnapshot": "O arquivo mudou desde que esta cópia foi feita, por isso não foi aberto.",
+  "viewer.snapshotTooOld": "Esta cópia é antiga demais para ser verificada de novo. Abra o arquivo você mesmo se quiser editá-lo."
 }
