@@ -95,9 +95,10 @@ test('presence is WIRED to the shared decision, on all three paths', () => {
 
   /* Liveness is decided by a signal, never by a process name or a `ps` grep — the record exists
      precisely because Glass cannot be identified by process name. */
-  assert.match(main, /process\.kill\(pid, 0\)/, 'signal 0 is the liveness probe');
-  assert.match(main, /!== 'ESRCH'/,
-    'only ESRCH proves absence: EPERM is a process that exists and is not ours to signal');
+  /* The probe itself is the shared one (@the-aios/core/pidAlive, tested there: only ESRCH proves
+     absence). What this file owes is to USE it, and to keep no second, weaker probe of its own. */
+  assert.match(main, /import \{ pidAlive, ownPidAlive \} from '@the-aios\/core\/pidAlive'/, 'the shared probes are the liveness probes');
+  assert.doesNotMatch(main, /process\.kill\([a-zA-Z.]+, 0\)/, 'no local signal-0 probe beside the shared one');
 
   // the heal must actually be scheduled, or it is a function nobody calls
   assert.match(main, /setInterval\(\(\) => healPresence\(appVersion\)/, 'the heal is on a timer');
@@ -120,8 +121,10 @@ test('the App announces ITSELF, and a reused pid or a pre-boot record never read
   const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.doesNotMatch(main, /processTreeRoot\(/, 'the App must not walk out of its own process');
   assert.match(main, /function appRoot\(\): number \{\s*return process\.pid;/);
-  assert.match(main, /\/proc\/\$\{pid\}\/status/, 'a thread id is not a process: Tgid must equal the pid');
-  assert.match(main, /os\.uptime\(\)/, 'a record written before this boot names nobody');
+  /* Both rules are the shared ones now (a thread id is not a process; a record written before
+     this boot names nobody), tested in the package. Here: aliveFor is built from them. */
+  assert.match(main, /aliveForRecord\(rec, Date\.now\(\), os\.uptime\(\), \(pid\) => pidAlive\(pid\)\)/,
+    'liveness per record = the shared probe, and never a record from before this boot');
   for (const name of ['announcePresence', 'healPresence']) {
     const i = main.indexOf(`function ${name}(`);
     const body = main.slice(i, main.indexOf('\nfunction ', i + 1));
@@ -252,4 +255,78 @@ test('INVARIANT: verbs reuse existing renderer intents (no bespoke renderer code
   for (const intent of ['terminal', 'closeByName', 'sendByName', 'focusByName']) {
     assert.match(src, new RegExp(`'${intent}'`), `bus must emit the existing '${intent}' intent`);
   }
+});
+
+test('an ambiguous name is refused for every verb, before anything is typed, killed or launched', () => {
+  /* The verdict is the shared one (@the-aios/core/nameResolve, tested there). What only this file
+     can show is that the dispatcher asks it FIRST. A kill used to find "no target", close any pane
+     of that name and retire as done; a spawn found "not running" and launched one more session
+     under a name two already shared; and two sessions with the very same name resolved to
+     whichever the registry listed first. */
+  const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  const fn = (name: string): string => {
+    const i = main.indexOf(`function ${name}(`);
+    assert.notEqual(i, -1, `${name} must exist`);
+    const j = main.indexOf('\nfunction ', i + 1);
+    return main.slice(i, j === -1 ? undefined : j);
+  };
+  const refusal = /const clash = ambiguousNames\(req\.name\);\s*\n\s*if \(clash\) \{ markUndelivered\(heldPath, req, ambiguousReason\(req\.name, clash\)\); return; \}/;
+
+  const immediate = fn('runImmediate');
+  const at = immediate.search(refusal);
+  assert.ok(at > 0, 'runImmediate refuses an ambiguous name with a dead letter that names the sessions');
+  for (const later of ["req.action === 'kill'", 'process.kill(', "emit(win(), 'closeByName'", 'resumeOrReveal(', 'runSpawn(win, heldPath, req)']) {
+    const i = immediate.indexOf(later);
+    assert.ok(i > at, `the refusal must come before ${later}`);
+  }
+
+  const send = main.slice(main.indexOf('async function runSend('), main.indexOf('\nfunction runSpawn('));
+  const sAt = send.search(refusal);
+  assert.ok(sAt > 0, 'runSend refuses an ambiguous name too');
+  assert.ok(sAt < send.indexOf("emit(win(), 'sendByName'"), 'before anything is typed');
+
+  /* And no later step can pick one of the two: the lookup yields a target only for ONE. */
+  assert.match(fn('targetByName'), /const hit = v\.kind === 'one' \? all\.find\(\(a\) => a\.name === v\.name\) : undefined;/);
+});
+
+test('a kill by a FORMER name is refused when the new name is shared, and never retired as done', () => {
+  /* The session that used to be `x` is now `y`, and another live session is `y` too. The current
+     name is not ambiguous for `x` (nobody is called `x`), so the first refusal does not fire; the
+     former-name lookup then yields `y`, which means two sessions. Without a second refusal the
+     kill found no target, closed a pane and retired as done with both still running. */
+  const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  const i = main.indexOf("if (req.action === 'kill') {");
+  const kill = main.slice(i, main.indexOf("} else if (req.action === 'resume')", i));
+  const refuse = kill.indexOf('const renamedClash = ambiguousNames(renamed);');
+  assert.ok(refuse > 0, 'the renamed name is checked for ambiguity');
+  assert.match(kill, /if \(renamedClash\) \{ markUndelivered\(heldPath, req, [^;]*ambiguousReason\(renamed, renamedClash\)[^;]*\); return; \}/);
+  assert.ok(refuse < kill.indexOf('t = targetByName(renamed);'), 'before the target is looked up');
+  assert.ok(refuse < kill.indexOf('process.kill('), 'and before anything is signalled');
+});
+
+test('a name that turns ambiguous while a send is in flight ends it with what happened, never as "no live session"', () => {
+  /* A second session taking the same name mid-send made the by-name lookup find nobody, and the
+     request ended as "no live session by that name": false, and a dead letter is work still owed,
+     so the sender sent it again. The lookup is unchanged (the loop follows the name and never
+     types into a name two sessions share); what changed is that the ending says the truth. */
+  const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  const send = main.slice(main.indexOf('async function runSend('), main.indexOf('\nfunction runSpawn('));
+  assert.match(send, /const stoppedByAmbiguity = \(\): boolean => \{[\s\S]{0,260}if \(!fs\.existsSync\(heldPath\)\) return true;\s*\n\s*const clash = ambiguousNames\(req\.name\);\s*\n\s*if \(!clash\) return false;/,
+    'a request that is already gone (cancelled, superseded) ends silently: no dead letter is written for it');
+  assert.match(send, /const target = targetByName\(req\.name\);\s*\n\s*if \(!target && stoppedByAmbiguity\(\)\) return;/, 'at the top of every pass');
+  assert.match(send, /const after = targetByName\(req\.name\);\s*\n\s*if \(!after && stoppedByAmbiguity\(\)\) return;/, 'and before a verify miss is read as "the target is gone"');
+  assert.match(send, /markUndelivered\(heldPath, req, firstTypedAt \? ambiguousAfterTypedReason\(req\.name, clash\) : ambiguousReason\(req\.name, clash\)\);/,
+    'typed already: it MAY have arrived, and the dead letter says so; nothing typed yet: the plain refusal');
+  assert.ok(send.indexOf('if (!target && stoppedByAmbiguity()) return;') < send.indexOf("emit(win(), 'sendByName'"), 'before anything is typed in that pass');
+  assert.doesNotMatch(send, /sessionId\) : targetByName|targetBySessionId/, 'the loop does not switch to following a session id: that typed retries into a namesake');
+});
+
+test('the owner of a hold is probed as a process of this user: EPERM means it is gone', () => {
+  /* Presence asks "does anyone alive own this record" and must read EPERM as alive. A hold is
+     different: its owner is always one of our own surfaces, so EPERM is a reused pid. */
+  const main = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  assert.match(main, /const alive = \(pid: number\): boolean => ownPidAlive\(pid\);/);
+  assert.match(main, /const holderAlive = !!stamp && alive\(stamp\.pid\);/);
+  assert.match(main, /if \(c && !alive\(c\.pid\)\) continue;/);
+  assert.match(main, /aliveForRecord\(rec, Date\.now\(\), os\.uptime\(\), \(pid\) => pidAlive\(pid\)\)/, 'presence keeps the other rule');
 });

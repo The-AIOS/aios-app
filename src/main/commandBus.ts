@@ -17,6 +17,9 @@ import { staleResumeName } from '@the-aios/core/resumeTarget';
 import { trustBlockedReason } from '../core/trustPrompt';
 import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '@the-aios/core/supersede';
 import { resolveSessionName, resolveFormerName, sessionKey } from '@the-aios/core/nameMatch';
+import { resolveName, ambiguousReason, ambiguousAfterTypedReason } from '@the-aios/core/nameResolve';
+import { pidAlive, ownPidAlive } from '@the-aios/core/pidAlive';
+import { buildPresenceRecord, serializePresenceRecord, aliveForRecord } from '@the-aios/core/presenceRecord';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import { decideKill, KILL_EXPECT_CAPABILITY } from '../core/killGuard';
 import {
@@ -175,30 +178,9 @@ function presenceFile(): string {
   return path.join(os.homedir(), '.aios', 'surfaces', `${MY_SURFACE}.json`);
 }
 
-/**
- * Is this pid running? Signal 0 performs the permission + existence checks and delivers nothing.
- * EPERM means the process EXISTS and is not ours to signal, which is still alive — only ESRCH is
- * proof of absence, so anything other than ESRCH must read as alive or the protocol evicts a live
- * surface on a technicality.
- */
-function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 1) return false;
-  try { process.kill(pid, 0); } catch (e) {
-    return (e as NodeJS.ErrnoException)?.code !== 'ESRCH';
-  }
-  /* Linux: kill() also accepts a THREAD id, so signal 0 succeeds for a pid that is only a thread
-     of some other process. A record naming a dead App then reads as alive as soon as the number is
-     reused by any thread — measured: app.json named 1301, which after a reboot was a containerd
-     thread (Tgid 1291), and the App deferred to it on every start and every heal. A real process
-     is its own thread-group leader, so Tgid must equal the pid. Unreadable → keep the signal's answer. */
-  if (process.platform === 'linux') {
-    try {
-      const m = /^Tgid:\s*(\d+)/m.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'));
-      if (m && Number(m[1]) !== pid) return false;
-    } catch { /* gone between the two calls, or no /proc — the signal already said alive */ }
-  }
-  return true;
-}
+/* Is this pid running? `pidAlive` (@the-aios/core/pidAlive): only ESRCH proves absence, and on
+   Linux a number that is merely a thread of another process is not a live process. One rule,
+   shared with Glass, for every place this file asks. */
 
 /**
  * Liveness for the pid a given record names. A record written BEFORE this boot names nobody,
@@ -207,9 +189,7 @@ function pidAlive(pid: number): boolean {
  * unrelated process. `at` is in the record for this; a minute of slack absorbs clock skew.
  */
 function aliveFor(rec: ReturnType<typeof parsePresenceRecord>): (pid: number) => boolean {
-  const bootedAt = Date.now() - os.uptime() * 1000;
-  const predatesBoot = typeof rec?.at === 'number' && rec.at < bootedAt - 60_000;
-  return (pid) => !predatesBoot && pidAlive(pid);
+  return aliveForRecord(rec, Date.now(), os.uptime(), (pid) => pidAlive(pid));
 }
 
 /**
@@ -259,7 +239,7 @@ function healPresence(appVersion: string): void {
     if (rec?.pid === root && readPresence() !== undefined) return;  // already ours; do not churn the file
     fs.mkdirSync(path.dirname(presenceFile()), { recursive: true });
     const body = presenceBody(root, appVersion);
-    fs.writeFileSync(presenceFile(), JSON.stringify(body, null, 2) + '\n');
+    fs.writeFileSync(presenceFile(), body);
     log(`presence re-claimed: ${MY_SURFACE} root pid ${root} (record named ${rec?.pid === undefined ? 'nobody' : `dead pid ${rec.pid}`})`);
   } catch { /* non-fatal — the next tick tries again */ }
 }
@@ -292,8 +272,8 @@ function healPresence(appVersion: string): void {
 /* The presence record both writers (announce and heal) emit. `capabilities` lets a writer confirm,
    against a LIVE pid, what this surface honours beyond the contract — `kill-expect`
    (core/killGuard): a surface without it ignores `expect` and kills unconditionally. */
-function presenceBody(root: number, appVersion: string): Record<string, unknown> {
-  return { surface: MY_SURFACE, pid: root, at: Date.now(), version: appVersion, capabilities: [KILL_EXPECT_CAPABILITY] };
+function presenceBody(root: number, appVersion: string): string {
+  return serializePresenceRecord(buildPresenceRecord({ surface: MY_SURFACE, pid: root, version: appVersion, capabilities: [KILL_EXPECT_CAPABILITY], nowMs: Date.now() }));
 }
 
 function announcePresence(appVersion: string): void {
@@ -320,7 +300,7 @@ function announcePresence(appVersion: string): void {
       return;
     }
     const body = presenceBody(root, appVersion);
-    fs.writeFileSync(path.join(dir, `${MY_SURFACE}.json`), JSON.stringify(body, null, 2) + '\n');
+    fs.writeFileSync(path.join(dir, `${MY_SURFACE}.json`), body);
     log(`announced presence: ${MY_SURFACE} root pid ${root}${root === process.pid ? '' : ` (self ${process.pid})`}`);
   } catch (e) {
     log(`presence not announced (${e instanceof Error ? e.message : String(e)})`);   // non-fatal
@@ -358,10 +338,13 @@ function emit(win: BrowserWindow | undefined, kind: string, payload: Record<stri
 /** Live session by sanitized name, from the authoritative registry. */
 function targetByName(name: string): (SendTarget & { version?: string }) | undefined {
   /* Exact first, else the ONE live session whose name cleans to the same handle (core/nameMatch,
-     app#58's idea): `--name Market-desk` is reachable as `market-desk`. Ambiguous → none. */
+     app#58's idea): `--name Market-desk` is reachable as `market-desk`. Ambiguous → none, and that
+     includes two sessions registered under the very same name: the first one the registry lists
+     is not "the" session (@the-aios/core/nameResolve). The verbs refuse an ambiguous name up
+     front and say so (ambiguousNames below); this is what keeps a later step from picking one. */
   const all = aios.listRunningAgents();
-  const real = resolveSessionName(name, all.map((a) => a.name));
-  const hit = real === undefined ? undefined : all.find((a) => a.name === real);
+  const v = resolveName(name, all.map((a) => a.name));
+  const hit = v.kind === 'one' ? all.find((a) => a.name === v.name) : undefined;
   if (!hit || !Number.isInteger(hit.pid) || hit.pid <= 1) return undefined;
   return {
     name: hit.name, pid: hit.pid,
@@ -370,9 +353,18 @@ function targetByName(name: string): (SendTarget & { version?: string }) | undef
   };
 }
 
-const alive = (pid: number): boolean => {
-  try { process.kill(pid, 0); return true; } catch { return false; }
-};
+/** The live sessions a name is ambiguous between, or undefined when it means one or none. */
+function ambiguousNames(name: string): string[] | undefined {
+  const v = resolveName(name, aios.listRunningAgents().map((a) => a.name));
+  return v.kind === 'ambiguous' ? v.names : undefined;
+}
+
+/* Is the process that stamped a hold still running? A hold is always stamped by an App or a Glass of
+   THIS user, which this process can always signal, so here EPERM does not mean "alive and not ours":
+   it means the holder died and its pid now belongs to someone else's process (after a reboot, a
+   system daemon). Reading that as alive would leave an orphan hold unadopted for a day, queue every
+   later send to its target behind it, and block the unattended install, which waits for zero holds. */
+const alive = (pid: number): boolean => ownPidAlive(pid);
 
 /* The renderer's verdict on the last send it was asked to make. Fire-and-forget
    emit + wait-for-the-transcript was the old shape, and it could not tell "delivered, waiting
@@ -659,6 +651,10 @@ async function runSend(
   claimedAt: number,
 ): Promise<void> {
   if (!req.prompt) { markUndelivered(heldPath, req, "send request carried no 'prompt'"); return; }
+  /* Two live sessions answer to this name: typed into either, the message may reach the wrong one.
+     Refused here, naming them, on both surfaces (@the-aios/core/nameResolve). */
+  const clash = ambiguousNames(req.name);
+  if (clash) { markUndelivered(heldPath, req, ambiguousReason(req.name, clash)); return; }
   /* Spill BEFORE anything else looks at the text. A prompt over the measured
      inline ceiling is written to a payload file and what gets typed is a pointer to it.
      Nothing downstream may see the long form: the needle is taken from the DELIVERED text so
@@ -718,8 +714,24 @@ async function runSend(
      This is the other half of the 2026-08-12 four-deliveries bug, and the half that made it
      unrecoverable: even after the text had landed, no later poll could ever prove it. */
   let baseline: number | undefined;
+  /* The name stopped meaning one session while this send was in flight (a second session took
+     it). The lookup below then finds nobody, and without this the request would end as "no live
+     session by that name", which is false. It ends here instead, saying what happened: refused
+     if nothing was typed yet; and if the text WAS typed once, that it may have arrived and could
+     not be verified, so the sender checks before sending it again. The lookup itself is unchanged:
+     the loop follows the name, as it always did, and never types into a name two sessions share. */
+  const stoppedByAmbiguity = (): boolean => {
+    /* The request is no longer ours to end: deleted by hand, retired by a newer message, or taken
+       elsewhere while this pass slept. Stop without writing a dead letter for it. */
+    if (!fs.existsSync(heldPath)) return true;
+    const clash = ambiguousNames(req.name);
+    if (!clash) return false;
+    markUndelivered(heldPath, req, firstTypedAt ? ambiguousAfterTypedReason(req.name, clash) : ambiguousReason(req.name, clash));
+    return true;
+  };
   for (;;) {
     const target = targetByName(req.name);
+    if (!target && stoppedByAmbiguity()) return;
     /* A live but busy target is waited on until its next idle (QUEUE_CEILING_MS), not
        30 min; the never-type-into-busy rule is unchanged. */
     const decision = decideSend(target, Date.now() - queuedAt, TIMINGS.QUEUE_CEILING_MS);
@@ -897,6 +909,7 @@ async function runSend(
        busy while we were verifying has not had the chance to surface the turn, and treating that
        as a failed delivery is what produced four deliveries of one request. */
     const after = targetByName(req.name);
+    if (!after && stoppedByAmbiguity()) return;
     const miss = decideAfterVerifyMiss({
       targetAlive: !!after,
       targetBusy: !!after && !isDeliverable(after.status),
@@ -1129,6 +1142,11 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
         + `resume. Omit "action" entirely for a plain spawn.`);
       return;
     }
+    /* An ambiguous name is refused for every verb, naming the sessions that collided. A kill used
+       to find "no target", close any pane of that name and retire as done; a spawn found "not
+       running" and started one more session under a name two already shared. */
+    const clash = ambiguousNames(req.name);
+    if (clash) { markUndelivered(heldPath, req, ambiguousReason(req.name, clash)); return; }
     if (req.action === 'kill') {
       // Registry pid → SIGTERM reaches resumed/external sessions too; closeByName also
       // tears down the app pane if this session owns one.
@@ -1136,7 +1154,14 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
          kill used to log "no live pid" and leave it running. Current names always win. */
       let t = targetByName(req.name);
       const renamed = t ? undefined : resolveFormerName(req.name, aios.listRunningAgents());
-      if (!t && renamed) t = targetByName(renamed);
+      if (!t && renamed) {
+        /* The session that used to carry this name now shares its new one with another live
+           session: there is no telling which of the two is meant, and "no target" below would
+           close a pane and retire the kill as done with both still running. */
+        const renamedClash = ambiguousNames(renamed);
+        if (renamedClash) { markUndelivered(heldPath, req, `'${req.name}' was renamed to '${renamed}', and ${ambiguousReason(renamed, renamedClash)}`); return; }
+        t = targetByName(renamed);
+      }
       /* A conditional kill (core/killGuard): the writer said what it saw, and a session that no
          longer matches is left running. Checked here, immediately before the SIGTERM, which
          narrows the window between the writer's check and the kill (it does not remove it).

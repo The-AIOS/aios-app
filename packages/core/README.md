@@ -8,14 +8,16 @@ They fulfil the same requests and race for them, so they have to give the same a
 to keep its own copy of this code, with a test that compared digests across the two repositories.
 Now there is one version, published to npm, and each surface depends on an exact version of it.
 
-It is pure TypeScript with no dependencies: no Electron, no editor API, nothing that reads the
-disk on its own. Each surface keeps the code that touches its own windows, terminals and files.
+It is TypeScript with no dependencies: no Electron and no editor API. Almost all of it is pure.
+The few modules that touch the machine say so at the top and take what they touch as a
+parameter, so they are tested without it: `pidAlive` asks the process table whether a pid is
+running. Each surface keeps the code that touches its own windows, terminals and files.
 
 ## Using it
 
 ```jsonc
 // package.json — an exact version, never a range
-"dependencies": { "@the-aios/core": "0.1.0" }
+"dependencies": { "@the-aios/core": "0.2.0" }
 ```
 
 ```ts
@@ -80,12 +82,19 @@ running the new version before the spawn-inbox README describes it.
 
 ### Until Glass depends on this package
 
-The App runs the package today. Glass still runs its own copies of these 26 modules, and its
-tests still pin seven of them by digest against the copies the App used to keep. Until Glass
-depends on a published version, **the modules in `src/` are not edited**: a change here would
-reach the App and not Glass, and no test in either repository would say so. Fix what is urgent in
-Glass's copy and here in the same breath, or wait for the adoption. Delete this section when Glass
-has adopted the package.
+The App runs the package today. Glass still runs its own copies of the 26 modules the package
+started with (version 0.1.0), and its tests still pin seven of them by digest against the copies
+the App used to keep. Until Glass depends on a published version, **those 26 modules are not
+edited**: a change to one would reach the App and not Glass, and no test in either repository
+would say so. Fix what is urgent in Glass's copy and here in the same breath, or wait for the
+adoption. A NEW module is fine, and is how the package grows meanwhile: it calls the 26 without
+changing them, and Glass gets it when it adopts. Delete this section when Glass has adopted the
+package.
+
+The 26: `accounts` `addDir` `attention` `bashResolve` `busLog` `busPayload` `busVerbs`
+`claudeLanguage` `contract4` `freshness` `frontmatter` `memo` `nameHolder` `nameMatch`
+`nudgeCommand` `presence` `primaryIdentity` `procStart` `resumeTarget` `routineHealth`
+`sendQueue` `sessionName` `supersede` `taskModel` `toolUse` `usageReader`.
 
 ## Licence
 

@@ -19,6 +19,7 @@
  * session lives IN the app grid, never a detached window, and no shell-wrapper
  * marker is involved.
  */
+import { sanitizeName } from '@the-aios/core/nameResolve';
 import { addDirArgs } from '@the-aios/core/addDir';
 import { contract4Fields } from '@the-aios/core/contract4';
 import { normalizeVerb, type BusVerbResult } from '@the-aios/core/busVerbs';
@@ -107,10 +108,8 @@ export function parseGroupColor(raw: unknown): { color?: string; note?: string }
   return { note: `color ignored: ${typeof raw === 'string' ? `'${raw.slice(0, 20)}'` : typeof raw} is not one of ${GROUP_COLORS.join(', ')}` };
 }
 
-/** kebab-case handle — matches app.js:2568 + Glass's sanitizer exactly. */
-export function sanitizeName(raw: unknown): string {
-  return String(raw ?? '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '');
-}
+/** kebab-case handle. One rule for both surfaces: @the-aios/core/nameResolve. */
+export { sanitizeName } from '@the-aios/core/nameResolve';
 
 /** Model ids are whitelisted before they ever touch a command line. */
 export function whitelistModel(raw: unknown): string | undefined {
