@@ -31,12 +31,12 @@ import {
   triedBy, withTried, fulfillerId, type SendTarget,
   queueTurn, stampAge, withQueuedAt, queuedAtOf, isQueuedDelivery, supersedes, type QueuedSend,
 } from '@the-aios/core/sendQueue';
-import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs } from './retypeGuard';
+import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs } from '@the-aios/core/sendGuards';
 import { parsePresenceRecord, presenceVerdict, mayRetract } from '@the-aios/core/presence';
 import { MY_SURFACE } from './surface';
 import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '@the-aios/core/busPayload';
 import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from './transcriptSince';
-import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
+import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '@the-aios/core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
 

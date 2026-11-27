@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { liveSubagents, landedInSubagentReason, SUBAGENT_STALE_MS, subagentHold, landedInSubagentOnly, SUBAGENT_HOLD_MAX_MS, preTypeStep } from '../core/subagentGate';
+import { liveSubagents, landedInSubagentReason, SUBAGENT_STALE_MS, subagentHold, landedInSubagentOnly, SUBAGENT_HOLD_MAX_MS, preTypeStep } from '@the-aios/core/subagentGate';
 import { countDeliveries } from '@the-aios/core/sendQueue';
 
 const NOW = 1_800_000_000_000;
