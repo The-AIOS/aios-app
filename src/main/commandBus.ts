@@ -19,12 +19,13 @@ import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS }
 import { resolveSessionName, resolveFormerName, sessionKey } from '@the-aios/core/nameMatch';
 import { resolveName, ambiguousReason, ambiguousAfterTypedReason } from '@the-aios/core/nameResolve';
 import { pidAlive, ownPidAlive } from '@the-aios/core/pidAlive';
+import { claimRequest, recoverClaims, mayAdoptHold, holdAgeMs } from '@the-aios/core/claim';
 import { buildPresenceRecord, serializePresenceRecord, aliveForRecord } from '@the-aios/core/presenceRecord';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import { decideKill, KILL_EXPECT_CAPABILITY } from '../core/killGuard';
 import {
-  INBOX_CONTRACT, HOLD_SUFFIX, UNDELIVERED_SUFFIX, holdPathFor, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
-  isHoldPath, decideSend, safeNeedle, claimVerdict, canAdoptHold, parseClaim,
+  INBOX_CONTRACT, HOLD_SUFFIX, UNDELIVERED_SUFFIX, undeliveredPathFor, TIMINGS, decideAfterVerifyMiss,
+  isHoldPath, decideSend, safeNeedle, parseClaim,
   shouldReleaseForSibling, countDeliveries, verifyVerdict, isDeliverable, maxAttemptsFor,
   triedBy, withTried, fulfillerId, type SendTarget,
   queueTurn, stampAge, withQueuedAt, queuedAtOf, isQueuedDelivery, supersedes, type QueuedSend,
@@ -1205,44 +1206,28 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
  * deliberately left it alone.
  */
 function claim(fsPath: string): { heldPath: string; req: BusRequest; at: number; body: Record<string, unknown> } | undefined {
-  let raw: string;
-  try { raw = fs.readFileSync(fsPath, 'utf8'); } catch { return undefined; } // gone / mid-write
-  let ageMs = 0;
-  try { ageMs = Date.now() - fs.statSync(fsPath).mtimeMs; } catch { /* treat as fresh */ }
-  const req = parseRequest(raw);
-  if (!req) {
-    // A file younger than the grace window is probably still being written (fs.watch fires
-    // on create). Leave it and look once more; only a file that is BOTH old enough and
-    // still unparseable is genuinely malformed.
-    if (ageMs < PARSE_GRACE_MS) { setTimeout(() => recheck(fsPath), PARSE_GRACE_MS); return undefined; }
-    markUndelivered(fsPath, null, 'unparseable request (bad JSON, or no usable name)');
+  /* The order of the writes is the shared one (@the-aios/core/claim): read, decide, take the file
+     under a private name, stamp it there, and only then publish it as the hold. This function used
+     to stamp by rewriting the request and rename after; when Glass had already renamed it away,
+     that rewrite re-created the file and the rename replaced Glass's hold, so both surfaces
+     fulfilled one request. */
+  const r = claimRequest(fsPath, { surface: MY_SURFACE, pid: process.pid, nowMs: Date.now(), retireTtlMs: RETIRE_TTL_MS, parseGraceMs: PARSE_GRACE_MS });
+  if (r.kind === 'gone' || r.kind === 'skip') return undefined;   // lost the race, vanished, addressed elsewhere, or already tried here
+  if (r.kind === 'wait') {
+    // Probably still being written (fs.watch fires on create). Leave it and look once more.
+    setTimeout(() => recheck(fsPath), r.afterMs);
     return undefined;
   }
-  let bodyForTried: Record<string, unknown> = {};
-  try { bodyForTried = JSON.parse(raw) as Record<string, unknown>; } catch { /* parseRequest already vouched */ }
-  const tried = triedBy(bodyForTried);
-  const myId = fulfillerId(MY_SURFACE, process.pid);
-  const verdict = claimVerdict(req.surface, MY_SURFACE, ageMs, RETIRE_TTL_MS, tried, myId);
-  if (verdict === 'skip') return undefined;   // addressed elsewhere, or already tried here
-  if (verdict === 'retire') {
+  if (r.kind === 'malformed') { markUndelivered(fsPath, null, r.reason); return undefined; }
+  if (r.kind === 'retire') {
     /* Two ways to reach this: addressed to an absent surface, or handed back by me and left
-       untaken. The second is the one worth naming precisely — a sibling had its chance. */
-    const why = tried.includes(myId)
-      ? `handed back for a sibling ${Math.round(ageMs / 60000)} min ago and no other surface took it`
-      : `addressed to '${req.surface}' but unclaimed for ${Math.round(ageMs / 60000)} min`;
-    markUndelivered(fsPath, req, why);
+       untaken. The reason names which. */
+    markUndelivered(fsPath, parseRequest(JSON.stringify(r.body)), r.reason);
     return undefined;
   }
-  const heldPath = holdPathFor(fsPath);
-  const at = Date.now();
-  try {
-    const body = JSON.parse(raw) as Record<string, unknown>;
-    body._claim = { surface: MY_SURFACE, pid: process.pid, at };
-    withQueuedAt(body, at);   // when it FIRST queued — kept through adoption and release
-    fs.writeFileSync(fsPath, JSON.stringify(body, null, 2) + '\n');
-    fs.renameSync(fsPath, heldPath);   // atomic: exactly one surface can win
-  } catch { return undefined; }        // lost the race, or it vanished — either is fine
-  return { heldPath, req, at, body: bodyForTried };
+  const req = parseRequest(r.raw);
+  if (!req) { markUndelivered(r.heldPath, null, 'unparseable request (bad JSON, or no usable name)'); return undefined; }
+  return { heldPath: r.heldPath, req, at: r.at, body: r.body };
 }
 
 /** Set by initCommandBus so the parse-grace re-check can reach the same pipeline. */
@@ -1266,6 +1251,12 @@ function consume(win: () => BrowserWindow | undefined, fsPath: string): void {
 
 /** Recover `.holding` files left by a crash — but never steal a live sibling's hold. */
 function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
+  /* First, the requests a process that died mid-claim had taken and not yet published as holds:
+     they go back under their own names and are claimed like any other (@the-aios/core/claim). */
+  for (const back of recoverClaims(dir, { pid: process.pid, isAlive: (pid) => alive(pid), join: path.join })) {
+    log(`restored ${path.basename(back)} — the process that was claiming it is gone`);
+    consume(win, back);
+  }
   let files: string[] = [];
   try { files = fs.readdirSync(dir); } catch { return; }
   for (const f of files) {
@@ -1293,8 +1284,15 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
       continue;
     }
     const holderAlive = !!stamp && alive(stamp.pid);
-    if (!canAdoptHold(stamp, Date.now(), HOLD_STALE_MS, holderAlive)) {
-      log(`leaving ${f} — held by a live ${stamp?.surface} (pid ${stamp?.pid})`);
+    /* A hold with no stamp yet is a sibling between its rename and its stamp (a Glass that still
+       claims its own way renames first): left alone until it has been a hold longer than that. */
+    /* How long it has BEEN a hold: a rename keeps the request's mtime, so the age is taken from
+       the later of mtime and ctime. A hold we can no longer stat was just finished, released or
+       dead-lettered by its owner: skip it, or the re-stamp below would re-create it. */
+    let age: number;
+    try { age = holdAgeMs(fs.statSync(p), Date.now()); } catch { continue; }
+    if (!mayAdoptHold(stamp, Date.now(), HOLD_STALE_MS, holderAlive, age)) {
+      log(stamp ? `leaving ${f} — held by a live ${stamp.surface} (pid ${stamp.pid})` : `leaving ${f} — just claimed by another surface, not stamped yet`);
       continue;
     }
     const req = parseRequest(JSON.stringify(body));
