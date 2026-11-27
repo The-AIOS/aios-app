@@ -39,7 +39,7 @@ import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from 
 import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
-import { decideOpen, readChecked, rememberDecided, type DecidedOpen } from '@the-aios/core/openRequest';
+import { decideOpen, readChecked, rememberDecided, prepareRoots, looksLikeFramework, type DecidedOpen, type PreparedRoot } from '@the-aios/core/openRequest';
 import { ASSET_EXT } from '@the-aios/core/readClass';
 
 /**
@@ -1209,25 +1209,32 @@ function contract4Args(req: BusRequest): { args: string[] } | { error: string } 
 }
 
 /* Contract 5: show a file in the viewer for a session that asked (@the-aios/core/openRequest holds
-   the checks; inbox-contract-5.md in the framework is the rule). The roots are the framework root and
-   the workspace folders, NOT the files the operator dropped onto the App: that grant is for the
-   operator's own work.
-   What the operator gets (decision of 27/11): a SNAPSHOT, read only, never reloaded from disk. Main
-   reads the content here, from the file it checked (readChecked: same file, one link, still inside
-   the roots), and sends the text itself; the renderer never reads that path for this pane. A button
-   reopens the file as the operator's own, and from then on it is the operator's path, not the bus's.
-   In front inside the App unless the operator is typing in a session (then in a background tab, with
-   a notice). The App window is never raised. */
+   the checks; inbox-contract-5.md in the framework is the rule).
+   THE ROOT is the framework root only (decision of 27/11, 18:17): the workspace-folder list lives in a
+   file any session can write, so it does not count for a session's request. It is resolved ONCE, when
+   the bus starts (openRoots), never inside a hidden home folder, and it must look like a framework
+   root, or `open` stays off and says so.
+   What the operator gets (decision of 27/11, 18:01): a SNAPSHOT, read only, never reloaded from disk.
+   Main reads the content here, from the file it checked (readChecked: same file, one link, still
+   inside the root), and sends the text itself; the renderer never reads that path for this pane. A
+   button reopens the file as the operator's own, and from then on it is the operator's path, not the
+   bus's. In front inside the App unless the operator is typing in a session (then in a background tab,
+   with a notice). The App window is never raised. */
 let decidedOpens: DecidedOpen[] = [];
-function busOpenRoots(): string[] {
-  return [aios.frameworkRoot(), ...aios.workspaceFolders()].filter((r): r is string => !!r);
+let openRoots: PreparedRoot[] = [];
+let openOff = '';
+function prepareOpenRoots(): void {
+  const fw = aios.frameworkRoot();
+  openRoots = fw ? prepareRoots([fw], os.homedir()) : [];
+  openOff = !openRoots.length ? 'there is no usable framework root (missing, the home folder, or inside a hidden folder)'
+    : !looksLikeFramework(openRoots[0].real) ? 'the framework root does not hold vault/ and plugins/aios/' : '';
+  if (openOff) log(`open is OFF: ${openOff}`);
 }
 function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen: { seenAgoMs: number; atStart: boolean }): void {
   const now = Date.now();
-  const roots = busOpenRoots();
-  const home = os.homedir();
-  const d = decideOpen({ body, seenAgoMs: seen.seenAgoMs, presentAtStart: seen.atStart, nowMs: now, roots, home, decided: decidedOpens });
-  decidedOpens = rememberDecided(decidedOpens, { name: d.do === 'open' ? d.name : (d.name ?? req.name), at: now }, now);
+  if (openOff) { markUndelivered(heldPath, req, `open refused (unavailable): open is off on this App: ${openOff}`); return; }
+  const d = decideOpen({ body, seenAgoMs: seen.seenAgoMs, presentAtStart: seen.atStart, nowMs: now, roots: openRoots, decided: decidedOpens });
+  if (d.do === 'open' || d.counted) decidedOpens = rememberDecided(decidedOpens, { name: d.do === 'open' ? d.name : (d.name ?? req.name), at: now }, now);
   if (d.do === 'refuse') {
     if (d.why === 'flood') { noteFlood(heldPath, req); return; }
     markUndelivered(heldPath, req, `open refused (${d.why}): ${d.reason}`);
@@ -1236,9 +1243,9 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
   let content: string | undefined;
   const asset = ASSET_EXT.test(d.path);
   if (!asset) {
-    const r = readChecked(d.path, d.identity, { roots, home });
+    const r = readChecked(d.path, d.identity, { roots: openRoots });
     if (!r.ok) { markUndelivered(heldPath, req, `open refused (unavailable): ${r.reason}`); return; }
-    content = r.content;
+    content = String(r.content);
   }
   const typing = [...composing.values()].some((rec) => operatorComposing(rec, now));
   emit(win(), 'openFile', { path: d.path, line: d.line, mode: d.mode, background: typing, bus: true, by: d.name, content, asset });
@@ -1265,7 +1272,8 @@ function noteFlood(heldPath: string, req: BusRequest): void {
    for the operator's click, as in every note. */
 ipcMain.handle('bus:imageAllowed', (_e, p: unknown) => {
   if (typeof p !== 'string') return false;
-  const d = decideOpen({ body: { name: 'viewer', path: p }, seenAgoMs: 0, nowMs: Date.now(), roots: busOpenRoots(), home: os.homedir(), decided: [] });
+  if (openOff) return false;
+  const d = decideOpen({ body: { name: 'viewer', path: p }, seenAgoMs: 0, nowMs: Date.now(), roots: openRoots, decided: [] });
   return d.do === 'open' && /\.(png|jpe?g|gif|webp|svg)$/i.test(d.path);
 });
 
@@ -1390,7 +1398,9 @@ function withRealName(req: BusRequest): BusRequest {
    writes the request sets. Forgotten once the request is claimed or gone. */
 const firstSeen = new Map<string, number>();
 const presentAtStart = new Set<string>();
+let draining = false;
 function consume(win: () => BrowserWindow | undefined, fsPath: string): void {
+  if (draining) presentAtStart.add(fsPath);
   if (!firstSeen.has(fsPath)) firstSeen.set(fsPath, Date.now());
   const seen = { seenAgoMs: Date.now() - (firstSeen.get(fsPath) as number), atStart: presentAtStart.has(fsPath) };
   const held0 = claim(fsPath);
@@ -1513,6 +1523,7 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   const dir = inboxDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* non-fatal */ }
   ensureReadme(dir, appVersion);
+  prepareOpenRoots();   // contract 5: the root is resolved once, here
   announcePresence(appVersion);
   // On boot and every 5 min: a dead letter must not be able to sit unseen.
   surfaceDeadLetters(getWin);
@@ -1541,11 +1552,13 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
     log(`watch failed on ${dir} (${e instanceof Error ? e.message : String(e)})`);
   }
   // Requests dropped while the app was closed, then holds left behind by a crash.
+  draining = true;   // contract 5: an `open` already waiting at startup is never shown late
   try {
     for (const f of fs.readdirSync(dir)) {
-      if (f.endsWith('.json')) { presentAtStart.add(path.join(dir, f)); consume(getWin, path.join(dir, f)); }
+      if (f.endsWith('.json')) consume(getWin, path.join(dir, f));
     }
   } catch { /* empty/absent inbox */ }
+  draining = false;
   adoptHolds(getWin, dir);
   /* Periodically too, not only at startup (review should-fix 8): a hold left by a surface that died
      would otherwise block its target for the whole 24 h ceiling. canAdoptHold never takes a live one. */
