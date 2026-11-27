@@ -59,7 +59,7 @@ test('rewrites our own doc when the body changed (an upgrade must propagate)', (
 });
 
 test('rewrites our own doc when the contract moved on', () => {
-  const older = `# old doc\n\n${readmeStamp(INBOX_CONTRACT - 1)}\n`;
+  const older = `# old doc\n\n${readmeStamp('0.2.0', INBOX_CONTRACT - 1)}\n`;
   assert.equal(shouldWrite(older, OURS), true);
 });
 
@@ -72,7 +72,7 @@ test('doc teaches every verb the dispatcher implements, and no verb it does not'
     assert.ok(OURS.includes(field), `README must show ${field}`);
   }
   assert.match(OURS, /0\.2\.0/, 'stamps the running app version');
-  assert.ok(OURS.includes(readmeStamp()), 'carries the machine-readable stamp for self-recognition');
+  assert.ok(OURS.includes(readmeStamp('0.2.0')), 'carries the machine-readable stamp for self-recognition');
 });
 
 test('doc states the facts that cost real bugs — registry truth, one-line prompt, consumed≠succeeded, dual-surface race', () => {

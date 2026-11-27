@@ -245,7 +245,7 @@ test('the App declares kill-expect in its presence record; a record without it d
 });
 
 test('the inbox README tells writers to check the capability and pin the surface', () => {
-  const src = fs.readFileSync('src/core/inboxReadme.ts', 'utf8');
+  const src = fs.readFileSync('packages/core/src/inboxReadme.ts', 'utf8');   // the one text both surfaces write
   assert.match(src, /"kill-expect"/);
   assert.match(src, /"surface": "app"/);
   assert.match(src, /reduces the risk/);
