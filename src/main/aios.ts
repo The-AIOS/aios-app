@@ -585,24 +585,29 @@ export function setPtyPidSource(fn: () => number[]): void { ptyPidSource = fn; }
 /* pty pid → the pane handle the renderer knows that pty by. Registered by main.ts, which owns `ptys`. */
 let ptyPaneLookup: (ptyPid: number) => number | undefined = () => undefined;
 export function setPtyPaneLookup(fn: (ptyPid: number) => number | undefined): void { ptyPaneLookup = fn; }
-type TreeWalk = { ids: Set<string>; ptyOf: Map<string, number> };
+type TreeWalk = { ids: Set<string>; ptyOf: Map<string, number>; pidUnder: Map<number, number> };
 let treeCache: { at: number; key: string; walk: TreeWalk } | undefined;
 /* ONE walk answers both questions: is this session in a pane (the side panel's membership), and in WHICH pane (the tab's
    binding, #223). They used to be answered separately, and a session typed by hand into a plain terminal tab was in the
    panel but in no tab. Memoized briefly: one `ps`. */
 function walkTree(running: RunningAgent[], procTable?: string): TreeWalk {
   const ptyPids = ptyPidSource().filter((n) => Number.isInteger(n) && n > 0);
-  if (!ptyPids.length || !running.length) return { ids: new Set(), ptyOf: new Map() };
-  const key = `${ptyPids.join(',')}|${running.map((a) => a.pid).join(',')}`;
-  if (!procTable && treeCache && treeCache.key === key && Date.now() - treeCache.at < 1500) return treeCache.walk;
+  if (!ptyPids.length || !running.length) return { ids: new Set(), ptyOf: new Map(), pidUnder: new Map() };
+  /* Keyed by pid AND session id: `/clear` and `/resume` put a new session id on the same pid, and a walk remembered by pid
+     alone kept answering the id that no longer exists until it expired. */
+  const key = `${ptyPids.join(',')}|${running.map((a) => `${a.pid}:${a.sessionId}`).join(',')}`;
+  /* Not on Windows: the table there is already a background read held in memory (winProcTable), so there is no `ps` to save,
+     and a walk remembered from the table before it would outlive the fresher one. */
+  const memo = !procTable && process.platform !== 'win32';
+  if (memo && treeCache && treeCache.key === key && Date.now() - treeCache.at < 1500) return treeCache.walk;
   const map = sessionPidsUnder(ptyPids, running.map((a) => a.pid), procTable);
   const byPid = new Map(running.map((a) => [a.pid, a.sessionId]));
-  const walk: TreeWalk = { ids: new Set(), ptyOf: new Map() };
+  const walk: TreeWalk = { ids: new Set(), ptyOf: new Map(), pidUnder: new Map() };
   for (const [pty, pid] of Object.entries(map)) {
     const id = byPid.get(pid);
-    if (id) { walk.ids.add(id); walk.ptyOf.set(id, Number(pty)); }
+    if (id) { walk.ids.add(id); walk.ptyOf.set(id, Number(pty)); walk.pidUnder.set(Number(pty), pid); }
   }
-  if (!procTable) treeCache = { at: Date.now(), key, walk };
+  if (memo) treeCache = { at: Date.now(), key, walk };
   return walk;
 }
 /** Session ids whose process descends from one of this App's ptys. */
@@ -615,6 +620,24 @@ export function paneOfSessions(running: RunningAgent[], procTable?: string): Map
   for (const [id, pty] of walkTree(running, procTable).ptyOf) {
     const pane = ptyPaneLookup(pty);
     if (pane !== undefined) out.set(id, pane);
+  }
+  return out;
+}
+
+/** Pane handle → the operator session running under it: `session:under`'s answer, read from the SAME walk as the panel's rows.
+ *  It used to be a second method (its own `ps`, over every registered session), so a session that started a headless
+ *  `claude -p` had two registered pids under its pty: the panel's walk, which counts operator sessions only, said "this pane",
+ *  and this said nothing, which the tab reads as "the session ended". Same input as the panel, so the memoized walk is reused. */
+export function sessionsUnderPanes(paneIds: number[], running: RunningAgent[] = listRunningAgents(), procTable?: string): Record<number, { name: string; id: string; pid: number }> {
+  const wanted = new Set(paneIds);
+  const ops = running.filter(isOperatorSession);
+  const byPid = new Map(ops.map((a) => [a.pid, a]));
+  const out: Record<number, { name: string; id: string; pid: number }> = {};
+  /* By PID, as the registry is keyed: two processes can carry one session id (a resume of a session still live in another
+     pane), and each pane must get the process under ITS pty. */
+  for (const [pty, pid] of walkTree(ops, procTable).pidUnder) {
+    const pane = ptyPaneLookup(pty), a = byPid.get(pid);
+    if (a && pane !== undefined && wanted.has(pane)) out[pane] = { name: a.name, id: a.sessionId, pid: a.pid };
   }
   return out;
 }

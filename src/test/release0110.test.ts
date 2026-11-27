@@ -576,6 +576,55 @@ test('#223: the same walk says WHICH pane each session is under, for the tab (in
   } finally { aios.setPtyPidSource(() => []); aios.setPtyPaneLookup(() => undefined); }
 });
 
+/* #226, after #223: `session:under` was still a second method. It ran its own `ps` over EVERY registered session, while the
+   panel's walk counts operator sessions only, so the two could disagree about one pane. It now reads the panel's walk. */
+const op = (pid: number, sessionId: string, name: string, entrypoint = 'cli', kind = 'interactive') => ({ pid, sessionId, name, kind, entrypoint }) as never;
+test('session:under answers from the panel\'s walk: a session with an sdk child under one pane is still that session', () => {
+  aios.setPtyPidSource(() => [100, 500, 700]);
+  aios.setPtyPaneLookup((pid) => ({ 100: 7, 500: 9, 700: 11 } as Record<number, number>)[pid]);
+  try {
+    /* pane 7: a session (300) that started `claude -p` (350, sdk-cli) from a hook: two registered pids under one pty.
+       pane 9: only a headless run under it. pane 11: two operator sessions, one inside the other. 900: in no pane. */
+    const running = [op(300, 's-a', 'build'), op(350, 's-hook', 'build-1a', 'sdk-cli'), op(600, 's-sdk', 'review', 'sdk-py'),
+      op(800, 's-outer', 'outer'), op(850, 's-inner', 'inner'), op(900, 's-out', 'elsewhere')] as never;
+    const table = '100 1\n200 100\n300 200\n350 300\n500 1\n600 500\n700 1\n800 700\n850 800\n900 1\n';
+    assert.deepEqual(aios.sessionsUnderPanes([7, 9, 11, 42], running, table), { 7: { name: 'build', id: 's-a', pid: 300 } },
+      'pane 7 is the operator\'s session, as the panel says; a pane holding only a headless run binds to nothing; two operator sessions under one pty stay unanswered; an unknown pane is ignored');
+    assert.deepEqual([...aios.paneOfSessions((running as unknown as Array<{ kind: string; entrypoint: string }>).filter(aios.isOperatorSession) as never, table)], [['s-a', 7]],
+      'and that is exactly what the panel\'s rows carry: one method, read both ways');
+    assert.deepEqual(aios.sessionsUnderPanes([9], running, table), {}, 'asking only about the headless pane answers nothing');
+    /* Two processes, one session id (a resume of a session still live in another pane): each pane gets its own process. */
+    assert.deepEqual(aios.sessionsUnderPanes([7, 9], [op(300, 's-same', 'build'), op(600, 's-same', 'build')] as never, table),
+      { 7: { name: 'build', id: 's-same', pid: 300 }, 9: { name: 'build', id: 's-same', pid: 600 } });
+  } finally { aios.setPtyPidSource(() => []); aios.setPtyPaneLookup(() => undefined); }
+});
+
+test('session:under has no walk of its own', () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'main.ts'), 'utf8');
+  const handler = main.slice(main.indexOf("ipcMain.handle('session:under'"), main.indexOf("ipcMain.handle('claude:permissionModes'"));
+  assert.match(handler, /aios\.sessionsUnderPanes\(/, 'the handler asks the shared walk');
+  assert.doesNotMatch(handler, /sessionPidsUnder|listRunningAgents|ptys\.get/, 'no `ps` and no registry read of its own: that was the second method');
+  const core = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'aios.ts'), 'utf8');
+  assert.match(core, /export function sessionsUnderPanes[\s\S]{0,700}?const ops = running\.filter\(isOperatorSession\);[\s\S]{0,600}?walkTree\(ops, procTable\)/,
+    'the same input the panel walks (operator sessions), so the memoized walk is reused');
+});
+
+test('/clear: the same pid under a new session id is answered at once, not after the walk\'s cache expires', async () => {
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{},30000)'], { stdio: 'ignore' });
+  aios.setPtyPidSource(() => [process.pid]);   // this test process plays the pty; the child is the session under it
+  aios.setPtyPaneLookup((pid) => (pid === process.pid ? 3 : undefined));
+  try {
+    await aios.refreshProcTable();   // Windows reads the table in the background (#131)
+    const pid = child.pid as number;
+    assert.deepEqual(aios.sessionsUnderPanes([3], [op(pid, 's-before', 'build')] as never), { 3: { name: 'build', id: 's-before', pid } }, 'control: found, and now memoized');
+    /* `/clear` replaces the session inside the running process: same pid, same pty, new id. The walk was memoized by pid alone,
+       so for 1.5 s it kept answering the id that no longer exists, and followRotatedId read that as "nothing changed". */
+    assert.deepEqual(aios.sessionsUnderPanes([3], [op(pid, 's-after', 'build')] as never), { 3: { name: 'build', id: 's-after', pid } });
+    assert.deepEqual([...aios.paneOfSessions([op(pid, 's-after', 'build')] as never)], [['s-after', 3]], 'the panel\'s row finds its pane on the same pulse too');
+  } finally { aios.setPtyPidSource(() => []); aios.setPtyPaneLookup(() => undefined); child.kill(); }
+});
+
 test('blocker 6: "(ended)" is judged against every registered session, not the filtered panel list', () => {
   const host = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'panelHost.ts'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');

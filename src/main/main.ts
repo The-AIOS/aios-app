@@ -2371,25 +2371,10 @@ ipcMain.handle('shell:setAutoUpdates', (_e, on: boolean) => { aios.setAutoUpdate
 /* Which live session runs under a pane's pty — exact identity, where a name cannot be.
    The renderer asks when a pane confirms itself, so two same-named sessions land on the
    right tabs instead of both adopting whichever the name matched first. */
-ipcMain.handle('session:under', (_e, paneIds: number[]) => {
-  /* The renderer holds PANE HANDLES (a counter), never pty pids — only this process knows
-     those, via `ptys`. So translate handle → pty pid here, walk, and answer by handle. */
-  const ids = (Array.isArray(paneIds) ? paneIds : []).map(Number).filter((n) => Number.isInteger(n));
-  const ptyPidOf = new Map<number, number>();
-  for (const id of ids) {
-    const pid = ptys.get(id)?.pid;
-    if (Number.isInteger(pid) && (pid as number) > 0) ptyPidOf.set(id, pid as number);
-  }
-  const running = aios.listRunningAgents();
-  const map = aios.sessionPidsUnder([...ptyPidOf.values()], running.map((a) => a.pid));
-  const byPid = new Map(running.map((a) => [a.pid, a]));
-  const out: Record<number, { name: string; id: string; pid: number }> = {};
-  for (const [paneId, ptyPid] of ptyPidOf) {
-    const a = byPid.get(map[ptyPid]);
-    if (a) out[paneId] = { name: a.name, id: a.sessionId, pid: a.pid };
-  }
-  return out;
-});
+ipcMain.handle('session:under', (_e, paneIds: number[]) =>
+  /* The renderer holds PANE HANDLES (a counter), never pty pids. The walk already maps each session to its pane's handle
+     (setPtyPaneLookup above), for the panel's rows; this is that same walk, asked by pane. */
+  aios.sessionsUnderPanes((Array.isArray(paneIds) ? paneIds : []).map(Number).filter((n) => Number.isInteger(n))));
 /* Settings asks whether macOS has refused a banner, so the alerts control can say why it looks
    like it is doing nothing rather than leaving the operator to find System Settings unaided. */
 ipcMain.handle('claude:permissionModes', () => aios.permissionModes());
