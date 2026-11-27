@@ -113,6 +113,39 @@ function checkNoTests(asar, label) {
     return fail(`${label}: the compiled test suite is inside the shipped asar (out/test) — check build.files`);
   }
   ok(`${label}: no test suite in the shipped asar (out/ carries ${kids.join(', ')})`);
+  checkSharedCore(files, label);
+}
+
+/**
+ * The shared package must be inside the asar, whole, and only its build.
+ *
+ * `@the-aios/core` is a workspace of this repo: in node_modules it is a LINK to packages/core, not
+ * a folder npm unpacked. Main requires it at startup (`@the-aios/core/sendQueue` and the rest), so
+ * a packager that skipped the link, or copied it without its compiled dist/, ships an app that
+ * dies on its first require. The packaged --smoke would catch that too, but only where it runs
+ * and only as "the app did not start"; this says which file is missing.
+ *
+ * The expected list is read from packages/core/src, so a module added to the package and left out
+ * of the bundle fails here without anyone updating a list.
+ */
+function checkSharedCore(files, label) {
+  const core = files.node_modules?.files?.['@the-aios']?.files?.core?.files;
+  if (!core) return fail(`${label}: @the-aios/core is not in the shipped asar — main requires it at startup`);
+  const srcDir = path.join('packages', 'core', 'src');
+  if (!fs.existsSync(srcDir)) return fail(`${label}: ${srcDir} not found — run verify:package from the repo root`);
+  const modules = fs.readdirSync(srcDir).filter((f) => f.endsWith('.ts')).map((f) => f.slice(0, -3));
+  if (!modules.length) return fail(`${label}: no modules found in ${srcDir} — refusing to certify an empty list`);
+  const dist = core.dist?.files || {};
+  const missing = modules.filter((m) => !dist[`${m}.js`]);
+  if (missing.length) {
+    return fail(`${label}: @the-aios/core is in the asar without its compiled modules: ${missing.join(', ')} — was the package built before packaging?`);
+  }
+  if (!core['package.json']) return fail(`${label}: @the-aios/core is in the asar without its package.json — its subpath exports cannot resolve`);
+  const stray = ['test', '.test-out', 'node_modules'].filter((d) => core[d]);
+  if (stray.length) {
+    return fail(`${label}: @the-aios/core ships ${stray.join(', ')} inside the asar — only its build belongs there`);
+  }
+  ok(`${label}: @the-aios/core is in the asar with all ${modules.length} modules`);
 }
 
 /** Every packaged .app electron-builder just produced. */

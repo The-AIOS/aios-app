@@ -87,6 +87,9 @@ jobs:
       # Same discipline as the mac lane: the one place a release is cut is the one place
       # everything must pass. v0.7.0 was published while CI was red.
       - run: node --test --test-timeout=120000 "out/test/*.test.js"
+      # The shared package's own suite (packages/core): the tests that moved there with the modules
+      # ran in this job before, and still do.
+      - run: npm test -w @the-aios/core
 
       # Electron needs a display for verify-package's live launch check.
       - name: Build AppImage + deb, verify the packaged tree

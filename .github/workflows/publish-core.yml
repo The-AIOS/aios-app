@@ -1,0 +1,119 @@
+name: Publish @the-aios/core
+
+# The shared package (packages/core) goes to the public npm registry when a `core-v<version>` tag
+# is pushed. The App and Glass each depend on an exact version, so a release of the package is one
+# tag, with no manual publish step, and each surface moves to it in its own pull request.
+#
+# The tag series is its own. The App's releases are tagged `v*`; `core-v*` does not match that
+# pattern and `v*` does not match this one, so neither kind of tag starts the other's workflows.
+#
+# UNTIL THE NPM SCOPE EXISTS THIS WORKFLOW DOES NOTHING: it starts only on a `core-v*` tag or by
+# hand, and by hand it defaults to a dry run. Pull requests never run it; they prove the same
+# tarball through `pack:check` in ci.yml instead. What the maintainers set up once, and the two
+# ways to make the first publish, are in RELEASING.md ("Publishing @the-aios/core").
+on:
+  push:
+    tags: ['core-v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: build, test and pack, and publish nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write   # npm trusted publishing (OIDC): no stored token
+
+concurrency:
+  group: publish-core
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build · test · pack · publish
+    # A fork that pushes a core-v tag must not try to publish under this name.
+    if: github.repository == 'The-AIOS/aios-app'
+    # Same reason as the App's release lane (RELEASING.md): a credential, if one is ever stored
+    # for this, lives in the environment and is handed over only after the owner approves the run.
+    environment: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Trusted publishing needs npm 11.5.1 or later and Node 22.14 or later. Node 24 ships both.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false   # never a cache in a release build
+
+      # The workspace needs only the compiler. --ignore-scripts skips the Electron download and
+      # the native build of node-pty, neither of which the package uses.
+      - run: npm ci --ignore-scripts
+
+      - name: The tag must name the version being published
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="$(node -p "require('./packages/core/package.json').version")"
+          if [ "$TAG" != "core-v$VERSION" ]; then
+            echo "::error::Tag $TAG does not match packages/core/package.json ($VERSION). The tag for this version is core-v$VERSION."
+            exit 1
+          fi
+
+      # The same three gates a pull request runs, on the commit that is about to be published.
+      - run: npm run cases:check -w @the-aios/core
+      - run: npm test -w @the-aios/core
+      - run: npm run pack:check -w @the-aios/core
+
+      # Re-running the workflow for a tag, or re-pushing it, must not fail on a version that is
+      # already there. Only a clean "no such version" answer (E404) counts as new: any other
+      # failure of the lookup stops the job, because publishing on a guess is the wrong default.
+      - name: Is this version already on npm?
+        id: exists
+        run: |
+          VERSION="$(node -p "require('./packages/core/package.json').version")"
+          if OUT="$(npm view "@the-aios/core@$VERSION" version 2>&1)"; then
+            if [ "$OUT" = "$VERSION" ]; then
+              echo "@the-aios/core@$VERSION is already published; nothing to do."
+              echo "published=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "@the-aios/core@$VERSION is not on npm yet."
+              echo "published=false" >> "$GITHUB_OUTPUT"
+            fi
+          elif echo "$OUT" | grep -q 'E404'; then
+            echo "@the-aios/core@$VERSION is not on npm yet."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not ask npm whether $VERSION exists:"
+            echo "$OUT"
+            exit 1
+          fi
+
+      # OIDC is tried first and needs no secret. A token is used only if the maintainers stored one
+      # in the `release` environment as NPM_TOKEN (the route for a first publish, if npm will not
+      # take a trusted publisher for a package that does not exist yet). Absent, the variable is
+      # not set at all.
+      - name: Use a stored token only if there is one
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "NODE_AUTH_TOKEN=$NPM_TOKEN" >> "$GITHUB_ENV"
+            echo "A stored NPM_TOKEN is available as a fallback."
+          else
+            echo "No stored token: publishing by trusted publishing (OIDC) only."
+          fi
+
+      - name: Dry run (publish nothing)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm publish -w @the-aios/core --access public --dry-run
+
+      - name: Publish
+        if: steps.exists.outputs.published == 'false' && (github.event_name == 'push' || !inputs.dry_run)
+        run: npm publish -w @the-aios/core --access public

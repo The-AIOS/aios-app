@@ -28,6 +28,15 @@ jobs:
       - run: npm ci --ignore-scripts # skip electron download for unit-only
       - run: npm run compile
       - run: node --test --test-timeout=120000 "out/test/*.test.js"
+      # The shared package's own suite (packages/core): the tests that moved there with the modules
+      # ran in this job before, and still do.
+      - run: npm test -w @the-aios/core
+      # The package carries the framework's cases files as generated copies. Fetch them again at
+      # the locked commit and fail on any difference: nobody edits one by hand.
+      - run: npm run cases:check -w @the-aios/core
+      # And the tarball a version tag would publish: exactly the declared files, and every module
+      # loads from it the way a surface imports it. Nothing is published here.
+      - run: npm run pack:check -w @the-aios/core
       # The what's-new copy must describe THIS version. Cheap, no electron, so it belongs in the
       # linux job that already runs on every push and PR — the whole point is to be told while the
       # bump is still a diff someone is looking at, not at tag time when the notes are an
@@ -108,6 +117,9 @@ jobs:
       # now has a non-mac branch, and that branch shipped a literal "Ctrl+Plus" precisely because
       # nothing ever exercised it off macOS.
       - run: node --test --test-timeout=120000 "out/test/*.test.js"
+      # The shared package's own suite (packages/core): the tests that moved there with the modules
+      # ran in this job before, and still do.
+      - run: npm test -w @the-aios/core
 
       # Build both artifacts, then verify the SHIPPED tree — including a magic-number check that
       # node-pty's .node is genuinely ELF, and a launch of the packaged binary. Electron needs a
@@ -196,6 +208,9 @@ jobs:
       # lesson, one platform over). A directory arg, not a glob — Node's runner discovers *.test.js
       # under it identically whether npm invoked it through cmd.exe, pwsh, or bash.
       - run: node --test --test-timeout=120000 "out/test/*.test.js"
+      # The shared package's own suite (packages/core): the tests that moved there with the modules
+      # ran in this job before, and still do.
+      - run: npm test -w @the-aios/core
 
       # Build the nsis installer, then verify the SHIPPED tree — a PE .node, the ConPTY/winpty
       # helper set, and a launch of the packaged AIOS.exe --smoke. No xvfb: Windows runners have a
