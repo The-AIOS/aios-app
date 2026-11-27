@@ -382,6 +382,9 @@ export class PanelHost {
     const mem = aios.shellSettings().showMemory ? aios.sessionMemoryMB(running.map((a) => a.pid)) : {};
     const switches = this.modelSwitches();
     this.usage.prune(running.map((a) => a.sessionId));   // the cache follows the running list
+    /* #223: the pane each session runs under, so the TAB binds from the same tree walk the panel's list came from. Same input
+       listOperatorSessions() just walked, so this is its memoized answer, not a second `ps`. */
+    const paneOf = aios.paneOfSessions(aios.listRunningAgents().filter(aios.isOperatorSession));
     this.post({
       type: 'running',
       /* Review blocker 6: liveness ("(ended)") is judged against EVERY registered session,
@@ -396,7 +399,7 @@ export class PanelHost {
         this.noteHiddenWaiting(h, projOf);
         return h.map((a) => ({ name: a.name, id: a.sessionId, status: a.status, proj: projOf(a.cwd) }));
       })(),
-      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid], waitingFor: a.waitingFor, statusUpdatedAt: a.statusUpdatedAt, modelSwitch: switchParts(switches.get(a.sessionId), a.startedAt), used: (() => { const u = this.usageFor(a.sessionId); return u ? { chip: usageChip(u), skills: u.skills, agents: u.agents } : undefined; })() })),
+      running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), pane: paneOf.get(a.sessionId), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid], waitingFor: a.waitingFor, statusUpdatedAt: a.statusUpdatedAt, modelSwitch: switchParts(switches.get(a.sessionId), a.startedAt), used: (() => { const u = this.usageFor(a.sessionId); return u ? { chip: usageChip(u), skills: u.skills, agents: u.agents } : undefined; })() })),
       quota: rl
         ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
         : { has: false, fiveHour: 0, sevenDay: 0, showSwap: false, to: '' },

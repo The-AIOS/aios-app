@@ -146,6 +146,7 @@ const ptys = new Map<number, pty.IPty>();
 const PTY_TAIL_CHARS = 16384;
 const ptyTails = new Map<number, string>();
 aios.setPtyPidSource(() => [...ptys.values()].map((p) => p.pid));   // review blocker 6: pane membership from the tree
+aios.setPtyPaneLookup((pid) => { for (const [id, p] of ptys) if (p.pid === pid) return id; return undefined; });   // #223: and WHICH pane
 let nextId = 1;
 
 function createWindow(): BrowserWindow {

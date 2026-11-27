@@ -563,6 +563,19 @@ test('blocker 6: tree membership maps pty descendants to session ids (injected p
   } finally { aios.setPtyPidSource(() => []); }
 });
 
+test('#223: the same walk says WHICH pane each session is under, for the tab (injected ps table)', () => {
+  aios.setPtyPidSource(() => [100, 500]);
+  aios.setPtyPaneLookup((pid) => ({ 100: 7, 500: 9 } as Record<number, number>)[pid]);
+  try {
+    const running = [{ pid: 300, sessionId: 's-a' }, { pid: 600, sessionId: 's-b' }, { pid: 900, sessionId: 's-c' }] as never;
+    const table = '100 1\n200 100\n300 200\n500 1\n600 500\n900 1\n';   // 300 under pty 100 (via its shell), 600 under 500
+    assert.deepEqual([...aios.paneOfSessions(running, table)], [['s-a', 7], ['s-b', 9]],
+      'each session maps to its own pane; the one outside every pty (Terminal.app) maps to none');
+    assert.deepEqual([...aios.paneSessionIdsFromTree(running, table)].sort(), ['s-a', 's-b'],
+      'and the panel\'s membership is the same walk read the other way');
+  } finally { aios.setPtyPidSource(() => []); aios.setPtyPaneLookup(() => undefined); }
+});
+
 test('blocker 6: "(ended)" is judged against every registered session, not the filtered panel list', () => {
   const host = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main', 'panelHost.ts'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'app.js'), 'utf8');
