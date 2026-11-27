@@ -69,8 +69,8 @@ isn't our product's fault).
 
 ## Path B — CI release (durable; the version that ships publicly)
 
-Store the same credentials as **repository secrets** (Settings → Secrets →
-Actions):
+Store the credentials as secrets of the **`release` environment** (Settings →
+Environments → `release` → Environment secrets), never as repository secrets:
 
 | Secret | What |
 |---|---|
@@ -79,13 +79,29 @@ Actions):
 | `APPLE_ID` | Apple ID used for notarization |
 | `APPLE_APP_SPECIFIC_PASSWORD` | app-specific password for that Apple ID |
 | `APPLE_TEAM_ID` | the Developer Team ID that owns the certificate (`Pulsar Labs`) |
+| `ES_USERNAME`, `ES_PASSWORD`, `ES_CREDENTIAL_ID`, `ES_TOTP_SECRET` | SSL.com eSigner, for the Windows signature (`release-windows.yml`) |
 
-Then cut a release by pushing a version tag:
+**Why an environment.** Anyone with write access can push a branch, and a workflow on
+that branch can read every repository secret. An environment secret is handed only to
+a job that names the environment, and the `release` environment admits a job only when
+it runs from `main` or a `v*` tag, after the owner approves it. The four jobs that name
+it: `release.yml`, `release-linux.yml`, `release-windows.yml` and `canary.yml`.
+
+**Who can release.** Only the owner can create a `v*` tag (a tag ruleset), and only the
+owner can approve the `release` environment. Cut a release by pushing the annotated tag
+on the merge commit:
 
 ```bash
-npm version patch     # bumps package.json + creates the vX.Y.Z tag
-git push --follow-tags
+git tag -a vX.Y.Z -m "AIOS App X.Y.Z" <merge-commit>
+git push origin vX.Y.Z
 ```
+
+The tag starts three runs (macOS, Linux, Windows), and each waits for approval: open
+each run and choose *Review deployments* → `release` → *Approve and deploy*. Approve the
+three together. Linux and Windows wait 30 minutes for the macOS manifest, so a macOS run
+approved much later than the others makes them time out. Before approving a run you did
+not start yourself, read its branch and inputs on the run page: the Linux and Windows
+lanes take a `ref` input that builds any commit.
 
 `.github/workflows/release.yml` then, on `macos-14`:
 **build → Apple codesign + notarize → `verify-signing.mjs` → assert
@@ -144,10 +160,12 @@ and one branch per open PR.
 ## Canary — a signed build without cutting a version
 
 `.github/workflows/canary.yml` (manual `workflow_dispatch`) builds a **signed +
-notarized arm64 `.dmg` from any branch**, verifies it, and uploads it as a
+notarized arm64 `.dmg` from `main`**, verifies it, and uploads it as a
 **7-day Actions artifact** — no tag, no Release, no updater feed. Use it to hand
 a non-technical tester a Gatekeeper-clean build to try without touching the version or
-the auto-update channel.
+the auto-update channel. It reads the signing secrets, so it runs in the `release`
+environment: from `main` only (other branches are refused) and after the owner
+approves the run. A branch build for a tester is a local signed build (Path A).
 
 ## If signing or launch fails — entitlements
 

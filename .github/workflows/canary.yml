@@ -1,6 +1,6 @@
 name: Canary
 
-# A signed + notarized DMG built from ANY branch on demand — no tag, no Release,
+# A signed + notarized DMG built from main on demand — no tag, no Release,
 # no updater feed. Buzz port #5: hand a non-technical tester a real,
 # Gatekeeper-clean build to try WITHOUT cutting a version or touching the
 # auto-update channel. The artifact self-expires in 7 days.
@@ -8,7 +8,8 @@ name: Canary
 # arm64-only, deliberately: the target tester's machine is Apple Silicon, and a
 # single arch roughly halves build + notarize time. (Release builds ship both.)
 #
-# Uses the same Apple secrets as release.yml — see RELEASING.md.
+# Uses the same Apple secrets as release.yml, from the `release` environment, which
+# admits only main and v* tags — so a branch build is a local one (RELEASING.md, Path A).
 
 on:
   workflow_dispatch:
@@ -19,6 +20,9 @@ permissions:
 jobs:
   canary:
     name: Signed canary (Apple Silicon)
+    # The signing secrets live in the `release` environment, not the repository: GitHub gives them
+    # to this job only on main or a v* tag, and only after the owner approves the run (RELEASING.md).
+    environment: release
     runs-on: macos-15
     timeout-minutes: 60   # a hang fails in minutes, never GitHub's 6 h cancel (0.13.0 review)
     steps:
