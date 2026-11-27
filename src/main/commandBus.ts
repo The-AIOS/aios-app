@@ -34,6 +34,7 @@ import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from 
 import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
+import { startInboxSweep, addresseeRunning, unclaimedReason } from './inboxSweep';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -1204,7 +1205,7 @@ function claim(fsPath: string): { heldPath: string; req: BusRequest; at: number;
        untaken. The second is the one worth naming precisely — a sibling had its chance. */
     const why = tried.includes(myId)
       ? `handed back for a sibling ${Math.round(ageMs / 60000)} min ago and no other surface took it`
-      : `addressed to '${req.surface}' but unclaimed for ${Math.round(ageMs / 60000)} min`;
+      : unclaimedReason(String(req.surface), ageMs, addresseeRunning(String(req.surface), pidAlive));
     markUndelivered(fsPath, req, why);
     return undefined;
   }
@@ -1375,5 +1376,10 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   /* Periodically too, not only at startup (review should-fix 8): a hold left by a surface that died
      would otherwise block its target for the whole 24 h ceiling. canAdoptHold never takes a live one. */
   setInterval(() => adoptHolds(getWin, dir), 5 * 60 * 1000);
+  /* And the waiting `*.json` themselves, every minute (#218). A request this App skips — addressed
+     to another surface, or handed back by an earlier run of this App — sends no further file event,
+     so without this nothing asks `claimVerdict` again and its `retire` is never reached. Same
+     consume as the watcher: one set of rules, and the claim is still one atomic rename. */
+  startInboxSweep(dir, (p) => consume(getWin, p));
   log(`watching ${dir} (contract ${INBOX_CONTRACT}, surface '${MY_SURFACE}')`);
 }
