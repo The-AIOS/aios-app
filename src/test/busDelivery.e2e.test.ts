@@ -19,13 +19,13 @@ if (!pty && process.platform === 'darwin') {
    WITHOUT its execute bit (node-pty 1.1.0), and every spawn then dies with a bare
    "posix_spawnp failed." that names neither the file nor the fix. Same policy as the load check
    above: on darwin this is an error, never a skip — a skip would silently retire these tests on
-   every fresh checkout. The helper is resolved the way node-pty resolves it: the first of its
-   native folders that holds pty.node. */
+   every fresh checkout. The helper is resolved the way node-pty resolves it (lib/utils.js
+   loadNativeModule, unbundled layout): the first of its native folders whose pty.node LOADS. */
 function spawnHelperProblem(): string | null {
   if (!pty || process.platform !== 'darwin') return null;
   const root = path.resolve(path.dirname(require.resolve('node-pty')), '..');
   for (const dir of ['build/Release', 'build/Debug', `prebuilds/${process.platform}-${process.arch}`]) {
-    if (!fs.existsSync(path.join(root, dir, 'pty.node'))) continue;
+    try { require(path.join(root, dir, 'pty.node')); } catch { continue; }
     const helper = path.join(root, dir, 'spawn-helper');
     if (!fs.existsSync(helper)) return `node-pty's spawn-helper is missing at ${helper}. Run: npx electron-rebuild -f -w node-pty`;
     try { fs.accessSync(helper, fs.constants.X_OK); return null; }
@@ -68,13 +68,16 @@ import { INLINE_LIMIT, needsPointer, pointerText, byteLength } from '../core/bus
    setup. Waiting longer could not fix that, and it could not tell a slow machine from a lost tail.
 
    So, three stages, each with a generous ceiling and a red that names the stage:
-     1. READY — the shell prints a marker AFTER stty; nothing is written until it is seen.
+     1. READY — the shell prints a marker only once `stty` succeeded AND the tty reports
+        `-icanon`; nothing is written until it is seen.
      2. FENCE — a short marker written right after the payload, in a second write. A raw pty is
         FIFO: once the fence is back, everything before it that was going to come back has.
         "Fence back, tail missing" is therefore a PROVEN loss, decided in milliseconds.
      3. What is compared is only what came back between the two markers.
-   A ceiling that runs out is reported as a timeout of that stage, never as a lost tail. Measured
-   on a loaded machine (1-min load 17-18): ready in 9 ms p50 / 30 ms max, tail 3 ms after the write. */
+   A fence that never comes back is NOT a pass and NOT an excuse: a pty that fell back to canonical
+   mode swallows the fence together with the tail (neither ends in a newline), so that red names
+   both causes — a stalled channel, or the lost-tail bug itself. Measured on a loaded machine
+   (1-min load 17-18): ready in 9 ms p50 / 30 ms max, tail 3 ms after the write. */
 const READY = '<<aios-pty-ready>>';
 const FENCE = '<<aios-pty-fence>>';
 const CEILING_MS = 10_000;
@@ -93,7 +96,8 @@ interface RoundTripOptions {
 function roundTrip(payload: string, opts: RoundTripOptions = {}): Promise<string> {
   const { mutate = (s: string) => s, prelude = '', reader = 'cat', ceilingMs = CEILING_MS } = opts;
   return new Promise((resolve, reject) => {
-    const p = pty!.spawn('/bin/sh', ['-c', `${prelude}stty raw -echo; printf '%s' '${READY}'; ${reader}`], {
+    const raw = `stty raw -echo && stty -a | grep -q -- '-icanon'`;   // raw mode applied, and the tty says so
+    const p = pty!.spawn('/bin/sh', ['-c', `${prelude}${raw} && printf '%s' '${READY}' && ${reader}`], {
       name: 'xterm-256color', cols: 200, rows: 50,
     });
     let got = '';
@@ -109,13 +113,16 @@ function roundTrip(payload: string, opts: RoundTripOptions = {}): Promise<string
     const afterReady = () => got.slice(got.indexOf(READY) + READY.length);
     const timer = setTimeout(() => settle(() => reject(new Error(written
       ? `PTY CHANNEL TIMEOUT — the fence written after the payload did not come back within ${ceilingMs} ms `
-        + `(${byteLength(afterReady())} payload bytes back of ${byteLength(mutate(payload))} written). `
-        + 'A stalled channel or machine, not a proven lost tail.'
+        + `(${byteLength(afterReady())} payload bytes back of ${byteLength(mutate(payload))} written; `
+        + `head ${afterReady().includes(payload.slice(0, 16)) ? 'back' : 'not back'}). Two causes fit: a stalled `
+        + 'channel or machine, or the pty left raw mode and its line discipline swallowed the tail with '
+        + 'the fence — the lost-tail bug this file guards. Not a pass either way.'
       : `PTY SETUP TIMEOUT — the shell did not report raw mode within ${ceilingMs} ms `
         + `(${byteLength(got)} bytes of output so far). Nothing was written; this is not the lost-tail bug.`))), ceilingMs);
-    p.onExit(({ exitCode }) => settle(() => reject(new Error(
-      `PTY EXITED — the shell exited (code ${exitCode}) before the ${written ? 'fence came back' : 'ready marker'}; `
-      + `${byteLength(got)} bytes of output.`))));
+    p.onExit(({ exitCode }) => settle(() => reject(new Error(written
+      ? `PTY EXITED — the shell exited (code ${exitCode}) before the fence came back; ${byteLength(afterReady())} payload bytes back.`
+      : `PTY EXITED — the shell exited (code ${exitCode}) before confirming raw mode; nothing was written, `
+        + 'so this is a setup failure, not the lost-tail bug.'))));
     p.onData((d) => {
       got += d;
       if (!written && got.includes(READY)) {
@@ -188,6 +195,22 @@ test('E2E HARNESS: a shell slow to reach raw mode still gets the whole message',
 
 test('E2E HARNESS: a shell that never reaches raw mode is reported as a setup timeout, not a lost tail', { skip }, async () => {
   await assert.rejects(roundTrip('probe', { prelude: 'sleep 5; ', ceilingMs: 300 }), /PTY SETUP TIMEOUT/);
+});
+
+test('E2E HARNESS: a failed `stty` never lets the payload be written into a canonical pty', { skip }, async () => {
+  // `stty` shadowed by a failing function: raw mode is never reached, so READY must never print
+  // and nothing may be written — a setup failure, not a write into the line discipline.
+  await assert.rejects(roundTrip('probe', { prelude: 'stty() { return 1; }; ', ceilingMs: 2000 }),
+    /PTY EXITED — the shell exited \(code \d+\) before confirming raw mode; nothing was written/);
+});
+
+test('E2E HARNESS: a pty that falls back to canonical mode is a red that names the lost-tail bug', { skip }, async () => {
+  /* The original bug's shape, through this harness: the reader turns canonical mode back on after
+     READY, so the 2.6 KB line (no newline) is held by the line discipline and neither the tail nor
+     the fence ever reaches `cat`. That must be red — and its message must not blame the machine alone. */
+  const sent = 'AI66-HEAD ' + 'x'.repeat(2600) + ' AI66-TAIL-do-NOT-push';
+  await assert.rejects(roundTrip(sent, { reader: 'stty icanon; cat', ceilingMs: 500 }),
+    /PTY CHANNEL TIMEOUT[\s\S]*the lost-tail bug this file guards/);
 });
 
 test('E2E HARNESS: a channel that never answers is reported as a channel timeout, not a lost tail', { skip }, async () => {
