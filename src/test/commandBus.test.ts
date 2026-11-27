@@ -21,11 +21,13 @@ test('sanitizeName: kebab handle, matches the app + Glass sanitizer', () => {
   assert.equal(sanitizeName(undefined), '');
 });
 
-test('whitelistModel: only claude-* ids pass; injection is dropped', () => {
+test('whitelistModel: one strict shape; an alias and a [1m] id pass, injection does not', () => {
   assert.equal(whitelistModel('claude-opus-4-8'), 'claude-opus-4-8');
   assert.equal(whitelistModel('claude-sonnet-5'), 'claude-sonnet-5');
+  /* #230: these two were dropped in silence by the old `^claude-` rule. */
+  assert.equal(whitelistModel('opus'), 'opus');
+  assert.equal(whitelistModel('claude-opus-4-8[1m]'), 'claude-opus-4-8[1m]');
   assert.equal(whitelistModel('rm -rf /'), undefined);
-  assert.equal(whitelistModel('gpt-4'), undefined);
   assert.equal(whitelistModel('claude-opus; whoami'), undefined);
   assert.equal(whitelistModel(''), undefined);
 });
@@ -135,10 +137,14 @@ test('an unresolvable rung REFUSES the spawn — defaulting on a typo is the bug
   assert.match(main, /if \('error' in r\) \{ markUndelivered\(heldPath, req, r\.error\); return; \}/);
   // a missing hook is the same class as a bad rung: refuse, and say how to get it
   assert.match(main, /is missing — run \/aios:update to sync it/);
-  // empty resolution is a REAL answer, kept distinct from failure
-  assert.match(main, /return model \? \{ model \} : \{\};/);
+  // empty resolution is a REAL answer, kept distinct from failure: decided in core/tierResolve
+  // (#230), where every branch is exercised by workerModel.test.ts; main only runs the script
+  assert.match(main, /return resolveTierWith\(tier, \(args\) =>/);
   // explicit model wins, exactly as the wrapper does it
-  assert.match(main, /let model = req\.model;\s*\n\s*if \(!model && req\.tier\)/);
+  assert.match(main, /let model = req\.model;/);
+  assert.match(main, /if \(model\) \{ \/\* the caller's pin stands \*\/ \}/);
+  // and a tier written beside a model is still put to the script (#230): unknown is refused, not ignored
+  assert.match(main, /if \(req\.tier\) \{\s*\n\s*const r = resolveTier\(req\.tier\);\s*\n\s*if \('error' in r\)/);
 });
 
 test('parseRequest: spawn is the default action (back-compat {name,task})', () => {

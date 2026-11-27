@@ -80,12 +80,16 @@ test('B · resolveTier finds an interpreter, and refuses by NAME when it cannot'
 
   /* THE FOUR CONTRACT BRANCHES SURVIVE — they are the value in that function, not the interpreter.
      Empty-at-exit-0 is a real answer (inherit the default) and must never become --model "". */
-  assert.match(bus, /return model \? \{ model \} : \{\};/, 'empty + exit 0 passes NO flag');
+  /* Since #230 the answers are read in core/tierResolve (pure; workerModel.test.ts runs every branch):
+     empty at exit 0 asks the script what the launcher starts, and without that answer passes NO flag. */
+  const core = fs.readFileSync('src/core/tierResolve.ts', 'utf8');
+  assert.match(bus, /return resolveTierWith\(tier, \(args\) =>/, 'main hands the script\'s answers to the core');
+  assert.match(core, /if \(launch\.status !== 0\) \{\s*\n\s*return \{ note:/, 'no answer to the second question passes NO flag');
   assert.match(bus, /is missing — run \/aios:update/, 'an absent hook still refuses and says how to get it');
-  assert.match(bus, /rejected \(exit \$\{err\.status \?\? '\?'\}\)/, 'a non-zero exit still quotes the script');
+  assert.match(core, /rejected \(exit \$\{plain\.status\}\)/, 'a non-zero exit still quotes the script');
 
   /* The interpreter is used, not merely computed — the shape of a fix that looks done and is not. */
-  assert.match(bus, /execFileSync\(bash, \[hook, tier\]/, 'the resolved interpreter must be the one invoked');
+  assert.match(bus, /execFileSync\(bash, \[hook, \.\.\.args\]/, 'the resolved interpreter must be the one invoked');
   assert.doesNotMatch(codeOf(bus), /execFileSync\('bash', \[hook/, 'the bare word must be gone from the call');
 });
 
