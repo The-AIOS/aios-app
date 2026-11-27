@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { parseAvailability, rowsFromUserMd, nextDestination, canSwitchTo, rowLabel } from '../core/accounts';
+import { parseAvailability, rowsFromUserMd, nextDestination, canSwitchTo, rowLabel } from '../src/accounts';
 
 const REAL = JSON.stringify([
   {

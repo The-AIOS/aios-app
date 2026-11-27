@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countDeliveries } from '../core/sendQueue';
+import { countDeliveries } from '@the-aios/core/sendQueue';
 import { landedBeforeRetype } from '../main/retypeGuard';
 
 /* 26 Oct 2026: one send, a target that went busy during verification, then a second copy typed

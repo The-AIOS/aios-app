@@ -1,7 +1,7 @@
 {
  "contract": 4,
  "amendment": "a send waits for its target's next idle, in order, newer-from-same-sender supersedes, aged",
- "status": "proposed to canonical; run by both surfaces",
+ "status": "canonical (adopted in v0.8.9 beside inbox-contract-4.conformance.json); run by both surfaces",
  "cases": [
   {
    "case": "a live busy target is held past 30 min (the old death)",

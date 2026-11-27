@@ -25,13 +25,15 @@ function walk(dir: string): string[] {
 function candidates(): string[] {
   let files: string[];
   try {
-    files = execFileSync('git', ['ls-files', '-z', '--', 'src', 'renderer', '*.md'], { cwd: ROOT, encoding: 'utf8' })
+    files = execFileSync('git', ['ls-files', '-z', '--', 'src', 'renderer', 'packages', '*.md'], { cwd: ROOT, encoding: 'utf8' })
       .split('\0').filter(Boolean);
   } catch {
-    files = [...walk('src'), ...walk('renderer'),
+    /* The package's own sources and tests only: its build output and node_modules are not ours
+       to scan, and `git ls-files` above never lists them. */
+    files = [...walk('src'), ...walk('renderer'), ...walk('packages/core/src'), ...walk('packages/core/test'),
       ...fs.readdirSync(ROOT).filter((f) => f.endsWith('.md'))];
   }
-  return files.filter((f) => (f.startsWith('src/') || f.startsWith('renderer/') || !f.includes('/'))
+  return files.filter((f) => (f.startsWith('src/') || f.startsWith('renderer/') || f.startsWith('packages/') || !f.includes('/'))
     && f !== 'CHANGELOG.md' && fs.existsSync(path.join(ROOT, f)));
 }
 
@@ -41,10 +43,11 @@ test('the tracking-key pattern matches a key (control)', () => {
   assert.doesNotMatch('AIOS-123 and CHAI-12 and AI-1', KEY);
 });
 
-test('no internal tracking keys in src/, renderer/ or the root docs (CHANGELOG excepted)', () => {
+test('no internal tracking keys in src/, renderer/, packages/ or the root docs (CHANGELOG excepted)', () => {
   const files = candidates();
   assert.ok(files.some((f) => f === 'renderer/app.js'), 'the file list must include renderer/app.js');
   assert.ok(files.some((f) => f.startsWith('src/main/')), 'the file list must include src/main');
+  assert.ok(files.some((f) => f === 'packages/core/src/sendQueue.ts'), 'the file list must include the shared package');
   const hits: string[] = [];
   for (const f of files) {
     const lines = fs.readFileSync(path.join(ROOT, f), 'utf8').split('\n');

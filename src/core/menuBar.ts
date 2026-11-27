@@ -11,7 +11,7 @@
  *    Labels are NOT decided here: the caller translates the state keys, so the model stays a
  *    stable value that can be compared tick to tick (the menu is rebuilt only when it changes).
  */
-import { isBlockedStatus } from './attention';
+import { isBlockedStatus } from '@the-aios/core/attention';
 
 export type SessionState = 'busy' | 'input' | 'error' | 'idle';
 

@@ -1,5 +1,5 @@
-import { usageChip, type ToolUsage } from '../core/toolUse';
-import { UsageReader } from '../core/usageReader';
+import { usageChip, type ToolUsage } from '@the-aios/core/toolUse';
+import { UsageReader } from '@the-aios/core/usageReader';
 import { fsUsageIo } from './usageIo';
 import { latestSwitches, switchParts, type ModelSwitch } from '../core/modelSwitch';
 import { parseProgramStatus, overlayProgramStatus, type ProgramStatus } from '../core/programStatus';
@@ -23,7 +23,7 @@ const gitIn = (vault: string): GitRun => (args) => new Promise((res) => {
 });
 import { t } from '../i18n';
 import { Attention } from './attention';
-import { sessionKey } from '../core/attention';
+import { sessionKey } from '@the-aios/core/attention';
 
 /* Where panel notes go. main.ts points this at the bus trail (the log an operator already sends);
    a hook rather than an import, so loading the panel never drags in the command bus. */

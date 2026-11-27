@@ -4,7 +4,7 @@
  * PowerShell for long, and an answer it could not read is `undefined`, which keeps the old
  * behaviour (signal 0 decides) rather than declaring a live session dead. */
 import { execFile } from 'child_process';
-import { parseLstartUtc } from '../core/procStart';
+import { parseLstartUtc } from '@the-aios/core/procStart';
 
 /* A pid's start time cannot change while that pid lives, so caching longer is never wrong in
    the unsafe direction: a pid reused inside the window keeps its old answer, which is the old

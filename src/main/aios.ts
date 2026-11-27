@@ -1,11 +1,11 @@
-import { freshness, parseLsRemote } from '../core/freshness';
-import { nudgeShort } from '../core/nudgeCommand';
+import { freshness, parseLsRemote } from '@the-aios/core/freshness';
+import { nudgeShort } from '@the-aios/core/nudgeCommand';
 import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
-import { identityNamesIn } from '../core/sessionName';
-import { identityRowsIn, choosePrimaryIdentity, type IdentityRow } from '../core/primaryIdentity';
-import { routineRows, type RoutineRow } from '../core/routineHealth';
+import { identityNamesIn } from '@the-aios/core/sessionName';
+import { identityRowsIn, choosePrimaryIdentity, type IdentityRow } from '@the-aios/core/primaryIdentity';
+import { routineRows, type RoutineRow } from '@the-aios/core/routineHealth';
 import { runDir, writePrivateFile } from './privateRun';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -16,24 +16,24 @@ import type { CaffeinateMode } from '../core/caffeinate';
 import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { resolveBash } from './resolveBash';
-import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '../core/accounts';
-import { parseFrontmatter } from '../core/frontmatter';
-import { ttlMemo } from '../core/memo';
+import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '@the-aios/core/accounts';
+import { parseFrontmatter } from '@the-aios/core/frontmatter';
+import { ttlMemo } from '@the-aios/core/memo';
 import { backgroundScan } from '../core/backgroundScan';
 import { isRunnable, unverifiable, parsePlan, triage, diagnosticsReport, type ToolPlan, type Triage } from '../core/setupDiagnose';
 import { deriveOnboarding, type OnboardingDerived } from '../core/onboarding';
 import { FINISH_SETUP_IDS, needsFinishSetup, runFinishSetup, pluginRepairArgv, missingHooks, oneLine, type FinishSetupOutcome } from '../core/finishSetup';
 import { pickGit } from '../core/gitResolve';
-import { recordedStart, sameProcessStart } from '../core/procStart';
+import { recordedStart, sameProcessStart } from '@the-aios/core/procStart';
 import { processStartMs, cachedStartMs } from './procStartProbe';
 import { exportOpenMode, type ExportOpenMode } from './exportOpen';
-import { normalizeNotifyLevel, sessionKey, type NotifyLevel } from '../core/attention';
+import { normalizeNotifyLevel, sessionKey, type NotifyLevel } from '@the-aios/core/attention';
 import { isWritten, isPersonalized, missingEvidence, hasPlaceholders, type PersonalizationEvidence } from '../core/personalized';
 import personaPersonal from './personas/personal-family.json';
 import personaFounder from './personas/founder-operator.json';
 import { FOLDER_SORT_KEY, MASTER_SORT_KEY, normalizeSortMode, setFolderSort, type FolderSortMap, type SortMode } from '../core/sort';
 import { t, setLocale, normalizeLocale, normalizeLocalePref, type Locale, type LocalePref } from '../i18n';
-import { claudeLanguageChoice, claudeLanguageSuggestion } from '../core/claudeLanguage';
+import { claudeLanguageChoice, claudeLanguageSuggestion } from '@the-aios/core/claudeLanguage';
 
 /**
  * The shell's AIOS data layer — faithful ports of the extension's fs-only

@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { pickBash, gitBashCandidates } from '../core/bashResolve';
+import { pickBash, gitBashCandidates } from '../src/bashResolve';
 
 const never = () => false;
 const only = (...ok: string[]) => (p: string) => ok.includes(p);

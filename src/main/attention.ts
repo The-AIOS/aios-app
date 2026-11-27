@@ -22,7 +22,7 @@ import { app, Notification } from 'electron';
 import {
   attentionTick, markNotified, badgeText, mayBanner, sessionKey,
   EMPTY_ATTENTION, type AttentionState, type NotifyLevel,
-} from '../core/attention';
+} from '@the-aios/core/attention';
 import type { RunningAgent } from './aios';
 import { t } from '../i18n';
 

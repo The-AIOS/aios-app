@@ -1,0 +1,16 @@
+{
+  "repo": "The-AIOS/aios",
+  "commit": "8714b6cf0e78e390d714c8ba0ea8710049734929",
+  "files": [
+    {
+      "from": "skills/aios/orchestration-ladder/inbox-contract-4.conformance.json",
+      "to": "inbox-contract-4.conformance.json",
+      "sha256": "6c7ac9363a184af859bc6538b5b9b7da055214b6669eaff4f0266b01fe6dda7d"
+    },
+    {
+      "from": "skills/aios/orchestration-ladder/inbox-queue.conformance.json",
+      "to": "inbox-queue.conformance.json",
+      "sha256": "76765dd338d6e07ba8b581993f504735ec25b396c124ba09c5be23d968e32036"
+    }
+  ]
+}

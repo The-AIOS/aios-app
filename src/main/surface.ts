@@ -1,4 +1,4 @@
-import type { Surface } from '../core/sendQueue';
+import type { Surface } from '@the-aios/core/sendQueue';
 
 /**
  * This build's identity as a fulfiller.

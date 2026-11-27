@@ -12,12 +12,12 @@ import { createStreamTracker, sameMessage, normalizeForMatch, type StreamTracker
 import { mergeStatus, parseStatuslinePayload, scopeStatusToSession } from '../core/chatEvents';
 import { builtinCommands, slashSuggestions, type SlashCommand } from '../core/slashCommands';
 import { mentionAt, rankMentions } from '../core/fileMention';
-import { busFingerprint } from '../core/busLog';
+import { busFingerprint } from '@the-aios/core/busLog';
 import { busLogPath } from './busSent';
 import { listSlashCommands } from './slashCommandsIo';
 import { resolvedTheme, WINDOW_BG } from '../core/theme';
 import { plainText } from '../core/plainText';
-import { askSessionName, uniqueName } from '../core/sessionName';
+import { askSessionName, uniqueName } from '@the-aios/core/sessionName';
 import { runDir } from './privateRun';   // legacy snapshot sweep only; new files go through handoffDir
 import { speakable, lastAnswer, guessLang } from '../core/speakable';
 import { answerPlain } from '../core/answerPlain';
@@ -39,7 +39,7 @@ import { installMenu } from './menu';
 import { MenuBar } from './menuBar';
 import { sanitizeGroups, type MenuBarGroup } from '../core/menuBar';
 import { QuickBar, writeAskRequest } from './quickBar';
-import { isBlockedStatus } from '../core/attention';
+import { isBlockedStatus } from '@the-aios/core/attention';
 import type { QuickBarDestination } from '../core/quickBar';
 import { initCommandBus, appLog, inboxDir, reportTrustBlocked, clearTrustBlocked } from './commandBus';
 import { watchesForTrust, isTrustPrompt, plainForTrust, TRUST_WATCH_MS, trustSessionStarted } from '../core/trustPrompt';
@@ -59,7 +59,7 @@ import { resolveOne, resolveMany, RESOLVE_PATHS_LIMIT } from './pathResolve';
 import * as connectors from './connectors';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { nameStartedBy, heldElsewhere } from '../core/nameHolder';
+import { nameStartedBy, heldElsewhere } from '@the-aios/core/nameHolder';
 
 /**
  * Glass Shell — walking skeleton. Window + the shared Glass panel + ONE real

@@ -1,7 +1,7 @@
 /** Review nit — a superseded message leaves a record the sender can find, never a silent deletion. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { supersededName, supersededBody, SUPERSEDED_KEEP_MS } from '../core/supersede';
+import { supersededName, supersededBody, SUPERSEDED_KEEP_MS } from '../src/supersede';
 
 test('the archived record keeps the request and names what replaced it', () => {
   assert.equal(supersededName('buddai-brief.json.holding'), 'buddai-brief.json.superseded');

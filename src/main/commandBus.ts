@@ -9,14 +9,14 @@ import { resolveBash } from './resolveBash';
 import { parseRequest, buildSpawnCmd, buildResumeCmd, needsTaskFile, taskFileInstruction, fallbackSpawnRequest, type BusRequest } from '../core/commandBus';
 import { recordTyped } from './busSent';
 import { settingsToFile } from './advisorFile';
-import { contract4LaunchArgs, cleanFrom, advisorModelFor } from '../core/contract4';
+import { contract4LaunchArgs, cleanFrom, advisorModelFor } from '@the-aios/core/contract4';
 import { needsConsultBlock, ADVISOR_CONSULT_BLOCK } from '../core/advisor';
-import { normalizeVerb } from '../core/busVerbs';
+import { normalizeVerb } from '@the-aios/core/busVerbs';
 import { ResumeIndex } from './resumeIndex';
-import { staleResumeName } from '../core/resumeTarget';
+import { staleResumeName } from '@the-aios/core/resumeTarget';
 import { trustBlockedReason } from '../core/trustPrompt';
-import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '../core/supersede';
-import { resolveSessionName, resolveFormerName, sessionKey } from '../core/nameMatch';
+import { supersededName, supersededBody, SUPERSEDED_SUFFIX, SUPERSEDED_KEEP_MS } from '@the-aios/core/supersede';
+import { resolveSessionName, resolveFormerName, sessionKey } from '@the-aios/core/nameMatch';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import { decideKill, KILL_EXPECT_CAPABILITY } from '../core/killGuard';
 import {
@@ -25,11 +25,11 @@ import {
   shouldReleaseForSibling, countDeliveries, verifyVerdict, isDeliverable, maxAttemptsFor,
   triedBy, withTried, fulfillerId, type SendTarget,
   queueTurn, stampAge, withQueuedAt, queuedAtOf, isQueuedDelivery, supersedes, type QueuedSend,
-} from '../core/sendQueue';
+} from '@the-aios/core/sendQueue';
 import { landedBeforeRetype, operatorComposing, hasPromptStash, composeStaleMs } from './retypeGuard';
-import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presence';
+import { parsePresenceRecord, presenceVerdict, mayRetract } from '@the-aios/core/presence';
 import { MY_SURFACE } from './surface';
-import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '../core/busPayload';
+import { needsPointer, pointerText, byteLength, isStalePayload, INLINE_LIMIT } from '@the-aios/core/busPayload';
 import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from './transcriptSince';
 import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file

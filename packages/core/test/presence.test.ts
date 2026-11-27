@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePresenceRecord, presenceVerdict, mayRetract } from '../core/presence';
+import { parsePresenceRecord, presenceVerdict, mayRetract } from '../src/presence';
 
 const ALIVE = (...pids: number[]) => (p: number): boolean => pids.includes(p);
 const NOBODY = (): boolean => false;

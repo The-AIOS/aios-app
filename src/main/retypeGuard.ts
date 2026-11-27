@@ -1,4 +1,4 @@
-import { verifyVerdict } from '../core/sendQueue';
+import { verifyVerdict } from '@the-aios/core/sendQueue';
 
 /**
  * Re-type, or has the earlier type already landed? Asked right before EVERY re-type.

@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentNamesIn, latestAgentName, pickResume, isSafeSessionId, staleResumeName, type ResumeCandidate } from '../core/resumeTarget';
+import { agentNamesIn, latestAgentName, pickResume, isSafeSessionId, staleResumeName, type ResumeCandidate } from '@the-aios/core/resumeTarget';
 import { parseRequest, buildResumeCmd, buildSpawnCmd } from '../core/commandBus';
 
 const rec = (name: string, sid = 's1') =>
