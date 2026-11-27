@@ -1275,19 +1275,23 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
   try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
 }
 /* A flood (20 open requests a minute): each extra request is removed WITHOUT a dead letter of its
-   own, so a flood cannot bury the dead letters that matter; one dead letter a minute says how many. */
+   own, so a flood cannot bury the dead letters that matter. The newest dropped request is kept, held,
+   and a minute after the flood's first drop it becomes ONE dead letter with the full count, so the
+   number reaches the session that flooded. */
 let floodDropped = 0;
-let floodLetterAt = 0;
+let floodKept: { heldPath: string; req: BusRequest } | null = null;
+let floodTimer: NodeJS.Timeout | null = null;
 function noteFlood(heldPath: string, req: BusRequest): void {
-  const now = Date.now();
-  floodDropped++;   // carried until the next notice, so a flood's tail is counted there
-  if (now - floodLetterAt >= 60_000) {
-    floodLetterAt = now;
-    markUndelivered(heldPath, req, `open refused (flood): ${floodDropped} open request(s) dropped since the last notice; more than 20 a minute are not shown`);
-    floodDropped = 0;
-    return;
-  }
-  try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+  floodDropped++;
+  if (floodKept) { try { fs.unlinkSync(floodKept.heldPath); } catch { /* already gone */ } }
+  floodKept = { heldPath, req };
+  if (floodTimer) return;
+  floodTimer = setTimeout(() => {
+    const k = floodKept; const n = floodDropped;
+    floodTimer = null; floodKept = null; floodDropped = 0;
+    if (k) markUndelivered(k.heldPath, k.req, `open refused (flood): ${n} open request(s) dropped in the last minute; more than 20 a minute are not shown`);
+  }, 60_000);
+  floodTimer.unref?.();
 }
 /* A local image in a note a session opened is shown only when it passes the same checks as the note
    itself (inside the roots once resolved, not a secret by name, one link). Remote images keep waiting
