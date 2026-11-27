@@ -54,9 +54,13 @@ test('runOpen counts every decision except a too-old one, refused ones included,
   assert.ok(remember > 0 && refuse > remember);
 });
 
-test('the content shown is read by main, from the file the decision checked', () => {
-  assert.match(runOpen, /readChecked\(d\.path, d\.identity, \{ roots: openRoots \}\)/);
-  assert.match(runOpen, /emit\(win\(\), 'openFile', \{[^}]*bus: true[^}]*content[^}]*\}\)/);
+test('the content shown is read by main, from the file the decision checked, images and PDFs as bytes', () => {
+  assert.match(runOpen, /readChecked\(d\.path, d\.identity, \{ roots: openRoots, asBytes: asset \}\)/);
+  assert.match(runOpen, /emit\(w, 'openFile', \{[^}]*bus: true[^}]*\n?[^}]*content: asset \? undefined : String\(r\.content\), bytes: asset \? new Uint8Array/);
+  assert.match(viewer, /const roBlob = ro && o\.asset && o\.bytes \? URL\.createObjectURL\(new Blob\(\[o\.bytes\]/);
+  assert.match(viewer, /img\.src = roBlob \|\| fileUrl\(file\.path\);/);
+  assert.match(viewer, /fr\.src = roBlob \|\| fileUrl\(file\.path\);/, 'a PDF too');
+  assert.match(runOpen, /if \(!w \|\| w\.isDestroyed\(\)\) \{ markUndelivered\(/, 'no window is a dead letter, not a silent success');
 });
 
 test('nothing a session asked for is handed to the desktop, and the window is never raised', () => {
@@ -68,25 +72,39 @@ test('nothing a session asked for is handed to the desktop, and the window is ne
 test('the age is this App\'s own clock from first sight, never the file\'s timestamps', () => {
   assert.doesNotMatch(runOpen, /mtime|statSync/);
   const consume = between(bus, 'function consume(', '\n}');
-  assert.match(consume, /firstSeen\.set\(fsPath, Date\.now\(\)\)/);
-  assert.match(consume, /if \(draining\) presentAtStart\.add\(fsPath\);/);
+  assert.match(consume, /firstSeen\.set\(fsPath, \{ ino, at: Date\.now\(\) \}\)/);
+  assert.match(consume, /if \(draining \|\| recovered\) presentAtStart\.add\(fsPath\);/);
   const drain = between(bus, 'draining = true;', 'draining = false;');
   assert.match(drain, /if \(f\.endsWith\('\.json'\)\) consume\(getWin, path\.join\(dir, f\)\);/, 'a request already waiting at startup is marked');
 });
 
 test('a flood is dropped without a dead letter for each request', () => {
   assert.match(runOpen, /if \(d\.why === 'flood'\) \{ noteFlood\(heldPath, req\); return; \}/);
-  const flood = between(bus, 'function noteFlood(', "\nipcMain.handle('bus:imageAllowed'");
+  const flood = between(bus, 'function noteFlood(', "\nipcMain.handle('bus:imageBytes'");
   assert.equal((flood.match(/markUndelivered\(/g) ?? []).length, 1, 'one dead letter a minute, not one per request');
 });
 
-test('a local image in a session\'s note is shown only if it passes the note\'s own checks', () => {
-  const h = between(bus, "ipcMain.handle('bus:imageAllowed'", '\n});');
+test('a local image in a session\'s note is shown only if it passes the note\'s own checks, from its checked bytes', () => {
+  const h = between(bus, "ipcMain.handle('bus:imageBytes'", '\n});');
+  assert.match(h, /path\.posix\.normalize\(/, '.. is applied as text first, as a browser would');
   assert.match(h, /decideOpen\(/);
+  assert.match(h, /readChecked\(d\.path, d\.identity, \{ roots: openRoots, asBytes: true \}\)/);
   assert.match(app, /function holdSnapshotImage\(img, s, dir\)/);
   assert.match(viewer, /if \(ro\) \{ holdSnapshotImage\(img, s, dir\); continue; \}/);
   const hold = between(app, 'function holdSnapshotImage(', '\n}');
-  assert.ok(hold.indexOf("img.removeAttribute('src')") < hold.indexOf('busImageAllowed'), 'no source until main says yes');
+  assert.ok(hold.indexOf("img.removeAttribute('src')") < hold.indexOf('busImageBytes'), 'no source until main sends the bytes');
+  assert.doesNotMatch(hold, /fileUrl\(/, 'never by its path');
+});
+
+test('a snapshot is never saved or restored across a restart', () => {
+  assert.match(app, /p\.kind === 'view' && !p\.readOnly && typeof p\.path === 'string'/);
+});
+
+test('adopted and recovered holds are late by definition for open', () => {
+  assert.match(bus, /seen = \{ seenAgoMs: Infinity, atStart: true \}\): void \{/);
+  assert.match(bus, /recoveredClaims\.add\(back\);[^\n]*\n\s*consume\(win, back\);/);
+  const consume = between(bus, 'function consume(', '\n}');
+  assert.match(consume, /prior\.ino !== ino/, 'the same name written again later is a new request');
 });
 
 test('a session\'s pane is a snapshot: its text comes from main, it never reads the path, never reloads, never saves', () => {
@@ -96,6 +114,10 @@ test('a session\'s pane is a snapshot: its text comes from main, it never reads 
   assert.match(viewer, /if \(ro \|\| paneObj\.dirty/, 'a disk change is ignored');
   assert.match(viewer, /if \(!ro\) \{\s*void window\.glassShell\.fsWatchFile/, 'the path is not even watched');
   assert.match(viewer, /if \(ro\) \{ editor\.setReadOnly\?\.\(true\);/, 'the source view cannot be typed into');
+  assert.match(app, /if \(ta\.readOnly\) return;   \/\/ a session's snapshot: Tab and ⌘S change nothing/, 'nor changed by Tab, nor saved by ⌘S');
+  assert.match(viewer, /const save = \(content, prefer\) => \(ro \? Promise\.resolve\(null\)/, 'a save does nothing');
+  assert.match(viewer, /\}, ro \? null : file\.path\);/, 'and git is not asked about the file on disk');
+  assert.match(viewer, /if \(!ro\) noteRecentFile\(file\.path\);/, 'nor added to the operator\'s recent files');
   assert.match(viewer, /if \(ro\) \{ box\.disabled = true; return; \}/, 'task boxes do not write');
   assert.match(app, /wrap\.setReadOnly = \(on\) => \{ ta\.readOnly = !!on;/);
 });
@@ -123,6 +145,8 @@ test('a file a session asked for that the viewer cannot show is never revealed i
 test('in front unless the operator is typing; behind, the tab is marked and a notice names who asked', () => {
   assert.match(runOpen, /const typing = \[\.\.\.composing\.values\(\)\]\.some\(\(rec\) => operatorComposing\(rec, now\)\);/);
   assert.match(viewer, /if \(behind\) \{ markActivity\(id\); toast\(t\('viewer\.openedBehind'/);
+  assert.match(viewer, /const behind = ro && openBehind\(o\);/, 'typing anywhere in the App counts, and the follow setting does not apply');
+  assert.match(app, /const openBehind = \(o\) => !!\(o && \(o\.background \|\| Date\.now\(\) - lastKeyAt < 8000\)\);/);
 });
 
 test('the read gate lives in the shared package, and the App re-exports it unchanged', () => {

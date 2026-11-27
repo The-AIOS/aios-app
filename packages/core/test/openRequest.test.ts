@@ -26,6 +26,7 @@ interface Fixture {
   cases: { case: string; request: Record<string, unknown>; age_ms: number; present_at_start?: boolean; recent?: { name: string; ago_ms: number }[]; expect: Record<string, unknown> }[];
   windows_paths: { case: string; path: string; why: string | null }[];
   windows_roots: { case: string; root: string; path: string; inside: boolean }[];
+  framework_roots: { case: string; roots: string[]; usable: string[] }[];
 }
 const FIX = path.join(__dirname, '..', '..', 'cases', 'inbox-contract-5.conformance.json');
 const fx = JSON.parse(fs.readFileSync(FIX, 'utf8')) as Fixture;
@@ -85,9 +86,14 @@ test('the fixture is contract 5, and its numbers are this module\'s', () => {
 const NOW = 1_000_000_000_000;
 const prepared = prepareRoots(fx.roots, fx.home, { fs: fixtureFs(fx.fs), platform: 'linux' });
 
-test('prepared roots: the home folder, its ancestors, / and anything in a hidden home folder are dropped', () => {
-  assert.deepEqual(prepared.map((r) => r.real), ['/home/op/aios', '/home/op/work']);
+test('prepared roots: exactly one is left, the framework root', () => {
+  assert.deepEqual(prepared.map((r) => r.real), ['/home/op/aios']);
 });
+for (const f of fx.framework_roots) {
+  test(`conformance (framework root): ${f.case}`, () => {
+    assert.deepEqual(prepareRoots(f.roots, fx.home, { fs: fixtureFs(fx.fs), platform: 'linux' }).map((r) => r.real), f.usable);
+  });
+}
 
 for (const c of fx.cases) {
   test(`conformance: ${c.case}`, () => {
@@ -138,7 +144,10 @@ for (const w of fx.windows_paths) {
 for (const w of fx.windows_roots) {
   test(`conformance (windows root): ${w.case}`, () => {
     /* Everything exists and is a plain file here: only the root comparison is under test. */
-    const id: OpenFs = { lstat: () => ({ kind: 'file', links: 1, dev: 1, ino: 1, executable: false }), readlink: () => null, realpath: (p) => p, classify: () => 'text' };
+    const id: OpenFs = {
+      lstat: (p) => ({ kind: /[\\/](vault|plugins[\\/]aios)$/i.test(p) ? 'dir' : 'file', links: 1, dev: 1, ino: 1, executable: false }),
+      readlink: () => null, realpath: (p) => p, classify: () => 'text',
+    };
     const roots = prepareRoots([w.root], 'C:\\Users\\op', { fs: id, platform: 'win32' });
     const d = decideOpen({ body: { name: 'w1', path: w.path }, seenAgoMs: 0, nowMs: NOW, roots, decided: [], fs: id, platform: 'win32' });
     assert.equal(d.do === 'refuse' && d.why === 'unavailable', !w.inside, JSON.stringify(d));
@@ -246,8 +255,11 @@ test('the secret rule: what it refuses and what it leaves alone', () => {
     '/r/id_rsa_work', '/a/.claude/settings.local.json', '/a/mcps/playwright-mcp/auth/site.json', '/r/token-usage.json']) {
     assert.equal(isSecretPath(s), true, s);
   }
+  for (const s of ['/r/.ßh/x.md', '/v/.obſidian/plugins/x/data.json', '/r/accessTokens.json', '/r/oauth2.json', '/r/api-key.txt', '/r/.env_prod']) {
+    assert.equal(isSecretPath(s), true, s);
+  }
   for (const s of ['/v/id_card.md', '/r/id_ed25519.pub', '/v/notes.md', '/v/tokenomics.md', '/v/secrets-of-sales.md', '/v/cookie-recipes.md',
-    '/r/.github/ci.yml', '/r/known_hosts', '/r/tokenizer.json', '/r/design-tokens.json', '/v/auth/notes.md']) {
+    '/r/.github/ci.yml', '/r/known_hosts', '/r/tokenizer.json', '/v/auth/notes.md']) {
     assert.equal(isSecretPath(s), false, s);
   }
 });

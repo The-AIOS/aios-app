@@ -2845,6 +2845,11 @@ const active = { main: null, term: null };
    switches when they choose. 'follow' restores the old behaviour. */
 let BUS_FOCUS = 'stay';
 const busBackground = (m) => !!(m && m.background) && BUS_FOCUS !== 'follow';
+/* Contract 5's `open` never takes the screen from someone typing ANYWHERE in the App (a note of their
+   own included, not only a session), and the 'follow' preference does not apply to it. */
+let lastKeyAt = 0;
+document.addEventListener('keydown', () => { lastKeyAt = Date.now(); }, true);
+const openBehind = (o) => !!(o && (o.background || Date.now() - lastKeyAt < 8000));
 /* An agent opened or messaged this pane behind the operator's back. ONE marker for "something
    happened here you have not seen": #45's bold tab name, rather than a second dot beside the
    status dot. A session put to work goes busy (amber) right away, and when it finishes unseen the
@@ -5796,6 +5801,7 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
   }, 250);
   ta.addEventListener('scroll', sync);
   ta.addEventListener('keydown', (e) => {
+    if (ta.readOnly) return;   // a session's snapshot: Tab and ⌘S change nothing and save nothing
     if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; hl(); hooks.onInput(ta.value); }
     else if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); hooks.onSave(ta.value); }
     // ⌥↓ / ⌥↑ — next / previous uncommitted change
@@ -5951,7 +5957,7 @@ function sessionsSnapshot() {
       if (!p || p.sessionId) continue;
       const group = tgOf(id) ? { group: tgOf(id) } : {};
       if (p.kind === 'term' && !p.exited && !p.isSession) others.push({ kind: 'term', name: p.name || 'terminal', cwd: p.cwd || '', ...group });
-      else if (p.kind === 'view' && typeof p.path === 'string' && p.path && !p.path.startsWith('::')) others.push({ kind: 'view', path: p.path, ...group });   // '::home' and the like open on their own
+      else if (p.kind === 'view' && !p.readOnly && typeof p.path === 'string' && p.path && !p.path.startsWith('::')) others.push({ kind: 'view', path: p.path, ...group });   // a session's snapshot is never restored as an open file   // '::home' and the like open on their own
     }
   }
   const groups = [...new Set([...sessions, ...others].map((x) => x.group).filter(Boolean))]
@@ -6414,7 +6420,7 @@ function holdSnapshotImage(img, s, dir) {
   } catch { abs = ''; }
   const deny = () => { const n = document.createElement('span'); n.className = 'vchip'; n.textContent = t('viewer.imageHeld'); img.replaceWith(n); };
   if (!abs) { deny(); return; }
-  void window.glassShell.busImageAllowed?.(abs).then((ok) => { if (ok) img.src = fileUrl(abs); else deny(); }).catch(deny);
+  void window.glassShell.busImageBytes?.(abs).then((r) => { if (r && r.bytes) img.src = URL.createObjectURL(new Blob([r.bytes], { type: r.type })); else deny(); }).catch(deny);
 }
 
 /* `o` comes from the bus's `open` verb (contract 5) and is empty for everything the operator does:
@@ -6426,18 +6432,20 @@ function holdSnapshotImage(img, s, dir) {
    `line` (which needs the source view). */
 async function openViewer(p, o = {}) {
   seenExport(p);   // an opened export is no longer new
-  const behind = o.bus && busBackground(o);
   const ro = !!o.bus;
+  const behind = ro && openBehind(o);
   for (const [id, pane] of panes) {
     if (pane.kind === 'view' && pane.path === p && !!pane.readOnly === ro) {
-      if (behind) markActivity(id); else setActive(id);
-      if (o.line) pane.goToLine?.(o.line);
+      if (ro) { closePane(id); break; }   // asked again: the old snapshot goes, the fresh one opens below
+      setActive(id);
       return;
     }
   }
   const file = ro
-    ? (typeof o.content === 'string' ? { path: p, content: o.content } : (o.asset ? { path: p, content: '' } : null))
+    ? (typeof o.content === 'string' ? { path: p, content: o.content } : (o.asset && o.bytes ? { path: p, content: '' } : null))
     : await window.glassShell.fsRead(p);
+  /* An image or PDF a session asked for is shown from the bytes main read from the checked file. */
+  const roBlob = ro && o.asset && o.bytes ? URL.createObjectURL(new Blob([o.bytes], { type: PDF_EXT.test(p) ? 'application/pdf' : (/\.svg$/i.test(p) ? 'image/svg+xml' : 'image/' + (p.split('.').pop() || 'png').toLowerCase().replace('jpg', 'jpeg')) })) : '';
   if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
   /* A file the pane cannot SHOW is handed to the desktop, not frozen into a pane: main did not
      read it (binary, or too large for the editor) and says so. The folder is where a .dmg or a
@@ -6447,7 +6455,7 @@ async function openViewer(p, o = {}) {
   if (file.unreadable && o.bus) { toast(t('viewer.cannotOpen', { name: xBase(file.path) })); return; }
   if (file.unreadable) { toast(t('viewer.revealedInstead', { name: xBase(file.path) })); void window.glassShell.revealInOS(file.path); return; }
   const name = xBase(file.path);
-  noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
+  if (!ro) noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"; a session's snapshot is not the operator's recent file
   const id = 'v' + (++viewSeq);
   const el = document.createElement('div');
   el.className = 'pane viewer';
@@ -6475,7 +6483,7 @@ async function openViewer(p, o = {}) {
   // the operator's "Open files in" preference decides the initial mode (a non-renderable
   // file is always source regardless)
   let mode = renderable && OPENNOTESIN !== 'source' ? 'rendered' : 'source';
-  if (o.mode === 'source' || o.line) mode = 'source';   // HTML a session asked for never runs; a line needs the source
+  if (o.mode === 'source' || (o.line && !o.asset)) mode = 'source';   // HTML a session asked for never runs; a line needs the source
   let saveTimer = null;
   const setDirty = (on) => { paneObj.dirty = on; tab.classList.toggle('dirty', on); };
   /* SAVING AGAINST THE DISK (#159). Agents write to open notes all the time (the daily-note ledger, /close-session), and an
@@ -6495,7 +6503,7 @@ async function openViewer(p, o = {}) {
   let saveChain = Promise.resolve();
   const shownNow = () => (editorRef ? editorRef.value() : file.content);
   /* content null = whatever is on screen when this save's turn comes. */
-  const save = (content, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)).catch(() => null));
+  const save = (content, prefer) => (ro ? Promise.resolve(null) : (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)).catch(() => null)));   // a snapshot is never saved
   async function saveNow(content, prefer) {
     if (paneObj.asking && !prefer) return null;   // a question is open: its answer saves what is on screen then
     const r = await window.glassShell.fsSaveMerged(file.path, base, content, prefer).catch(() => null);
@@ -6660,9 +6668,9 @@ async function openViewer(p, o = {}) {
         onInput: (v) => { file.content = v; setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; void after(v); }, 700); },
         onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
-        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
+        onChanges: (n) => { if (ro) return; chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
         onStep: (i, n) => { chgN.textContent = i + '/' + n; },
-      }, file.path);
+      }, ro ? null : file.path);   // a snapshot is not compared with git: that reads the file on disk
       head.appendChild(chg);
       body.appendChild(editor);
       editorRef = editor;
@@ -6673,7 +6681,7 @@ async function openViewer(p, o = {}) {
     if (IMG_EXT.test(name)) {
       const img = document.createElement('img');
       img.className = 'imgview';
-      img.src = fileUrl(file.path);
+      img.src = roBlob || fileUrl(file.path);
       body.appendChild(img);
       return;
     }
@@ -6681,7 +6689,7 @@ async function openViewer(p, o = {}) {
       // Chromium's built-in PDF viewer (no sandbox attr — it blocks the plugin)
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
-      fr.src = fileUrl(file.path);
+      fr.src = roBlob || fileUrl(file.path);
       body.appendChild(fr);
       return;
     }
