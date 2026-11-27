@@ -16,7 +16,8 @@ import type { CaffeinateMode } from '../core/caffeinate';
 import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { resolveBash } from './resolveBash';
-import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, type AccountRow } from '../core/accounts';
+import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, nextDestination, type AccountRow } from '../core/accounts';
+import { readSwapRule, swapOffer, type SwapRule, type SwapOffer } from './swapOffer';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { backgroundScan } from '../core/backgroundScan';
@@ -1173,6 +1174,27 @@ function runIdentity(args: string[]): Promise<{ ok: boolean; out: string; messag
   });
 }
 
+/* The last account answer, for the running card's swap button, which is drawn every 2 s and must
+   never wait on the script. Asked again in the background once it is a minute old (Glass's cadence). */
+const SWAP_CACHE_MAX_AGE_MS = 60_000;
+let swapCache: { rows: AccountRow[]; rule: SwapRule | null; at: number } = { rows: [], rule: null, at: 0 };
+let swapAsking = false;
+/* When the script was last ASKED, answer or not: gating on the last good answer alone re-ran a failing
+   script on every 2 s tick (review). */
+let swapTriedAt = 0;
+
+/** The swap button for the current usage, from the last answer; a stale answer asks for a new one. */
+export function swapOfferNow(fiveHour: number, sevenDay: number): SwapOffer & { ruleKnown: boolean; accounts: number } {
+  if (frameworkRoot() && !swapAsking && Date.now() - swapTriedAt > SWAP_CACHE_MAX_AGE_MS) {
+    swapAsking = true;
+    swapTriedAt = Date.now();
+    void anthropicAccounts().catch(() => undefined).finally(() => { swapAsking = false; });
+  }
+  const { rows, rule } = swapCache;
+  const o = swapOffer({ fiveHour, sevenDay, accounts: rows.length, rule, next: nextDestination(rows, claudeConfig().account || '') });
+  return { ...o, ruleKnown: !!rule, accounts: rows.length };
+}
+
 export async function anthropicAccounts(): Promise<AccountsAnswer> {
   const r = frameworkRoot();
   if (!r) return { accounts: [], error: '' };
@@ -1186,8 +1208,11 @@ export async function anthropicAccounts(): Promise<AccountsAnswer> {
     rows = ans.ok ? parseAvailability(ans.out) : null;
     /* A malformed list must be seen. It never falls back to USER.md, which may be older. */
     if (!rows) { error = ans.message || 'unreadable answer'; rows = []; }
+    /* A failed ask keeps the last good answer for the running card: a hiccup must not hide the button. */
+    else swapCache = { rows, rule: readSwapRule(ans.out), at: Date.now() };
   } else {
     try { rows = rowsFromUserMd(fs.readFileSync(path.join(r, 'USER.md'), 'utf8'), active); } catch { rows = []; }
+    swapCache = { rows, rule: null, at: Date.now() };   // an older framework: no thresholds to read
   }
   return {
     error,
@@ -1206,6 +1231,9 @@ export async function swapAccount(email: string): Promise<{ ok: boolean; message
   if (!acct) return { ok: false, message: 'not a listed account' }; // never pass arbitrary input to the script
   if (!acct.canSwitch && !acct.current) return { ok: false, message: acct.note || acct.state };
   const ans = await runIdentity(['switch', email]);
+  /* The cached answer names the old seat as active, so the card would read "no account available" until
+     the next ask: ask on the next tick instead. */
+  if (ans.ok) swapTriedAt = 0;
   return ans.ok ? { ok: true, message: email } : { ok: false, message: ans.message };
 }
 

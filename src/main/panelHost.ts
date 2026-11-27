@@ -347,6 +347,8 @@ export class PanelHost {
   /** What each session used. The shared reader (core/usageReader) reads ASYNC, bounded per
    *  tick, prunes ended sessions and byte-splits at newlines (review should-fix 17). */
   private usage = new UsageReader(fsUsageIo);
+  /** The "framework sends no thresholds" line, said once per run. */
+  private toldNoSwapRule = false;
   /** Sessions already reported as "waiting but outside scope", so each is said once. */
   private toldHiddenWaiting = new Set<string>();
   /* A session the operator is waiting on that the scope filter HID never notifies — the
@@ -372,6 +374,12 @@ export class PanelHost {
     this.attention.tick(running, aios.shellSettings().attention);
     try { this.onRunning?.(running); } catch { /* a listener never stops the pulse */ }
     const rl = aios.rateLimit();
+    const swap = rl ? aios.swapOfferNow(rl.fiveHourPct, rl.sevenDayPct) : undefined;
+    /* A framework that does not say its thresholds gets no button, as before; said once, so the reason is findable. */
+    if (swap && !swap.ruleKnown && swap.accounts > 1 && !this.toldNoSwapRule) {
+      this.toldNoSwapRule = true;
+      appLog('quota', 'the account answer carries no usable rotation thresholds (an older framework?), so the running card offers no account swap — update the framework to get it');
+    }
     const fwReal = aios.frameworkRoot() ?? '';
     const projOf = (cwd: string): string => {
       if (!cwd) return '';
@@ -398,8 +406,8 @@ export class PanelHost {
       })(),
       running: running.map((a) => ({ name: a.name, pid: a.pid, id: a.sessionId, key: sessionKey(a), status: a.status, proj: projOf(a.cwd), startedAt: a.startedAt, updatedAt: a.updatedAt, mem: mem[a.pid], waitingFor: a.waitingFor, statusUpdatedAt: a.statusUpdatedAt, modelSwitch: switchParts(switches.get(a.sessionId), a.startedAt), used: (() => { const u = this.usageFor(a.sessionId); return u ? { chip: usageChip(u), skills: u.skills, agents: u.agents } : undefined; })() })),
       quota: rl
-        ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: false, to: '' }
-        : { has: false, fiveHour: 0, sevenDay: 0, showSwap: false, to: '' },
+        ? { has: true, fiveHour: rl.fiveHourPct, sevenDay: rl.sevenDayPct, fr: rl.fiveHourResetsAt, sr: rl.sevenDayResetsAt, showSwap: !!swap?.showSwap, to: swap?.to ?? '', pausedUntil: swap?.pausedUntil ?? null }
+        : { has: false, fiveHour: 0, sevenDay: 0, showSwap: false, to: '', pausedUntil: null },
     });
   }
 
