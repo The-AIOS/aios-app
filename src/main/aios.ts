@@ -986,8 +986,8 @@ export function recentReports(limit = 5): ReportFile[] {
 
 // ── go-with-agents parsing (Glass-parity: pure, list-item guarded) ──────────
 //
-// Ported verbatim from aios-glass `src/tasks/agentParse.ts` so the desktop badge
-// count and the picker match the extension exactly (zero-drift). Both the bubble
+// Ported from aios-glass `src/tasks/agentParse.ts`; the two are now held to the same
+// rule by the framework's shared cases file (see parseAgentSection). Both the bubble
 // (countAgentSuggestions) and the picker (listAgentSuggestions) derive from this
 // ONE parser, so they can no longer disagree, and both inherit the two guards the
 // desktop was missing: the list-item guard (a routed task is always a `- `/`* `
@@ -1025,7 +1025,19 @@ export function doneIdentities(md: string): string[] {
   return out;
 }
 
-/** Extract the "Agents can handle" section's open, routed suggestions. */
+const ROUTE_MARK = ' _(→';
+
+/**
+ * Extract the "Agents can handle" section's open, routed suggestions.
+ *
+ * The rule is the framework's, and `src/test/fixtures/agents-can-handle.cases.json` (a copy of
+ * the framework's cases file) is what holds this to it. A line's ROUTE is what follows its last
+ * ` _(→`. When it has one, the agent and the command are read from the route and nowhere else:
+ * the agent is the wikilink after `agent:`, never a project wikilink in the task text (that
+ * dispatched a project note as if it were an agent), and a backticked command in the task text
+ * never beats the one after `command:`. A line with no route is read whole, as older notes wrote
+ * them, and still needs `agent:` before a wikilink for it to be an agent.
+ */
 export function parseAgentSection(md: string): ParsedSuggestion[] {
   const lines = md.split(/\r?\n/);
   const done = doneIdentities(md);
@@ -1043,23 +1055,67 @@ export function parseAgentSection(md: string): ParsedSuggestion[] {
     if (/^\s*[-*]\s*\[[xX]\]/.test(line)) continue;             // done: checkbox form
     if (/^\s*[-*]\s*(?:\u{1F916}\s*)*~~/u.test(line)) continue; // done: struck-title form
     if (line.includes('\u{1F680}')) continue;                  // 🚀 already spawned (in flight)
-    const agents = [...line.matchAll(/\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim());
-    const cmd = line.match(/`(\/[a-z][\w:-]*)`/i);             // backticked `/aios:ingest` etc.
+    const cut = line.lastIndexOf(ROUTE_MARK);
+    const route = cut >= 0 ? line.slice(cut + ROUTE_MARK.length) : line;
+    const at = /\bagent:/i.exec(route);
+    const agents = at
+      ? [...route.slice(at.index + at[0].length).matchAll(/\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim())
+      : [];
+    // backticked `/aios:ingest`, optionally with its argument inside the backticks
+    const cmd = route.match(/`(\/[a-z][\w:-]*)(?:[ \t]+([^`]*?))?[ \t]*`/i);
     if (!agents.length && !cmd) continue;                      // not a routed task
-    const bold = line.match(/\*\*(.+?)\*\*/);
-    const task = (bold ? bold[1] : line.replace(/[-*\u{1F916}_]/gu, '')).trim();
+    // The task is the text before the route. A label that OPENS with a bold span is that span
+    // (older notes: `**Task** — detail`); bold further in is part of the text.
+    const label = (cut >= 0 ? line.slice(0, cut) : line).replace(/^\s*[-*]\s*(?:\u{1F916}\s*)*/u, '').trim();
+    const bold = label.match(/^\*\*(.+?)\*\*/);
+    const task = bold ? bold[1].trim() : label;
     // Done elsewhere? Canonical task checked/struck in another section → skip.
     const sId = taskIdentity(task);
     if (sId.length >= 6 && done.some((d) => d === sId || d.includes(sId))) continue;
     const sug: ParsedSuggestion = { task, agents, raw: line.trim() };
     if (!agents.length && cmd) {
       sug.command = cmd[1];
+      const inside = (cmd[2] ?? '').trim();
       const mdLink = line.match(/\]\((https?:\/\/[^)]+)\)/);
-      sug.arg = mdLink ? mdLink[1] : line.match(/https?:\/\/\S+/)?.[0]?.replace(/[)*_.,]+$/, '');
+      const arg = inside || (mdLink ? mdLink[1] : line.match(/https?:\/\/\S+/)?.[0]?.replace(/[)*_.,]+$/, ''));
+      if (arg) sug.arg = arg;
     }
     out.push(sug);
   }
   return out;
+}
+
+/**
+ * Stamp 🚀 on a suggestion's line: an agent has it now. `raw` is the line as the parser returned
+ * it. Only a line the parser still lists is stamped, and only inside the section, so the same
+ * text in another section is never touched and a line cannot be stamped twice. Returns the new
+ * note, or null when there is nothing to stamp.
+ */
+export function stampAgentLine(md: string, raw: string): string | null {
+  if (!raw || !parseAgentSection(md).some((s) => s.raw === raw)) return null;
+  const parts = md.split(/(\r?\n)/);                            // lines at even indexes, their endings between
+  let inSection = false;
+  for (let i = 0; i < parts.length; i += 2) {
+    const line = parts[i];
+    if (/^##\s+.*Agents can handle/i.test(line)) { inSection = true; continue; }
+    if (inSection && /^##\s/.test(line)) break;
+    if (!inSection || line.trim() !== raw) continue;
+    parts[i] = line.replace(/\s*$/, '') + ' \u{1F680}';
+    return parts.join('');
+  }
+  return null;
+}
+
+/** Stamp a dispatched suggestion in the latest daily note. False when its line is not open there. */
+export function stampAgentSuggestion(raw: string): boolean {
+  const note = latestDailyNote();
+  if (!note) return false;
+  try {
+    const next = stampAgentLine(fs.readFileSync(note, 'utf8'), String(raw ?? ''));
+    if (next === null) return false;
+    fs.writeFileSync(note, next);
+    return true;
+  } catch { return false; }
 }
 
 export function countAgentSuggestions(): number {

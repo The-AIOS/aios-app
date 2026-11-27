@@ -15701,18 +15701,19 @@ async function runInPrimary(slash) {
 async function runWhere(slash, name) {
   const cfg = await window.glassShell.shellConfig();
   const live = (pulse.lastRunning && pulse.lastRunning.running) || [];
-  if ((cfg.terminalMode || 'ask') !== 'ask' || !live.length) return runInPrimary(slash);
+  if ((cfg.terminalMode || 'ask') !== 'ask' || !live.length) { await runInPrimary(slash); return true; }
   // same searchable/selectable picker as every other popup (#28)
   const choices = [
     { label: t('run.newTerminal'), desc: t('run.newTerminalHint'), icon: 'term', value: '__new' },
     ...live.map((a) => ({ label: a.name, desc: statusInfo(a.status).label, icon: 'robot', value: a.name })),
   ];
   const choice = await listModal(t('run.where'), choices, t('run.wherePlaceholder'));
-  if (!choice) return;
-  if (choice === '__new') { void createPane({ name: name || 'run', cmd: CLAUDE + ' --name ' + (name || 'run') + ' ' + shq(slash) }); return; }
+  if (!choice) return false;
+  if (choice === '__new') { void createPane({ name: name || 'run', cmd: CLAUDE + ' --name ' + (name || 'run') + ' ' + shq(slash) }); return true; }
   const hit = byName(choice);
   if (hit && !panes.get(hit[0]).exited) { submitToPty(hit[0], slash); setActive(hit[0]); }
   else void createPane({ name: name || choice, cmd: CLAUDE + ' --name ' + (name || choice) + ' ' + shq(slash) });
+  return true;
 }
 
 function runFrequent(t) {
@@ -15761,8 +15762,12 @@ async function pickSuggestion() {
   if (!suggestions.length) { toast(t('suggestion.none')); return; }
   const v = await listModal(t('suggestion.title'), suggestions.map((x) => ({ label: x.task, desc: x.agent ? t('suggestion.agentDesc', { agent: x.agent }) : t('suggestion.commandDesc', { command: x.command || '' }), icon: 'md', value: x })), t('suggestion.placeholder'));
   if (!v) return;
-  if (v.agent) void runWhere('/aios:agent ' + v.agent + ' — ' + v.task, v.agent);
-  else if (v.command) void runWhere(v.command + (v.url ? ' ' + v.url : ''), v.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]);
+  let sent = false;
+  if (v.agent) sent = await runWhere('/aios:agent ' + v.agent + ' — ' + v.task, v.agent);
+  else if (v.command) sent = await runWhere(v.command + (v.url ? ' ' + v.url : ''), v.command.replace(/^\/(aios:)?/, '').split(/\s/)[0]);
+  /* An agent has it now: stamp the line (🚀), as Glass does, so the count drops and the same
+     line is not handed out twice. Backing out of "run where?" hands nothing over. */
+  if (sent && v.raw) await window.glassShell.aiosStampSuggestion(v.raw);
 }
 async function ingestFlow() {
   const src = await inputModal(t('ingest.title'), t('ingest.placeholder'));
