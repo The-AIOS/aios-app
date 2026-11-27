@@ -11,13 +11,14 @@ Now there is one version, published to npm, and each surface depends on an exact
 It is TypeScript with no dependencies: no Electron and no editor API. Almost all of it is pure.
 The few modules that touch the machine say so at the top and take what they touch as a
 parameter, so they are tested without it: `pidAlive` asks the process table whether a pid is
-running, and `claim` reads, renames and stamps a request file. Each surface keeps the code that touches its own windows, terminals and files.
+running, `claim` reads, renames and stamps a request file, and `killSession` signals a
+process group. Each surface keeps the code that touches its own windows, terminals and files.
 
 ## Using it
 
 ```jsonc
 // package.json — an exact version, never a range
-"dependencies": { "@the-aios/core": "0.2.0" }
+"dependencies": { "@the-aios/core": "0.3.0" }
 ```
 
 ```ts

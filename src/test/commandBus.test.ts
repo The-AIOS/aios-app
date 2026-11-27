@@ -277,7 +277,7 @@ test('an ambiguous name is refused for every verb, before anything is typed, kil
   assert.ok(at > 0, 'runImmediate refuses an ambiguous name with a dead letter that names the sessions');
   /* `'closeByName'`, not the whole `emit(win(), …)` call: how the window is reached is not what this
      pins (a kill that waits for the window's answer reaches it through a local). */
-  for (const later of ["req.action === 'kill'", 'process.kill(', "'closeByName'", 'resumeOrReveal(', 'runSpawn(win, heldPath, req)']) {
+  for (const later of ["req.action === 'kill'", 'closeSession(', "'closeByName'", 'resumeOrReveal(', 'runSpawn(win, heldPath, req)']) {
     const i = immediate.indexOf(later);
     assert.ok(i > at, `the refusal must come before ${later}`);
   }
@@ -303,7 +303,7 @@ test('a kill by a FORMER name is refused when the new name is shared, and never 
   assert.ok(refuse > 0, 'the renamed name is checked for ambiguity');
   assert.match(kill, /if \(renamedClash\) \{ markUndelivered\(heldPath, req, [^;]*ambiguousReason\(renamed, renamedClash\)[^;]*\); return; \}/);
   assert.ok(refuse < kill.indexOf('t = targetByName(renamed);'), 'before the target is looked up');
-  assert.ok(refuse < kill.indexOf('process.kill('), 'and before anything is signalled');
+  assert.ok(kill.indexOf('closeSession(') > 0 && refuse < kill.indexOf('closeSession('), 'and before anything is signalled');
 });
 
 test('a name that turns ambiguous while a send is in flight ends it with what happened, never as "no live session"', () => {
