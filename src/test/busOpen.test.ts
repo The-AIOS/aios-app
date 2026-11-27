@@ -92,6 +92,7 @@ test('a flood is dropped without a dead letter for each request', () => {
   assert.match(flood, /path\.join\(last\.dir, `open-flood-\$\{Date\.now\(\)\}-\$\{process\.pid\}\.json\.undelivered`\)/, 'under a name of its own');
   assert.match(flood, /\$\{n\} open request\(s\) dropped in the last minute/, 'with the full count');
   assert.match(bus, /app\.on\('before-quit', flushFlood\);/, 'and on quit, rather than lost');
+  assert.match(flood, /floodLast = null; floodDropped = 0;\s*if \(!last \|\| !n\) return;/, 'state is reset first, so a second quit or a late timer writes nothing');
 });
 
 test('a local image in a session\'s note is shown only if it passes the note\'s own checks, from its checked bytes', () => {

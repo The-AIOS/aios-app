@@ -1295,8 +1295,10 @@ function flushFlood(): void {
   if (!last || !n) return;
   const reason = `open refused (flood): ${n} open request(s) dropped in the last minute; more than 20 a minute are not shown`;
   const dest = path.join(last.dir, `open-flood-${Date.now()}-${process.pid}.json.undelivered`);
-  try { fs.writeFileSync(dest, JSON.stringify({ ...last.body, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n'); } catch { /* inbox gone */ }
-  log(`UNDELIVERED ${path.basename(dest)} — ${reason}`);
+  try {
+    fs.writeFileSync(dest, JSON.stringify({ ...last.body, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n');
+    log(`UNDELIVERED ${path.basename(dest)} — ${reason}`);
+  } catch (e) { log(`flood notice NOT written (${e instanceof Error ? e.message : String(e)}) — ${reason}`); }
 }
 app.on('before-quit', flushFlood);
 /* A local image in a note a session opened is shown only when it passes the same checks as the note
