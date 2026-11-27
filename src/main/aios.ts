@@ -582,19 +582,41 @@ export function inAppSessionIds(all: RunningAgent[]): Set<string> {
 /* The App's pty pids, registered by main.ts (which owns the `ptys` map). */
 let ptyPidSource: () => number[] = () => [];
 export function setPtyPidSource(fn: () => number[]): void { ptyPidSource = fn; }
-let treeCache: { at: number; key: string; ids: Set<string> } | undefined;
-/** Session ids whose process descends from one of this App's ptys. Memoized briefly: one `ps`. */
-export function paneSessionIdsFromTree(running: RunningAgent[], procTable?: string): Set<string> {
+/* pty pid → the pane handle the renderer knows that pty by. Registered by main.ts, which owns `ptys`. */
+let ptyPaneLookup: (ptyPid: number) => number | undefined = () => undefined;
+export function setPtyPaneLookup(fn: (ptyPid: number) => number | undefined): void { ptyPaneLookup = fn; }
+type TreeWalk = { ids: Set<string>; ptyOf: Map<string, number> };
+let treeCache: { at: number; key: string; walk: TreeWalk } | undefined;
+/* ONE walk answers both questions: is this session in a pane (the side panel's membership), and in WHICH pane (the tab's
+   binding, #223). They used to be answered separately, and a session typed by hand into a plain terminal tab was in the
+   panel but in no tab. Memoized briefly: one `ps`. */
+function walkTree(running: RunningAgent[], procTable?: string): TreeWalk {
   const ptyPids = ptyPidSource().filter((n) => Number.isInteger(n) && n > 0);
-  if (!ptyPids.length || !running.length) return new Set();
+  if (!ptyPids.length || !running.length) return { ids: new Set(), ptyOf: new Map() };
   const key = `${ptyPids.join(',')}|${running.map((a) => a.pid).join(',')}`;
-  if (!procTable && treeCache && treeCache.key === key && Date.now() - treeCache.at < 1500) return treeCache.ids;
+  if (!procTable && treeCache && treeCache.key === key && Date.now() - treeCache.at < 1500) return treeCache.walk;
   const map = sessionPidsUnder(ptyPids, running.map((a) => a.pid), procTable);
   const byPid = new Map(running.map((a) => [a.pid, a.sessionId]));
-  const ids = new Set<string>();
-  for (const pid of Object.values(map)) { const id = byPid.get(pid); if (id) ids.add(id); }
-  if (!procTable) treeCache = { at: Date.now(), key, ids };
-  return ids;
+  const walk: TreeWalk = { ids: new Set(), ptyOf: new Map() };
+  for (const [pty, pid] of Object.entries(map)) {
+    const id = byPid.get(pid);
+    if (id) { walk.ids.add(id); walk.ptyOf.set(id, Number(pty)); }
+  }
+  if (!procTable) treeCache = { at: Date.now(), key, walk };
+  return walk;
+}
+/** Session ids whose process descends from one of this App's ptys. */
+export function paneSessionIdsFromTree(running: RunningAgent[], procTable?: string): Set<string> {
+  return walkTree(running, procTable).ids;
+}
+/** Session id → the pane it runs under, from the same walk as paneSessionIdsFromTree(). */
+export function paneOfSessions(running: RunningAgent[], procTable?: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [id, pty] of walkTree(running, procTable).ptyOf) {
+    const pane = ptyPaneLookup(pty);
+    if (pane !== undefined) out.set(id, pane);
+  }
+  return out;
 }
 
 /* The sessions open in this App's panes, reported by the renderer every pulse. */

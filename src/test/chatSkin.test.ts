@@ -307,7 +307,7 @@ test('every place that learns, changes or forgets a session tells the skin (or t
   const tick = fnBody(skin, 'chatSkinTick');
   assert.match(tick, /chatSkinEligible\(p\)[\s\S]*chatSkinSessionChanged\(id, p\)[\s\S]*chatSkinSync\(id, p\)/, 'the tick is the safety net for sites that do not call');
   // adoptUnidentified is exercised by sessionRestore.test.ts in isolation, so it relies on the tick on purpose
-  assert.doesNotMatch(/function adoptUnidentified\(\) \{[\s\S]*?\n\}/.exec(app)?.[0] ?? '', /chatSkin\w*\(/);
+  assert.doesNotMatch(/function adoptUnidentified\(m\) \{[\s\S]*?\n\}/.exec(app)?.[0] ?? '', /chatSkin\w*\(/);
   // negative control: a pane that is not a Claude pane is not eligible
   assert.match(fnBody(skin, 'chatSkinEligible'), /p\.kind === 'term' && !p\.exited/);
 });

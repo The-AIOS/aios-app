@@ -45,12 +45,12 @@ function harness(panesIn: Array<[number, Pane]>, lookup: (ids: number[]) => Reco
     grab(/function paneIsClaude\(cmd\) \{[\s\S]*?\n\}/, 'paneIsClaude'),
     grab(/function sessionsSnapshot\(\) \{[\s\S]*?\n\}/, 'sessionsSnapshot'),
     grab(/function persistSessions\(\) \{[\s\S]*?\n\}/, 'persistSessions'),
-    grab(/let adoptInFlight = false;\nfunction adoptUnidentified\(\) \{[\s\S]*?\n\}/, 'adoptUnidentified'),
+    grab(/function adoptUnidentified\(m\) \{[\s\S]*?\n\}/, 'adoptUnidentified'),
     'return { adoptUnidentified, sessionsSnapshot };',
   ].join('\n');
   // Timers fire at once: persistSessions debounces by 250ms, which a test must not wait for.
   const now = (fn: () => void) => { fn(); return 0; };
-  const api: { adoptUnidentified: () => void; sessionsSnapshot: () => unknown } = new Function('panes', 'tabOrder', 'active', 'localStorage', 'window', 'setTimeout', 'clearTimeout', src)(
+  const api: { adoptUnidentified: (m?: unknown) => void; sessionsSnapshot: () => unknown } = new Function('panes', 'tabOrder', 'active', 'localStorage', 'window', 'setTimeout', 'clearTimeout', src)(
     panes, tabOrder, active, localStorage, { glassShell }, now, () => { /* */ });
   const stored = () => JSON.parse(store.shellSessions || '{"sessions":[]}').sessions as Array<{ sessionId: string; name: string }>;
   const settle = () => new Promise((r) => setImmediate(r));
@@ -61,12 +61,15 @@ const fresh = (name: string): Pane => ({ kind: 'term', name, cmd: `claude --name
 const ids = { 1: 'aaaaaaaa-0000-4000-8000-000000000001', 2: 'aaaaaaaa-0000-4000-8000-000000000002',
               3: 'aaaaaaaa-0000-4000-8000-000000000003', 4: 'aaaaaaaa-0000-4000-8000-000000000004' } as Record<number, string>;
 
-test('THE REPORTED CASE: four fresh sessions, none identified by title, all four are stored', async () => {
-  const h = harness([[1, fresh('a')], [2, fresh('b')], [3, fresh('c')], [4, fresh('d')]],
-    (want) => Object.fromEntries(want.map((id) => [id, { id: ids[id], name: 'abcd'[id - 1], pid: 100 + id }])));
+/* What main sends on each pulse: every running row carries the pane its tree walk found it under. */
+type Row = { id: string; name: string; pane?: number };
+const pulseOf = (rows: Row[]) => ({ running: rows });
+const none = () => ({});
+
+test('THE REPORTED CASE: four fresh sessions, none identified by title, all four are stored', () => {
+  const h = harness([[1, fresh('a')], [2, fresh('b')], [3, fresh('c')], [4, fresh('d')]], none);
   assert.equal(h.stored().length, 0, 'before: nothing — exactly what the operator saw on relaunch');
-  h.adoptUnidentified();
-  await h.settle();
+  h.adoptUnidentified(pulseOf([1, 2, 3, 4].map((id) => ({ id: ids[id], name: 'abcd'[id - 1], pane: id }))));
   assert.deepEqual(h.stored().map((s) => s.sessionId), [ids[1], ids[2], ids[3], ids[4]],
     'every session open at quit is in the list, in tab order');
   for (const id of [1, 2, 3, 4]) {
@@ -75,56 +78,62 @@ test('THE REPORTED CASE: four fresh sessions, none identified by title, all four
   }
 });
 
-test('a session not registered YET is retried on the next poll, not given up on', async () => {
-  let registered = false;
-  const h = harness([[1, fresh('a')]], (want) => (registered ? { [want[0]]: { id: ids[1], name: 'a', pid: 101 } } : {}));
-  h.adoptUnidentified();
-  await h.settle();
+test('a session not registered YET is picked up on the next poll, not given up on', () => {
+  const h = harness([[1, fresh('a')]], none);
+  h.adoptUnidentified(pulseOf([]));
   assert.equal(h.stored().length, 0, 'claude still starting — nothing to adopt yet');
-  registered = true;
-  h.adoptUnidentified();
-  await h.settle();
+  h.adoptUnidentified(pulseOf([{ id: ids[1], name: 'a', pane: 1 }]));
   assert.equal(h.stored()[0]?.sessionId, ids[1], 'the next poll finds it');
 });
 
-test('BOUNDED: nothing is asked once every pane has an id, and plain terminals are never asked about', async () => {
-  const h = harness([[1, { ...fresh('a'), sessionId: ids[1] }], [2, { kind: 'term', name: 'zsh', cmd: '', isSession: false }]],
-    () => ({}));
-  h.adoptUnidentified();
-  h.adoptUnidentified();
-  await h.settle();
-  /* No request at all: an identified pane has nothing to learn, and a plain shell will never have
-     a session — asking about it every 2s forever would be periodic work on an idle window, which
-     is the shape of cost the hidden-window animation bug taught us to refuse. */
-  assert.equal(h.calls.length, 0);
+test('#223: a session typed by hand into a plain terminal tab is bound to that tab', () => {
+  /* A plain tab (`zsh -l`) in which the operator typed `claude`. Its launch command is the shell, so the old adoption never
+     asked about it: the side panel, filled from main's tree walk, showed it working while the tab stayed a grey terminal. */
+  const h = harness([[1, { kind: 'term', name: 'zsh', cmd: '', isSession: false, sessionId: null }]], none);
+  h.adoptUnidentified(pulseOf([{ id: ids[1], name: 'm-lectura', pane: 1 }]));
+  assert.equal(h.panes.get(1)?.sessionId, ids[1], 'the tab holds the session main found beneath its pty');
+  assert.equal(h.panes.get(1)?.confirmedName, 'm-lectura', 'and is confirmed, so the liveness pass notices when it ends');
+  assert.equal(h.panes.get(1)?.isSession, true);
 });
 
-test('one request at a time — polls that arrive while one is in flight do not pile up', async () => {
-  let release: () => void = () => { /* */ };
-  const gate = new Promise<void>((r) => { release = r; });
-  const panesIn: Array<[number, Pane]> = [[1, fresh('a')]];
-  const h = harness(panesIn, () => ({}));
-  // hold the first request open, then fire two more polls
-  const slow = { sessionUnder: (want: number[]) => { h.calls.push(want); return gate.then(() => ({})); } };
-  const src = [
-    'let restoreQuitting = false; let restoreTimer = 0; let restorePending = null;',
-    "const RESTORE_KEY = 'shellSessions'; const CLAUDE = 'claude';",
-    grab(/function paneIsClaude\(cmd\) \{[\s\S]*?\n\}/, 'paneIsClaude'),
-    grab(/function sessionsSnapshot\(\) \{[\s\S]*?\n\}/, 'sessionsSnapshot'),
-    grab(/function persistSessions\(\) \{[\s\S]*?\n\}/, 'persistSessions'),
-    grab(/let adoptInFlight = false;\nfunction adoptUnidentified\(\) \{[\s\S]*?\n\}/, 'adoptUnidentified'),
-    'return adoptUnidentified;',
-  ].join('\n');
-  const adopt = new Function('panes', 'tabOrder', 'active', 'localStorage', 'window', 'setTimeout', 'clearTimeout', src)(
-    new Map(panesIn), { main: [], term: [1] }, { term: 1 }, { getItem: () => null, setItem: () => { /* */ } },
-    { glassShell: slow }, (fn: () => void) => { fn(); return 0; }, () => { /* */ });
-  adopt(); adopt(); adopt();
-  assert.equal(h.calls.length, 1, 'three polls, one request');
-  release();
-  await new Promise((r) => setImmediate(r));
+test('the binding never overwrites, and only a live terminal pane is bound', () => {
+  const h = harness([
+    [1, { ...fresh('a'), sessionId: ids[1] }],                                   // already holds a session
+    [2, { kind: 'term', name: 'zsh', cmd: '', exited: true, sessionId: null }],  // its shell has exited
+    [3, { kind: 'file', name: 'note.md', sessionId: null }],                     // not a terminal
+  ], none);
+  h.adoptUnidentified(pulseOf([{ id: ids[2], name: 'x', pane: 1 }, { id: ids[3], name: 'y', pane: 2 }, { id: ids[4], name: 'z', pane: 3 },
+    { id: 'outside', name: 'elsewhere' }]));   // a session in Terminal.app: no pane at all
+  assert.equal(h.panes.get(1)?.sessionId, ids[1], 'a tab keeps its session; a changed id is followRotatedId\'s job');
+  assert.equal(h.panes.get(2)?.sessionId, null);
+  assert.equal(h.panes.get(3)?.sessionId, null);
+});
+
+test('ONE METHOD: adoption asks nothing of its own — no request, no `ps`, on any pulse', () => {
+  /* It used to call `session:under` and bound that with an in-flight flag and a filter. The answer now arrives with the pulse,
+     from the walk main already made for the panel, so a plain shell on an idle window costs nothing here. */
+  const h = harness([[1, fresh('a')], [2, { kind: 'term', name: 'zsh', cmd: '', isSession: false, sessionId: null }]], none);
+  h.adoptUnidentified(pulseOf([{ id: ids[1], name: 'a', pane: 1 }]));
+  h.adoptUnidentified(pulseOf([]));
+  h.adoptUnidentified();
+  assert.equal(h.calls.length, 0);
+  assert.doesNotMatch(grab(/function adoptUnidentified\(m\) \{[\s\S]*?\n\}/, 'adoptUnidentified'), /glassShell|sessionUnder/);
+});
+
+test('#223: main sends each row\'s pane from the SAME tree walk the panel\'s list came from', () => {
+  const host = fs.readFileSync('src/main/panelHost.ts', 'utf8');
+  assert.match(host, /const paneOf = aios\.paneOfSessions\(aios\.listRunningAgents\(\)\.filter\(aios\.isOperatorSession\)\);/,
+    'the input listOperatorSessions() walks, so the memoized walk is reused rather than a second `ps` per pulse');
+  assert.match(host, /pane: paneOf\.get\(a\.sessionId\)/, 'and every running row carries it');
+  const core = fs.readFileSync('src/main/aios.ts', 'utf8');
+  assert.match(core, /const all = listRunningAgents\(\)\.filter\(isOperatorSession\);[\s\S]{0,900}?paneSessionIdsFromTree\(all\)/,
+    'the walk this reuses — if listOperatorSessions stops making it, the reuse claim above is false');
+  assert.match(core, /export function paneSessionIdsFromTree[\s\S]{0,200}?return walkTree\(running, procTable\)\.ids;/,
+    'membership (panel) and binding (tab) are two readings of one walk');
+  assert.match(core, /export function paneOfSessions[\s\S]{0,300}?walkTree\(running, procTable\)\.ptyOf/);
 });
 
 test('the adoption runs from the same poll that reconciles panes', () => {
-  assert.match(app, /function renderPulseRunning\(m\) \{[\s\S]*?adoptUnidentified\(\);/,
+  assert.match(app, /function renderPulseRunning\(m\) \{[\s\S]*?adoptUnidentified\(pulse\.lastRunning\);/,
     'wired into the 2s pulse — a function nobody calls fixes nothing');
 });

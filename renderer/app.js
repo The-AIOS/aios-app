@@ -2012,34 +2012,27 @@ function feedPrime(...colls) { for (const c of colls) FEED.primed.add(c); }
    Resumed four more with the picker, quit again — same.
    So on each poll, any Claude pane still without an id is resolved through the PROCESS TREE: the
    pty's descendant `claude` is keyed in the registry by pid, which is exact and does not care when
-   the title arrived. Bounded: it only asks about unidentified Claude panes, one request at a time,
-   and once every pane has an id it does nothing at all — no new work on an idle window. */
-let adoptInFlight = false;
-function adoptUnidentified() {
-  if (adoptInFlight) return;
-  const want = [...panes.entries()]
-    .filter(([, p]) => p.kind === 'term' && !p.exited && !p.sessionId && (p.isSession || paneIsClaude(p.cmd)))
-    .map(([id]) => id);
-  if (!want.length) return;
-  adoptInFlight = true;
-  void window.glassShell.sessionUnder(want).then((map) => {
-    let changed = false;
-    for (const id of want) {
-      const real = map && map[id];
-      const p = panes.get(id);
-      if (!real || !real.id || !p || p.sessionId) continue;
-      p.sessionId = real.id;
-      p.isSession = true;
-      /* (no chat-skin call here: sessionRestore.test.ts runs this function in isolation, and chatSkinTick
-         reconciles every pane's session within a tick anyway) */
-      /* confirmedName is what the liveness pass above keys on to notice a session ENDING, so an
-         adopted pane needs it too — taken from the registry, the same authority as the id. */
-      if (!p.confirmedName && real.name) p.confirmedName = real.name;
-      changed = true;
-    }
-    if (changed) persistSessions();
-  }).catch(() => { /* ps unavailable — the title path still works, and we retry next poll */ })
-    .finally(() => { adoptInFlight = false; });
+   the title arrived.
+   ONE METHOD FOR TAB AND PANEL (#223). This used to ask main separately (`session:under`), and only about panes launched as
+   `claude`, so a session typed by hand into a plain terminal tab was never asked about: the panel, filled from main's own
+   tree walk, showed it working while the tab stayed a grey terminal. Main now sends, on every running row, the pane that
+   walk found it under (`pane`), and the tab binds from exactly that. No request, no `ps` of its own, nothing to bound. */
+function adoptUnidentified(m) {
+  let changed = false;
+  for (const a of (m && m.running) || []) {
+    if (a.pane == null || !a.id) continue;
+    const p = panes.get(a.pane);
+    if (!p || p.kind !== 'term' || p.exited || p.sessionId) continue;
+    p.sessionId = a.id;
+    p.isSession = true;
+    /* (no chat-skin call here: sessionRestore.test.ts runs this function in isolation, and chatSkinTick
+       reconciles every pane's session within a tick anyway) */
+    /* confirmedName is what the liveness pass above keys on to notice a session ENDING, so an
+       adopted pane needs it too — taken from the registry, the same authority as the id. */
+    if (!p.confirmedName && a.name) p.confirmedName = a.name;
+    changed = true;
+  }
+  if (changed) persistSessions();
 }
 
 /* A session's id is not for life. `/clear` and `/resume` replace the session INSIDE the running claude process: the pty, the pid and
@@ -2157,7 +2150,7 @@ function renderPulseRunning(m) {
       renamePane(pid, t('tab.endedSession', { name: was }));
     }
   }
-  adoptUnidentified();
+  adoptUnidentified(pulse.lastRunning);
   const data = pulse.lastRunning || {};
   const sessions = data.running || [];
   trackTheater(sessions);
