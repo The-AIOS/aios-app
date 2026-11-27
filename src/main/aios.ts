@@ -1263,25 +1263,12 @@ export function setMasterSortPref(mode: unknown): { master: SortMode; overrides:
   return { master: masterSort(), overrides: folderSorts() };
 }
 
-// ── frequent tasks count (.glass/state.json + defaults) ────────────────────
+// ── frequent tasks count ────────────────────────────────────────────────────
 
-const DEFAULT_TASK_IDS = ['email', 'post', 'deck', 'research', 'meeting', 'clarity', 'ingest', 'infographic', 'bio-event', 'infographic-me', 'infographic-become', 'who-for-audience', 'elevator-pitch', 'whats-changed', 'podcast-intro', 'values'];
-
+/** The Home badge: how many tasks the picker shows. One list, frequentTasks(): the badge once
+ *  counted a list of 16 (Glass's defaults) above a picker of 8, so a fresh vault said 16. */
 export function frequentTaskCount(): number {
-  const r = frameworkRoot();
-  let saved: { id: string }[] | undefined;
-  let removed: string[] = [];
-  if (r) {
-    try {
-      const st = JSON.parse(fs.readFileSync(path.join(r, '.glass', 'state.json'), 'utf8'));
-      saved = st['aios.frequentTasks.v1'];
-      removed = st['aios.frequentTasks.removed.v1'] || [];
-    } catch { /* no state yet */ }
-  }
-  const rm = new Set(removed);
-  if (!saved) return DEFAULT_TASK_IDS.filter((id) => !rm.has(id)).length;
-  const have = new Set(saved.map((t) => t.id));
-  return saved.length + DEFAULT_TASK_IDS.filter((id) => !have.has(id) && !rm.has(id)).length;
+  return frequentTasks().length;
 }
 
 // ── companies / collab / framework status ───────────────────────────────────
@@ -3902,6 +3889,9 @@ const DEFAULT_TASK_SPECS: { id: string; kind: string; target: string }[] = [
   { id: 'ingest', kind: 'command', target: 'ingest' },
   { id: 'infographic', kind: 'skill', target: 'infographic-builder' },
 ];
+/* The defaults Glass ships that the App does not (its "about me" prompts). The App never offers
+   them; they are named only so a persona can record them as removed in the shared state file. */
+const GLASS_ONLY_TASK_IDS = ['bio-event', 'infographic-me', 'infographic-become', 'who-for-audience', 'elevator-pitch', 'whats-changed', 'podcast-intro', 'values'];
 function defaultTasks(): FreqTaskLite[] {
   return DEFAULT_TASK_SPECS.map((s) => ({ ...s, label: t('freq.' + s.id), hint: t('freq.' + s.id + 'Hint') }));
 }
@@ -4024,10 +4014,9 @@ export function applyStarterPack(id: string): { id: string; tasks: number; agent
   const byId = new Map(defaultTasks().map((d) => [d.id, d]));
   const tasks = pack.tasks.map((tid) => byId.get(tid)).filter((x): x is FreqTaskLite => !!x);
   setGlassState('aios.frequentTasks.v1', tasks);
-  // remove every non-pack default — across BOTH default lists (the merge list
-  // in frequentTasks and the wider badge list in frequentTaskCount), so the
-  // Home badge and the picker agree on the persona's set
-  const allDefaults = [...new Set([...DEFAULT_TASK_IDS, ...DEFAULT_TASK_SPECS.map((s) => s.id)])];
+  // remove every non-pack default, Glass's too: the two surfaces share this file, and a
+  // default Glass ships that is not recorded as removed comes back there on its next read
+  const allDefaults = [...new Set([...DEFAULT_TASK_SPECS.map((s) => s.id), ...GLASS_ONLY_TASK_IDS])];
   setGlassState('aios.frequentTasks.removed.v1', allDefaults.filter((tid) => !pack.tasks.includes(tid)));
   setGlassState(STARTER_KEY, { id: pack.id, at: iso, agents: [...pack.agents] });
   return { id: pack.id, tasks: tasks.length, agents: [...pack.agents] };
