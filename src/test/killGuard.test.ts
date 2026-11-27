@@ -124,10 +124,10 @@ test('a request claimed WITHOUT expect and rewritten to add one is a change too'
 test('the dispatcher takes the guard from the claimed body, not from the re-read', () => {
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(src, /const verdict = decideKill\(body, \(\) => fs\.readFileSync\(heldPath, 'utf8'\), t,/, 'decideKill gets the claimed body first');
-  assert.match(src, /function runImmediate\(.*, body: Record<string, unknown>\): void \{/, 'runImmediate requires the body');
+  assert.match(src, /function runImmediate\(.*, body: Record<string, unknown>(, seen = \{[^}]*\})?\): void \{/, 'runImmediate requires the body (contract 5 adds when the request was first seen, for open)');
   assert.match(src, /return \{ heldPath: r\.heldPath, req, at: r\.at, body: r\.body \};/, 'claim hands back the body as it was written, from the shared claim');
   assert.equal((src.match(/runImmediate\(win, [^)]*\);/g) || []).length, 2, 'both callers');
-  assert.match(src, /runImmediate\(win, held\.heldPath, held\.req, held\.body\);/);
+  assert.match(src, /runImmediate\(win, held\.heldPath, held\.req, held\.body(, seen)?\);/);
   assert.match(src, /runImmediate\(win, p, real, body\);/);
 });
 

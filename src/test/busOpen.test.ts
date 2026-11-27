@@ -125,7 +125,7 @@ test('a session\'s pane is a snapshot: its text comes from main, it never reads 
   assert.match(viewer, /const ro = !!o\.bus;/);
   assert.match(viewer, /const file = ro\s*\? \(typeof o\.content === 'string'/, 'the snapshot text is what main read');
   assert.match(viewer, /const editable = !ro && /);
-  assert.match(viewer, /if \(ro \|\| paneObj\.dirty/, 'a disk change is ignored');
+  assert.match(viewer, /if \(paneObj\.dirty \|\| paneObj\.asking \|\| !editable\) return;   \/\/ a session's snapshot is never editable, so it never reloads/, 'a disk change is ignored');
   assert.match(viewer, /if \(!ro\) \{\s*void window\.glassShell\.fsWatchFile/, 'the path is not even watched');
   assert.match(viewer, /if \(ro\) \{ editor\.setReadOnly\?\.\(true\);/, 'the source view cannot be typed into');
   assert.match(app, /if \(ta\.readOnly\) return;   \/\/ a session's snapshot: Tab and ⌘S change nothing/, 'nor changed by Tab, nor saved by ⌘S');
