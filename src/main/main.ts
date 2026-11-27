@@ -35,6 +35,7 @@ import { withToolDirs } from './toolPath';
 import { writeHandoffFile, sweepHandoffDirs } from './handoffDir';   // #72: Homebrew/uv on every session's PATH   // terminal links: open vs reveal
 import * as pty from 'node-pty';
 import { PanelHost, setPanelLog } from './panelHost';
+import { effectiveSessions } from './sessionStatus';
 import { installMenu } from './menu';
 import { MenuBar } from './menuBar';
 import { sanitizeGroups, type MenuBarGroup } from '../core/menuBar';
@@ -1322,7 +1323,7 @@ function applyQuickBar(): void {
   quickBar ??= new QuickBar({
     appRoot: path.join(__dirname, '..', '..'),
     inboxDir,
-    sessions: () => aios.listOperatorSessions(),
+    sessions: () => effectiveSessions(aios.listOperatorSessions()),
     takenNames: () => aios.listRunningAgents().map((a) => a.name),
     agents: () => aios.discoverAgents(),
     primaryNames: () => [...aios.primaryNames()],
@@ -1986,7 +1987,7 @@ ipcMain.handle('aios:lists', () => ({
   commands: aios.discoverCommands(),
   skills: aios.discoverSkills(),
   frequent: aios.frequentTasks(),
-  running: aios.listOperatorSessions(),
+  running: effectiveSessions(aios.listOperatorSessions()),
   suggestions: aios.listAgentSuggestions(),
 }));
 ipcMain.handle('fs:index', () => aios.fileIndex());
@@ -2405,7 +2406,7 @@ ipcMain.handle('claude:set', (_e, key: 'model' | 'effort' | 'advisor' | 'mode' |
    latter two go through the same inbox request the floating quick bar writes (writeAskRequest), on every
    platform: the bus verifies delivery, holds while a session is busy and dead-letters what it cannot do. */
 ipcMain.handle('ask:destinations', () => ({
-  sessions: aios.listOperatorSessions().map((s) => ({ name: s.name, waiting: isBlockedStatus(s.status) })),
+  sessions: effectiveSessions(aios.listOperatorSessions()).map((s) => ({ name: s.name, waiting: isBlockedStatus(s.status) })),
   agents: aios.discoverAgents().map((a) => ({ name: a.name, desc: a.description ?? '', group: a.group })),   // group: the agent's bundle folder, its colour in the chat (#109)
 }));
 ipcMain.handle('hat:agent', (_e, name: unknown) => (typeof name === 'string' ? aios.hatAgent(name) : null));   // #109: a hat line's agent, by file
