@@ -200,7 +200,8 @@ git tag -a core-v0.1.0 -m "@the-aios/core 0.1.0" && git push origin core-v0.1.0
 `.github/workflows/publish-core.yml` checks that the tag names the version, runs the package's
 tests, the cases check and the tarball check, and publishes. Re-running it for a version that is
 already on npm does nothing. Run it by hand (Actions → Publish @the-aios/core) for a dry run that
-builds and packs and publishes nothing.
+builds and packs and publishes nothing; started by hand from anything but a `core-v` tag it can
+only rehearse.
 
 **Once, before the first publish (maintainers only):**
 
@@ -224,8 +225,9 @@ not offer it before the package exists, make the first publish with a token and 
 - then add the trusted publisher as in step 3 and delete the token. The workflow uses a stored
   token only when one exists, so removing it needs no change here.
 
-A trusted publisher that is configured and not used within two days expires on npm's side and has
-to be created again, so set it up when a version is ready to tag.
+npm's documentation says a newly created trusted publisher has to complete its first publish
+within two days or it expires and has to be created again, so set it up when a version is ready
+to tag.
 
 ## Supply-chain hygiene (the release path ships to non-technical users)
 

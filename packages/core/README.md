@@ -47,8 +47,9 @@ The App's own `npm run compile` builds the package first, and its `npm test` run
 
 Nothing in this folder imports from outside it, and it does not inherit the repository's
 `tsconfig.json`. It can move to a repository of its own with its history
-(`git subtree split -P packages/core`); what stays behind is the publishing workflow and three
-lines of the App's `package.json`.
+(`git subtree split -P packages/core`). What stays behind in the App is the publishing workflow
+and, in its `package.json`, the workspace entry, the dependency, the `compile` and `test` scripts
+and two packaging exclusions.
 
 ### Tests
 
@@ -68,8 +69,9 @@ take a newer version of a file, change the lock, run `cases:sync`, and bump the 
 A change here changes both surfaces, and a surface gets it when it moves to the new version.
 
 1. Make the change and its test here.
-2. Bump `version` in [`package.json`](./package.json), and the App's dependency on it, in the same
-   pull request.
+2. Bump `version` in [`package.json`](./package.json) and the App's dependency on it, and run
+   `npm install` at the repository root so `package-lock.json` follows, all in the same pull
+   request. A test in the App fails when the two versions differ.
 3. After the merge, a maintainer pushes the tag `core-v<version>`; CI publishes it.
 4. Glass moves to the new version in its own pull request.
 

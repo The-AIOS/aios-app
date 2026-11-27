@@ -9,7 +9,8 @@
  *      not compile, a cases file that was not synced, and a stray test or source file are all the
  *      same failure: the list is not the list.
  *   3. Unpacked the way a consumer would have it (node_modules/@the-aios/core), every module loads
- *      by the name a surface imports it by, and every cases file resolves.
+ *      by the name a surface imports it by, its types resolve under both kinds of module
+ *      resolution the surfaces use, and every cases file resolves.
  *
  * Prints the tarball path last, so a surface can be tried against it before anything is published:
  *   node scripts/pack-check.mjs --keep     →  …/the-aios-core-<version>.tgz
@@ -71,6 +72,24 @@ for (const f of lock.files) {
 }
 if (req(`${pkg.name}/package.json`).version !== pkg.version) fail('the tarball carries a different version than package.json');
 
-console.log(`pack-check ✓ ${pkg.name}@${pkg.version}: ${got.length} files, ${modules.length} modules load, ${lock.files.length} cases file(s) resolve`);
+/* And the TYPES resolve, both ways a surface asks for them. The App's compiler reads the package's
+   `exports`; Glass's older `node10` resolution ignores `exports` and reads `typesVersions`. Each
+   surface compiles against only one of the two, so a mistake in the other would pass every check
+   in the repository that made it and fail in the one that did not. */
+const tsc = createRequire(join(root, 'package.json')).resolve('typescript/bin/tsc');
+writeFileSync(join(home, 'index.ts'),
+  modules.map((m, i) => `import * as m${i} from '${pkg.name}/${m}';`).join('\n')
+  + `\nexport const all = [${modules.map((_, i) => `m${i}`).join(', ')}];\n`);
+const options = { noEmit: true, strict: true, skipLibCheck: true, target: 'ES2022', module: 'commonjs', types: [] };
+for (const [label, extra] of [
+  ['through exports (the App)', {}],
+  ['through typesVersions (Glass, node10 resolution)', { moduleResolution: 'node10', ignoreDeprecations: '6.0' }],
+]) {
+  writeFileSync(join(home, 'tsconfig.json'), JSON.stringify({ compilerOptions: { ...options, ...extra }, files: ['index.ts'] }));
+  try { execFileSync(process.execPath, [tsc, '-p', 'tsconfig.json'], { cwd: home, encoding: 'utf8', stdio: 'pipe' }); }
+  catch (e) { fail(`the types do not resolve ${label}:\n${String(e.stdout || e.message).trim().split('\n').slice(0, 12).join('\n')}`); }
+}
+
+console.log(`pack-check ✓ ${pkg.name}@${pkg.version}: ${got.length} files, ${modules.length} modules load and type-check both ways, ${lock.files.length} cases file(s) resolve`);
 if (KEEP) console.log(tgz);
 else rmSync(out, { recursive: true, force: true });

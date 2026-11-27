@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "gen-i18n": "node scripts/gen-i18n.mjs",
-    "compile": "npm run build -w @the-aios/core && npm run gen-i18n && tsc -p ./",
+    "compile": "npm run build -w @the-aios/core && npm run gen-i18n && node scripts/prune-out.mjs && tsc -p ./",
     "watch": "tsc -watch -p ./",
     "start": "npm run compile && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",

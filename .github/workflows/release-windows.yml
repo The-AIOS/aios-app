@@ -85,8 +85,11 @@ jobs:
       # everything must pass. A directory arg, not a glob — runs identically under bash/cmd/pwsh.
       - run: node --test --test-timeout=120000 "out/test/*.test.js"
       # The shared package's own suite (packages/core): the tests that moved there with the modules
-      # ran in this job before, and still do.
-      - run: npm test -w @the-aios/core
+      # ran in this job before, and still do. Run by hand for an older tag, this lane builds that
+      # tag's tree, which has no package: the step is skipped there, and that tree's unit suite
+      # above still holds those tests.
+      - if: hashFiles('packages/core/package.json') != ''
+        run: npm test -w @the-aios/core
 
       # CodeSignTool, pinned by version AND by checksum: the release path ships to non-technical
       # users, so the signer is never "whatever SSL.com serves today". It carries its own JDK, so

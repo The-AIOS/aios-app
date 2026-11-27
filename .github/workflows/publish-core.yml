@@ -55,8 +55,10 @@ jobs:
       # the native build of node-pty, neither of which the package uses.
       - run: npm ci --ignore-scripts
 
+      # Only a core-v tag is ever published, however the run was started: a run started by hand
+      # from a branch can rehearse (dry run) and nothing more.
       - name: The tag must name the version being published
-        if: github.event_name == 'push'
+        if: startsWith(github.ref, 'refs/tags/core-v')
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -78,7 +80,10 @@ jobs:
         id: exists
         run: |
           VERSION="$(node -p "require('./packages/core/package.json').version")"
-          if OUT="$(npm view "@the-aios/core@$VERSION" version 2>&1)"; then
+          # stdout and stderr apart: a warning npm prints beside the answer must not be read as
+          # part of the version, or a published version looks new and the publish below fails.
+          ERR="$(mktemp)"
+          if OUT="$(npm view "@the-aios/core@$VERSION" version 2>"$ERR")"; then
             if [ "$OUT" = "$VERSION" ]; then
               echo "@the-aios/core@$VERSION is already published; nothing to do."
               echo "published=true" >> "$GITHUB_OUTPUT"
@@ -86,12 +91,12 @@ jobs:
               echo "@the-aios/core@$VERSION is not on npm yet."
               echo "published=false" >> "$GITHUB_OUTPUT"
             fi
-          elif echo "$OUT" | grep -q 'E404'; then
+          elif grep -q 'E404' "$ERR"; then
             echo "@the-aios/core@$VERSION is not on npm yet."
             echo "published=false" >> "$GITHUB_OUTPUT"
           else
             echo "::error::Could not ask npm whether $VERSION exists:"
-            echo "$OUT"
+            cat "$ERR"
             exit 1
           fi
 
@@ -111,9 +116,9 @@ jobs:
           fi
 
       - name: Dry run (publish nothing)
-        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        if: github.event_name == 'workflow_dispatch' && (inputs.dry_run || !startsWith(github.ref, 'refs/tags/core-v'))
         run: npm publish -w @the-aios/core --access public --dry-run
 
       - name: Publish
-        if: steps.exists.outputs.published == 'false' && (github.event_name == 'push' || !inputs.dry_run)
+        if: steps.exists.outputs.published == 'false' && startsWith(github.ref, 'refs/tags/core-v') && (github.event_name == 'push' || !inputs.dry_run)
         run: npm publish -w @the-aios/core --access public

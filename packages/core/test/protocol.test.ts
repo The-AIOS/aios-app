@@ -26,7 +26,7 @@ import { TIMINGS, decideAfterVerifyMiss, maxAttemptsFor, claimVerdict, triedBy, 
  */
 
 test('PROTOCOL: the values themselves are the agreed ones', () => {
-  // Belt and braces: the hash catches edits, these catch a hash updated without thought.
+  // The agreed numbers, stated: a change to TIMINGS has to be made here too, on purpose.
   assert.equal(TIMINGS.QUEUE_CEILING_MS, 24 * 60 * 60 * 1000, 'A busy target is waited on until its next idle');
   assert.equal(TIMINGS.HOLD_STALE_MS, 24 * 60 * 60 * 1000 + 45 * 60 * 1000);
   assert.ok(TIMINGS.HOLD_STALE_MS > TIMINGS.QUEUE_CEILING_MS + TIMINGS.MAX_HOLD_MS, 'stale must exceed the WORST-CASE legitimate hold: queued to the ceiling, then watched for verification (should-fix 7)');
