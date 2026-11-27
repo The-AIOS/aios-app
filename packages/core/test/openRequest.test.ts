@@ -178,6 +178,19 @@ test('real disk: a note inside the root opens, at its resolved path, with its id
   assert.equal(looksLikeFramework(path.join(d.home, 'outside')), false);
 });
 
+test('real disk: an image above the asset limit is unreadable at the decision, not "changed" at the read', () => {
+  const d = disk(); const p = d.at('aios/vault/big.png', '');
+  fs.truncateSync(p, 33 * 1024 * 1024);   // sparse: no 33 MB written
+  const r = ask(p, d);
+  assert.equal(r.do === 'refuse' && r.why, 'unreadable');
+  const small = d.at('aios/vault/small.png', 'PNG');
+  const ok = ask(small, d);
+  assert.equal(ok.do, 'open');
+  const id = ok.do === 'open' ? ok.identity : { dev: 0, ino: 0 };
+  assert.equal(readChecked(small, id, { roots: prepareRoots([d.root], d.home), asBytes: true, limit: 2 }).ok, false, 'a smaller limit is honoured');
+  assert.equal(readChecked(small, id, { roots: prepareRoots([d.root], d.home), asBytes: true }).ok, true);
+});
+
 test('real disk: a hard link to a file outside the root is refused', { skip: !posix && 'hard links need care on Windows' }, () => {
   const d = disk(); const target = d.at('outside/key.txt'); const link = path.join(d.root, 'vault', 'meeting.md');
   fs.linkSync(target, link);

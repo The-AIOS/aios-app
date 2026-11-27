@@ -41,10 +41,11 @@ test('runOpen decides with the shared module, on the framework root only, prepar
   const prep = between(bus, 'function prepareOpenRoots(', '\n}');
   assert.match(prep, /prepareRoots\(\[fw\], os\.homedir\(\)\)/, 'one root: the framework root');
   assert.doesNotMatch(prep, /workspaceFolders|dropped|grant/i, 'workspace folders and dropped files are not roots for an agent (their lists are session-writable)');
-  assert.match(prep, /looksLikeFramework\(openRoots\[0\]\.real\)/, 'a root that does not look like a framework turns open off');
+  assert.match(prep, /without vault\/ and plugins\/aios\/\); it is read when the App starts, so restart it/, 'the dead letter says why, and that a restart re-reads it');
   const init = between(bus, 'export function initCommandBus(', '\n}');
   assert.match(init, /prepareOpenRoots\(\);/, 'prepared when the bus starts, not per request');
-  assert.match(runOpen, /if \(openOff\) \{ markUndelivered\(/, 'open off is a dead letter that says why');
+  assert.match(runOpen, /d\.why === 'unavailable' && openOff/, 'open off answers at check 8, after the flood and rate counting');
+  assert.doesNotMatch(runOpen.slice(0, runOpen.indexOf('decideOpen(')), /markUndelivered/, 'nothing is refused before the decision counts it');
 });
 
 test('runOpen counts every decision except a too-old one, refused ones included, before acting on it', () => {
@@ -57,9 +58,13 @@ test('runOpen counts every decision except a too-old one, refused ones included,
 test('the content shown is read by main, from the file the decision checked, images and PDFs as bytes', () => {
   assert.match(runOpen, /readChecked\(d\.path, d\.identity, \{ roots: openRoots, asBytes: asset \}\)/);
   assert.match(runOpen, /emit\(w, 'openFile', \{[^}]*bus: true[^}]*\n?[^}]*content: asset \? undefined : String\(r\.content\), bytes: asset \? new Uint8Array/);
-  assert.match(viewer, /const roBlob = ro && o\.asset && o\.bytes \? URL\.createObjectURL\(new Blob\(\[o\.bytes\]/);
-  assert.match(viewer, /img\.src = roBlob \|\| fileUrl\(file\.path\);/);
-  assert.match(viewer, /fr\.src = roBlob \|\| fileUrl\(file\.path\);/, 'a PDF too');
+  assert.match(viewer, /const roBlob = ro && o\.asset && o\.bytes \? new Blob\(\[o\.bytes\]/);
+  assert.match(viewer, /img\.src = ro \? \(roBlob \? blobUrl\(img, roBlob\) : ''\) : fileUrl\(file\.path\);/, 'a snapshot image only from its bytes, never by its path');
+  assert.match(app, /case 'openFile':[\s\S]{0,200}asset: m\.asset, bytes: m\.bytes, snap: m\.snap \}/, 'the intent forwards the bytes and the re-check token');
+  const csp = (fs.readFileSync('renderer/index.html', 'utf8').match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) ?? [])[1] ?? '';
+  assert.match(csp, /img-src [^;]*\bblob:/, 'the page allows the blob images it makes');
+  assert.doesNotMatch(csp, /frame-src [^;]*\bblob:/, 'and no blob frames: a PDF a session asks for is not shown');
+  assert.match(runOpen, /if \(\/\\\.pdf\$\/i\.test\(d\.path\)\) \{ markUndelivered\(heldPath, req, 'open refused \(unreadable\)/);
   assert.match(runOpen, /if \(!w \|\| w\.isDestroyed\(\)\) \{ markUndelivered\(/, 'no window is a dead letter, not a silent success');
 });
 
@@ -81,6 +86,7 @@ test('the age is this App\'s own clock from first sight, never the file\'s times
 test('a flood is dropped without a dead letter for each request', () => {
   assert.match(runOpen, /if \(d\.why === 'flood'\) \{ noteFlood\(heldPath, req\); return; \}/);
   const flood = between(bus, 'function noteFlood(', "\nipcMain.handle('bus:imageBytes'");
+  assert.match(flood, /if \(now - floodLastAt > 60_000\) floodDropped = 0;/, 'a new flood starts its own count');
   assert.equal((flood.match(/markUndelivered\(/g) ?? []).length, 1, 'one dead letter a minute, not one per request');
 });
 
@@ -88,9 +94,12 @@ test('a local image in a session\'s note is shown only if it passes the note\'s 
   const h = between(bus, "ipcMain.handle('bus:imageBytes'", '\n});');
   assert.match(h, /path\.posix\.normalize\(/, '.. is applied as text first, as a browser would');
   assert.match(h, /decideOpen\(/);
-  assert.match(h, /readChecked\(d\.path, d\.identity, \{ roots: openRoots, asBytes: true \}\)/);
-  assert.match(app, /function holdSnapshotImage\(img, s, dir\)/);
-  assert.match(viewer, /if \(ro\) \{ holdSnapshotImage\(img, s, dir\); continue; \}/);
+  assert.match(h, /readChecked\(d\.path, d\.identity, \{ roots: openRoots, asBytes: true, limit: IMAGE_LIMIT \}\)/, 'a smaller bound for note images');
+  assert.match(h, /if \(imageReads\.length >= IMAGE_RATE\) return null;/, 'and a rate of its own');
+  assert.match(app, /if \(holds\.by\.size >= IMAGE_PER_NOTE\) \{ deny\(\); return; \}/, 'each path asked once, at most 50 a note');
+  assert.match(app, /const blobUrl = \(img, blob\) => \{ const u = URL\.createObjectURL\(blob\); img\.addEventListener\('load', \(\) => URL\.revokeObjectURL\(u\)/, 'object URLs are revoked');
+  assert.match(app, /function holdSnapshotImage\(img, s, dir, holds\)/);
+  assert.match(viewer, /if \(ro\) \{ holdSnapshotImage\(img, s, dir, holds\); continue; \}/);
   const hold = between(app, 'function holdSnapshotImage(', '\n}');
   assert.ok(hold.indexOf("img.removeAttribute('src')") < hold.indexOf('busImageBytes'), 'no source until main sends the bytes');
   assert.doesNotMatch(hold, /fileUrl\(/, 'never by its path');
@@ -116,6 +125,7 @@ test('a session\'s pane is a snapshot: its text comes from main, it never reads 
   assert.match(viewer, /if \(ro\) \{ editor\.setReadOnly\?\.\(true\);/, 'the source view cannot be typed into');
   assert.match(app, /if \(ta\.readOnly\) return;   \/\/ a session's snapshot: Tab and ⌘S change nothing/, 'nor changed by Tab, nor saved by ⌘S');
   assert.match(viewer, /const save = \(content, prefer\) => \(ro \? Promise\.resolve\(null\)/, 'a save does nothing');
+  assert.match(viewer, /paneObj\.flushSave = \(quitting\) => \{\s*if \(ro\) return;/, 'nor the save on close or quit');
   assert.match(viewer, /\}, ro \? null : file\.path\);/, 'and git is not asked about the file on disk');
   assert.match(viewer, /if \(!ro\) noteRecentFile\(file\.path\);/, 'nor added to the operator\'s recent files');
   assert.match(viewer, /if \(ro\) \{ box\.disabled = true; return; \}/, 'task boxes do not write');
@@ -124,12 +134,14 @@ test('a session\'s pane is a snapshot: its text comes from main, it never reads 
 
 test('the snapshot says so on screen, and "Open to edit" reopens it as the operator\'s own', () => {
   assert.match(viewer, /t\('viewer\.readOnlyBadge', \{ by:/);
-  assert.match(viewer, /edit\.addEventListener\('click', \(\) => \{ closePane\(id\); void openViewer\(file\.path\); \}\);/);
+  assert.match(viewer, /window\.glassShell\.busRecheckSnapshot\?\.\(o\.snap \|\| ''\)[\s\S]{0,120}if \(!real\) \{ toast\(t\('viewer\.changedSinceSnapshot'\)\); return; \}\s*closePane\(id\); void openViewer\(real\);/, 'the real file is checked again before it opens for editing');
+  const re = between(bus, "ipcMain.handle('bus:recheckSnapshot'", '\n});');
+  assert.match(re, /readChecked\(s\.path, s\.identity, \{ roots: openRoots, asBytes: s\.asset \}\)\.ok \? s\.path : null/);
   assert.match(viewer, /if \(HTML_EXT\.test\(name\) && !ro\)/, 'no PNG render of an HTML file a session asked for');
   assert.match(viewer, /if \(!ro\) head\.appendChild\(rev\);/, 'no reveal button on a snapshot');
   for (const loc of ['en', 'es', 'fr', 'el', 'pt-br']) {
     const j = JSON.parse(fs.readFileSync(`src/i18n/locales/${loc}.json`, 'utf8')) as Record<string, string>;
-    for (const k of ['viewer.readOnlyBadge', 'viewer.openToEdit', 'viewer.openToEditTip', 'viewer.imageHeld', 'viewer.openedBehind']) {
+    for (const k of ['viewer.readOnlyBadge', 'viewer.openToEdit', 'viewer.openToEditTip', 'viewer.imageHeld', 'viewer.openedBehind', 'viewer.changedSinceSnapshot']) {
       assert.ok(j[k] && j[k].length > 3, `${loc} has ${k}`);
     }
     assert.ok(j['viewer.readOnlyBadge'].includes('{by}') && j['viewer.openedBehind'].includes('{by}'), `${loc} names who opened it`);

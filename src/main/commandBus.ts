@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { findHook, hookCandidates } from '../core/hookPaths';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as aios from './aios';
@@ -39,7 +40,7 @@ import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from 
 import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
-import { decideOpen, readChecked, rememberDecided, prepareRoots, looksLikeFramework, type DecidedOpen, type PreparedRoot } from '@the-aios/core/openRequest';
+import { decideOpen, readChecked, rememberDecided, prepareRoots, type DecidedOpen, type PreparedRoot } from '@the-aios/core/openRequest';
 import { ASSET_EXT } from '@the-aios/core/readClass';
 
 /**
@@ -1226,20 +1227,38 @@ let openOff = '';
 function prepareOpenRoots(): void {
   const fw = aios.frameworkRoot();
   openRoots = fw ? prepareRoots([fw], os.homedir()) : [];
-  openOff = !openRoots.length ? 'there is no usable framework root (missing, the home folder, or inside a hidden folder)'
-    : !looksLikeFramework(openRoots[0].real) ? 'the framework root does not hold vault/ and plugins/aios/' : '';
+  /* prepareRoots already drops a root without vault/ and plugins/aios/. Read once, when the bus starts. */
+  openOff = !openRoots.length ? 'there is no usable framework root (missing, the home folder, inside a hidden folder, or without vault/ and plugins/aios/); it is read when the App starts, so restart it after setting the AIOS folder' : '';
   if (openOff) log(`open is OFF: ${openOff}`);
 }
+/* What "Open to edit" needs to check the real file again: the snapshot's identity, by a token the
+   renderer holds. Bounded; an old token simply cannot be re-checked and opens nothing. */
+const snapshotChecks = new Map<string, { path: string; identity: { dev: number; ino: number }; asset: boolean }>();
+function rememberSnapshot(s: { path: string; identity: { dev: number; ino: number }; asset: boolean }): string {
+  const token = crypto.randomBytes(8).toString('hex');
+  snapshotChecks.set(token, s);
+  while (snapshotChecks.size > 200) snapshotChecks.delete(snapshotChecks.keys().next().value as string);
+  return token;
+}
+ipcMain.handle('bus:recheckSnapshot', (_e, token: unknown) => {
+  const s = typeof token === 'string' ? snapshotChecks.get(token) : undefined;
+  if (!s) return null;
+  return readChecked(s.path, s.identity, { roots: openRoots, asBytes: s.asset }).ok ? s.path : null;
+});
 function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen: { seenAgoMs: number; atStart: boolean }): void {
   const now = Date.now();
-  if (openOff) { markUndelivered(heldPath, req, `open refused (unavailable): open is off on this App: ${openOff}`); return; }
+  /* Open off: no roots, so the decision refuses at check 8, after the flood and rate counting. */
   const d = decideOpen({ body, seenAgoMs: seen.seenAgoMs, presentAtStart: seen.atStart, nowMs: now, roots: openRoots, decided: decidedOpens });
   if (d.do === 'open' || d.counted) decidedOpens = rememberDecided(decidedOpens, { name: d.do === 'open' ? d.name : (d.name ?? req.name), at: now }, now);
   if (d.do === 'refuse') {
     if (d.why === 'flood') { noteFlood(heldPath, req); return; }
-    markUndelivered(heldPath, req, `open refused (${d.why}): ${d.reason}`);
+    markUndelivered(heldPath, req, d.why === 'unavailable' && openOff
+      ? `open refused (unavailable): open is off on this App: ${openOff}` : `open refused (${d.why}): ${d.reason}`);
     return;
   }
+  /* A PDF a session asks for is not shown: the viewer is Chromium's plugin in a frame, whose links and
+     scripts this App cannot keep inert. The operator's own PDFs open as before. */
+  if (/\.pdf$/i.test(d.path)) { markUndelivered(heldPath, req, 'open refused (unreadable): the App does not show a PDF a session asks for'); return; }
   /* Text and assets alike are read HERE, from the checked descriptor; the renderer shows what it is
      sent (an image or a PDF through a blob, never by its path), so a swap after the decision shows
      nothing. */
@@ -1250,7 +1269,8 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
   if (!w || w.isDestroyed()) { markUndelivered(heldPath, req, 'open refused (unavailable): the App has no window to show it in'); return; }
   const typing = [...composing.values()].some((rec) => operatorComposing(rec, now));
   emit(w, 'openFile', { path: d.path, line: asset ? undefined : d.line, mode: d.mode, background: typing, bus: true, by: d.name,
-    content: asset ? undefined : String(r.content), bytes: asset ? new Uint8Array(r.content as Buffer) : undefined, asset });
+    content: asset ? undefined : String(r.content), bytes: asset ? new Uint8Array(r.content as Buffer) : undefined, asset,
+    snap: rememberSnapshot({ path: d.path, identity: d.identity, asset }) });
   log(`open ${path.basename(d.path)} for '${d.name}', read only${typing ? ', in the background (the operator is typing)' : ''}`);
   try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
 }
@@ -1258,9 +1278,12 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
    own, so a flood cannot bury the dead letters that matter; one dead letter a minute says how many. */
 let floodDropped = 0;
 let floodLetterAt = 0;
+let floodLastAt = 0;
 function noteFlood(heldPath: string, req: BusRequest): void {
-  floodDropped++;
   const now = Date.now();
+  if (now - floodLastAt > 60_000) floodDropped = 0;   // a new flood starts its own count
+  floodLastAt = now;
+  floodDropped++;
   if (now - floodLetterAt >= 60_000) {
     floodLetterAt = now;
     markUndelivered(heldPath, req, `open refused (flood): ${floodDropped} open request(s) dropped in the last minute; more than 20 a minute are not shown`);
@@ -1277,12 +1300,22 @@ ipcMain.handle('bus:imageBytes', (_e, p: unknown) => {
      checks, and then as the BYTES of the checked file (the renderer makes a blob of them), never by
      its path. `..` is applied as text first, as a browser would. */
   if (openOff || typeof p !== 'string') return null;
+  /* Bounded: a note can name the same image thousands of times. The renderer asks once per path and
+     at most IMAGE_PER_NOTE times a note; here, at most IMAGE_RATE checked reads a minute, each at most
+     IMAGE_LIMIT bytes. */
+  const now = Date.now();
+  imageReads = imageReads.filter((t) => t > now - 60_000);
+  if (imageReads.length >= IMAGE_RATE) return null;
+  imageReads.push(now);
   const norm = path.posix.normalize(p.replace(/\\/g, '/'));
-  const d = decideOpen({ body: { name: 'viewer', path: norm }, seenAgoMs: 0, nowMs: Date.now(), roots: openRoots, decided: [] });
+  const d = decideOpen({ body: { name: 'viewer', path: norm }, seenAgoMs: 0, nowMs: now, roots: openRoots, decided: [] });
   if (d.do !== 'open' || !/\.(png|jpe?g|gif|webp|svg)$/i.test(d.path)) return null;
-  const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: true });
+  const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: true, limit: IMAGE_LIMIT });
   return r.ok ? { bytes: new Uint8Array(r.content as Buffer), type: mimeOf(d.path) } : null;
 });
+const IMAGE_RATE = 300;
+const IMAGE_LIMIT = 8 * 1024 * 1024;
+let imageReads: number[] = [];
 function mimeOf(p: string): string {
   const e = path.extname(p).toLowerCase();
   return e === '.svg' ? 'image/svg+xml' : e === '.pdf' ? 'application/pdf' : e === '.jpg' || e === '.jpeg' ? 'image/jpeg' : 'image/' + e.slice(1);
