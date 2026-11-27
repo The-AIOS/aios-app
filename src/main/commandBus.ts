@@ -1240,15 +1240,17 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
     markUndelivered(heldPath, req, `open refused (${d.why}): ${d.reason}`);
     return;
   }
-  let content: string | undefined;
+  /* Text and assets alike are read HERE, from the checked descriptor; the renderer shows what it is
+     sent (an image or a PDF through a blob, never by its path), so a swap after the decision shows
+     nothing. */
   const asset = ASSET_EXT.test(d.path);
-  if (!asset) {
-    const r = readChecked(d.path, d.identity, { roots: openRoots });
-    if (!r.ok) { markUndelivered(heldPath, req, `open refused (unavailable): ${r.reason}`); return; }
-    content = String(r.content);
-  }
+  const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: asset });
+  if (!r.ok) { markUndelivered(heldPath, req, `open refused (unavailable): ${r.reason}`); return; }
+  const w = win();
+  if (!w || w.isDestroyed()) { markUndelivered(heldPath, req, 'open refused (unavailable): the App has no window to show it in'); return; }
   const typing = [...composing.values()].some((rec) => operatorComposing(rec, now));
-  emit(win(), 'openFile', { path: d.path, line: d.line, mode: d.mode, background: typing, bus: true, by: d.name, content, asset });
+  emit(w, 'openFile', { path: d.path, line: asset ? undefined : d.line, mode: d.mode, background: typing, bus: true, by: d.name,
+    content: asset ? undefined : String(r.content), bytes: asset ? new Uint8Array(r.content as Buffer) : undefined, asset });
   log(`open ${path.basename(d.path)} for '${d.name}', read only${typing ? ', in the background (the operator is typing)' : ''}`);
   try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
 }
@@ -1270,14 +1272,25 @@ function noteFlood(heldPath: string, req: BusRequest): void {
 /* A local image in a note a session opened is shown only when it passes the same checks as the note
    itself (inside the roots once resolved, not a secret by name, one link). Remote images keep waiting
    for the operator's click, as in every note. */
-ipcMain.handle('bus:imageAllowed', (_e, p: unknown) => {
-  if (typeof p !== 'string') return false;
-  if (openOff) return false;
-  const d = decideOpen({ body: { name: 'viewer', path: p }, seenAgoMs: 0, nowMs: Date.now(), roots: openRoots, decided: [] });
-  return d.do === 'open' && /\.(png|jpe?g|gif|webp|svg)$/i.test(d.path);
+ipcMain.handle('bus:imageBytes', (_e, p: unknown) => {
+  /* A local image in a note a session opened: shown only if a request for it would pass the same
+     checks, and then as the BYTES of the checked file (the renderer makes a blob of them), never by
+     its path. `..` is applied as text first, as a browser would. */
+  if (openOff || typeof p !== 'string') return null;
+  const norm = path.posix.normalize(p.replace(/\\/g, '/'));
+  const d = decideOpen({ body: { name: 'viewer', path: norm }, seenAgoMs: 0, nowMs: Date.now(), roots: openRoots, decided: [] });
+  if (d.do !== 'open' || !/\.(png|jpe?g|gif|webp|svg)$/i.test(d.path)) return null;
+  const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: true });
+  return r.ok ? { bytes: new Uint8Array(r.content as Buffer), type: mimeOf(d.path) } : null;
 });
+function mimeOf(p: string): string {
+  const e = path.extname(p).toLowerCase();
+  return e === '.svg' ? 'image/svg+xml' : e === '.pdf' ? 'application/pdf' : e === '.jpg' || e === '.jpeg' ? 'image/jpeg' : 'image/' + e.slice(1);
+}
 
-function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen = { seenAgoMs: 0, atStart: false }): void {
+/* `seen` defaults to TOO OLD: only consume() knows when a request was first seen, and an `open` reaching
+   here any other way (an adopted or recovered hold) is late by definition. */
+function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen = { seenAgoMs: Infinity, atStart: true }): void {
   try {
     if (req.fieldError) {
       /* Contract 4: a field we cannot honour is dead-lettered NAMING it, never silently dropped —
@@ -1396,13 +1409,19 @@ function withRealName(req: BusRequest): BusRequest {
 /* When THIS App first saw each request file, by its own clock: contract 5 drops an `open` seen more
    than a minute ago, and one already waiting at startup. Never the file's timestamps, which whoever
    writes the request sets. Forgotten once the request is claimed or gone. */
-const firstSeen = new Map<string, number>();
+/* Keyed by path AND inode: the same name written again later is a new request, not an old one. */
+const firstSeen = new Map<string, { ino: number; at: number }>();
 const presentAtStart = new Set<string>();
 let draining = false;
+const recoveredClaims = new Set<string>();
 function consume(win: () => BrowserWindow | undefined, fsPath: string): void {
-  if (draining) presentAtStart.add(fsPath);
-  if (!firstSeen.has(fsPath)) firstSeen.set(fsPath, Date.now());
-  const seen = { seenAgoMs: Date.now() - (firstSeen.get(fsPath) as number), atStart: presentAtStart.has(fsPath) };
+  const recovered = recoveredClaims.delete(fsPath);
+  let ino = -1;
+  try { ino = fs.statSync(fsPath).ino; } catch { /* gone: the claim will say so */ }
+  const prior = firstSeen.get(fsPath);
+  if (!prior || prior.ino !== ino) { firstSeen.set(fsPath, { ino, at: Date.now() }); presentAtStart.delete(fsPath); }
+  if (draining || recovered) presentAtStart.add(fsPath);
+  const seen = { seenAgoMs: Date.now() - (firstSeen.get(fsPath) as { at: number }).at, atStart: presentAtStart.has(fsPath) };
   const held0 = claim(fsPath);
   if (held0 || !fs.existsSync(fsPath)) { firstSeen.delete(fsPath); presentAtStart.delete(fsPath); }
   if (!held0) return;
@@ -1417,6 +1436,7 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
      they go back under their own names and are claimed like any other (@the-aios/core/claim). */
   for (const back of recoverClaims(dir, { pid: process.pid, isAlive: (pid) => alive(pid), join: path.join })) {
     log(`restored ${path.basename(back)} — the process that was claiming it is gone`);
+    recoveredClaims.add(back);   // an `open` recovered from a dead claimer is late by definition
     consume(win, back);
   }
   let files: string[] = [];

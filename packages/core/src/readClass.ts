@@ -20,11 +20,14 @@ const SNIFF = 8192;
 export type ReadClass = { kind: 'text' } | { kind: 'asset' } | { kind: 'binary' | 'large'; size: number };
 export function classifyForRead(abs: string, limit = TEXT_LIMIT): ReadClass {
   if (ASSET_EXT.test(abs)) return { kind: 'asset' };
-  const st = fs.statSync(abs);
-  if (!st.isFile()) throw new Error('not a file');
-  if (st.size > limit) return { kind: 'large', size: st.size };
-  const fd = fs.openSync(abs, 'r');
+  /* One descriptor, opened WITHOUT blocking, and the kind and size taken from it (fstat): a file
+     swapped for a pipe between a stat and the open would otherwise block this process on the open
+     until someone wrote to the pipe. */
+  const fd = fs.openSync(abs, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
   try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) throw new Error('not a file');
+    if (st.size > limit) return { kind: 'large', size: st.size };
     const buf = Buffer.alloc(Math.min(SNIFF, st.size));
     const n = buf.length ? fs.readSync(fd, buf, 0, buf.length, 0) : 0;
     if (buf.subarray(0, n).includes(0)) return { kind: 'binary', size: st.size };

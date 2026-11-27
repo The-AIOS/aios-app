@@ -84,30 +84,42 @@ export type OpenDecision =
   | { do: 'open'; name: string; path: string; mode: 'source' | 'auto'; line?: number; identity: OpenIdentity }
   | { do: 'refuse'; why: OpenWhy; reason: string; name?: string; counted: boolean };
 
+const MAX_PATH = 4096;
 const SECRET_SEGMENTS = new Set(['.ssh', '.gnupg', '.aws', '.docker', '.kube', '.git', '.obsidian', '.claude', 'agent-secrets']);
-const SECRET_NAMES = new Set(['.envrc', '.netrc', '.pgpass', '.npmrc', '.pypirc', '.git-credentials', '.dockercfg', '.mcp.json',
-  'storage_state.json', 'spotify-cache.json', '.dev.vars', 'credentials', 'kubeconfig']);
+const SECRET_NAMES = new Set(['.netrc', '.pgpass', '.npmrc', '.pypirc', '.git-credentials', '.dockercfg', '.mcp.json',
+  'storage_state.json', 'spotify-cache.json', '.dev.vars', 'credentials', 'kubeconfig',
+  'auth.json', '.htpasswd', '.vault-token', '.yarnrc.yml', '.s3cfg', '.my.cnf']);
 const SECRET_EXT = /\.(pem|key|p12|pfx|p8|kdbx|ovpn|ppk|jks|keystore|tfstate|tfvars)$/;
-const DATA_EXT = /\.(json|ya?ml|toml)$/;
-const DATA_WORDS = new Set(['token', 'credential', 'credentials', 'oauth', 'secret', 'secrets', 'cookie', 'cookies']);
-const EXEC_EXT = /\.(exe|com|bat|cmd|ps1|msi|scr|app|command|lnk|url|webloc|desktop|terminal|jar|vbs|hta|reg|scpt|workflow|pkg|dmg|appimage)$/i;
+const WORD_EXT = /\.(json|ya?ml|toml|txt)$/;
+const WORDS = new Set(['token', 'tokens', 'credential', 'credentials', 'oauth', 'secret', 'secrets', 'cookie', 'cookies', 'password', 'passwords', 'apikey']);
+const EXEC_EXT = new RegExp('\\.(' + ['exe', 'com', 'bat', 'cmd', 'ps1', 'msi', 'scr', 'app', 'command', 'lnk', 'url', 'webloc', 'desktop',
+  'terminal', 'jar', 'vbs', 'hta', 'reg', 'scpt', 'workflow', 'pkg', 'dmg', 'appimage', 'jse', 'vbe', 'wsf', 'wsh', 'cpl', 'msc', 'pif',
+  'scf', 'appref-ms', 'application', 'appinstaller', 'msix', 'appx', 'msp', 'settingcontent-ms', 'library-ms', 'searchconnector-ms',
+  'fileloc', 'inetloc', 'afploc', 'mobileconfig', 'jnlp'].join('|') + ')$');
+const BAD_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
+/** Full Unicode case folding, as a case-insensitive file system compares names (ſ is s, ß is ss). */
+export const fold = (s: string): string => s.toUpperCase().toLowerCase();
 const DOC_EXT = /\.(md|markdown|txt|json|ya?ml|toml|csv|log|html?|png|jpe?g|gif|webp|svg|pdf)$/i;
 const SOURCE_EXT = /\.(html?|xhtml?|xht|shtml|mht|mhtml)$/i;
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i;
 
 /** A secret by NAME (inbox-contract-5.md § Secrets). Both separators are read. */
 export function isSecretPath(p: string): boolean {
-  const segs = p.split(/[\\/]+/).filter(Boolean).map((s) => s.toLowerCase());
+  const raw = p.split(/[\\/]+/).filter(Boolean);
+  const segs = raw.map(fold);
   if (!segs.length) return false;
   if (segs.some((s) => SECRET_SEGMENTS.has(s))) return true;
   const b = segs[segs.length - 1];
-  if (b === '.env' || b.startsWith('.env.') || b.endsWith('.env') || SECRET_NAMES.has(b)) return true;
+  if (b.startsWith('.env') || b.endsWith('.env') || SECRET_NAMES.has(b)) return true;
   if (SECRET_EXT.test(b)) return true;
-  if (b.startsWith('service-account') && b.endsWith('.json')) return true;
+  if (b.endsWith('.json') && (b.startsWith('service-account') || b.includes('firebase-adminsdk'))) return true;
   if (segs.length > 1 && segs[segs.length - 2] === 'auth' && b.endsWith('.json')) return true;
-  if (DATA_EXT.test(b)) {
-    const stem = b.slice(0, b.lastIndexOf('.'));
-    if (stem.split(/[^a-z0-9]+/).some((w) => DATA_WORDS.has(w))) return true;
+  const hasExt = b.replace(/^\.+/, '').includes('.');
+  if (WORD_EXT.test(b) || !hasExt) {
+    const rb = raw[raw.length - 1];
+    const stem = hasExt ? rb.slice(0, rb.lastIndexOf('.')) : rb;
+    const w = fold(stem.replace(/([a-z])([A-Z])/g, '$1 $2')).match(/[a-z]+|[0-9]+/g) ?? [];
+    if (w.some((x) => WORDS.has(x)) || w.some((x, i) => x === 'api' && w[i + 1] === 'key')) return true;
   }
   return /^id_(rsa|dsa|ecdsa|ed25519)/.test(b) && !b.endsWith('.pub');
 }
@@ -119,7 +131,7 @@ export function windowsShape(p: string): 'bad-path' | 'not-absolute' | null {
   const rest = p.slice(2);
   if (rest.includes(':')) return 'bad-path';
   for (const seg of rest.split(/[\\/]+/).filter(Boolean)) {
-    if (seg === '.' || seg === '..' || /[. ]$/.test(seg) || RESERVED.test(seg.split('.')[0].replace(/ +$/, ''))) return 'bad-path';
+    if (seg === '.' || seg === '..' || /[. ]$/.test(seg) || /~\d/.test(seg) || RESERVED.test(fold(seg.split('.')[0].replace(/ +$/, '')))) return 'bad-path';
   }
   return null;
 }
@@ -127,7 +139,7 @@ export function windowsShape(p: string): 'bad-path' | 'not-absolute' | null {
 /* A path in the form compared and walked here: forward slashes, separators collapsed, no trailing
    slash; on Windows, without case. Node's fs accepts forward slashes on Windows. */
 function form(p: string, platform: NodeJS.Platform): string {
-  const s = (platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p).replace(/\/+/g, '/');
+  const s = (platform === 'win32' ? fold(p.replace(/\\/g, '/')) : p).replace(/\/+/g, '/');
   return s.length > 1 ? s.replace(/\/+$/, '') : s;
 }
 function under(p: string, root: string): boolean {
@@ -163,6 +175,7 @@ export function prepareRoots(roots: readonly string[], home: string, o: { fs?: O
     const real = form(rr, platform);
     if (real === '/' || /^[a-z]:$/.test(real) || under(h, real)) continue;
     if (under(real, h) && real.slice(h.length).split('/').some((s) => s.startsWith('.'))) continue;
+    if (!looksLikeFramework(real, fs)) continue;   // a root that does not look like a framework turns open off
     out.push({ written: form(r, platform), real });
   }
   return out;
@@ -197,9 +210,9 @@ export function resolveWithin(p: string, roots: readonly PreparedRoot[], fs: Ope
     if (!st) return null;
     if (st.kind === 'symlink') {
       if (++hops > MAX_HOPS) return null;
-      const raw = fs.readlink(cand);
-      if (raw === null) return null;
-      const t = joinTarget(cur, raw, platform);
+      const target = fs.readlink(cand);
+      if (target === null) return null;
+      const t = joinTarget(cur, target, platform);
       const holders = roots.filter((r) => under(t, r.real));
       if (!holders.length) return null;
       const r0 = holders.reduce((a, b) => (b.real.length > a.real.length ? b : a)).real;
@@ -236,9 +249,9 @@ export function decideOpen(i: OpenInput): OpenDecision {
   }
   // 5. path shape
   const raw = b.path;
-  if (typeof raw !== 'string' || /[\0\r\n]/.test(raw)) return no('bad-path', "'path' must be one absolute path", name);
+  if (typeof raw !== 'string') return no('bad-path', "'path' must be one absolute path", name);
   const p = raw.replace(/^[ \t]+|[ \t]+$/g, '');
-  if (!p) return no('bad-path', "'path' must be one absolute path", name);
+  if (!p || BAD_CHARS.test(p)) return no('bad-path', "'path' must be one absolute path, without control characters", name);
   if (platform === 'win32') {
     const w = windowsShape(p);
     if (w) return no(w, w === 'bad-path' ? `that path form is never opened: ${p}` : `'path' must be absolute: ${p}`, name);
@@ -246,6 +259,7 @@ export function decideOpen(i: OpenInput): OpenDecision {
     if (p.startsWith('~') || !p.startsWith('/')) return no('not-absolute', `'path' must be absolute: ${p}`, name);
     if (p.split('/').some((s) => s === '.' || s === '..')) return no('bad-path', `'path' must not contain . or .. segments: ${p}`, name);
   }
+  if (p.length > MAX_PATH || /[\\/]$/.test(p)) return no('bad-path', `'path' must name a file, in at most ${MAX_PATH} characters`, name);
   // 6. line
   const hasLine = Object.prototype.hasOwnProperty.call(b, 'line');
   const line = b.line;
@@ -265,16 +279,23 @@ export function decideOpen(i: OpenInput): OpenDecision {
   // 10. a regular file, with one link
   const st = fs.lstat(real);
   if (!st || st.kind !== 'file') return no('not-a-file', 'that is not a regular file', name);
+  /* A parent folder swapped for a link between the walk and the lstat would make the lstat describe
+     a file elsewhere: walk again and require the same end. This narrows the window; it cannot close
+     it, which is why what is SHOWN is read by readChecked, walking a third time. */
+  if (resolveWithin(p, i.roots, fs, platform) !== real) return no('unavailable', UNAVAILABLE, name);
   if (st.links > 1) return no('hard-link', 'that file has another hard link elsewhere on the disk, so its name does not say what it is; a session cannot ask for it. You can still open it yourself', name);
-  // 11. secret, resolved
-  if (isSecretPath(real)) return no('secret', SECRET, name);
+  // 11. secret, resolved, and by the name the file system stores (a case-insensitive file system
+  //     matches more spellings than folding does; on Windows this also expands a short name)
+  const stored = fs.realpath(real);
+  if (isSecretPath(real) || !stored || isSecretPath(stored)) return no('secret', SECRET, name);
   // 12. kind
   const cls = fs.classify(real);
   if (cls === 'binary' || cls === 'large') return no('unreadable', `the viewer cannot show it (${cls})`, name);
   // 13. executable
-  if (EXEC_EXT.test(real) || (st.executable && !DOC_EXT.test(real))) return no('executable', 'that file is executable, and is never opened on request', name);
+  const low = fold(real);
+  if (EXEC_EXT.test(low) || (st.executable && !DOC_EXT.test(low))) return no('executable', 'that file is executable, and is never opened on request', name);
 
-  const out: OpenDecision = { do: 'open', name, path: real, mode: SOURCE_EXT.test(real) ? 'source' : 'auto', identity: { dev: st.dev, ino: st.ino } };
+  const out: OpenDecision = { do: 'open', name, path: real, mode: SOURCE_EXT.test(low) ? 'source' : 'auto', identity: { dev: st.dev, ino: st.ino } };
   if (hasLine) out.line = line as number;
   return out;
 }
@@ -292,28 +313,34 @@ export function readChecked(
 ): { ok: true; path: string; content: string | Buffer } | { ok: false; reason: string } {
   const fs = o.fs ?? nodeOpenFs;
   const platform = o.platform ?? process.platform;
+  /* One reason for every refusal: a dead letter that said "gone", "outside" or "a secret" after a
+     swap would tell a session what exists outside the root, which the single code exists to hide. */
+  const NO = { ok: false as const, reason: 'the file changed since it was checked, and is not shown' };
   const real = resolveWithin(path, o.roots, fs, platform);
-  if (!real) return { ok: false, reason: 'the file is gone, or now leads outside the root' };
-  if (isSecretPath(real)) return { ok: false, reason: 'the file now resolves to a secret' };
+  if (!real || isSecretPath(real)) return NO;
   const st = fs.lstat(real);
-  if (!st || st.kind !== 'file' || st.links > 1 || st.dev !== identity.dev || st.ino !== identity.ino) return { ok: false, reason: 'the file was replaced since it was checked' };
+  if (!st || st.kind !== 'file' || st.links > 1 || st.dev !== identity.dev || st.ino !== identity.ino) return NO;
   const cls = fs.classify(real);
-  if (o.asBytes ? cls !== 'asset' : cls !== 'text') return { ok: false, reason: `the viewer cannot show it now (${cls})` };
+  if (o.asBytes ? cls !== 'asset' : cls !== 'text') return NO;
   let fd: number | undefined;
   try {
     const flags = nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NOFOLLOW ?? 0) | (nodeFs.constants.O_NONBLOCK ?? 0);
     fd = nodeFs.openSync(real, flags);
     const f = nodeFs.fstatSync(fd);
-    if (!f.isFile() || f.nlink > 1 || f.dev !== identity.dev || f.ino !== identity.ino) return { ok: false, reason: 'the file was replaced since it was checked' };
+    if (!f.isFile() || f.nlink > 1 || f.dev !== identity.dev || f.ino !== identity.ino) return NO;
+    /* The parent-folder swap again, now on the descriptor: the path must still walk to this file. */
+    if (resolveWithin(path, o.roots, fs, platform) !== real) return NO;
     const limit = o.asBytes ? 32 * 1024 * 1024 : 4 * 1024 * 1024;
-    if (f.size > limit) return { ok: false, reason: 'the file grew past what the viewer shows' };
-    const buf = Buffer.alloc(f.size);
+    /* At most limit + 1 bytes into a fixed buffer, whatever the size says now: a file that grows
+       between the fstat and the read is never read past the bound. */
+    const buf = Buffer.alloc(Math.min(f.size, limit) + 1);
     let n = 0;
-    while (n < f.size) { const k = nodeFs.readSync(fd, buf, n, f.size - n, n); if (k <= 0) break; n += k; }
+    while (n < buf.length) { const k = nodeFs.readSync(fd, buf, n, buf.length - n, n); if (k <= 0) break; n += k; }
+    if (n > limit) return NO;
     const data = buf.subarray(0, n);
     return { ok: true, path: real, content: o.asBytes ? data : data.toString('utf8') };
   } catch {
-    return { ok: false, reason: 'the file could not be read' };
+    return NO;
   } finally {
     if (fd !== undefined) { try { nodeFs.closeSync(fd); } catch { /* closed */ } }
   }
