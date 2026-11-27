@@ -1376,10 +1376,10 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   /* Periodically too, not only at startup (review should-fix 8): a hold left by a surface that died
      would otherwise block its target for the whole 24 h ceiling. canAdoptHold never takes a live one. */
   setInterval(() => adoptHolds(getWin, dir), 5 * 60 * 1000);
-  /* And the waiting `*.json` themselves, every minute (#218). A request this App skips — addressed
-     to another surface, or handed back by an earlier run of this App — sends no further file event,
-     so without this nothing asks `claimVerdict` again and its `retire` is never reached. Same
-     consume as the watcher: one set of rules, and the claim is still one atomic rename. */
+  /* And the waiting `*.json` themselves, every minute (#218). A request this App skips because it
+     is addressed to another surface sends no further file event, so without this nothing asks
+     `claimVerdict` again and its `retire` is never reached. Same consume as the watcher: one set
+     of rules, and the claim is still one atomic rename. */
   startInboxSweep(dir, (p) => consume(getWin, p));
   log(`watching ${dir} (contract ${INBOX_CONTRACT}, surface '${MY_SURFACE}')`);
 }
