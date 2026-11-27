@@ -45,6 +45,9 @@ concurrency:
 jobs:
   linux:
     name: Build · verify · attach (Linux x64)
+    # No secrets here, but in the `release` environment all the same: no platform's lane publishes
+    # until the owner approves its run, on main or a v* tag (RELEASING.md).
+    environment: release
     runs-on: ubuntu-22.04   # issue 93: the oldest glibc we support; ubuntu-latest (26.04) builds binaries 24.04 cannot load
     timeout-minutes: 45   # a hang fails in minutes, never GitHub's 6 h cancel (0.13.0 review)
     env:

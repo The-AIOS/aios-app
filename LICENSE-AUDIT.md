@@ -64,8 +64,8 @@ entirely on the open side of it. It must never contain:
   That is the operator's private core, never distributed. The app *reads* a vault at runtime; it
   ships none.
 - **credentials of any kind** — no certificates, no `.p12`, no API keys, no app-specific
-  passwords. Signing material lives in a keychain or in repository secrets, never in the tree
-  (see [RELEASING.md](./RELEASING.md)).
+  passwords. Signing material lives in a keychain or in the `release` environment's secrets,
+  never in the tree (see [RELEASING.md](./RELEASING.md)).
 - **personal identifiers** — no operator, teammate or family names in code, comments, tests,
   fixtures or commit messages. `Pulsar Labs (DY7C5S7Z56)` in `package.json` is the *signing
   identity*, which is public in the signature of every build anyone downloads.

@@ -5,8 +5,9 @@ name: Release
 # build → Apple codesign + notarize → VERIFY → publish. Verify runs BEFORE the
 # release is created, so a build with a broken signature never reaches a user.
 #
-# Credentials are repository SECRETS, entered by the operator (the organisation's
-# Apple account) — never committed, never seen by any automation author. See RELEASING.md.
+# Credentials are SECRETS of the `release` environment, entered by the operator (the
+# organisation's Apple account) — never committed, never seen by any automation author,
+# never repository secrets. See RELEASING.md.
 #   MAC_CSC_LINK              base64 of the Developer ID Application .p12
 #   MAC_CSC_KEY_PASSWORD      the .p12 export password
 #   APPLE_ID                  Apple ID used for notarization
@@ -34,6 +35,9 @@ concurrency:
 jobs:
   release:
     name: Build · sign · notarize · verify · publish (macOS)
+    # The signing secrets live in the `release` environment, not the repository: GitHub gives them
+    # to this job only on main or a v* tag, and only after the owner approves the run (RELEASING.md).
+    environment: release
     runs-on: macos-15
     timeout-minutes: 60   # a hang fails in minutes, never GitHub's 6 h cancel (0.13.0 review)
     steps:
@@ -98,9 +102,9 @@ jobs:
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
-            echo "::error::Cannot sign — these repository secrets are not set:$missing"
+            echo "::error::Cannot sign — these secrets are not set in the release environment:$missing"
             echo ""
-            echo "Set them under Settings → Secrets and variables → Actions:"
+            echo "Set them under Settings → Environments → release → Environment secrets:"
             echo "  MAC_CSC_LINK                 base64 of the Developer ID Application .p12"
             echo "  MAC_CSC_KEY_PASSWORD         that .p12's export password"
             echo "  APPLE_ID                     Apple ID used for notarization"
