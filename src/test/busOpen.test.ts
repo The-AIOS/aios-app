@@ -84,10 +84,14 @@ test('the age is this App\'s own clock from first sight, never the file\'s times
 });
 
 test('a flood is dropped without a dead letter for each request', () => {
-  assert.match(runOpen, /if \(d\.why === 'flood'\) \{ noteFlood\(heldPath, req\); return; \}/);
+  assert.match(runOpen, /if \(d\.why === 'flood'\) \{ noteFlood\(heldPath, body\); return; \}/);
   const flood = between(bus, 'function noteFlood(', "\nipcMain.handle('bus:imageBytes'");
-  assert.match(flood, /floodTimer = setTimeout\(\(\) => \{[\s\S]*markUndelivered\(k\.heldPath, k\.req, `open refused \(flood\): \$\{n\}/, 'written at the END of the minute, with the full count, on the newest dropped request');
-  assert.equal((flood.match(/markUndelivered\(/g) ?? []).length, 1, 'one dead letter a minute, not one per request');
+  assert.doesNotMatch(flood, /markUndelivered\(/, 'no request file becomes the notice: a session may reuse its file name');
+  assert.match(flood, /try \{ fs\.unlinkSync\(heldPath\); \}/, 'each dropped request goes at once');
+  assert.match(flood, /if \(!floodTimer\) floodTimer = setTimeout\(flushFlood, 60_000\);/, 'one notice, at the end of the minute');
+  assert.match(flood, /path\.join\(last\.dir, `open-flood-\$\{Date\.now\(\)\}-\$\{process\.pid\}\.json\.undelivered`\)/, 'under a name of its own');
+  assert.match(flood, /\$\{n\} open request\(s\) dropped in the last minute/, 'with the full count');
+  assert.match(bus, /app\.on\('before-quit', flushFlood\);/, 'and on quit, rather than lost');
 });
 
 test('a local image in a session\'s note is shown only if it passes the note\'s own checks, from its checked bytes', () => {

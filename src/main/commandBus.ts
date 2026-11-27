@@ -1251,7 +1251,7 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
   const d = decideOpen({ body, seenAgoMs: seen.seenAgoMs, presentAtStart: seen.atStart, nowMs: now, roots: openRoots, decided: decidedOpens });
   if (d.do === 'open' || d.counted) decidedOpens = rememberDecided(decidedOpens, { name: d.do === 'open' ? d.name : (d.name ?? req.name), at: now }, now);
   if (d.do === 'refuse') {
-    if (d.why === 'flood') { noteFlood(heldPath, req); return; }
+    if (d.why === 'flood') { noteFlood(heldPath, body); return; }
     markUndelivered(heldPath, req, d.why === 'unavailable' && openOff
       ? `open refused (unavailable): open is off on this App: ${openOff}` : `open refused (${d.why}): ${d.reason}`);
     return;
@@ -1274,25 +1274,31 @@ function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: Bu
   log(`open ${path.basename(d.path)} for '${d.name}', read only${typing ? ', in the background (the operator is typing)' : ''}`);
   try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
 }
-/* A flood (20 open requests a minute): each extra request is removed WITHOUT a dead letter of its
-   own, so a flood cannot bury the dead letters that matter. The newest dropped request is kept, held,
-   and a minute after the flood's first drop it becomes ONE dead letter with the full count, so the
-   number reaches the session that flooded. */
+/* A flood (20 open requests a minute): each extra request is removed at once, WITHOUT a dead letter
+   of its own, so a flood cannot bury the dead letters that matter. A minute after the flood's first
+   drop ONE dead letter, under a name of its own (never a request's: a session may reuse its file name),
+   says how many were dropped and carries the last one's fields, so it reaches the session that flooded.
+   Written on quit too, rather than lost. */
 let floodDropped = 0;
-let floodKept: { heldPath: string; req: BusRequest } | null = null;
+let floodLast: { dir: string; body: Record<string, unknown> } | null = null;
 let floodTimer: NodeJS.Timeout | null = null;
-function noteFlood(heldPath: string, req: BusRequest): void {
+function noteFlood(heldPath: string, body: Record<string, unknown>): void {
   floodDropped++;
-  if (floodKept) { try { fs.unlinkSync(floodKept.heldPath); } catch { /* already gone */ } }
-  floodKept = { heldPath, req };
-  if (floodTimer) return;
-  floodTimer = setTimeout(() => {
-    const k = floodKept; const n = floodDropped;
-    floodTimer = null; floodKept = null; floodDropped = 0;
-    if (k) markUndelivered(k.heldPath, k.req, `open refused (flood): ${n} open request(s) dropped in the last minute; more than 20 a minute are not shown`);
-  }, 60_000);
-  floodTimer.unref?.();
+  floodLast = { dir: path.dirname(heldPath), body: { action: 'open', name: body.name, path: body.path } };
+  try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+  if (!floodTimer) floodTimer = setTimeout(flushFlood, 60_000);
 }
+function flushFlood(): void {
+  if (floodTimer) { clearTimeout(floodTimer); floodTimer = null; }
+  const last = floodLast; const n = floodDropped;
+  floodLast = null; floodDropped = 0;
+  if (!last || !n) return;
+  const reason = `open refused (flood): ${n} open request(s) dropped in the last minute; more than 20 a minute are not shown`;
+  const dest = path.join(last.dir, `open-flood-${Date.now()}-${process.pid}.json.undelivered`);
+  try { fs.writeFileSync(dest, JSON.stringify({ ...last.body, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n'); } catch { /* inbox gone */ }
+  log(`UNDELIVERED ${path.basename(dest)} — ${reason}`);
+}
+app.on('before-quit', flushFlood);
 /* A local image in a note a session opened is shown only when it passes the same checks as the note
    itself (inside the roots once resolved, not a secret by name, one link). Remote images keep waiting
    for the operator's click, as in every note. */
