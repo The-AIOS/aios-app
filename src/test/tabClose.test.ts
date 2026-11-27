@@ -75,8 +75,11 @@ test('every HAND-DRIVEN close is gated — “only programmatic callers are exem
      caller. Pinning the whole statement made this fail the moment an ambiguity guard was added
      beside it — and a test that fails on unrelated edits teaches people to edit the test
      instead of reading it. (A toast is not a dialog; nothing waits on it.) */
-  const closeByName = app.slice(app.indexOf("case 'closeByName':"), app.indexOf("case 'closeTerminal':"));
-  assert.ok(closeByName.includes('closePane(hit[0])'), 'the command bus kill closes the pane directly');
+  /* The case now hands over to closeTabsByName (it also closes the tabs a finished session left),
+     so the invariant is read there. */
+  assert.match(app, /case 'closeByName':\s*\n\s*await closeTabsByName\(m\);/);
+  const closeByName = app.slice(app.indexOf('async function closeTabsByName(m) {'), app.indexOf('window.glassShell.onIntent(async (m) => {'));
+  assert.ok(closeByName.length > 0 && closeByName.includes('closePane(hit[0])'), 'the command bus kill closes the pane directly');
   assert.ok(!closeByName.includes('requestClosePane'),
     'the command bus kill must never raise a dialog — nothing is there to answer it');
 });

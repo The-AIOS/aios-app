@@ -69,8 +69,10 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
 test('the Windows process table is that background reading, started asynchronously and hidden', () => {
   const src = read('src/main/aios.ts');
-  const block = src.slice(src.indexOf('const winScan = backgroundScan({'), src.indexOf('const winProcTable'));
-  assert.ok(block.length > 0, 'winScan is built with backgroundScan');
+  /* The scan itself is `winScanOnce` (also used, once, by processTableNow); winScan schedules it. */
+  const block = src.slice(src.indexOf('const winScanOnce = ():'), src.indexOf('const winProcTable'));
+  assert.ok(block.length > 0 && block.includes('const winScan = backgroundScan({'), 'winScan is built with backgroundScan');
+  assert.match(block, /run: winScanOnce,/);
   assert.match(block, /execFile\('powershell\.exe'/, 'async execFile, never execFileSync: the main thread does not wait');
   assert.doesNotMatch(block, /execFileSync/);
   assert.match(block, /windowsHide: true/);

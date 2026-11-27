@@ -660,13 +660,14 @@ function isAlive(pid: number): boolean {
  * between scans grows with how long a scan took, and the console stays hidden. The first
  * read returns '' (no table yet), which every caller already treats as "nothing known".
  */
+const winScanOnce = (): Promise<string> => new Promise<string>((res, rej) => {
+  execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
+  { encoding: 'utf8', windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
+  (err, out) => (err ? rej(err) : res(String(out))));
+});
 const winScan = backgroundScan({
-  run: () => new Promise<string>((res, rej) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $([math]::Round($_.WorkingSetSize/1024))" }'],
-    { encoding: 'utf8', windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
-    (err, out) => (err ? rej(err) : res(String(out))));
-  }),
+  run: winScanOnce,
   minIntervalMs: 4_000,
   maxIntervalMs: 60_000,
   slowFactor: 5,
@@ -711,6 +712,57 @@ export function sessionMemoryMB(pids: number[]): Record<number, number> {
     }
   } catch { /* ps unavailable */ }
   return out;
+}
+
+/**
+ * The process table read NOW, for a decision that cannot rest on an old one: null when it cannot be
+ * read. On Windows that is one PowerShell scan started for this question, not the background reading
+ * (which may be a minute old, and keeps its previous table when a scan fails). Asked rarely: before
+ * closing a tab a finished session left.
+ */
+let tableNowInFlight: Promise<string | null> | null = null;
+export function processTableNow(): Promise<string | null> {
+  /* Shared while one is running: a burst of kills starts one PowerShell, not one each (issue #131). */
+  if (tableNowInFlight) return tableNowInFlight;
+  tableNowInFlight = (async () => {
+    try {
+      const txt = process.platform === 'win32'
+        ? await winScanOnce()
+        : execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 });
+      return txt.trim() ? txt : null;
+    } catch { return null; }
+  })().finally(() => { tableNowInFlight = null; });
+  return tableNowInFlight;
+}
+
+/**
+ * For each of these pids, one of its direct children (the lowest pid), or 0 when it has none; null
+ * when the process table cannot be read. For a pane's shell: 0 means the shell is idle at its prompt,
+ * a pid means a command is running in it (that pid is the command, or the first of them).
+ */
+export function firstChildOf(
+  pids: number[],
+  /** Raw `pid ppid …` table. Injected by tests; read from the OS when absent. */
+  procTable?: string,
+): Record<number, number> | null {
+  const out: Record<number, number> = {};
+  for (const p of pids) out[p] = 0;
+  if (!pids.length) return out;
+  let txt: string;
+  try {
+    txt = procTable ?? (process.platform === 'win32'
+      ? winProcTable()
+      : execFileSync('ps', ['-axo', 'pid=,ppid=,rss='], { encoding: 'utf8', timeout: 4000 }));
+  } catch { return null; }
+  let rows = 0;
+  for (const line of txt.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)(?:\s+\d+)?$/);
+    if (!m) continue;
+    rows++;
+    const pid = Number(m[1]), ppid = Number(m[2]);
+    if (ppid in out && (out[ppid] === 0 || pid < out[ppid])) out[ppid] = pid;
+  }
+  return rows ? out : null;   // an empty table is "could not read", never "nothing is running"
 }
 
 /**

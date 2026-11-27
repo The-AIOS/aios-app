@@ -159,6 +159,11 @@ contextBridge.exposeInMainWorld('glassShell', {
   /* The renderer tells the bus whether a send actually landed, so a request that
      cannot be delivered here is retired at once instead of waiting out a verification window. */
   busSendResult: (name: string, ok: boolean, reason: string): void => { ipcRenderer.send('bus:sendResult', { name, ok, reason }); },
+  /* What a `closeByName` actually did: how many tabs it closed, and how many it left because a command
+     is still running in their shell. The bus logs and settles the kill request on this, not on hope. */
+  busCloseResult: (ask: string, closed: number, busy: { shell: number; child: number }[], refused: boolean): void => { ipcRenderer.send('bus:closeResult', { ask, closed, busy, refused }); },
+  /** Pane handles → `{ shell, child }` (child 0: the shell is idle), or null when it cannot be told. */
+  ptyBusy: (paneIds: number[]): Promise<Record<number, { shell: number; child: number } | null>> => ipcRenderer.invoke('pty:busy', paneIds),
   /* #81 — the operator is writing in this session's pane: the bus holds its message (commandBus). */
   busComposing: (name: string, composing: boolean): void => { ipcRenderer.send('bus:composing', { name, composing }); },
   vaultRoot: (): Promise<string | null> => ipcRenderer.invoke('shell:vaultRoot'),
