@@ -12,6 +12,11 @@
    quoting (shq/xQuote) and Windows-path handling (drive letters, backslashes, file:// URLs)
    branch on this. A plain boolean, resolved once. */
 const IS_WIN = !!(window.glassShell && window.glassShell.platform === 'win32');
+/* PowerShell ends a single-quoted string at ' AND at the typographic quotes U+2018 to U+201B, and
+   reads two in a row as one. Every quoter below that types into a Windows pane doubles all five.
+   Mirrors core/spawnShell's quoteFor (index.html loads plain scripts, so src/core cannot be
+   imported here); powershellQuoting.test.ts holds the two to the same output (aios-app#253). */
+const PS_SINGLE_QUOTES = /['\u2018\u2019\u201a\u201b]/g;
 const IS_LINUX = !!(window.glassShell && window.glassShell.platform === 'linux');
 /* macOS specifically, not "not Windows" — Linux is neither, and the one place this decides is
    whether a ⌘ can stand for "shortcuts". It cannot anywhere else. */
@@ -6888,7 +6893,7 @@ const xQuote = (p) => {
   const s = String(p);
   // Windows: the pane is PowerShell (double the quote to escape); allow \ and : unquoted so a
   // bare drive path (C:\Users\x) is typed clean, and quote only when other specials appear.
-  if (IS_WIN) return /[^A-Za-z0-9._/\\:-]/.test(s) ? "'" + s.replace(/'/g, "''") + "'" : s;
+  if (IS_WIN) return /[^A-Za-z0-9._/\\:-]/.test(s) ? "'" + s.replace(PS_SINGLE_QUOTES, (q) => q + q) + "'" : s;
   return /[^A-Za-z0-9._/\-]/.test(s) ? "'" + s.replace(/'/g, "'\\''") + "'" : s;
 };
 
@@ -8366,10 +8371,12 @@ window.glassShell.onIntent(async (m) => {
 /* Quote a whole argument for the pane's shell. On Windows that shell is PowerShell, whose
    single-quoted strings escape an embedded quote by DOUBLING it (''), not the POSIX '\'' idiom —
    getting this wrong corrupts the FIRST prompt of every launched session, and apostrophes are
-   pervasive in EN/ES natural-language prompts. POSIX shells keep the '\'' form. */
+   pervasive in EN/ES natural-language prompts. PowerShell also closes the string at a typographic
+   quote (’ ‘ ‚ ‛), which autocorrect and pasted text are full of: `'don’t'` did not parse, so all
+   five are doubled (PS_SINGLE_QUOTES). POSIX shells keep the '\'' form. */
 function shq(s) {
   const str = String(s);
-  return IS_WIN ? `'${str.replace(/'/g, "''")}'` : `'${str.replace(/'/g, `'\\''`)}'`;
+  return IS_WIN ? `'${str.replace(PS_SINGLE_QUOTES, (q) => q + q)}'` : `'${str.replace(/'/g, `'\\''`)}'`;
 }
 
 

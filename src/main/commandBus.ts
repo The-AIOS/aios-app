@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as aios from './aios';
 import { resolveBash } from './resolveBash';
 import { parseRequest, buildSpawnCmd, buildResumeCmd, needsTaskFile, taskFileInstruction, fallbackSpawnRequest, type BusRequest } from '../core/commandBus';
+import { typedShellFor } from '../core/spawnShell';
 import { recordTyped } from './busSent';
 import { settingsToFile } from './advisorFile';
 import { contract4LaunchArgs, cleanFrom, advisorModelFor } from '../core/contract4';
@@ -956,11 +957,11 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     if (needsConsultBlock(model, advisorModelFor(req.advisor, req.advisorRung))) {
       req = { ...req, task: (req.task || 'Start session') + '\n' + ADVISOR_CONSULT_BLOCK };   // canonical's block, verbatim
     }
-    /* On Windows the pane's shell is PowerShell, but buildSpawnCmd (shared pure core, POSIX
-       quoting) can only quote the inline prompt the POSIX way — which mangles an apostrophe in
-       PowerShell and corrupts the worker's first prompt. So route EVERY task through a temp file
-       on win32: the command becomes `claude --name X 'Read <file>…'` (no apostrophes to mangle)
-       and the worker reads the task verbatim. On POSIX, only long/multiline tasks spill, as before. */
+    /* On Windows the pane's shell is PowerShell. EVERY task goes through a temp file there: the
+       command becomes `claude --name X 'Read <file>…'` and the worker reads the task verbatim, with
+       nothing of the operator's text on the typed line. The line itself is quoted in the pane's
+       dialect (shell below): the file's path holds the Windows user name, which can carry a quote
+       (aios-app#253). On POSIX, only long/multiline tasks spill, as before. */
     if (needsTaskFile(req.task) || (process.platform === 'win32' && req.task)) {
       /* A PRIVATE file (privateRun: ~/.aios/run, never the shared /tmp), and a failed write is a
          dead letter. Falling back to typing the task inline brought back the Windows apostrophe
@@ -977,7 +978,7 @@ function runSpawn(win: () => BrowserWindow | undefined, heldPath: string, req: B
     const c4 = contract4Args(req);
     if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
     const cmd = buildSpawnCmd(aios.shellSettings().claudeCmd, req.name, {
-      task: req.task || 'Start session', model, taskFile, addDirs, extraArgs: c4.args,
+      task: req.task || 'Start session', model, taskFile, addDirs, extraArgs: c4.args, shell: typedShellFor(process.platform),
     });
     // the first prompt the worker receives is bus-typed too — record exactly that text.
     recordTyped(taskFile ? taskFileInstruction(taskFile) : (req.task || 'Start session'), req.name, 'spawn');
@@ -1047,8 +1048,8 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       const addDirs = launchAddDirs(heldPath, req);
       if (!addDirs) return;
       let taskFile: string | undefined;
-      /* Same Windows quoting rule as spawn: PowerShell mangles POSIX-quoted apostrophes, so
-         every prompt goes through a file there. */
+      /* Same Windows rule as spawn: every prompt goes through a file there, and the line is
+         quoted in the pane's dialect. */
       if (needsTaskFile(req.prompt) || (process.platform === 'win32' && req.prompt)) {
         try { taskFile = writeHandoffFile(`aios-resume-task-${req.name}.md`, req.prompt as string); }
         catch (e) {
@@ -1058,7 +1059,7 @@ async function runResume(win: () => BrowserWindow | undefined, heldPath: string,
       }
       const c4 = contract4Args(req);
       if ('error' in c4) { markUndelivered(heldPath, req, c4.error); return; }
-      const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, addDirs, extraArgs: c4.args });
+      const cmd = buildResumeCmd(aios.shellSettings().claudeCmd, sid, { prompt: req.prompt, taskFile, addDirs, extraArgs: c4.args, shell: typedShellFor(process.platform) });
       if (req.prompt) recordTyped(taskFile ? taskFileInstruction(taskFile) : req.prompt, req.name, 'resume', req.from);
       // background: the new session opens as a tab with an activity mark; the operator's
       // current tab and keyboard focus stay where they are (setting `busFocus`).

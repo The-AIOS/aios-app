@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { quoteFor } from '../core/spawnShell';
 import { nudgeShort } from '../core/nudgeCommand';
 import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
@@ -1712,7 +1713,7 @@ interface DoctorCheck {
  * the shell rather than read.
  */
 function shq(p: string): string {
-  return `'${String(p).replace(/'/g, `'\\''`)}'`;
+  return quoteFor(String(p), 'posix');
 }
 
 /**
@@ -1728,9 +1729,14 @@ function shq(p: string): string {
  * a variable (usually to empty) before the operator ever saw it.
  *
  * Single-quoted and doubled is the only form that is inert in both dimensions.
+ *
+ * DOUBLED FOR FIVE CHARACTERS, not one: PowerShell also ends a single-quoted string at the
+ * typographic quotes U+2018 to U+201B. The French verdict reads "QUELQUE CHOSE N’A PAS ABOUTI",
+ * and with `'` alone doubled done.ps1 stopped at that ’ with a ParserError (aios-app#253). The
+ * rule is core/spawnShell's quoteFor, the one Glass types with too.
  */
 function psq(s: string): string {
-  return `'${String(s).replace(/'/g, "''")}'`;
+  return quoteFor(String(s), 'powershell');
 }
 
 /**
@@ -2475,10 +2481,13 @@ function doctorChecks(): DoctorCheck[] {
            the Obsidian check stayed red at the end of it. Pointing a repair at the wrong
            script is worse than having no repair, because the operator concludes the product
            is broken rather than that the button was wrong.
-           This is the actual one-line registration, and it needs the vault path. */
+           This is the actual one-line registration, and it needs the vault path.
+           Quoted in the dialect of the pane it is typed into: the vault path holds the user name,
+           and on Windows `C:\Users\O'Brien\aios` quoted the POSIX way left PowerShell waiting at
+           `>>` for a string that never closed (aios-app#253). */
         const v = vaultRoot();
         const cmd = v
-          ? `${claudeCmd} mcp add obsidian -- npx -y @mauricio.wolff/mcp-obsidian@latest ${shq(v)}`
+          ? `${claudeCmd} mcp add obsidian -- npx -y @mauricio.wolff/mcp-obsidian@latest ${process.platform === 'win32' ? psq(v) : shq(v)}`
           : undefined;
         return { id: 'mcpObsidian', label: t('setupCheck.mcpObsidian'), status: 'warn', message: t('setupCheck.mcpObsidianMissingHint'), repairCmd: cmd, repairHint: cmd, canRepair: false };
       },

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Menu, session, nativeTheme, protocol, screen } from 'electron';
 import { fitToWorkArea } from '../core/windowFit';
 import { decideSave } from '../core/saveMerge';
+import { quoteFor } from '../core/spawnShell';
 import { registerBoardScheme, installBoardProtocol, guardBoardNavigation, listBoards } from './boards';   // #91
 import { startHitServer, writeHostileBoard, judgeProbe, recordRequests, sleep, type HitServer, type HostileFixture } from './boardProbe';   // #91 smoke gate
 import { markQuitting, isQuitting, closeShouldHide } from './quitState';
@@ -303,14 +304,14 @@ function spillLongCommand(cmd: string): string {
     if (os.platform() === 'win32') {
       // The pane's shell is PowerShell (defaultShell), so the spilled command IS PowerShell.
       // Write a .ps1 and invoke it with the call operator `& '<path>'` in the SAME pane, so it
-      // inherits that session's environment. No exec bit / shebang on Windows; escape an embedded
-      // quote by doubling it (PowerShell single-quote rule).
+      // inherits that session's environment. No exec bit / shebang on Windows. The path holds the
+      // Windows user name, so it is quoted with core/spawnShell's PowerShell rule (aios-app#253).
       const file = path.join(dir, `step-${Date.now()}-${nextId}.ps1`);
       // UTF-8 BOM: Windows PowerShell 5.1 decodes a BOM-less file as the ANSI codepage, so a
       // command with accents/em-dashes (a Spanish/Portuguese operator's, pervasively) mis-parses.
       // The BOM makes PS read it as UTF-8. Same guard bannerScript uses for its generated .ps1.
       fs.writeFileSync(file, '﻿' + `${cmd}\r\n`);
-      return `& '${file.replace(/'/g, "''")}'`;
+      return `& ${quoteFor(file, 'powershell')}`;
     }
     const file = path.join(dir, `step-${Date.now()}-${nextId}.sh`);
     // bash, not sh: the generated chains use `{ … }` grouping and are written for it. A child

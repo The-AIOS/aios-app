@@ -33,7 +33,7 @@ const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex').sl
    is never "glass is ahead" — it is a contract break, and copying over it would hide which side
    moved. Listed by name because the pin lives in the test file, not in the source. */
 const PINNED = new Set(['attention.ts', 'presence.ts', 'resumeTarget.ts', 'busVerbs.ts',
-  'sendQueue.ts', 'busPayload.ts']);
+  'sendQueue.ts', 'busPayload.ts', 'spawnShell.ts']);
 
 mkdirSync(coreDst, { recursive: true });
 const files = [
