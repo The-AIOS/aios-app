@@ -29,7 +29,7 @@ test('the body is pinned to its revision: change the text and the revision moves
   /* shouldWrite compares REVISIONS, so a changed body under an unchanged revision would never
      replace the old text on a machine where the other surface wrote it. */
   const sha = crypto.createHash('sha256').update(readmeBody(A)).digest('hex').slice(0, 16);
-  assert.deepEqual({ rev: README_TEXT_REVISION, sha }, { rev: 2, sha: 'efbc26e58f1c7f26' },
+  assert.deepEqual({ rev: README_TEXT_REVISION, sha }, { rev: 3, sha: '14f0c7cc18b425db' },
     'the README text changed: bump README_TEXT_REVISION and record the new digest here, together');
 });
 
@@ -168,4 +168,12 @@ test('the README says what a kill closes, and how to start something that must o
   assert.match(A, /`nohup cmd &` does not do that/);
   assert.match(A, /perl -MPOSIX -e 'setsid\(\) or die; exec @ARGV' your-command &/);
   assert.doesNotMatch(A, /set -m/, 'job control is refused by a non-interactive zsh: the command would never start');
+});
+
+test('the README tells whoever looks in the folder what the claiming file is, and to leave it alone', () => {
+  const line = A.split('\n').find((l) => l.includes('request.json.claiming-'));
+  assert.ok(line, 'the file lifecycle names it');
+  assert.match(line as string, /being claimed/);
+  assert.match(line as string, /an instant/);
+  assert.match(line as string, /Do not rename or edit it by hand: it is put back by itself\./);
 });
