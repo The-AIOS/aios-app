@@ -13391,6 +13391,7 @@ function settingsRotationRows(wrap) {
   /* Built once, then updated in place: rebuilding on every save took the field the operator had just tabbed into out of
      the page, and what they typed next went nowhere (review). */
   let ui = null, last = null;
+  const pending = {};   // key → the value of the last save asked for and not yet answered
   const build = (s) => {
     const tog = document.createElement('input'); tog.type = 'checkbox'; tog.className = 'ttoggle';
     tog.setAttribute('aria-label', t('settings.rotationAuto'));
@@ -13410,7 +13411,9 @@ function settingsRotationRows(wrap) {
           inp.value = String(cur.value);
           return;
         }
-        if (n !== cur.value) void save({ [key]: n });
+        /* Against the last value asked for, not only the one in force: changing a field back while its save is on the way
+           must be sent too (review). */
+        if (n !== (key in pending ? pending[key] : cur.value)) void save({ [key]: n });
       });
       const ctl = el('span', 'tnumwrap'); ctl.append(inp, el('span', 'tunit', '%'));
       const r = row(box, t(label), ctl, ' ');
@@ -13424,7 +13427,6 @@ function settingsRotationRows(wrap) {
      (its own change event saves it next); every other field shows the value in force. */
   const paint = (s, saved) => {
     if (!s) { if (!ui) box.hidden = true; return; }   // a failed read keeps what is shown; only "never sent" hides it
-    last = s;
     if (!ui) ui = build(s);
     box.hidden = false;
     ui.tog.checked = !!s.enabled.value;
@@ -13438,16 +13440,20 @@ function settingsRotationRows(wrap) {
       if (hint) hint.textContent = v.source === 'environment' ? t('settings.rotationElsewhere') : t('settings.rotationAtHint', { min: s.min, max: s.max });
     }
     ui.warn.hidden = !(s.ignored && s.ignored.length);
+    last = s;   // only once it painted: a setting that could not be shown must not become what edits are checked against
   };
   /* One save at a time, in order: a second edit made while the first is on its way waits for it rather than being lost. */
   let queue = Promise.resolve();
   const save = (change) => {
+    const key = Object.keys(change)[0];
+    pending[key] = change[key];
     queue = queue.then(async () => {
       let r = null;
       try { r = await window.glassShell.rotationSet(change); } catch { r = null; }
+      if (pending[key] === change[key]) delete pending[key];
       toast(r && r.ok ? t('settings.rotationSaved') : t('settings.rotationFailed'));
-      paint(r && r.setting ? r.setting : last, Object.keys(change)[0]);   // a thrown call repaints the last setting, never an empty box
-    });
+      paint(r && r.setting ? r.setting : last, key);   // a thrown call repaints the last setting, never an empty box
+    }).catch((e) => console.warn('[rotation]', e));   // one failure must not stop every later save
     return queue;
   };
   void Promise.resolve(window.glassShell.rotationGet()).then(paint).catch(() => paint(null));

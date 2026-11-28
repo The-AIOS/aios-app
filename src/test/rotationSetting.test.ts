@@ -165,7 +165,15 @@ test('Settings: two edits in a row are both sent, in order', async () => {
   const m = await mount(UI(), async (c) => { await gate; return { ok: true, setting: UI() }; });
   m.inputs[1].value = '85'; m.inputs[1].fire('change');
   m.inputs[2].value = '95'; m.inputs[2].fire('change');
-  release(); await m.flush(); await m.flush(); await m.flush();
+  m.inputs[1].value = '90'; m.inputs[1].fire('change');   // back to the value in force while 85 is on its way
+  release(); await m.flush(); await m.flush(); await m.flush(); await m.flush();
+  assert.deepEqual(m.sent, [{ fiveHour: 85 }, { sevenDay: 95 }, { fiveHour: 90 }], 'changing a field back while its save is in flight is sent too');
+});
+
+test('Settings: a repaint that throws does not stop later saves', async () => {
+  const m = await mount(UI(), () => ({ ok: true, setting: { broken: true } }));
+  m.inputs[1].value = '85'; m.inputs[1].fire('change'); await m.flush(); await m.flush();
+  m.inputs[2].value = '95'; m.inputs[2].fire('change'); await m.flush(); await m.flush();
   assert.deepEqual(m.sent, [{ fiveHour: 85 }, { sevenDay: 95 }]);
 });
 
