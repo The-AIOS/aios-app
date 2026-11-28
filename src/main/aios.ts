@@ -1,4 +1,5 @@
 import { freshness, parseLsRemote } from '../core/freshness';
+import { quoteFor } from '../core/spawnShell';
 import { nudgeShort } from '../core/nudgeCommand';
 import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
@@ -1712,7 +1713,7 @@ interface DoctorCheck {
  * the shell rather than read.
  */
 function shq(p: string): string {
-  return `'${String(p).replace(/'/g, `'\\''`)}'`;
+  return quoteFor(String(p), 'posix');
 }
 
 /**
@@ -1728,9 +1729,14 @@ function shq(p: string): string {
  * a variable (usually to empty) before the operator ever saw it.
  *
  * Single-quoted and doubled is the only form that is inert in both dimensions.
+ *
+ * DOUBLED FOR FIVE CHARACTERS, not one: PowerShell also ends a single-quoted string at the
+ * typographic quotes U+2018 to U+201B. The French verdict reads "QUELQUE CHOSE N’A PAS ABOUTI",
+ * and with `'` alone doubled done.ps1 stopped at that ’ with a ParserError (aios-app#253). The
+ * rule is core/spawnShell's quoteFor, the one Glass types with too.
  */
 function psq(s: string): string {
-  return `'${String(s).replace(/'/g, "''")}'`;
+  return quoteFor(String(s), 'powershell');
 }
 
 /**

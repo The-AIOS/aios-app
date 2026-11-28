@@ -20,6 +20,7 @@
  * marker is involved.
  */
 import { addDirArgs } from './addDir';
+import { quoteFor, type TypedShell } from './spawnShell';
 import { contract4Fields } from './contract4';
 import { normalizeVerb, type BusVerbResult } from './busVerbs';
 
@@ -219,9 +220,10 @@ export function fallbackSpawnRequest(req: BusRequest): BusRequest {
   return { ...req, action: 'spawn', task: req.task ?? req.prompt };
 }
 
-/** POSIX single-quote (mirrors renderer app.js:1869 `shq`). */
+/** POSIX single-quote. The pane's shell on Windows is PowerShell, which reads this idiom differently:
+ *  the builders below take the dialect and quote through core/spawnShell's quoteFor (aios-app#253). */
 export function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
+  return quoteFor(s, 'posix');
 }
 
 /** The short prompt handed to a worker whose real task lives in a file. */
@@ -250,6 +252,11 @@ function launchAddDirArgs(addDirs: string[] | undefined, taskFile: string | unde
  *
  * An EMPTY resolution is a real answer — `judgment` means "inherit the binary's frontier
  * default" — so an absent `model` must emit no flag at all. Never `--model ""`.
+ *
+ * `shell` is the dialect of the pane the line is typed into (core/spawnShell): PowerShell on win32,
+ * and every quoted word goes through quoteFor in it. On win32 the task travels by file anyway, but
+ * that file's path holds the Windows user name: `C:\Users\O'Brien` quoted the POSIX way cut the
+ * line and swallowed `--name` into an argument (aios-app#253). Same for buildResumeCmd.
  */
 /**
  * Reopen an existing session by its id, and deliver a first prompt.
@@ -267,30 +274,32 @@ function launchAddDirArgs(addDirs: string[] | undefined, taskFile: string | unde
 export function buildResumeCmd(
   claudeCmd: string,
   sessionId: string,
-  opts: { prompt?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[] } = {},
+  opts: { prompt?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[]; shell?: TypedShell } = {},
 ): string {
+  const q = (w: string): string => quoteFor(w, opts.shell ?? 'posix');
   /* QUOTED, even though resumeTarget already refuses an unsafe id. The id is a FILENAME read
      off disk, and this string is typed into a live shell — one guard is a policy, two is a
      boundary. Quoting also keeps the command correct if the id format ever widens. */
   /* aios#231: --add-dir first, straight after the binary — it is variadic (see core/addDir.ts). */
-  const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(shq), '--resume', shq(sessionId)];
-  for (const a of opts.extraArgs ?? []) parts.push(shq(a));   // contract 4: --effort / --settings
+  const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(q), '--resume', q(sessionId)];
+  for (const a of opts.extraArgs ?? []) parts.push(q(a));   // contract 4: --effort / --settings
   const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.prompt;
-  if (prompt && prompt.trim()) parts.push(shq(prompt));
+  if (prompt && prompt.trim()) parts.push(q(prompt));
   return parts.join(' ');
 }
 
 export function buildSpawnCmd(
   claudeCmd: string,
   name: string,
-  opts: { task?: string; model?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[] } = {},
+  opts: { task?: string; model?: string; taskFile?: string; addDirs?: string[]; extraArgs?: string[]; shell?: TypedShell } = {},
 ): string {
+  const q = (w: string): string => quoteFor(w, opts.shell ?? 'posix');
   const model = opts.model && opts.model.trim() ? opts.model.trim() : undefined;
-  const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(shq)];   // aios#231, variadic: first
+  const parts = [claudeCmd || 'claude', ...launchAddDirArgs(opts.addDirs, opts.taskFile).map(q)];   // aios#231, variadic: first
   if (model) parts.push('--model', model);
   parts.push('--name', name);
-  for (const a of opts.extraArgs ?? []) parts.push(shq(a));   // contract 4: --effort / --settings
+  for (const a of opts.extraArgs ?? []) parts.push(q(a));   // contract 4: --effort / --settings
   const prompt = opts.taskFile ? taskFileInstruction(opts.taskFile) : opts.task;
-  if (prompt && prompt.trim()) parts.push(shq(prompt));
+  if (prompt && prompt.trim()) parts.push(q(prompt));
   return parts.join(' ');
 }
