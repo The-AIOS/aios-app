@@ -111,7 +111,7 @@ test('the dispatcher takes the guard from the claimed body, not from the re-read
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   assert.match(src, /const verdict = decideKill\(body, \(\) => fs\.readFileSync\(heldPath, 'utf8'\), t,/, 'decideKill gets the claimed body first');
   assert.match(src, /function runImmediate\(.*, body: Record<string, unknown>\): void \{/, 'runImmediate requires the body');
-  assert.match(src, /return \{ heldPath, req, at, body: bodyForTried \};/, 'claim hands back the body it parsed');
+  assert.match(src, /return \{ heldPath: r\.heldPath, req, at: r\.at, body: r\.body \};/, 'claim hands back the body as it was written, from the shared claim');
   assert.equal((src.match(/runImmediate\(win, [^)]*\);/g) || []).length, 2, 'both callers');
   assert.match(src, /runImmediate\(win, held\.heldPath, held\.req, held\.body\);/);
   assert.match(src, /runImmediate\(win, p, real, body\);/);

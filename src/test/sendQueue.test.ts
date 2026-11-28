@@ -134,11 +134,20 @@ test('a doc declaring a HIGHER contract is never downgraded', () => {
 test('the bus CLAIMS by rename and deletes only after verification', () => {
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
   // the whole point: unlink-on-pickup is what lost a message that could not be delivered
-  assert.match(src, /fs\.renameSync\(fsPath, heldPath\)/);
+  /* The claim itself is the shared one (@the-aios/core/claim, where the order read → decide →
+     take → stamp → publish is tested against a sibling that takes it first). Here: the dispatcher claims
+     THROUGH it, and keeps no write of its own to the request's name. */
+  assert.match(src, /const r = claimRequest\(fsPath, \{ surface: MY_SURFACE, pid: process\.pid,/);
+  assert.doesNotMatch(src, /fs\.writeFileSync\(fsPath,/, 'nothing here writes to the request under its own name: that re-created a file a sibling had already claimed');
+  assert.doesNotMatch(src, /fs\.renameSync\(fsPath,/, 'and nothing here renames it: the shared claim does, once');
+  const claim = fs.readFileSync('packages/core/src/claim.ts', 'utf8');
+  const take = claim.indexOf('fs.renameSync(fsPath, mine)'), stampAt = claim.indexOf('fs.writeFileSync(mine,'), publish = claim.indexOf('fs.renameSync(mine, heldPath)');
+  assert.ok(take > 0 && take < stampAt && stampAt < publish, 'take under a private name, stamp it there, then publish the hold');
+  assert.doesNotMatch(claim, /fs\.writeFileSync\((fsPath|heldPath),/, 'never a write to a name another process can see');
   assert.doesNotMatch(src, /consume[\s\S]{0,400}unlinkSync\(fsPath\)/, 'no unlink on pickup');
   // deletion happens only once a verdict is reached — never while still pending
   assert.match(src, /if \(verdict === 'pending'\) continue;\n\s*try \{ fs\.unlinkSync\(heldPath\)/);
-  assert.match(src, /body\._claim = \{ surface: MY_SURFACE, pid: process\.pid, at \}/);
+  assert.match(claim, /_claim: \{ surface: o\.surface, pid: o\.pid, at \}/, 'the stamp says who holds it and since when');
 });
 
 test('delivery is verified by counting USER TURNS, not substring hits', () => {
@@ -172,7 +181,10 @@ test('a mid-write request is re-checked, not condemned', () => {
   // fs.watch fires on CREATE, which can beat the writer's bytes to disk. Retiring that as
   // unparseable turned a transient read into a permanent failure — observed on the first run.
   assert.match(src, /const PARSE_GRACE_MS/);
-  assert.match(src, /if \(ageMs < PARSE_GRACE_MS\) \{ setTimeout\(\(\) => recheck\(fsPath\), PARSE_GRACE_MS\); return undefined; \}/);
+  /* The shared claim answers 'wait' for a young file that does not parse (tested in the package);
+     the dispatcher's part is to look again, and only then. */
+  assert.match(src, /if \(r\.kind === 'wait'\) \{[\s\S]{0,160}setTimeout\(\(\) => recheck\(fsPath\), r\.afterMs\);\s*\n\s*return undefined;/);
+  assert.match(src, /parseGraceMs: PARSE_GRACE_MS/);
 });
 
 test('the watcher ignores claimed and abandoned files', () => {
@@ -384,4 +396,17 @@ test('operator test 6.4: a correction retires the older message itself, whatever
   assert.deepEqual(supersedes64({ ...newer, from: undefined }, [older, newer]), [], 'without a sender nothing is superseded');
   assert.deepEqual(supersedes64(newer, [{ ...older, from: 'someone-else' }]), [], 'another sender\'s message is never retired');
   assert.deepEqual(supersedes64(older, [older, newer]), [], 'an older message never retires a newer one');
+});
+
+test('a hold a sibling has just claimed and not yet stamped is never adopted', () => {
+  /* A surface that still renames before it stamps leaves its hold, for an instant, with no `_claim`.
+     canAdoptHold reads "no stamp" as an orphan from before stamps existed and adopts at once:
+     the request would be fulfilled twice. adoptHolds asks mayAdoptHold, with the hold's age. */
+  const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
+  const i = src.indexOf('function adoptHolds(');
+  const body = src.slice(i, src.indexOf('\nfunction ', i + 1));
+  assert.match(body, /try \{ age = holdAgeMs\(fs\.statSync\(p\), Date\.now\(\)\); \} catch \{ continue; \}/, 'the age of the HOLD (mtime and ctime), and a hold that vanished is skipped');
+  assert.match(body, /if \(!mayAdoptHold\(stamp, Date\.now\(\), HOLD_STALE_MS, holderAlive, age\)\)/);
+  assert.match(body, /for \(const back of recoverClaims\(dir, \{ pid: process\.pid, isAlive: \(pid\) => alive\(pid\), join: path\.join \}\)\) \{[\s\S]{0,260}consume\(win, back\);/, 'and a request left mid-claim by a dead process is put back and consumed');
+  assert.doesNotMatch(body, /canAdoptHold\(/, 'the bare rule would adopt an unstamped hold at once');
 });
