@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { findHook, hookCandidates } from '../core/hookPaths';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
 import * as path from 'path';
 import * as aios from './aios';
@@ -39,6 +40,8 @@ import { TranscriptSince, readTranscript, SubagentsSince, subagentStates } from 
 import { liveSubagents, landedInSubagentReason, preTypeStep, landedInSubagentOnly } from '../core/subagentGate';
 import { writeHandoffFile } from './handoffDir';   // aios#231: one private folder per handed-over file
 import { resolveBusCwd, grantBusCwd, resolveBusAddDirs } from './busCwd';
+import { decideOpen, readChecked, rememberDecided, prepareRoots, type DecidedOpen, type PreparedRoot } from '@the-aios/core/openRequest';
+import { ASSET_EXT } from '@the-aios/core/readClass';
 
 /**
  * Spawn-inbox command bus (main side) — CONTRACT 2.
@@ -1206,7 +1209,131 @@ function contract4Args(req: BusRequest): { args: string[] } | { error: string } 
   return { args: settingsToFile(contract4LaunchArgs({ effort: req.effort, advisorModel: advisorModelFor(req.advisor, req.advisorRung) })) };
 }
 
-function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>): void {
+/* Contract 5: show a file in the viewer for a session that asked (@the-aios/core/openRequest holds
+   the checks; inbox-contract-5.md in the framework is the rule).
+   THE ROOT is the framework root only (decision of 27/11, 18:17): the workspace-folder list lives in a
+   file any session can write, so it does not count for a session's request. It is resolved ONCE, when
+   the bus starts (openRoots), never inside a hidden home folder, and it must look like a framework
+   root, or `open` stays off and says so.
+   What the operator gets (decision of 27/11, 18:01): a SNAPSHOT, read only, never reloaded from disk.
+   Main reads the content here, from the file it checked (readChecked: same file, one link, still
+   inside the root), and sends the text itself; the renderer never reads that path for this pane. A
+   button reopens the file as the operator's own, and from then on it is the operator's path, not the
+   bus's. In front inside the App unless the operator is typing in a session (then in a background tab,
+   with a notice). The App window is never raised. */
+let decidedOpens: DecidedOpen[] = [];
+let openRoots: PreparedRoot[] = [];
+let openOff = '';
+function prepareOpenRoots(): void {
+  const fw = aios.frameworkRoot();
+  openRoots = fw ? prepareRoots([fw], os.homedir()) : [];
+  /* prepareRoots already drops a root without vault/ and plugins/aios/. Read once, when the bus starts. */
+  openOff = !openRoots.length ? 'there is no usable framework root (missing, the home folder, inside a hidden folder, or without vault/ and plugins/aios/); it is read when the App starts, so restart it after setting the AIOS folder' : '';
+  if (openOff) log(`open is OFF: ${openOff}`);
+}
+/* What "Open to edit" needs to check the real file again: the snapshot's identity, by a token the
+   renderer holds. Bounded; an old token simply cannot be re-checked and opens nothing. */
+const snapshotChecks = new Map<string, { path: string; identity: { dev: number; ino: number }; asset: boolean }>();
+function rememberSnapshot(s: { path: string; identity: { dev: number; ino: number }; asset: boolean }): string {
+  const token = crypto.randomBytes(8).toString('hex');
+  snapshotChecks.set(token, s);
+  while (snapshotChecks.size > 200) snapshotChecks.delete(snapshotChecks.keys().next().value as string);
+  return token;
+}
+ipcMain.handle('bus:recheckSnapshot', (_e, token: unknown) => {
+  const s = typeof token === 'string' ? snapshotChecks.get(token) : undefined;
+  if (!s) return { reason: 'old' };
+  return readChecked(s.path, s.identity, { roots: openRoots, asBytes: s.asset }).ok ? { real: s.path } : { reason: 'changed' };
+});
+function runOpen(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen: { seenAgoMs: number; atStart: boolean }): void {
+  const now = Date.now();
+  /* Open off: no roots, so the decision refuses at check 8, after the flood and rate counting. */
+  const d = decideOpen({ body, seenAgoMs: seen.seenAgoMs, presentAtStart: seen.atStart, nowMs: now, roots: openRoots, decided: decidedOpens });
+  if (d.do === 'open' || d.counted) decidedOpens = rememberDecided(decidedOpens, { name: d.do === 'open' ? d.name : (d.name ?? req.name), at: now }, now);
+  if (d.do === 'refuse') {
+    if (d.why === 'flood') { noteFlood(heldPath, body); return; }
+    markUndelivered(heldPath, req, d.why === 'unavailable' && openOff
+      ? `open refused (unavailable): open is off on this App: ${openOff}` : `open refused (${d.why}): ${d.reason}`);
+    return;
+  }
+  /* A PDF a session asks for is not shown: the viewer is Chromium's plugin in a frame, whose links and
+     scripts this App cannot keep inert. The operator's own PDFs open as before. */
+  if (/\.pdf$/i.test(d.path)) { markUndelivered(heldPath, req, 'open refused (unreadable): the App does not show a PDF a session asks for'); return; }
+  /* Text and assets alike are read HERE, from the checked descriptor; the renderer shows what it is
+     sent (an image or a PDF through a blob, never by its path), so a swap after the decision shows
+     nothing. */
+  const asset = ASSET_EXT.test(d.path);
+  const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: asset });
+  if (!r.ok) { markUndelivered(heldPath, req, `open refused (unavailable): ${r.reason}`); return; }
+  const w = win();
+  if (!w || w.isDestroyed()) { markUndelivered(heldPath, req, 'open refused (unavailable): the App has no window to show it in'); return; }
+  const typing = [...composing.values()].some((rec) => operatorComposing(rec, now));
+  emit(w, 'openFile', { path: d.path, line: asset ? undefined : d.line, mode: d.mode, background: typing, bus: true, by: d.name,
+    content: asset ? undefined : String(r.content), bytes: asset ? new Uint8Array(r.content as Buffer) : undefined, asset,
+    snap: rememberSnapshot({ path: d.path, identity: d.identity, asset }) });
+  log(`open ${path.basename(d.path)} for '${d.name}', read only${typing ? ', in the background (the operator is typing)' : ''}`);
+  try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+}
+/* A flood (20 open requests a minute): each extra request is removed at once, WITHOUT a dead letter
+   of its own, so a flood cannot bury the dead letters that matter. A minute after the flood's first
+   drop ONE dead letter, under a name of its own (never a request's: a session may reuse its file name),
+   says how many were dropped and carries the last one's fields, so it reaches the session that flooded.
+   Written on quit too, rather than lost. */
+let floodDropped = 0;
+let floodLast: { dir: string; body: Record<string, unknown> } | null = null;
+let floodTimer: NodeJS.Timeout | null = null;
+function noteFlood(heldPath: string, body: Record<string, unknown>): void {
+  floodDropped++;
+  floodLast = { dir: path.dirname(heldPath), body: { action: 'open', name: body.name, path: body.path } };
+  try { fs.unlinkSync(heldPath); } catch { /* already gone */ }
+  if (!floodTimer) floodTimer = setTimeout(flushFlood, 60_000);
+}
+function flushFlood(): void {
+  if (floodTimer) { clearTimeout(floodTimer); floodTimer = null; }
+  const last = floodLast; const n = floodDropped;
+  floodLast = null; floodDropped = 0;
+  if (!last || !n) return;
+  const reason = `open refused (flood): ${n} open request(s) dropped in the last minute; more than 20 a minute are not shown`;
+  const dest = path.join(last.dir, `open-flood-${Date.now()}-${process.pid}.json.undelivered`);
+  try {
+    fs.writeFileSync(dest, JSON.stringify({ ...last.body, _undelivered: { reason, at: Date.now(), surface: MY_SURFACE } }, null, 2) + '\n');
+    log(`UNDELIVERED ${path.basename(dest)} — ${reason}`);
+  } catch (e) { log(`flood notice NOT written (${e instanceof Error ? e.message : String(e)}) — ${reason}`); }
+}
+app.on('before-quit', flushFlood);
+/* A local image in a note a session opened is shown only when it passes the same checks as the note
+   itself (inside the roots once resolved, not a secret by name, one link). Remote images keep waiting
+   for the operator's click, as in every note. */
+ipcMain.handle('bus:imageBytes', (_e, p: unknown) => {
+  /* A local image in a note a session opened: shown only if a request for it would pass the same
+     checks, and then as the BYTES of the checked file (the renderer makes a blob of them), never by
+     its path. `..` is applied as text first, as a browser would. */
+  if (openOff || typeof p !== 'string') return null;
+  /* Bounded: a note can name the same image thousands of times. The renderer asks once per path and
+     at most IMAGE_PER_NOTE times a note; here, at most IMAGE_RATE checked reads a minute, each at most
+     IMAGE_LIMIT bytes. */
+  const now = Date.now();
+  imageReads = imageReads.filter((r) => r.at > now - 60_000);
+  if (imageReads.length >= IMAGE_RATE || imageReads.reduce((n, r) => n + r.bytes, 0) >= IMAGE_BYTES_PER_MINUTE) return null;
+  const norm = path.posix.normalize(p.replace(/\\/g, '/'));
+  const d = decideOpen({ body: { name: 'viewer', path: norm }, seenAgoMs: 0, nowMs: now, roots: openRoots, decided: [] });
+  if (d.do !== 'open' || !/\.(png|jpe?g|gif|webp|svg)$/i.test(d.path)) return null;
+  const r = readChecked(d.path, d.identity, { roots: openRoots, asBytes: true, limit: IMAGE_LIMIT });
+  imageReads.push({ at: now, bytes: r.ok ? (r.content as Buffer).length : 0 });
+  return r.ok ? { bytes: new Uint8Array(r.content as Buffer), type: mimeOf(d.path) } : null;
+});
+const IMAGE_RATE = 300;
+const IMAGE_LIMIT = 8 * 1024 * 1024;
+const IMAGE_BYTES_PER_MINUTE = 64 * 1024 * 1024;
+let imageReads: { at: number; bytes: number }[] = [];
+function mimeOf(p: string): string {
+  const e = path.extname(p).toLowerCase();
+  return e === '.svg' ? 'image/svg+xml' : e === '.jpg' || e === '.jpeg' ? 'image/jpeg' : 'image/' + e.slice(1);
+}
+
+/* `seen` defaults to TOO OLD: only consume() knows when a request was first seen, and an `open` reaching
+   here any other way (an adopted or recovered hold) is late by definition. */
+function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, req: BusRequest, body: Record<string, unknown>, seen = { seenAgoMs: Infinity, atStart: true }): void {
   try {
     if (req.fieldError) {
       /* Contract 4: a field we cannot honour is dead-lettered NAMING it, never silently dropped —
@@ -1217,10 +1344,12 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
     if (req.action === 'unknown') {
       /* Refuse a verb we do not implement rather than defaulting it to spawn — see BusAction. */
       markUndelivered(heldPath, req,
-        `unknown action '${req.rawAction ?? ''}' — this surface implements spawn, kill, send and `
-        + `resume. Omit "action" entirely for a plain spawn.`);
+        `unknown action '${req.rawAction ?? ''}' — this surface implements spawn, kill, send, `
+        + `resume and open. Omit "action" entirely for a plain spawn.`);
       return;
     }
+    /* Contract 5. `name` is who ASKS, not a target, so the ambiguity rule below does not apply. */
+    if (req.action === 'open') { runOpen(win, heldPath, req, body, seen); return; }
     /* An ambiguous name is refused for every verb, naming the sessions that collided. A kill used
        to find "no target", close any pane of that name and retire as done; a spawn found "not
        running" and started one more session under a name two already shared. */
@@ -1320,12 +1449,28 @@ function withRealName(req: BusRequest): BusRequest {
   return real && real !== req.name ? { ...req, name: real } : req;
 }
 
+/* When THIS App first saw each request file, by its own clock: contract 5 drops an `open` seen more
+   than a minute ago, and one already waiting at startup. Never the file's timestamps, which whoever
+   writes the request sets. Forgotten once the request is claimed or gone. */
+/* Keyed by path AND inode: the same name written again later is a new request, not an old one. */
+const firstSeen = new Map<string, { ino: number; at: number }>();
+const presentAtStart = new Set<string>();
+let draining = false;
+const recoveredClaims = new Set<string>();
 function consume(win: () => BrowserWindow | undefined, fsPath: string): void {
+  const recovered = recoveredClaims.delete(fsPath);
+  let ino = -1;
+  try { ino = fs.statSync(fsPath).ino; } catch { /* gone: the claim will say so */ }
+  const prior = firstSeen.get(fsPath);
+  if (!prior || prior.ino !== ino) { firstSeen.set(fsPath, { ino, at: Date.now() }); presentAtStart.delete(fsPath); }
+  if (draining || recovered) presentAtStart.add(fsPath);
+  const seen = { seenAgoMs: Date.now() - (firstSeen.get(fsPath) as { at: number }).at, atStart: presentAtStart.has(fsPath) };
   const held0 = claim(fsPath);
+  if (held0 || !fs.existsSync(fsPath)) { firstSeen.delete(fsPath); presentAtStart.delete(fsPath); }
   if (!held0) return;
   const held = { ...held0, req: withRealName(held0.req) };
   if (held.req.action === 'send') void runSend(win, held.heldPath, held.req, held.at);
-  else runImmediate(win, held.heldPath, held.req, held.body);
+  else runImmediate(win, held.heldPath, held.req, held.body, seen);
 }
 
 /** Recover `.holding` files left by a crash — but never steal a live sibling's hold. */
@@ -1334,6 +1479,7 @@ function adoptHolds(win: () => BrowserWindow | undefined, dir: string): void {
      they go back under their own names and are claimed like any other (@the-aios/core/claim). */
   for (const back of recoverClaims(dir, { pid: process.pid, isAlive: (pid) => alive(pid), join: path.join })) {
     log(`restored ${path.basename(back)} — the process that was claiming it is gone`);
+    recoveredClaims.add(back);   // an `open` recovered from a dead claimer is late by definition
     consume(win, back);
   }
   let files: string[] = [];
@@ -1440,6 +1586,7 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
   const dir = inboxDir();
   try { fs.mkdirSync(dir, { recursive: true }); } catch { /* non-fatal */ }
   ensureReadme(dir, appVersion);
+  prepareOpenRoots();   // contract 5: the root is resolved once, here
   announcePresence(appVersion);
   // On boot and every 5 min: a dead letter must not be able to sit unseen.
   surfaceDeadLetters(getWin);
@@ -1468,11 +1615,13 @@ export function initCommandBus(getWin: () => BrowserWindow | undefined, appVersi
     log(`watch failed on ${dir} (${e instanceof Error ? e.message : String(e)})`);
   }
   // Requests dropped while the app was closed, then holds left behind by a crash.
+  draining = true;   // contract 5: an `open` already waiting at startup is never shown late
   try {
     for (const f of fs.readdirSync(dir)) {
       if (f.endsWith('.json')) consume(getWin, path.join(dir, f));
     }
   } catch { /* empty/absent inbox */ }
+  draining = false;
   adoptHolds(getWin, dir);
   /* Periodically too, not only at startup (review should-fix 8): a hold left by a surface that died
      would otherwise block its target for the whole 24 h ceiling. canAdoptHold never takes a live one. */

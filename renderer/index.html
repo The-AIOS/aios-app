@@ -12,11 +12,12 @@
        style-src 'unsafe-inline'  xterm writes <style> elements and the markup carries style="";
                                   styles cannot run code, scripts are what this policy exists for
        img-src file: data: http:  the viewer shows local images, data:image, and a remote image the
-                                  operator clicked to load
+                                  operator clicked to load; blob: for an image a session opened,
+                                  made from the bytes main read from the checked file
        frame-src                  file: (PDF and HTML exports), aios-board: (sidebar boards),
                                   http(s): (the in-app browser's <webview>)
      A violation is logged as `aios-csp-violation`, which `npm run smoke` counts as an error. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: https: http:; font-src 'self' data:; connect-src 'self'; frame-src 'self' file: aios-board: https: http:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob: https: http:; font-src 'self' data:; connect-src 'self'; frame-src 'self' file: aios-board: https: http:; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <script src="csp-report.js"></script>
 <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
 <link rel="stylesheet" href="theme.css" />

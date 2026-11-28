@@ -104,7 +104,7 @@ test('a WRITTEN but unrecognised verb is refused, not defaulted to spawn', () =>
 });
 
 test('every known verb survives a round trip, case-insensitively', () => {
-  for (const v of ['spawn', 'kill', 'send', 'resume']) {
+  for (const v of ['spawn', 'kill', 'send', 'resume', 'open']) {
     assert.equal(parseRequest(`{"action":"${v.toUpperCase()}","name":"w","prompt":"p"}`)?.action, v);
   }
 });

@@ -1,0 +1,46 @@
+/* What a viewer may READ, decided before a single byte is read.
+ *
+ * fs:read used to `readFileSync(abs, 'utf8')` whatever it was handed. A ⌘-click on a 123 MB .dmg
+ * printed in a terminal read it whole, shipped the string over IPC and asked the renderer to lay
+ * it out as source — the window froze and the App had to be force-quit. The read is the cost, so
+ * the gate lives in front of it, here, as a pure function a test can point at real files.
+ *
+ * In the shared package because the bus's `open` verb (contract 5) decides with the SAME rule the
+ * viewer reads with: a file the decision lets through must be one the viewer can show, or the
+ * viewer would fall back to handing it to the desktop, which a request from a session must never
+ * cause. Moved here from the App's src/main/preview.ts, unchanged; that file re-exports it. */
+import * as fs from 'node:fs';
+/* Rendered from their PATH (an <img> / <iframe> src), never from their bytes — so they are not
+   read, at any size. Mirrors IMG_EXT + PDF_EXT in the App's renderer. */
+export const ASSET_EXT = /\.(png|jpe?g|gif|svg|webp|pdf)$/i;
+/* Above this a text file is not opened either: the editor is for notes and code, and a 4 MB
+   note does not exist. Inclusive. */
+export const TEXT_LIMIT = 4 * 1024 * 1024;
+const SNIFF = 8192;
+export type ReadClass = { kind: 'text' } | { kind: 'asset' } | { kind: 'binary' | 'large'; size: number };
+/* Above this an image a SESSION asked for is not read either (the bus's `open`; the operator's own
+   viewer renders assets from their path and never reads them). */
+export const ASSET_LIMIT = 32 * 1024 * 1024;
+/**
+ * `o.noFollow` opens without following a final link (the bus's checks resolved every link already, so
+ * one appearing now is a swap); `o.assetLimit` sizes an asset too, from the same descriptor, instead of
+ * passing it unread. The operator's own viewer passes neither.
+ */
+export function classifyForRead(abs: string, limit = TEXT_LIMIT, o: { noFollow?: boolean; assetLimit?: number } = {}): ReadClass {
+  const asset = ASSET_EXT.test(abs);
+  if (asset && o.assetLimit === undefined) return { kind: 'asset' };
+  /* One descriptor, opened WITHOUT blocking, and the kind and size taken from it (fstat): a file
+     swapped for a pipe between a stat and the open would otherwise block this process on the open
+     until someone wrote to the pipe. */
+  const fd = fs.openSync(abs, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (o.noFollow ? (fs.constants.O_NOFOLLOW ?? 0) : 0));
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) throw new Error('not a file');
+    if (asset) return st.size > (o.assetLimit as number) ? { kind: 'large', size: st.size } : { kind: 'asset' };
+    if (st.size > limit) return { kind: 'large', size: st.size };
+    const buf = Buffer.alloc(Math.min(SNIFF, st.size));
+    const n = buf.length ? fs.readSync(fd, buf, 0, buf.length, 0) : 0;
+    if (buf.subarray(0, n).includes(0)) return { kind: 'binary', size: st.size };
+  } finally { fs.closeSync(fd); }
+  return { kind: 'text' };
+}

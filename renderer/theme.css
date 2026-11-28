@@ -239,6 +239,11 @@ textarea.dzbody { width: 100%; box-sizing: border-box; font-family: var(--font);
 .dzpick { display: block; margin-top: 10px; color: var(--ink); }   /* readable, not subtle-grey */
 .dzgo { margin-top: 20px; }
 .dzgohint { font-size: 11.5px; color: var(--subtle); margin-top: 8px; line-height: 1.5; }
+/* A file a SESSION opened (contract 5): a read-only snapshot, and it says so where the operator looks first. */
+.vro { font-size: 11.5px; color: var(--subtle); border: 1px dashed var(--line); border-radius: 6px; padding: 2px 8px;
+       margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.readonly textarea { cursor: default; }
+.vchip { font-size: 11.5px; color: var(--subtle); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; display: inline-block; }
 /* a disabled primary must LOOK disabled — same shape, no coral pull */
 .vbtn.primary:disabled { background: var(--surface-2); border-color: var(--line); color: var(--subtle);
                          cursor: default; box-shadow: none; }

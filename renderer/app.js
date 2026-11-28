@@ -2845,6 +2845,11 @@ const active = { main: null, term: null };
    switches when they choose. 'follow' restores the old behaviour. */
 let BUS_FOCUS = 'stay';
 const busBackground = (m) => !!(m && m.background) && BUS_FOCUS !== 'follow';
+/* Contract 5's `open` never takes the screen from someone typing ANYWHERE in the App (a note of their
+   own included, not only a session), and the 'follow' preference does not apply to it. */
+let lastKeyAt = 0;
+document.addEventListener('keydown', () => { lastKeyAt = Date.now(); }, true);
+const openBehind = (o) => !!(o && (o.background || Date.now() - lastKeyAt < 8000));
 /* An agent opened or messaged this pane behind the operator's back. ONE marker for "something
    happened here you have not seen": #45's bold tab name, rather than a second dot beside the
    status dot. A session put to work goes busy (amber) right away, and when it finishes unseen the
@@ -5796,6 +5801,7 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
   }, 250);
   ta.addEventListener('scroll', sync);
   ta.addEventListener('keydown', (e) => {
+    if (ta.readOnly) return;   // a session's snapshot: Tab and ⌘S change nothing and save nothing
     if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart, en = ta.selectionEnd; ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(en); ta.selectionStart = ta.selectionEnd = s + 2; hl(); hooks.onInput(ta.value); }
     else if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); hooks.onSave(ta.value); }
     // ⌥↓ / ⌥↑ — next / previous uncommitted change
@@ -5818,6 +5824,17 @@ function buildCodeEditor(initial, lang, hooks, gitPath) {
     hl(); refreshGutter();
   };
   wrap.stepChange = step;               // the header stepper drives the same path as ⌥↑/⌥↓
+  /* A session's snapshot (contract 5): shown and selectable, never typed into, never saved. */
+  wrap.setReadOnly = (on) => { ta.readOnly = !!on; wrap.classList.toggle('readonly', !!on); };
+  /* The caret at the start of line n, centred; focus is not taken (the bus's `open` with a line). */
+  wrap.goToLine = (n) => {
+    const lines = ta.value.split('\n');
+    const k = Math.min(Math.max(1, Math.floor(n)), lines.length);
+    let at = 0;
+    for (let i = 0; i < k - 1; i++) at += lines[i].length + 1;
+    ta.selectionStart = ta.selectionEnd = at;
+    requestAnimationFrame(() => centerLine(k));
+  };
   return wrap;
 }
 
@@ -5940,7 +5957,7 @@ function sessionsSnapshot() {
       if (!p || p.sessionId) continue;
       const group = tgOf(id) ? { group: tgOf(id) } : {};
       if (p.kind === 'term' && !p.exited && !p.isSession) others.push({ kind: 'term', name: p.name || 'terminal', cwd: p.cwd || '', ...group });
-      else if (p.kind === 'view' && typeof p.path === 'string' && p.path && !p.path.startsWith('::')) others.push({ kind: 'view', path: p.path, ...group });   // '::home' and the like open on their own
+      else if (p.kind === 'view' && !p.readOnly && typeof p.path === 'string' && p.path && !p.path.startsWith('::')) others.push({ kind: 'view', path: p.path, ...group });   // a session's snapshot is never restored as an open file   // '::home' and the like open on their own
     }
   }
   const groups = [...new Set([...sessions, ...others].map((x) => x.group).filter(Boolean))]
@@ -6390,19 +6407,64 @@ async function openRecents() {
    never through marked.use(), which would also change every other marked caller. */
 const NOTE_MD = { gfm: true, breaks: true };
 
-async function openViewer(p) {
-  seenExport(p);   // an opened export is no longer new
-  for (const [id, pane] of panes) {
-    if (pane.kind === 'view' && pane.path === p) { setActive(id); return; }
+/* A local image in a note a SESSION opened is shown only if main says it passes the same checks as the
+   note (inside the roots once resolved, not a secret by name, one link). Until then it has no source,
+   so nothing is fetched; refused, it says why in one line. Remote images keep their usual chip. */
+/* At most this many local images per snapshot are asked of main, each path once: a note can name one
+   image a hundred thousand times. */
+const IMAGE_PER_NOTE = 50;
+const blobUrl = (img, blob) => { const u = URL.createObjectURL(blob); img.addEventListener('load', () => URL.revokeObjectURL(u), { once: true }); img.addEventListener('error', () => URL.revokeObjectURL(u), { once: true }); return u; };
+function holdSnapshotImage(img, s, dir, holds) {
+  if (!s || /^(https?|data):/i.test(s)) return;
+  img.removeAttribute('src');
+  let abs = s;
+  try {
+    if (/^file:/i.test(s)) { abs = decodeURIComponent(new URL(s).pathname); if (/^\/[A-Za-z]:/.test(abs)) abs = abs.slice(1); }
+    else { let rel = s; try { rel = decodeURIComponent(s); } catch { /* keep as written */ } abs = dir + '/' + rel; }   // marked percent-encodes spaces and accents
+  } catch { abs = ''; }
+  const deny = () => { const n = document.createElement('span'); n.className = 'vchip'; n.textContent = t('viewer.imageHeld'); img.replaceWith(n); };
+  if (!abs) { deny(); return; }
+  if (!holds.by.has(abs)) {
+    if (holds.by.size >= IMAGE_PER_NOTE) { deny(); return; }
+    holds.by.set(abs, (window.glassShell.busImageBytes?.(abs) ?? Promise.resolve(null))
+      .then((r) => (r && r.bytes ? new Blob([r.bytes], { type: r.type }) : null)).catch(() => null));
   }
-  const file = await window.glassShell.fsRead(p);
+  void holds.by.get(abs).then((b) => { if (b) img.src = blobUrl(img, b); else deny(); });
+}
+
+/* `o` comes from the bus's `open` verb (contract 5) and is empty for everything the operator does:
+   { bus: true, by: '<session>', background, mode: 'source' | 'auto', line, content, asset }.
+   A file a SESSION asked for is a snapshot (decision of 27/11): main read and checked the content and
+   sends it here; this pane never reads the path, never reloads from disk, cannot be edited, and says
+   so on screen. "Open to edit" reopens it as the operator's own file. It opens in front unless main
+   saw the operator typing (background), never hands a file to the desktop, and puts the cursor on
+   `line` (which needs the source view). */
+async function openViewer(p, o = {}) {
+  seenExport(p);   // an opened export is no longer new
+  const ro = !!o.bus;
+  const behind = ro && openBehind(o);
+  for (const [id, pane] of panes) {
+    if (pane.kind === 'view' && pane.path === p && !!pane.readOnly === ro) {
+      if (ro) { closePane(id); break; }   // asked again: the old snapshot goes, the fresh one opens below
+      setActive(id);
+      return;
+    }
+  }
+  const file = ro
+    ? (typeof o.content === 'string' ? { path: p, content: o.content } : (o.asset && o.bytes ? { path: p, content: '' } : null))
+    : await window.glassShell.fsRead(p);
+  /* An image or PDF a session asked for is shown from the bytes main read from the checked file. */
+  const roBlob = ro && o.asset && o.bytes ? new Blob([o.bytes], { type: /\.svg$/i.test(p) ? 'image/svg+xml' : 'image/' + (p.split('.').pop() || 'png').toLowerCase().replace('jpg', 'jpeg') }) : null;
   if (!file) { toast(t('viewer.cannotOpen', { name: xBase(p) })); return; }
   /* A file the pane cannot SHOW is handed to the desktop, not frozen into a pane: main did not
      read it (binary, or too large for the editor) and says so. The folder is where a .dmg or a
-     .zip is useful anyway — the same "reveal" the header button below offers for every file. */
+     .zip is useful anyway — the same "reveal" the header button below offers for every file.
+     Never for a session's request: the bus decided the file was showable, and if it changed since,
+     the answer is "cannot open", not the desktop. */
+  if (file.unreadable && o.bus) { toast(t('viewer.cannotOpen', { name: xBase(file.path) })); return; }
   if (file.unreadable) { toast(t('viewer.revealedInstead', { name: xBase(file.path) })); void window.glassShell.revealInOS(file.path); return; }
   const name = xBase(file.path);
-  noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"
+  if (!ro) noteRecentFile(file.path);   // only after a successful read — a file that failed to open is not "recent"; a session's snapshot is not the operator's recent file
   const id = 'v' + (++viewSeq);
   const el = document.createElement('div');
   el.className = 'pane viewer';
@@ -6420,16 +6482,17 @@ async function openViewer(p) {
   el.append(head, body);
 
   const tab = makeTab(id, name, fileIconName(name));
-  const paneObj = { kind: 'view', name, el, tab, path: file.path };
+  const paneObj = { kind: 'view', name, el, tab, path: file.path, readOnly: ro };
   panes.set(id, paneObj);
   attachPaneDropTarget(paneObj, id);   // any pane is a split drop target
   homePane(id, paneObj, { fresh: true });
 
   const renderable = MD_EXT.test(name) || HTML_EXT.test(name) || IMG_EXT.test(name) || PDF_EXT.test(name);
-  const editable = !(IMG_EXT.test(name) || PDF_EXT.test(name));
+  const editable = !ro && !(IMG_EXT.test(name) || PDF_EXT.test(name));
   // the operator's "Open files in" preference decides the initial mode (a non-renderable
   // file is always source regardless)
   let mode = renderable && OPENNOTESIN !== 'source' ? 'rendered' : 'source';
+  if (o.mode === 'source' || (o.line && !o.asset)) mode = 'source';   // HTML a session asked for never runs; a line needs the source
   let saveTimer = null;
   const setDirty = (on) => { paneObj.dirty = on; tab.classList.toggle('dirty', on); };
   /* SAVING AGAINST THE DISK (#159). Agents write to open notes all the time (the daily-note ledger, /close-session), and an
@@ -6443,10 +6506,13 @@ async function openViewer(p) {
   const toEditor = (v) => String(v).replace(/\r\n/g, '\n');
   let base = file.content;
   let editorRef = null;
+  let pendingLine = o.line || 0;
+  /* Asked again for a file already open (the bus's `open` with a line): move there in Edit mode. */
+  paneObj.goToLine = (n) => { if (mode !== 'source') { mode = 'source'; pendingLine = n; paint(); } else editorRef?.goToLine?.(n); };
   let saveChain = Promise.resolve();
   const shownNow = () => (editorRef ? editorRef.value() : file.content);
   /* content null = whatever is on screen when this save's turn comes. */
-  const save = (content, prefer) => (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)).catch(() => null));
+  const save = (content, prefer) => (ro ? Promise.resolve(null) : (saveChain = saveChain.then(() => saveNow(content === null ? shownNow() : content, prefer)).catch(() => null)));   // a snapshot is never saved
   async function saveNow(content, prefer) {
     if (paneObj.asking && !prefer) return null;   // a question is open: its answer saves what is on screen then
     const r = await window.glassShell.fsSaveMerged(file.path, base, content, prefer).catch(() => null);
@@ -6495,7 +6561,7 @@ async function openViewer(p) {
   /* The note changed on disk (an agent wrote it). With nothing unsaved, show the new text in place; with unsaved edits,
      leave the screen alone: the next save merges. Called from the file watcher (shell:fsEvent). */
   paneObj.onDiskMaybeChanged = async () => {
-    if (paneObj.dirty || paneObj.asking || !editable) return;
+    if (paneObj.dirty || paneObj.asking || !editable) return;   // a session's snapshot is never editable, so it never reloads from disk
     const f = await window.glassShell.fsRead(file.path).catch(() => null);
     if (!f || typeof f.content !== 'string' || f.content === base || paneObj.dirty) return;
     base = file.content = f.content;
@@ -6507,10 +6573,13 @@ async function openViewer(p) {
     body.scrollTop = top;
   };
   /* #177: watched on its own, through its real folder, for as long as the tab is open. */
-  void window.glassShell.fsWatchFile?.(file.path).catch(() => false);
-  paneObj.unwatch = () => { void window.glassShell.fsUnwatchFile?.(file.path).catch(() => null); };
+  if (!ro) {
+    void window.glassShell.fsWatchFile?.(file.path).catch(() => false);
+    paneObj.unwatch = () => { void window.glassShell.fsUnwatchFile?.(file.path).catch(() => null); };
+  }
   /* Closing the tab or quitting with an autosave still waiting: save now rather than drop the last keystrokes. */
   paneObj.flushSave = (quitting) => {
+    if (ro) return;   // a snapshot is never saved
     if (!saveTimer && !paneObj.dirty) return;   // dirty with no timer: a save that failed or was decided against still gets saved
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
     if (!quitting) { void save(null); return; }
@@ -6545,8 +6614,28 @@ async function openViewer(p) {
     sync();
     head.appendChild(seg);
   }
+  /* A session's snapshot says what it is, in words: who opened it, that it cannot be edited here, and
+     the one way to edit it. The PNG export and "reveal" below are the operator's tools for the
+     operator's own files; on a snapshot the edit button is the way to them. */
+  if (ro) {
+    const badge = document.createElement('span'); badge.className = 'vro';
+    badge.textContent = t('viewer.readOnlyBadge', { by: String(o.by || '?') });
+    const edit = document.createElement('button'); edit.className = 'vbtn'; edit.type = 'button';
+    edit.innerHTML = icon('design', 13) + ' ';
+    edit.append(document.createTextNode(t('viewer.openToEdit')));
+    edit.title = t('viewer.openToEditTip');
+    /* The real file is checked again first: a session that swapped it after the snapshot does not get
+       the swapped file opened for editing. */
+    edit.addEventListener('click', () => {
+      void (window.glassShell.busRecheckSnapshot?.(o.snap || '') ?? Promise.resolve({ reason: 'old' })).then((r) => {
+        if (!r || !r.real) { toast(t(r && r.reason === 'changed' ? 'viewer.changedSinceSnapshot' : 'viewer.snapshotTooOld')); return; }
+        closePane(id); void openViewer(r.real);
+      }).catch(() => toast(t('viewer.changedSinceSnapshot')));
+    });
+    head.append(badge, edit);
+  }
   // HTML deliverables → download as a high-res PNG
-  if (HTML_EXT.test(name)) {
+  if (HTML_EXT.test(name) && !ro) {
     const png = document.createElement('button'); png.className = 'vbtn'; png.innerHTML = icon('download', 13) + ' PNG'; png.title = t('viewer.pngTitle');
     png.addEventListener('click', async () => {
       const label = png.innerHTML; png.disabled = true; png.textContent = t('viewer.rendering');
@@ -6564,7 +6653,7 @@ async function openViewer(p) {
      preview is a dead end (images, PDFs — the non-editable kinds). */
   const rev = document.createElement('button'); rev.className = 'vbtn'; rev.innerHTML = icon('folder', 13) + ' ' + t(IS_WIN ? 'ctx.revealWin' : 'ctx.reveal'); rev.title = t('viewer.revealTitle');
   rev.addEventListener('click', () => { void window.glassShell.revealInOS(file.path); });
-  head.appendChild(rev);
+  if (!ro) head.appendChild(rev);
 
   function paint() {
     editorRef = null;   // set again below when Edit mode builds its editor
@@ -6596,18 +6685,20 @@ async function openViewer(p) {
         onInput: (v) => { file.content = v; setDirty(true); if (saveTimer) clearTimeout(saveTimer); saveTimer = setTimeout(() => { saveTimer = null; void after(v); }, 700); },
         onSave: (v) => { if (saveTimer) clearTimeout(saveTimer); void after(v); },
         onBlur: (v) => { if (paneObj.dirty) { if (saveTimer) clearTimeout(saveTimer); void after(v); } },
-        onChanges: (n) => { chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
+        onChanges: (n) => { if (ro) return; chg.hidden = n === 0; chgN.textContent = t(n === 1 ? 'viewer.changes1' : 'viewer.changes', { n }); },   // counted against the last git commit, not this edit (0.14.0 round: "1 changes" read as a change just made)
         onStep: (i, n) => { chgN.textContent = i + '/' + n; },
-      }, file.path);
+      }, ro ? null : file.path);   // a snapshot is not compared with git: that reads the file on disk
       head.appendChild(chg);
       body.appendChild(editor);
       editorRef = editor;
+      if (ro) { editor.setReadOnly?.(true); chg.hidden = true; }
+      if (pendingLine) { editor.goToLine?.(pendingLine); pendingLine = 0; }
       return;
     }
     if (IMG_EXT.test(name)) {
       const img = document.createElement('img');
       img.className = 'imgview';
-      img.src = fileUrl(file.path);
+      img.src = ro ? (roBlob ? blobUrl(img, roBlob) : '') : fileUrl(file.path);   // a snapshot only from its checked bytes
       body.appendChild(img);
       return;
     }
@@ -6615,7 +6706,7 @@ async function openViewer(p) {
       // Chromium's built-in PDF viewer (no sandbox attr — it blocks the plugin)
       const fr = document.createElement('iframe');
       fr.className = 'htmlview';
-      fr.src = fileUrl(file.path);
+      fr.src = fileUrl(file.path);   // never a snapshot: main does not send a PDF a session asks for
       body.appendChild(fr);
       return;
     }
@@ -6659,13 +6750,16 @@ async function openViewer(p) {
     md.replaceChildren(vaultSanitize(marked.parse(src, NOTE_MD)));
     vaultHeldBanner(md);
     const dir = xDirOf(file.path);
+    const holds = { by: new Map() };   // this paint's image requests, one per path
     for (const img of md.querySelectorAll('img')) {
       const s = img.getAttribute('src') || '';
+      if (ro) { holdSnapshotImage(img, s, dir, holds); continue; }
       if (s && !/^(https?|file|data):/.test(s)) img.src = fileUrl(dir + '/' + s);
     }
     // live task checkboxes — click toggles [ ]/[x] in the FILE (Obsidian-style)
     const boxes = md.querySelectorAll('input[type="checkbox"]');
     boxes.forEach((box, i) => {
+      if (ro) { box.disabled = true; return; }   // a snapshot writes nothing
       box.disabled = false;
       box.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -6695,7 +6789,8 @@ async function openViewer(p) {
   }
 
   paint();
-  setActive(id);
+  if (behind) { markActivity(id); toast(t('viewer.openedBehind', { by: String(o.by || ''), name })); }
+  else setActive(id);
 }
 
 /* Vault-note sanitizer. Same shape as chatSanitize (inert <template>, walk, rebuild), but a looser
@@ -8246,7 +8341,7 @@ window.glassShell.onIntent(async (m) => {
     }
     case 'ask': void onIntentAsk(); return;   // the menu bar's Ask AIOS… and the bus: destinations included
     case 'openFile':
-      if (m.path) void openViewer(m.path);
+      if (m.path) void openViewer(m.path, m.bus ? { bus: true, by: m.by, background: m.background, mode: m.mode, line: m.line, content: m.content, asset: m.asset, bytes: m.bytes, snap: m.snap } : {});
       return;
     case 'exportReady':   // a new export in badge mode — counted, never opened, no focus taken
       if (m.path) noteExport(m.path, m.name);

@@ -41,7 +41,7 @@ test('the hover tip names both gestures, so the second one is discoverable', () 
 });
 
 test('the viewer header carries a "Reveal in Finder" button for EVERY file, not one extension', () => {
-  const i = app.indexOf('async function openViewer(p) {');
+  const i = app.indexOf('async function openViewer(p, o = {}) {');
   assert.ok(i >= 0, 'openViewer moved?');
   const body = app.slice(i, i + 14000);   // widened in 0.15.2: the save-against-disk block (#159) sits above the header
   /* NOT inside the HTML-only block: the PNG button is gated by `if (HTML_EXT.test(name))`, and a
@@ -49,7 +49,7 @@ test('the viewer header carries a "Reveal in Finder" button for EVERY file, not 
      PDFs — the non-editable ones, whose preview is a dead end). Searched from the END of that
      block: an earlier reveal exists above it — the unreadable-file branch (previewGate.test.ts) —
      and that one is not the button. */
-  const htmlGate = body.indexOf('if (HTML_EXT.test(name)) {');
+  const htmlGate = Math.max(body.indexOf('if (HTML_EXT.test(name)) {'), body.indexOf('if (HTML_EXT.test(name) && !ro) {'));   // contract 5: not for a session's snapshot
   const htmlGateEnd = body.indexOf('\n  }\n', htmlGate);
   assert.ok(htmlGate >= 0 && htmlGateEnd > htmlGate, 'the HTML-only block moved?');
   const btn = body.indexOf("window.glassShell.revealInOS(file.path)", htmlGateEnd);
