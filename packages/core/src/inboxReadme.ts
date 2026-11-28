@@ -35,7 +35,7 @@ export { INBOX_CONTRACT };
 const MARK = 'aios-spawn-inbox: contract';
 
 /** Bumped whenever the body below changes. A test pins the body to it, so the two cannot part. */
-export const README_TEXT_REVISION = 2;
+export const README_TEXT_REVISION = 3;
 
 export interface ReadmeWriter {
   surface: 'app' | 'glass';
@@ -227,7 +227,7 @@ A request is **claimed, not consumed** — renamed out of the \`*.json\` watch g
 one surface can win, and deleted only once delivery is VERIFIED:
 
     request.json               waiting for a fulfiller
-    request.json.claiming-…    being claimed — a surface took it and is stamping it (an instant; left behind only by a crash, and then put back)
+    request.json.claiming-…    being claimed — a surface took it and is stamping it (an instant; left behind only by a crash, and then put back). Do not rename or edit it by hand: it is put back by itself.
     request.json.holding       claimed — carries _claim {surface,pid,at}
     request.json.undelivered   gave up — carries _undelivered {reason,at,surface}
     (absent)                   delivered and verified

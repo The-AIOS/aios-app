@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as vm from 'node:vm';
-import { operatorComposing, COMPOSE_QUIET_MS, COMPOSE_STALE_MS } from '../main/retypeGuard';
+import { operatorComposing, COMPOSE_QUIET_MS, COMPOSE_STALE_MS } from '@the-aios/core/sendGuards';
 
 const app = fs.readFileSync('renderer/app.js', 'utf8');
 const bus = fs.readFileSync('src/main/commandBus.ts', 'utf8');
@@ -142,7 +142,7 @@ test('an abandoned draft stops holding after 3 min — in the pane AND the bus, 
 });
 
 test('with the prompt stash the draft limit is 10 s; without it (or no version) 3 min and no Ctrl+S', async () => {
-  const g = await import('../main/retypeGuard');
+  const g = await import('@the-aios/core/sendGuards');
   assert.equal(g.hasPromptStash('2.1.312'), true);
   assert.equal(g.hasPromptStash('2.1.69'), true);
   assert.equal(g.hasPromptStash('2.1.68'), false);
