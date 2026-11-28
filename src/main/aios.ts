@@ -2481,10 +2481,13 @@ function doctorChecks(): DoctorCheck[] {
            the Obsidian check stayed red at the end of it. Pointing a repair at the wrong
            script is worse than having no repair, because the operator concludes the product
            is broken rather than that the button was wrong.
-           This is the actual one-line registration, and it needs the vault path. */
+           This is the actual one-line registration, and it needs the vault path.
+           Quoted in the dialect of the pane it is typed into: the vault path holds the user name,
+           and on Windows `C:\Users\O'Brien\aios` quoted the POSIX way left PowerShell waiting at
+           `>>` for a string that never closed (aios-app#253). */
         const v = vaultRoot();
         const cmd = v
-          ? `${claudeCmd} mcp add obsidian -- npx -y @mauricio.wolff/mcp-obsidian@latest ${shq(v)}`
+          ? `${claudeCmd} mcp add obsidian -- npx -y @mauricio.wolff/mcp-obsidian@latest ${process.platform === 'win32' ? psq(v) : shq(v)}`
           : undefined;
         return { id: 'mcpObsidian', label: t('setupCheck.mcpObsidian'), status: 'warn', message: t('setupCheck.mcpObsidianMissingHint'), repairCmd: cmd, repairHint: cmd, canRepair: false };
       },

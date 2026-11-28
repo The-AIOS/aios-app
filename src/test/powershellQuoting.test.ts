@@ -97,8 +97,12 @@ test('wiring: no PowerShell quoter of its own is left in main — setup and the 
   assert.match(aios, /function psq\(s: string\): string \{\s*return quoteFor\(String\(s\), 'powershell'\);\s*\}/);
   assert.match(aios, /function shq\(p: string\): string \{\s*return quoteFor\(String\(p\), 'posix'\);\s*\}/);
   assert.match(code('src/main/main.ts'), /return `& \$\{quoteFor\(file, 'powershell'\)\}`;/, 'the spilled .ps1 path holds the user name too');
+  /* The Obsidian repair line is typed into a pane too (Setup's repair button), and the vault path holds the user name. */
+  assert.match(aios, /mcp-obsidian@latest \$\{process\.platform === 'win32' \? psq\(v\) : shq\(v\)\}/);
+  /* Any hand-rolled doubler: `.replace(…, "''")`, `.replaceAll("'", '\'\'')`, a template `''`, whatever the spelling. */
+  const doubler = /\.replace(?:All)?\([^)]*,\s*(?:"''"|`''`|'\\'\\'')\s*\)/;
   for (const f of ['src/main/aios.ts', 'src/main/main.ts', 'src/main/commandBus.ts', 'src/core/commandBus.ts', 'renderer/app.js']) {
-    assert.doesNotMatch(code(f), /\.replace\(\/'\/g, "''"\)/, `${f}: doubling only ' is the gap this closes`);
+    assert.doesNotMatch(code(f), doubler, `${f}: a quoter of its own doubling only ' is the gap this closes`);
   }
 });
 
@@ -144,7 +148,7 @@ function withStub<T>(fn: (bind: (line: string) => string[] | { error: string }) 
     fs.writeFileSync(stub, 'function claude { ConvertTo-Json -Compress -InputObject @($args) }\n');
     return fn((line) => {
       try {
-        const out = execFileSync(PWSH as string, ['-NoProfile', '-NonInteractive', '-Command', `. '${stub}'; ${line}`],
+        const out = execFileSync(PWSH as string, ['-NoProfile', '-NonInteractive', '-Command', `. ${quoteFor(stub, 'powershell')}; ${line}`],
           { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
         return JSON.parse(out) as string[];
       } catch (e) { return { error: String((e as { stderr?: string }).stderr || e) }; }
@@ -182,21 +186,31 @@ test('PowerShell runs the French setup verdict — the old psq stopped at its \u
   };
   const fail = get('term.doneFail'), failSub = get('term.doneFailSub');
   assert.match(fail + failSub, /\u2019/, 'the French strings still carry a typographic apostrophe, or this case is moot');
-  /* bannerScript writes the Windows body only on win32, so the platform is lent to it for one call. */
+  /* bannerScript writes the Windows body only on win32, so the platform is lent to it for one call.
+     On win32 it writes under os.tmpdir(), which on a real Windows machine is where a running App
+     keeps its own done.ps1 — so the temp folder is lent too, a fresh one, removed afterwards. */
   const real = Object.getOwnPropertyDescriptor(process, 'platform')!;
   const aios = await import('../main/aios');
+  const lent = fs.mkdtempSync(path.join(os.tmpdir(), 'app-banner-'));
+  const env = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
   let invocation = '';
+  process.env.TMPDIR = process.env.TEMP = process.env.TMP = lent;
   Object.defineProperty(process, 'platform', { value: 'win32' });
-  try { invocation = aios.bannerScript('OK', 'ok sub', fail, failSub); } finally { Object.defineProperty(process, 'platform', real); }
-  const script = /-File '(.+)'$/.exec(invocation)?.[1]?.replace(/''/g, "'") ?? '';
-  assert.ok(script && fs.existsSync(script), `banner script not written: ${invocation}`);
-  const run = (file: string): string => execFileSync(PWSH as string, ['-NoProfile', '-NonInteractive', '-File', file, 'False'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
-  const out = run(script);
-  assert.ok(out.includes(fail) && out.includes(failSub), out);
-  /* The control: the same body with only ' doubled. */
-  const old = fs.readFileSync(script, 'utf8').split(fail.replace(/\u2019/g, '\u2019\u2019')).join(fail).split(failSub.replace(/\u2019/g, '\u2019\u2019')).join(failSub);
-  const oldFile = path.join(path.dirname(script), 'done-old.ps1');
-  fs.writeFileSync(oldFile, old);
-  try { assert.throws(() => run(oldFile), /ParserError|Unexpected token|missing the terminator/i); }
-  finally { fs.rmSync(oldFile, { force: true }); }
+  try { invocation = aios.bannerScript('OK', 'ok sub', fail, failSub); } finally {
+    Object.defineProperty(process, 'platform', real);
+    for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+  try {
+    const script = /-File '(.+)'$/.exec(invocation)?.[1]?.replace(/''/g, "'") ?? '';
+    assert.ok(script && fs.existsSync(script), `banner script not written: ${invocation}`);
+    const run = (file: string): string => execFileSync(PWSH as string, ['-NoProfile', '-NonInteractive', '-File', file, 'False'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000 });
+    const out = run(script);
+    assert.ok(out.includes(fail) && out.includes(failSub), out);
+    /* The control: the same body with only ' doubled. */
+    const old = fs.readFileSync(script, 'utf8').split(fail.replace(/\u2019/g, '\u2019\u2019')).join(fail).split(failSub.replace(/\u2019/g, '\u2019\u2019')).join(failSub);
+    const oldFile = path.join(path.dirname(script), 'done-old.ps1');
+    fs.writeFileSync(oldFile, old);
+    assert.throws(() => run(oldFile), /ParserError|Unexpected token|missing the terminator/i);
+    assert.ok(script.startsWith(lent), `the banner was written into the lent temp folder, not the live one: ${script}`);
+  } finally { fs.rmSync(lent, { recursive: true, force: true }); }
 });
