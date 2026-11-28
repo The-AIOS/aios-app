@@ -33,7 +33,9 @@
 /* An emoji or other symbol may lead the heading text (`## 🤖 Agents can handle`); letters may not. */
 const PLAN_SECTIONS =
   /^##[ \t]+[^\w\n]*(?:Rhythm|Today I ship|Parking lot|Claude['’]s take|Agents can handle|Recommended next step)\b/im;
-const FENCED = /^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm;
+/* A fence is three or more backticks (whose info text holds no backtick, so inline ```code``` is not
+   one) or tildes, closed by the same run. A longer fence may hold shorter ones. Unclosed hides nothing. */
+const FENCED = /^[ \t]*(`{3,}(?=[^`\n]*$)|~{3,})[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm;
 
 export function dayPlanned(md: string): boolean {
   return PLAN_SECTIONS.test(String(md || '').replace(FENCED, ''));
