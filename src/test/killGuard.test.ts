@@ -240,7 +240,7 @@ test('the App declares kill-expect in its presence record; a record without it d
     assert.equal(presenceHonoursExpect(r), false, JSON.stringify(r));
   }
   const src = fs.readFileSync('src/main/commandBus.ts', 'utf8');
-  assert.match(src, /function presenceBody\([^)]*\)[^{]*\{\s*return \{[^}]*capabilities: \[KILL_EXPECT_CAPABILITY\]/, 'presence carries the capability');
+  assert.match(src, /function presenceBody\([^)]*\)[^{]*\{\s*return serializePresenceRecord\(buildPresenceRecord\(\{[^}]*capabilities: \[KILL_EXPECT_CAPABILITY\]/, 'presence carries the capability, in the record shape both surfaces write');
   assert.equal((src.match(/const body = presenceBody\(root, appVersion\);/g) || []).length, 2, 'both presence writers (announce and heal) use it');
 });
 
