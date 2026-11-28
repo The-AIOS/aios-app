@@ -275,7 +275,9 @@ test('an ambiguous name is refused for every verb, before anything is typed, kil
   const immediate = fn('runImmediate');
   const at = immediate.search(refusal);
   assert.ok(at > 0, 'runImmediate refuses an ambiguous name with a dead letter that names the sessions');
-  for (const later of ["req.action === 'kill'", 'process.kill(', "emit(win(), 'closeByName'", 'resumeOrReveal(', 'runSpawn(win, heldPath, req)']) {
+  /* `'closeByName'`, not the whole `emit(win(), …)` call: how the window is reached is not what this
+     pins (a kill that waits for the window's answer reaches it through a local). */
+  for (const later of ["req.action === 'kill'", 'process.kill(', "'closeByName'", 'resumeOrReveal(', 'runSpawn(win, heldPath, req)']) {
     const i = immediate.indexOf(later);
     assert.ok(i > at, `the refusal must come before ${later}`);
   }
