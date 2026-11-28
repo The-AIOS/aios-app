@@ -134,6 +134,24 @@ test('addressed to the other surface: skipped while fresh, retired when nobody c
   assert.equal(old.m.has('w.json'), true, 'retire is the caller\'s write, with the reason');
 });
 
+test('the surface can word the dead letter of a request its addressee never took', () => {
+  /* The App says whether the addressee was running (#218); the core must not overwrite that. */
+  const seen: [Record<string, unknown>, number][] = [];
+  const words = (req: Record<string, unknown>, ageMs: number): string => { seen.push([req, ageMs]); return `CALLER: ${String(req.surface)} ${ageMs}`; };
+  const f = disk({ 'w.json': { text: req({ name: 'x', surface: 'glass' }), ageMs: TTL } });
+  const r = claimRequest('w.json', { surface: 'app', pid: 7, nowMs: NOW, retireTtlMs: TTL, fs: f.fs, unclaimedReason: words });
+  assert.equal(r.kind, 'retire');
+  if (r.kind === 'retire') assert.equal(r.reason, `CALLER: glass ${TTL}`, 'the caller\'s words, verbatim');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0][0].name, 'x', 'given the request as written');
+  // handed back by this very instance: the default sentence, the caller is not asked
+  const g = disk({ 'h.json': { text: req({ name: 'x', _tried: ['app:7'] }), ageMs: TTL } });
+  const h = claimRequest('h.json', { surface: 'app', pid: 7, nowMs: NOW, retireTtlMs: TTL, fs: g.fs, unclaimedReason: words });
+  assert.equal(h.kind, 'retire');
+  if (h.kind === 'retire') assert.match(h.reason, /handed back for a sibling 10 min ago/);
+  assert.equal(seen.length, 1, 'not asked for the handed-back case');
+});
+
 test('handed back by this very instance: not re-claimed, and retired when no sibling took it', () => {
   const body = { name: 'w', _tried: ['app:10'] };
   assert.deepEqual(claimAs('app', 10, disk({ 'w.json': { text: req(body), ageMs: 1000 } }).fs), { kind: 'skip' });

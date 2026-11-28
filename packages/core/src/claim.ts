@@ -68,6 +68,13 @@ export interface ClaimInput {
   /** TIMINGS.RETIRE_TTL_MS: how long an addressed or handed-back request waits for its taker. */
   retireTtlMs: number;
   parseGraceMs?: number;
+  /**
+   * The dead letter's words for a request its addressee never took, when the surface has more to
+   * say than the default (`addressed to '<surface>' but unclaimed for N min`): for instance whether
+   * the addressee was running at all. Given the request as written and its age. Used only for that
+   * case; a request handed back by this instance keeps the default sentence.
+   */
+  unclaimedReason?: (req: Record<string, unknown>, ageMs: number) => string;
   fs?: ClaimFs;
 }
 
@@ -124,7 +131,7 @@ export function claimRequest(fsPath: string, o: ClaimInput): ClaimResult {
     const mins = Math.round(ageMs / 60000);
     const reason = tried.includes(myId)
       ? `handed back for a sibling ${mins} min ago and no other surface took it`
-      : `addressed to '${String(body.surface)}' but unclaimed for ${mins} min`;
+      : (o.unclaimedReason ? o.unclaimedReason(body, ageMs) : `addressed to '${String(body.surface)}' but unclaimed for ${mins} min`);
     return { kind: 'retire', reason, body };
   }
 
