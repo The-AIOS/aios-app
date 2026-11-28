@@ -275,7 +275,7 @@ export function verifyVerdict(before: number, now: number): VerifyVerdict {
    `from` (send/resume), `effort` and `advisor` (spawn/resume) — and the queue amendment.
    Stamped 4 only now that BOTH surfaces honour every field; an older surface reading a contract-4
    README refuses to downgrade it (shouldWriteDoc). Additive: a contract-3 request is unchanged. */
-export const INBOX_CONTRACT = 4;
+export const INBOX_CONTRACT = 5;   // contract 5: the `open` verb (framework inbox-contract-5.md), stamped once both surfaces implement it
 
 /* ── Protocol TIMINGS — these are CONTRACT, not local tuning ──────────────────
    Every fulfiller must use the same four numbers, because they decide *cross-process
