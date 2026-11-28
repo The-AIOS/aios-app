@@ -1198,6 +1198,9 @@ export function swapOfferNow(fiveHour: number, sevenDay: number): SwapOffer & { 
 /* The stored rotation setting (#430), from the same answer as the rows. null: the framework does not send it, and so has
    no `rotation` command to send it to either. */
 let rotationCache: RotationSetting | null = null;
+/* Bumped by every write to the setting. An `--availability` answer started before a write is older than it and must not put
+   the old numbers back into the caches (review: the swap button would then follow the old threshold for up to a minute). */
+let rotationEpoch = 0;
 
 /** The rotation setting in force, asked fresh, or null when this framework has none. */
 export async function rotationSetting(): Promise<RotationSetting | null> {
@@ -1210,8 +1213,10 @@ export async function setRotation(change: RotationChange): Promise<{ ok: boolean
   const built = rotationSetArgs(change, rotationCache);
   if ('error' in built) return { ok: false, setting: rotationCache, message: built.error };
   const ans = await runIdentity(['rotation', '--set', ...built.args]);
-  if (!ans.ok) return { ok: false, setting: rotationCache, message: ans.message };
+  /* The script's own words name files and paths: they go to the log, and the screen says only that it failed. */
+  if (!ans.ok) { console.warn('[rotation] rotation --set failed:', ans.message); return { ok: false, setting: rotationCache, message: ans.message }; }
   const next = readRotationAnswer(ans.out);
+  rotationEpoch++;
   if (next) rotationCache = next;
   swapTriedAt = 0;   // the swap button follows the new numbers on the next tick, not in a minute
   return next ? { ok: true, setting: next, message: '' } : { ok: false, setting: rotationCache, message: 'unreadable answer' };
@@ -1226,12 +1231,13 @@ export async function anthropicAccounts(): Promise<AccountsAnswer> {
   /* Checked by file and never by trying: an older script reads an unknown flag as an email to
      switch to, and captures the seat on the way. */
   if (fs.existsSync(path.join(r, 'hooks', 'claude-identity', '_accounts.py'))) {
+    const epoch = rotationEpoch;
     const ans = await runIdentity(['switch', '--availability']);
     rows = ans.ok ? parseAvailability(ans.out) : null;
     /* A malformed list must be seen. It never falls back to USER.md, which may be older. */
     if (!rows) { error = ans.message || 'unreadable answer'; rows = []; }
     /* A failed ask keeps the last good answer for the running card: a hiccup must not hide the button. */
-    else { swapCache = { rows, rule: readSwapRule(ans.out), at: Date.now() }; rotationCache = readRotationSetting(ans.out); }
+    else if (epoch === rotationEpoch) { swapCache = { rows, rule: readSwapRule(ans.out), at: Date.now() }; rotationCache = readRotationSetting(ans.out); }
   } else {
     try { rows = rowsFromUserMd(fs.readFileSync(path.join(r, 'USER.md'), 'utf8'), active); } catch { rows = []; }
     swapCache = { rows, rule: null, at: Date.now() };   // an older framework: no thresholds to read

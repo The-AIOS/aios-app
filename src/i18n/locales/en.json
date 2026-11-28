@@ -299,7 +299,7 @@
   "settings.rotationElsewhere": "Set on this computer outside the App",
   "settings.rotationIgnored": "A saved value was not valid and is not in use. Saving here replaces it.",
   "settings.rotationSaved": "Account rotation saved",
-  "settings.rotationFailed": "Could not save account rotation: {why}",
+  "settings.rotationFailed": "Could not save account rotation",
   "settings.rotationRange": "Use a whole number from {min} to {max}",
   "settings.openNotesIn": "Open files in",
   "settings.openNotesInHint": "How a note opens by default — rendered, or its raw markdown",

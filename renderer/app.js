@@ -13388,44 +13388,67 @@ function settingsRotationRows(wrap) {
   const box = el('div', 'trotation');
   box.hidden = true;
   wrap.appendChild(box);
-  const paint = (s) => {
-    box.replaceChildren();
-    box.hidden = !s;
-    if (!s) return;
+  /* Built once, then updated in place: rebuilding on every save took the field the operator had just tabbed into out of
+     the page, and what they typed next went nowhere (review). */
+  let ui = null, last = null;
+  const build = (s) => {
     const tog = document.createElement('input'); tog.type = 'checkbox'; tog.className = 'ttoggle';
-    tog.checked = !!s.enabled.value;
-    tog.disabled = s.enabled.source === 'environment';
     tog.setAttribute('aria-label', t('settings.rotationAuto'));
     tog.addEventListener('change', () => void save({ enabled: tog.checked }));
     row(box, t('settings.rotationAuto'), tog, t('settings.rotationAutoHint'));
+    const fields = {};
     for (const [key, label] of [['fiveHour', 'settings.rotationFiveHour'], ['sevenDay', 'settings.rotationSevenDay']]) {
-      const v = s[key];
       const inp = document.createElement('input');
-      inp.type = 'number'; inp.className = 'tinput tnum'; inp.min = String(s.min); inp.max = String(s.max); inp.step = '1';
-      inp.value = String(v.value);
+      inp.type = 'number'; inp.className = 'tinput tnum'; inp.step = '1';
       inp.setAttribute('aria-label', t(label));
-      const fixed = v.source === 'environment';
-      inp.disabled = fixed;
       inp.addEventListener('change', () => {
-        const n = Number(inp.value);
-        if (!Number.isInteger(n) || n < s.min || n > s.max) {
-          toast(t('settings.rotationRange', { min: s.min, max: s.max }));
-          inp.value = String(v.value);
+        const cur = last && last[key];
+        if (!cur) return;
+        const n = inp.value.trim() === '' ? NaN : Number(inp.value);
+        if (!Number.isInteger(n) || n < last.min || n > last.max) {
+          toast(t('settings.rotationRange', { min: last.min, max: last.max }));
+          inp.value = String(cur.value);
           return;
         }
-        if (n !== v.value) void save({ [key]: n });
+        if (n !== cur.value) void save({ [key]: n });
       });
-      const unit = el('span', 'tunit', '%');
-      const ctl = el('span', 'tnumwrap'); ctl.append(inp, unit);
-      row(box, t(label), ctl, fixed ? t('settings.rotationElsewhere') : t('settings.rotationAtHint', { min: s.min, max: s.max }));
+      const ctl = el('span', 'tnumwrap'); ctl.append(inp, el('span', 'tunit', '%'));
+      const r = row(box, t(label), ctl, ' ');
+      fields[key] = { inp, hint: r.querySelector('.thint') };
     }
-    if (s.ignored && s.ignored.length) box.appendChild(el('div', 'thint twarn', t('settings.rotationIgnored')));
+    const warn = el('div', 'thint twarn', t('settings.rotationIgnored'));
+    box.appendChild(warn);
+    return { tog, fields, warn };
   };
-  const save = async (change) => {
-    let r = null;
-    try { r = await window.glassShell.rotationSet(change); } catch (e) { r = { ok: false, setting: null, message: String(e && e.message || e) }; }
-    toast(r && r.ok ? t('settings.rotationSaved') : t('settings.rotationFailed', { why: (r && r.message) || '?' }));
-    paint(r && r.setting ? r.setting : null);
+  /* `saved`: the field this repaint answers. A field that has focus and is not that one keeps what the operator is typing
+     (its own change event saves it next); every other field shows the value in force. */
+  const paint = (s, saved) => {
+    if (!s) { if (!ui) box.hidden = true; return; }   // a failed read keeps what is shown; only "never sent" hides it
+    last = s;
+    if (!ui) ui = build(s);
+    box.hidden = false;
+    ui.tog.checked = !!s.enabled.value;
+    ui.tog.disabled = s.enabled.source === 'environment';
+    for (const key of ['fiveHour', 'sevenDay']) {
+      const { inp, hint } = ui.fields[key];
+      const v = s[key];
+      inp.min = String(s.min); inp.max = String(s.max);
+      if (document.activeElement !== inp || key === saved) inp.value = String(v.value);
+      inp.disabled = v.source === 'environment';
+      if (hint) hint.textContent = v.source === 'environment' ? t('settings.rotationElsewhere') : t('settings.rotationAtHint', { min: s.min, max: s.max });
+    }
+    ui.warn.hidden = !(s.ignored && s.ignored.length);
+  };
+  /* One save at a time, in order: a second edit made while the first is on its way waits for it rather than being lost. */
+  let queue = Promise.resolve();
+  const save = (change) => {
+    queue = queue.then(async () => {
+      let r = null;
+      try { r = await window.glassShell.rotationSet(change); } catch { r = null; }
+      toast(r && r.ok ? t('settings.rotationSaved') : t('settings.rotationFailed'));
+      paint(r && r.setting ? r.setting : last, Object.keys(change)[0]);   // a thrown call repaints the last setting, never an empty box
+    });
+    return queue;
   };
   void Promise.resolve(window.glassShell.rotationGet()).then(paint).catch(() => paint(null));
 }

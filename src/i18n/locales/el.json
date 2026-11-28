@@ -299,7 +299,7 @@
   "settings.rotationElsewhere": "Ορίστηκε σε αυτόν τον υπολογιστή εκτός της εφαρμογής",
   "settings.rotationIgnored": "Μια αποθηκευμένη τιμή δεν ήταν έγκυρη και δεν χρησιμοποιείται. Η αποθήκευση εδώ την αντικαθιστά.",
   "settings.rotationSaved": "Η εναλλαγή λογαριασμών αποθηκεύτηκε",
-  "settings.rotationFailed": "Δεν ήταν δυνατή η αποθήκευση της εναλλαγής λογαριασμών: {why}",
+  "settings.rotationFailed": "Δεν ήταν δυνατή η αποθήκευση της εναλλαγής λογαριασμών",
   "settings.rotationRange": "Χρησιμοποιήστε έναν ακέραιο από {min} έως {max}",
   "settings.openNotesIn": "Άνοιγμα αρχείων ως",
   "settings.openNotesInHint": "Πώς ανοίγει μια σημείωση από default — σε προεπισκόπηση ή ο κώδικας markdown",

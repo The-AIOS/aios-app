@@ -299,7 +299,7 @@
   "settings.rotationElsewhere": "Défini sur cet ordinateur en dehors de l’App",
   "settings.rotationIgnored": "Une valeur enregistrée n’était pas valide et n’est pas utilisée. Enregistrer ici la remplace.",
   "settings.rotationSaved": "Rotation des comptes enregistrée",
-  "settings.rotationFailed": "Impossible d’enregistrer la rotation des comptes : {why}",
+  "settings.rotationFailed": "Impossible d’enregistrer la rotation des comptes",
   "settings.rotationRange": "Utilisez un nombre entier de {min} à {max}",
   "settings.openNotesIn": "Ouvrir les fichiers en",
   "settings.openNotesInHint": "Comment une note s’ouvre par défaut : rendue, ou en markdown brut",

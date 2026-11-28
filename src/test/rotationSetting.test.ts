@@ -83,12 +83,13 @@ class Node_ {
   addEventListener(ev: string, f: () => void) { (this.handlers[ev] ||= []).push(f); }
   fire(ev: string) { for (const f of this.handlers[ev] || []) f(); }
   all(): Node_[] { return this.children.flatMap((c) => [c, ...c.all()]); }
+  querySelector(sel: string): Node_ | null { const cls = sel.replace(/^\./, ''); return this.all().find((n) => n.className.split(' ').includes(cls)) || null; }
 }
 async function mount(setting: unknown, setAnswer: (c: unknown) => unknown = () => ({ ok: true, setting })) {
   const app = fs.readFileSync(path.join(ROOT, 'renderer', 'app.js'), 'utf8');
   const grab = (name: string): string => app.slice(app.indexOf('function ' + name + '('), app.indexOf('\n}\n', app.indexOf('function ' + name + '(')) + 2);
   const sent: unknown[] = [], toasts: string[] = [];
-  const document = { createElement: (tag: string) => new Node_(tag) };
+  const document: { createElement: (tag: string) => Node_; activeElement: Node_ | null } = { createElement: (tag: string) => new Node_(tag), activeElement: null };
   const el = (tag: string, cls?: string, text?: string) => { const n = new Node_(tag); n.className = cls || ''; n.textContent = text || ''; return n; };
   const t = (k: string, p?: Record<string, unknown>) => (p ? `${k} ${JSON.stringify(p)}` : k);
   const window = { glassShell: { rotationGet: async () => setting, rotationSet: async (c: unknown) => { sent.push(c); return setAnswer(c); } } };
@@ -99,7 +100,7 @@ async function mount(setting: unknown, setAnswer: (c: unknown) => unknown = () =
   await new Promise((r) => setTimeout(r, 0));
   const box = wrap.children[0];
   const inputs = box.all().filter((n) => n.tag === 'input');
-  return { box, inputs, sent, toasts, flush: () => new Promise((r) => setTimeout(r, 0)) };
+  return { box, inputs, sent, toasts, document, flush: () => new Promise((r) => setTimeout(r, 0)) };
 }
 const UI = (over: Record<string, unknown> = {}) => ({
   fiveHour: { value: 90, source: 'file' }, sevenDay: { value: 98, source: 'default' },
@@ -122,9 +123,19 @@ test('Settings: the switch and both limits, saved through the framework', async 
   assert.deepEqual(m.sent, [], 'out of range: nothing sent');
   assert.equal(five.value, '90', 'and the field goes back to the value in force');
   assert.match(m.toasts.at(-1) || '', /settings\.rotationRange/);
-  five.value = '85'; five.fire('change'); await m.flush();
+  five.value = ''; five.fire('change');
+  assert.deepEqual(m.sent, [], 'an emptied field is not 0: nothing sent');
+  assert.equal(five.value, '90');
+  /* Tab from the 5-hour field into the weekly one and start typing while the save is on its way. */
+  five.value = '85'; five.fire('change');
+  m.document.activeElement = seven; seven.value = '9';
+  await m.flush();
   assert.deepEqual(m.sent, [{ fiveHour: 85 }]);
   assert.match(m.toasts.at(-1) || '', /settings\.rotationSaved/);
+  const after = m.box.all().filter((n) => n.tag === 'input');
+  assert.ok(after[1] === five && after[2] === seven, 'the rows are updated in place, never rebuilt: the field the operator moved into stays in the page');
+  assert.equal(seven.value, '9', 'and keeps what they are typing');
+  m.document.activeElement = null;
   const m2 = await mount(UI());
   m2.inputs[0].checked = false; m2.inputs[0].fire('change'); await m2.flush();
   assert.deepEqual(m2.sent, [{ enabled: false }], 'the switch: off');
@@ -138,9 +149,32 @@ test('Settings: a value set outside the App is shown, not editable; a refused sa
   assert.match(texts, /settings\.rotationElsewhere/);
   assert.match(texts, /settings\.rotationIgnored/, 'an ignored stored value is said, in plain words');
   assert.doesNotMatch(texts, /five_hour=120|quota-rotation|CLAUDE_QUOTA/, 'the screen names no file, variable or key');
-  const bad = await mount(UI(), () => ({ ok: false, setting: UI(), message: 'boom' }));
+  const bad = await mount(UI(), () => ({ ok: false, setting: UI(), message: 'could not write /home/x/.claude/quota-rotation.json' }));
   bad.inputs[1].value = '80'; bad.inputs[1].fire('change'); await bad.flush();
-  assert.match(bad.toasts.at(-1) || '', /settings\.rotationFailed.*boom/);
+  assert.equal(bad.toasts.at(-1), 'settings.rotationFailed', 'a refused save says so, without the script\'s words (they name files)');
+  assert.equal(bad.inputs[1].value, '90', 'and the field shows the value in force again');
+  const thrown = await mount(UI(), () => { throw new Error('ipc gone'); });
+  thrown.inputs[1].value = '80'; thrown.inputs[1].fire('change'); await thrown.flush();
+  assert.equal(thrown.box.hidden, false, 'a call that throws keeps the editor, with the last setting');
+  assert.equal(thrown.inputs[1].value, '90');
+});
+
+test('Settings: two edits in a row are both sent, in order', async () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => { release = r; });
+  const m = await mount(UI(), async (c) => { await gate; return { ok: true, setting: UI() }; });
+  m.inputs[1].value = '85'; m.inputs[1].fire('change');
+  m.inputs[2].value = '95'; m.inputs[2].fire('change');
+  release(); await m.flush(); await m.flush(); await m.flush();
+  assert.deepEqual(m.sent, [{ fiveHour: 85 }, { sevenDay: 95 }]);
+});
+
+test('main: an account answer started before a save does not put the old numbers back', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'main', 'aios.ts'), 'utf8');
+  assert.match(src, /const epoch = rotationEpoch;\s*const ans = await runIdentity\(\['switch', '--availability'\]\);/);
+  assert.match(src, /else if \(epoch === rotationEpoch\) \{ swapCache = /);
+  const fn = src.slice(src.indexOf('export async function setRotation('), src.indexOf('export async function anthropicAccounts('));
+  assert.match(fn, /rotationEpoch\+\+;/);
 });
 
 test('Settings: the rows sit in the Account section, and their words exist in every locale', () => {

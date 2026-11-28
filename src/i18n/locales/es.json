@@ -299,7 +299,7 @@
   "settings.rotationElsewhere": "Fijado en esta computadora fuera de la App",
   "settings.rotationIgnored": "Un valor guardado no era válido y no se usa. Guardar acá lo reemplaza.",
   "settings.rotationSaved": "Rotación de cuentas guardada",
-  "settings.rotationFailed": "No se pudo guardar la rotación de cuentas: {why}",
+  "settings.rotationFailed": "No se pudo guardar la rotación de cuentas",
   "settings.rotationRange": "Usá un número entero de {min} a {max}",
   "settings.openNotesIn": "Abrir archivos en",
   "settings.openNotesInHint": "Cómo se abre una nota por defecto — renderizada, o su markdown crudo",
