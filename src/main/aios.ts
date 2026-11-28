@@ -1,5 +1,6 @@
 import { freshness, parseLsRemote } from '../core/freshness';
 import { nudgeShort } from '../core/nudgeCommand';
+import { asksToPlan } from '../core/dayPlanned';
 import { hookCandidates } from '../core/hookPaths';
 import { lidModeOf, type LidMode } from '../core/lidAwake';
 import { inScope, busNamesFrom, type SessionScope } from '../core/sessionScope';
@@ -863,10 +864,14 @@ function weeklyPlanExists(): boolean {
 export function nudgeState(hour: number, weekday: number, runningCount: number): Nudge | null {
   const note = latestDailyNote();
   const isToday = !!note && path.basename(note, '.md') === todayLocalIso();
-  if (!isToday) return { kind: 'plan', icon: '☀️', label: t('nudge.plan'), command: '/aios:today' };
+  const plan: Nudge = { kind: 'plan', icon: '☀️', label: t('nudge.plan'), command: '/aios:today' };
+  if (!isToday) return plan;
   let md = '';
   try { md = fs.readFileSync(note as string, 'utf8'); } catch { return null; }
   const isClosed = /close[\s-]?of[\s-]?day|^#{1,4}.*\bclose\b.*\bday\b/im.test(md);
+  /* A note that exists is not a planned day: a /close-session block, a close-day or Glass's
+     harvested post-its each create it. core/asksToPlan decides, the same rule as Glass's. */
+  if (asksToPlan(md, hour, isClosed)) return plan;
   if (hour >= 17 && !isClosed) {
     /* NOT ALWAYS CLOSE-DAY. This branch owned every evening hour, so from 17:00 until the day
        was closed the whisper said the same sentence — and a nudge that never varies stops being
