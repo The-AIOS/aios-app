@@ -17,7 +17,7 @@ import * as path from 'path';
 import { execFile, execFileSync } from 'child_process';
 import { resolveBash } from './resolveBash';
 import { parseAvailability, rowsFromUserMd, canSwitchTo, rowLabel, nextDestination, type AccountRow } from '../core/accounts';
-import { readSwapRule, swapOffer, type SwapRule, type SwapOffer } from './swapOffer';
+import { readSwapRule, swapOffer, readRotationSetting, readRotationAnswer, rotationSetArgs, type SwapRule, type SwapOffer, type RotationSetting, type RotationChange } from './swapOffer';
 import { parseFrontmatter } from '../core/frontmatter';
 import { ttlMemo } from '../core/memo';
 import { backgroundScan } from '../core/backgroundScan';
@@ -1195,6 +1195,28 @@ export function swapOfferNow(fiveHour: number, sevenDay: number): SwapOffer & { 
   return { ...o, ruleKnown: !!rule, accounts: rows.length };
 }
 
+/* The stored rotation setting (#430), from the same answer as the rows. null: the framework does not send it, and so has
+   no `rotation` command to send it to either. */
+let rotationCache: RotationSetting | null = null;
+
+/** The rotation setting in force, asked fresh, or null when this framework has none. */
+export async function rotationSetting(): Promise<RotationSetting | null> {
+  await anthropicAccounts().catch(() => undefined);
+  return rotationCache;
+}
+
+/** Change the rotation setting through the framework's own command; the App writes nothing itself. */
+export async function setRotation(change: RotationChange): Promise<{ ok: boolean; setting: RotationSetting | null; message: string }> {
+  const built = rotationSetArgs(change, rotationCache);
+  if ('error' in built) return { ok: false, setting: rotationCache, message: built.error };
+  const ans = await runIdentity(['rotation', '--set', ...built.args]);
+  if (!ans.ok) return { ok: false, setting: rotationCache, message: ans.message };
+  const next = readRotationAnswer(ans.out);
+  if (next) rotationCache = next;
+  swapTriedAt = 0;   // the swap button follows the new numbers on the next tick, not in a minute
+  return next ? { ok: true, setting: next, message: '' } : { ok: false, setting: rotationCache, message: 'unreadable answer' };
+}
+
 export async function anthropicAccounts(): Promise<AccountsAnswer> {
   const r = frameworkRoot();
   if (!r) return { accounts: [], error: '' };
@@ -1209,10 +1231,11 @@ export async function anthropicAccounts(): Promise<AccountsAnswer> {
     /* A malformed list must be seen. It never falls back to USER.md, which may be older. */
     if (!rows) { error = ans.message || 'unreadable answer'; rows = []; }
     /* A failed ask keeps the last good answer for the running card: a hiccup must not hide the button. */
-    else swapCache = { rows, rule: readSwapRule(ans.out), at: Date.now() };
+    else { swapCache = { rows, rule: readSwapRule(ans.out), at: Date.now() }; rotationCache = readRotationSetting(ans.out); }
   } else {
     try { rows = rowsFromUserMd(fs.readFileSync(path.join(r, 'USER.md'), 'utf8'), active); } catch { rows = []; }
     swapCache = { rows, rule: null, at: Date.now() };   // an older framework: no thresholds to read
+    rotationCache = null;
   }
   return {
     error,

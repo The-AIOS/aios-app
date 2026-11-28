@@ -252,6 +252,9 @@ contextBridge.exposeInMainWorld('glassShell', {
   setPrimaryIdentity: (name: string): Promise<{ ok: boolean; name: string; stale: boolean }> => ipcRenderer.invoke('shell:setPrimaryIdentity', name),
   accountsList: (): Promise<{ accounts: { email: string; label: string; note: string; state: string; current: boolean; canSwitch: boolean }[]; error: string }> => ipcRenderer.invoke('accounts:list'),
   accountsSwap: (email: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('accounts:swap', email),
+  /* #430: the framework's rotation setting (where the watcher rotates, on or off). null: this framework has none. */
+  rotationGet: (): Promise<unknown> => ipcRenderer.invoke('rotation:get'),
+  rotationSet: (change: { fiveHour?: number; sevenDay?: number; enabled?: boolean }): Promise<{ ok: boolean; setting: unknown; message: string }> => ipcRenderer.invoke('rotation:set', change),
   notesAdd: (name: string, note: string): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:add', name, note),
   notesDel: (name: string, index: number): Promise<{ t: string; ts: number }[]> => ipcRenderer.invoke('notes:del', name, index),
   fsGit: (): Promise<{ files: Record<string, string>; dirty: string[]; repos: string[]; slow: string[] }> => ipcRenderer.invoke('fs:git'),

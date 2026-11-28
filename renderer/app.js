@@ -13380,6 +13380,56 @@ function row(parent, label, control, hint) {
   return r;
 }
 
+/* #430 account rotation: where the watcher rotates (5-hour and weekly limits) and whether it rotates on its own. One setting,
+   owned by the framework: read through rotationGet (null = this framework has none, so nothing is drawn) and changed only
+   through rotationSet, which runs the framework's own command. Nothing here is stored by the App. A value set on the computer
+   outside the App wins over the stored one; it is shown, not editable. */
+function settingsRotationRows(wrap) {
+  const box = el('div', 'trotation');
+  box.hidden = true;
+  wrap.appendChild(box);
+  const paint = (s) => {
+    box.replaceChildren();
+    box.hidden = !s;
+    if (!s) return;
+    const tog = document.createElement('input'); tog.type = 'checkbox'; tog.className = 'ttoggle';
+    tog.checked = !!s.enabled.value;
+    tog.disabled = s.enabled.source === 'environment';
+    tog.setAttribute('aria-label', t('settings.rotationAuto'));
+    tog.addEventListener('change', () => void save({ enabled: tog.checked }));
+    row(box, t('settings.rotationAuto'), tog, t('settings.rotationAutoHint'));
+    for (const [key, label] of [['fiveHour', 'settings.rotationFiveHour'], ['sevenDay', 'settings.rotationSevenDay']]) {
+      const v = s[key];
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.className = 'tinput tnum'; inp.min = String(s.min); inp.max = String(s.max); inp.step = '1';
+      inp.value = String(v.value);
+      inp.setAttribute('aria-label', t(label));
+      const fixed = v.source === 'environment';
+      inp.disabled = fixed;
+      inp.addEventListener('change', () => {
+        const n = Number(inp.value);
+        if (!Number.isInteger(n) || n < s.min || n > s.max) {
+          toast(t('settings.rotationRange', { min: s.min, max: s.max }));
+          inp.value = String(v.value);
+          return;
+        }
+        if (n !== v.value) void save({ [key]: n });
+      });
+      const unit = el('span', 'tunit', '%');
+      const ctl = el('span', 'tnumwrap'); ctl.append(inp, unit);
+      row(box, t(label), ctl, fixed ? t('settings.rotationElsewhere') : t('settings.rotationAtHint', { min: s.min, max: s.max }));
+    }
+    if (s.ignored && s.ignored.length) box.appendChild(el('div', 'thint twarn', t('settings.rotationIgnored')));
+  };
+  const save = async (change) => {
+    let r = null;
+    try { r = await window.glassShell.rotationSet(change); } catch (e) { r = { ok: false, setting: null, message: String(e && e.message || e) }; }
+    toast(r && r.ok ? t('settings.rotationSaved') : t('settings.rotationFailed', { why: (r && r.message) || '?' }));
+    paint(r && r.setting ? r.setting : null);
+  };
+  void Promise.resolve(window.glassShell.rotationGet()).then(paint).catch(() => paint(null));
+}
+
 /* Claude's language, its own choice right under the App's (0.17.0, hand test): "the language you write in" (no value in
    Claude's settings) or one language for every session. Changing the App's language only ASKS whether Claude should
    match (claudeLangAsk, set by the language row, answered here); it never changes how sessions answer by itself. */
@@ -14151,6 +14201,7 @@ function openSettingsTab() {
     mkBtn(t('settings.logout'), () => void createPane({ name: 'logout', cmd: CLAUDE + ' /logout' }));
     mkBtn(t('settings.updateFramework'), () => void createPane(ritual('update', '/aios:update')));
     wrap.appendChild(acts);
+    settingsRotationRows(wrap);
 
     // ── Advanced ── the power-user drawer: session/permission utilities, logs, and the
     // Claude CLI command. Nothing here is needed for normal operation.
