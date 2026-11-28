@@ -998,6 +998,11 @@ body.dragging #panes.dropok::after, body.dragging #tpanes.dropok::after {
 
 /* a setting that cannot take effect says why, in the row itself */
 .thint.twarn { color: var(--st-warn-ink); }
+/* #430 account rotation: a percent field, the number and its unit kept together */
+.tnumwrap { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.tinput.tnum { width: 64px; text-align: right; }
+.tunit { color: var(--subtle); font-size: 12.5px; }
+.trotation > .thint.twarn { padding: 8px 2px 0; }
 /* the question after the App's language changed: should Claude match? (0.17.0) */
 .tlang-ask { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 12.5px; }
 .tlang-ask[hidden] { display: none; }

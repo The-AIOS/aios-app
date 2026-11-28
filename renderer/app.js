@@ -13380,6 +13380,85 @@ function row(parent, label, control, hint) {
   return r;
 }
 
+/* #430 account rotation: where the watcher rotates (5-hour and weekly limits) and whether it rotates on its own. One setting,
+   owned by the framework: read through rotationGet (null = this framework has none, so nothing is drawn) and changed only
+   through rotationSet, which runs the framework's own command. Nothing here is stored by the App. A value set on the computer
+   outside the App wins over the stored one; it is shown, not editable. */
+function settingsRotationRows(wrap) {
+  const box = el('div', 'trotation');
+  box.hidden = true;
+  wrap.appendChild(box);
+  /* Built once, then updated in place: rebuilding on every save took the field the operator had just tabbed into out of
+     the page, and what they typed next went nowhere (review). */
+  let ui = null, last = null;
+  const pending = {};   // key → the value of the last save asked for and not yet answered
+  const build = (s) => {
+    const tog = document.createElement('input'); tog.type = 'checkbox'; tog.className = 'ttoggle';
+    tog.setAttribute('aria-label', t('settings.rotationAuto'));
+    tog.addEventListener('change', () => void save({ enabled: tog.checked }));
+    row(box, t('settings.rotationAuto'), tog, t('settings.rotationAutoHint'));
+    const fields = {};
+    for (const [key, label] of [['fiveHour', 'settings.rotationFiveHour'], ['sevenDay', 'settings.rotationSevenDay']]) {
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.className = 'tinput tnum'; inp.step = '1';
+      inp.setAttribute('aria-label', t(label));
+      inp.addEventListener('change', () => {
+        const cur = last && last[key];
+        if (!cur) return;
+        const n = inp.value.trim() === '' ? NaN : Number(inp.value);
+        if (!Number.isInteger(n) || n < last.min || n > last.max) {
+          toast(t('settings.rotationRange', { min: last.min, max: last.max }));
+          inp.value = String(cur.value);
+          return;
+        }
+        /* Against the last value asked for, not only the one in force: changing a field back while its save is on the way
+           must be sent too (review). */
+        if (n !== (key in pending ? pending[key] : cur.value)) void save({ [key]: n });
+      });
+      const ctl = el('span', 'tnumwrap'); ctl.append(inp, el('span', 'tunit', '%'));
+      const r = row(box, t(label), ctl, ' ');
+      fields[key] = { inp, hint: r.querySelector('.thint') };
+    }
+    const warn = el('div', 'thint twarn', t('settings.rotationIgnored'));
+    box.appendChild(warn);
+    return { tog, fields, warn };
+  };
+  /* `saved`: the field this repaint answers. A field that has focus and is not that one keeps what the operator is typing
+     (its own change event saves it next); every other field shows the value in force. */
+  const paint = (s, saved) => {
+    if (!s) { if (!ui) box.hidden = true; return; }   // a failed read keeps what is shown; only "never sent" hides it
+    if (!ui) ui = build(s);
+    box.hidden = false;
+    ui.tog.checked = !!s.enabled.value;
+    ui.tog.disabled = s.enabled.source === 'environment';
+    for (const key of ['fiveHour', 'sevenDay']) {
+      const { inp, hint } = ui.fields[key];
+      const v = s[key];
+      inp.min = String(s.min); inp.max = String(s.max);
+      if (document.activeElement !== inp || key === saved) inp.value = String(v.value);
+      inp.disabled = v.source === 'environment';
+      if (hint) hint.textContent = v.source === 'environment' ? t('settings.rotationElsewhere') : t('settings.rotationAtHint', { min: s.min, max: s.max });
+    }
+    ui.warn.hidden = !(s.ignored && s.ignored.length);
+    last = s;   // only once it painted: a setting that could not be shown must not become what edits are checked against
+  };
+  /* One save at a time, in order: a second edit made while the first is on its way waits for it rather than being lost. */
+  let queue = Promise.resolve();
+  const save = (change) => {
+    const key = Object.keys(change)[0];
+    pending[key] = change[key];
+    queue = queue.then(async () => {
+      let r = null;
+      try { r = await window.glassShell.rotationSet(change); } catch { r = null; }
+      if (pending[key] === change[key]) delete pending[key];
+      toast(r && r.ok ? t('settings.rotationSaved') : t('settings.rotationFailed'));
+      paint(r && r.setting ? r.setting : last, key);   // a thrown call repaints the last setting, never an empty box
+    }).catch((e) => console.warn('[rotation]', e));   // one failure must not stop every later save
+    return queue;
+  };
+  void Promise.resolve(window.glassShell.rotationGet()).then(paint).catch(() => paint(null));
+}
+
 /* Claude's language, its own choice right under the App's (0.17.0, hand test): "the language you write in" (no value in
    Claude's settings) or one language for every session. Changing the App's language only ASKS whether Claude should
    match (claudeLangAsk, set by the language row, answered here); it never changes how sessions answer by itself. */
@@ -14151,6 +14230,7 @@ function openSettingsTab() {
     mkBtn(t('settings.logout'), () => void createPane({ name: 'logout', cmd: CLAUDE + ' /logout' }));
     mkBtn(t('settings.updateFramework'), () => void createPane(ritual('update', '/aios:update')));
     wrap.appendChild(acts);
+    settingsRotationRows(wrap);
 
     // ── Advanced ── the power-user drawer: session/permission utilities, logs, and the
     // Claude CLI command. Nothing here is needed for normal operation.

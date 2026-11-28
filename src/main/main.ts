@@ -2065,6 +2065,13 @@ ipcMain.handle('shell:primaryIdentity', () => aios.primaryIdentitySetting());
 ipcMain.handle('shell:setPrimaryIdentity', (_e, name: string) => { const r = aios.setPrimaryIdentity(String(name ?? '')); host?.postState(); return r; });
 ipcMain.handle('accounts:list', () => aios.anthropicAccounts());
 ipcMain.handle('accounts:swap', (_e, email: string) => aios.swapAccount(String(email)));
+ipcMain.handle('rotation:get', () => aios.rotationSetting());
+/* Only the three known fields cross, as numbers or a boolean: the renderer's object is never handed on as it came. */
+ipcMain.handle('rotation:set', (_e, c: unknown) => {
+  const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+  return aios.setRotation({ fiveHour: num(o.fiveHour), sevenDay: num(o.sevenDay), enabled: typeof o.enabled === 'boolean' ? o.enabled : undefined });
+});
 ipcMain.handle('notes:add', (_e, name: string, note: string) => aios.addSessionNote(String(name), String(note)));
 ipcMain.handle('notes:del', (_e, name: string, index: number) => aios.deleteSessionNote(String(name), Number(index)));
 ipcMain.handle('fs:resolveNote', (_e, name: string) => {
