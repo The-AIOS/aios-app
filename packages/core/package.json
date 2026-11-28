@@ -1,6 +1,6 @@
 {
   "name": "@the-aios/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "What the AIOS App and AIOS Glass both decide: the spawn-inbox protocol and the pure rules around it. One version, run by both surfaces.",
   "license": "GPL-2.0-or-later",
   "author": "The AIOS",

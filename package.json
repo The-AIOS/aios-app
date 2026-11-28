@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.11.1",
-    "@the-aios/core": "0.2.0",
+    "@the-aios/core": "0.3.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-webgl": "^0.19.0",

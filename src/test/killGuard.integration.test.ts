@@ -35,7 +35,7 @@ const SHAPES: Array<{ id: string; status: string; plain?: boolean; rewrite: Rewr
   { id: 'plain-kill', status: 'busy', plain: true, rewrite: () => undefined, kills: true },
 ];
 
-test('claim and adoptHolds, run for real: a request rewritten after the claim never reaches the SIGTERM', () => {
+test('claim and adoptHolds, run for real: a request rewritten after the claim never reaches the SIGTERM', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'killguard-int-'));
   const inbox = path.join(tmp, 'inbox');
   fs.mkdirSync(inbox);
@@ -97,10 +97,22 @@ test('claim and adoptHolds, run for real: a request rewritten after the claim ne
   const origWatch = realFs.watch;
   const sigterms: number[] = [];
   Module._load = function (this: unknown, r: string, p: unknown, m: boolean) { return r === 'electron' ? electron : origLoad.call(this, r, p, m); } as typeof Module._load;
+  /* NO SIGNAL EVER LEAVES THIS TEST. Only a liveness probe (signal 0) is forwarded to the real
+     `process.kill`. Every real signal, to any pid or process group, is recorded and refused here:
+     the one SIGTERM a kill sends to a case pid, and anything else as a stray. These pids are not
+     in the process table, so the kill takes its "pid alone" path; if a future change ever
+     addressed a group, or followed up with a SIGKILL, it would show up as a stray and never reach
+     a process (Linux allows pids this high, so one of these numbers can be somebody's). */
+  const casePids = new Set<number>();
+  const strays: string[] = [];
   (process as { kill: unknown }).kill = (p: number, sig?: string | number) => {
-    if (sig === 'SIGTERM') { sigterms.push(p); return true; }
-    return origKill.call(process, p, sig as NodeJS.Signals);   // signal 0 liveness checks stay real
+    if (sig === 0) return origKill.call(process, p, 0);   // liveness checks stay real
+    if (sig === undefined) sig = 'SIGTERM';               // a bare process.kill(pid) IS a SIGTERM
+    if (sig === 'SIGTERM' && casePids.has(p)) { sigterms.push(p); return true; }
+    strays.push(`${String(sig)} ${p}`);
+    throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
   };
+  for (const c of cases) casePids.add(c.pid);
   /* CLOSE what the bus opens, never only unref it. On Windows an unref'd fs.watch still held the test
      process open after every assertion passed: measured on a windows-latest runner, the only
      JS-visible resources left were the two stdio pipes, and the file never exited (CI hung to the
@@ -116,7 +128,6 @@ test('claim and adoptHolds, run for real: a request rewritten after the claim ne
     bus.initCommandBus(() => undefined, '0.0.0-test');
   } finally {
     Module._load = origLoad;
-    (process as { kill: unknown }).kill = origKill;
     (global as { setInterval: unknown }).setInterval = origInterval;
     (realFs as { watch: unknown }).watch = origWatch;
   }
@@ -134,6 +145,10 @@ test('claim and adoptHolds, run for real: a request rewritten after the claim ne
   }
   assert.equal(sigterms.length, cases.filter((c) => c.kills).length, 'no SIGTERM beyond the controls');
   assert.ok(cases.some((c) => c.adopt && c.kills) && cases.some((c) => !c.adopt && c.kills), 'both paths reached a kill');
+  /* Let every kill settle before the real process.kill returns. */
+  await new Promise((r) => setTimeout(r, 300));
+  (process as { kill: unknown }).kill = origKill;
+  assert.deepEqual(strays, [], 'a pid that is not provably a session gets one SIGTERM: no group signal, no SIGKILL, nothing to any other pid');
   for (const t of intervals) clearInterval(t);
   for (const w of watchers) w.close();
   assert.ok(watchers.length > 0, 'the bus must have watched the inbox — otherwise this closed nothing');

@@ -20,6 +20,7 @@ import { resolveSessionName, resolveFormerName, sessionKey } from '@the-aios/cor
 import { resolveName, ambiguousReason, ambiguousAfterTypedReason } from '@the-aios/core/nameResolve';
 import { pidAlive, ownPidAlive } from '@the-aios/core/pidAlive';
 import { claimRequest, recoverClaims, mayAdoptHold, holdAgeMs } from '@the-aios/core/claim';
+import { killScope, parsePsRows, terminate, type KillIo } from '@the-aios/core/killSession';
 import { buildPresenceRecord, serializePresenceRecord, aliveForRecord } from '@the-aios/core/presenceRecord';
 import { buildInboxReadme, shouldWrite } from '../core/inboxReadme';
 import { decideKill, KILL_EXPECT_CAPABILITY } from '../core/killGuard';
@@ -352,6 +353,83 @@ function targetByName(name: string): (SendTarget & { version?: string }) | undef
     status: String(hit.status || ''), sessionId: String(hit.sessionId || ''),
     ...(hit.version ? { version: hit.version } : {}),
   };
+}
+
+/* The process table: pid, parent, process group, program. Read once per kill, and only on a kill.
+   Windows has no `ps` and no process groups: an empty table makes killScope answer "the pid alone". */
+function processTable(): ReturnType<typeof parsePsRows> {
+  if (process.platform === 'win32') return [];
+  try { return parsePsRows(execFileSync('ps', ['-axo', 'pid=,ppid=,pgid=,comm='], { encoding: 'utf8', timeout: 2000 })); } catch { return []; }
+}
+
+/* What identifies a process beyond its number: when it started, and whether it has exited and is
+   only waiting to be collected. Undefined when it is gone or `ps` cannot say. */
+function procIdentity(pid: number): { startedAt: string; zombie: boolean } | undefined {
+  try {
+    const out = execFileSync('ps', ['-o', 'stat=,lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000 }).trim();
+    const m = /^(\S+)\s+(.+)$/.exec(out);
+    return m ? { zombie: m[1].startsWith('Z'), startedAt: m[2].trim() } : undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * The signals and the clock a kill uses, bound to ONE process: the one that is at `pid` now.
+ * `running` answers for that process only. Pids are reused within minutes on a busy machine, so
+ * once the session exits its number can be another process's before the grace is over; a SIGKILL
+ * to "that pid's group" would then land on a stranger. A different start time is "not running".
+ */
+function killIoFor(pid: number, born: string | undefined): KillIo {
+  return {
+    signal: (pidOrGroup, sig) => { process.kill(pidOrGroup, sig); },
+    running: (p) => {
+      if (p !== pid || born === undefined) return false;   // identity unknown: never escalate
+      const now = procIdentity(p);
+      return !!now && !now.zombie && now.startedAt === born;
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    now: () => Date.now(),
+  };
+}
+
+/**
+ * Close a session the bus was asked to kill (@the-aios/core/killSession).
+ *
+ * When the session's process group is provably nothing but the session (it is `claude`; the group
+ * is led by it, or by its direct parent when that is the `spawn` wrapper's launcher; every member
+ * is the session's; no other session is in it), the GROUP gets SIGTERM, and SIGKILL if the session
+ * is still running five seconds later. That is what ends the wrapper's loop with the session,
+ * where a signal to the pid alone left the loop to start a new `claude` under the same name.
+ *
+ * In every other case the pid gets one SIGTERM and nothing more, exactly as before: a session
+ * hosted by an editor or another app sits in its host's group, a script or a terminal profile may
+ * lead it, and a registry entry can outlive its process.
+ * Not awaited: the request is retired at once, as before; the outcome is logged when known.
+ */
+function closeSession(name: string, pid: number): void {
+  /* WHO is at this pid, read before anything else. Everything below (the table, the scope, the
+     signals) is about the process that is there NOW; if the session exits and the number is
+     reused at any point after this line, the start time differs and no SIGKILL follows. */
+  const born = procIdentity(pid)?.startedAt;
+  const others = aios.listRunningAgents().map((a) => a.pid).filter((p) => Number.isInteger(p) && p > 1 && p !== pid);
+  const rows = processTable();
+  const ppid = rows.find((r) => r.pid === pid)?.ppid;
+  let parentCommand: string | undefined;
+  if (ppid && ppid > 1) {
+    try { parentCommand = execFileSync('ps', ['-o', 'command=', '-p', String(ppid)], { encoding: 'utf8', timeout: 2000 }).trim(); } catch { /* unknown: the parent cannot count as the launcher */ }
+  }
+  const scope = killScope(rows, pid, process.pid, others, process.platform, parentCommand);
+  if (scope.scope === 'pid') {
+    log(`kill '${name}': SIGTERM to pid ${pid} alone — ${rows.length ? scope.why : 'the process table could not be read'}`);
+  } else {
+    const members = rows.filter((r) => r.pgid === scope.pgid).map((r) => r.pid);
+    log(`kill '${name}': SIGTERM to process group ${scope.pgid} (${members.length} processes: ${members.join(' ')})`);
+  }
+  void terminate(scope, pid, killIoFor(pid, born)).then((r) => {
+    if (r.ended === 'on-kill') log(`kill '${name}': pid ${pid} still running ${Math.round(r.afterMs / 1000)} s after SIGTERM — SIGKILL sent to its process group`);
+    else if (r.ended === 'on-term') log(`kill '${name}': pid ${pid} no longer running ${r.afterMs} ms after SIGTERM`);
+    else if (r.ended === 'not-permitted') log(`kill '${name}': could not signal ${r.scope === 'group' ? 'its process group' : `pid ${pid}`} (${r.code})`);
+    else if (r.ended === 'already-gone') log(`kill '${name}': pid ${pid} was already gone`);
+  }).catch((e) => log(`kill '${name}': ${e instanceof Error ? e.message : String(e)}`));
 }
 
 /** The live sessions a name is ambiguous between, or undefined when it means one or none. */
@@ -1149,7 +1227,8 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
     const clash = ambiguousNames(req.name);
     if (clash) { markUndelivered(heldPath, req, ambiguousReason(req.name, clash)); return; }
     if (req.action === 'kill') {
-      // Registry pid → SIGTERM reaches resumed/external sessions too; closeByName also
+      // The registry pid reaches resumed and external sessions too. What is closed is that pid's
+      // process group when the group is the session's own (closeSession); closeByName also
       // tears down the app pane if this session owns one.
       /* app#65: a session renamed after it started is still reachable by the name it had — the
          kill used to log "no live pid" and leave it running. Current names always win. */
@@ -1177,7 +1256,7 @@ function runImmediate(win: () => BrowserWindow | undefined, heldPath: string, re
         else markUndelivered(heldPath, req, verdict.reason);
         return;
       }
-      if (t) { try { process.kill(t.pid, 'SIGTERM'); } catch { /* already gone */ } }
+      if (t) closeSession(t.name, t.pid);
       emit(win(), 'closeByName', { name: t ? t.name : req.name });
       log(`kill '${req.name}'${t ? `${renamed ? ` → renamed '${t.name}'` : ''} (pid ${t.pid})`
         : ' — no live session has that name or was renamed from it; closed any pane of that name'}`);

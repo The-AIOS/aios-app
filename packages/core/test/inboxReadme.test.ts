@@ -29,7 +29,7 @@ test('the body is pinned to its revision: change the text and the revision moves
   /* shouldWrite compares REVISIONS, so a changed body under an unchanged revision would never
      replace the old text on a machine where the other surface wrote it. */
   const sha = crypto.createHash('sha256').update(readmeBody(A)).digest('hex').slice(0, 16);
-  assert.deepEqual({ rev: README_TEXT_REVISION, sha }, { rev: 1, sha: '849339cb586588f1' },
+  assert.deepEqual({ rev: README_TEXT_REVISION, sha }, { rev: 2, sha: 'efbc26e58f1c7f26' },
     'the README text changed: bump README_TEXT_REVISION and record the new digest here, together');
 });
 
@@ -157,4 +157,15 @@ test('the pin covers the writer line and the trailer too, all but the name and t
   assert.match(readmeBody(A), /^_Written by <writer> when it started\. \*\*Do not edit\*\*/m);
   assert.match(readmeBody(A), /aios-spawn-inbox: contract \d+ · text \d+ · written by <writer> -->$/);
   assert.notEqual(readmeBody(A), readmeBody(A.replace('**Do not edit**', '**Edit freely**')), 'a change to the rest of that line moves the digest');
+});
+
+test('the README says what a kill closes, and how to start something that must outlive its session', () => {
+  /* The authority has to say it BEFORE an agent needs it, and say only what was measured: a recipe
+     that does not work where the Bash tool runs (non-interactive zsh) is worse than none. */
+  assert.match(A, /\*\*What a kill closes\.\*\*/);
+  assert.match(A, /SIGTERM to the group, and SIGKILL if the session is still running five seconds later/);
+  assert.match(A, /Commands a session ran through its Bash tool are not in that group/);
+  assert.match(A, /`nohup cmd &` does not do that/);
+  assert.match(A, /perl -MPOSIX -e 'setsid\(\) or die; exec @ARGV' your-command &/);
+  assert.doesNotMatch(A, /set -m/, 'job control is refused by a non-interactive zsh: the command would never start');
 });
